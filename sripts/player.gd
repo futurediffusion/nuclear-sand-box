@@ -14,6 +14,7 @@ const HealthComponentScript = preload("res://scripts/components/HealthComponent.
 
 @export_group("Health")
 @export var max_hp: int = 3
+@export var hearts_ui: HBoxContainer
 var hp: int
 
 @export_group("Attack Push")
@@ -126,6 +127,8 @@ func _setup_health_component() -> void:
 		hp = health_component.hp
 	else:
 		hp = max_hp
+
+	_update_hearts_ui()
 
 func _physics_process(delta: float) -> void:
 	# 0) Si está muriendo: no hacer nada más
@@ -332,6 +335,7 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 		hp -= dmg
 
 	print("PLAYER HP:", hp)
+	_update_hearts_ui()
 
 	_spawn_blood(blood_hit_amount)
 
@@ -356,6 +360,10 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 			sprite.modulate = Color(1, 1, 1, 1)
 	)
 
+
+func _update_hearts_ui() -> void:
+	if hearts_ui != null and hearts_ui.has_method("set_hearts"):
+		hearts_ui.call("set_hearts", hp)
 
 func play_hurt() -> void:
 	hurt_t = hurt_time
