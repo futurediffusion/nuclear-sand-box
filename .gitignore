@@ -1,0 +1,17 @@
+# Godot generated
+.godot/
+
+# Mono / C# (si no usas, igual no estorba)
+.mono/
+.vscode/
+.idea/
+
+# Exports
+export/
+*.pck
+*.exe
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db

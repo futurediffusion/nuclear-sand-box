@@ -1,0 +1,22 @@
+[gd_scene load_steps=5 format=3 uid="uid://cpctsrqkuyufx"]
+
+[ext_resource type="Script" uid="uid://m3lfv64ogbrl" path="res://sripts/blood_droplet.gd" id="1_kxh5m"]
+[ext_resource type="Texture2D" uid="uid://clc0ibm3qkvb3" path="res://art/sprites/blood.png" id="1_rmcg4"]
+[ext_resource type="Script" uid="uid://dnjbnai7n42db" path="res://sripts/sprite_2d.gd" id="2_luaej"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_xults"]
+
+[node name="BloodDroplet" type="RigidBody2D"]
+contact_monitor = true
+max_contacts_reported = 4
+script = ExtResource("1_kxh5m")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+scale = Vector2(2, 2)
+shape = SubResource("CircleShape2D_xults")
+debug_color = Color(0.513152, 0.544307, 0.532765, 0.42)
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("1_rmcg4")
+script = ExtResource("2_luaej")

@@ -1,0 +1,77 @@
+[gd_scene load_steps=12 format=3 uid="uid://bo7s8ewd7s0wy"]
+
+[ext_resource type="Script" uid="uid://cn2w7jm1c3on" path="res://sripts/slash.gd" id="1_3c2nd"]
+[ext_resource type="Texture2D" uid="uid://dip55ne07cmea" path="res://art/sprites/slash.png" id="2_fg1j7"]
+[ext_resource type="AudioStream" uid="uid://bcwjqgmntqnq5" path="res://art/Sounds/windslash.ogg" id="3_fg1j7"]
+[ext_resource type="AudioStream" uid="uid://beglyil8wimp2" path="res://art/Sounds/impact.ogg" id="4_e2dr4"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_e2dr4"]
+atlas = ExtResource("2_fg1j7")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_gu08y"]
+atlas = ExtResource("2_fg1j7")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_pim1l"]
+atlas = ExtResource("2_fg1j7")
+region = Rect2(32, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_xjeia"]
+atlas = ExtResource("2_fg1j7")
+region = Rect2(48, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0fel2"]
+atlas = ExtResource("2_fg1j7")
+region = Rect2(64, 0, 16, 16)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_q08yp"]
+animations = [{
+"frames": [{
+"duration": 0.3,
+"texture": SubResource("AtlasTexture_e2dr4")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_gu08y")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_pim1l")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_xjeia")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_0fel2")
+}],
+"loop": false,
+"name": &"slash",
+"speed": 5.0
+}]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_3c2nd"]
+
+[node name="Slash" type="Node2D"]
+script = ExtResource("1_3c2nd")
+
+[node name="Anim" type="AnimatedSprite2D" parent="."]
+scale = Vector2(3, 3)
+sprite_frames = SubResource("SpriteFrames_q08yp")
+animation = &"slash"
+frame = 4
+frame_progress = 1.0
+
+[node name="Hitbox" type="Area2D" parent="."]
+scale = Vector2(2.33121, 2.41463)
+collision_layer = 2
+collision_mask = 5
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hitbox"]
+shape = SubResource("CircleShape2D_3c2nd")
+
+[node name="Sfx" type="AudioStreamPlayer2D" parent="."]
+stream = ExtResource("3_fg1j7")
+volume_db = 1.0
+
+[node name="ImpactSound" type="AudioStreamPlayer2D" parent="."]
+stream = ExtResource("4_e2dr4")
+volume_db = 6.0

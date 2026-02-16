@@ -1,0 +1,32 @@
+[gd_scene load_steps=4 format=3 uid="uid://xn5wcwphhi48"]
+
+[ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
+[ext_resource type="PackedScene" uid="uid://cmysaqnuq4nfh" path="res://scenes/cursor_2d.tscn" id="2_0wfyh"]
+
+[sub_resource type="GDScript" id="GDScript_sugp2"]
+script/source = "extends Node2D
+
+@onready var cursor: Node2D = $MouseCursor
+
+func _process(_delta):
+	cursor.global_position = get_global_mouse_position()
+func _ready():
+	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
+"
+
+[node name="Main" type="Node2D"]
+scale = Vector2(2.5, 2.5)
+script = SubResource("GDScript_sugp2")
+
+[node name="ColorRect" type="ColorRect" parent="."]
+offset_left = -6.0
+offset_top = -5.0
+offset_right = 262.0
+offset_bottom = 151.0
+color = Color(0.785028, 0.949588, 0.461168, 1)
+
+[node name="Player" parent="." instance=ExtResource("1_o5qli")]
+position = Vector2(126.8, 77.2)
+
+[node name="MouseCursor" parent="." instance=ExtResource("2_0wfyh")]
+scale = Vector2(1.5, 1.5)

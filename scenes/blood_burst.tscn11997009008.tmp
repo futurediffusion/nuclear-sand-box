@@ -1,0 +1,26 @@
+[gd_scene load_steps=3 format=3 uid="uid://blxq40l48edsl"]
+
+[ext_resource type="Texture2D" uid="uid://clc0ibm3qkvb3" path="res://art/sprites/blood.png" id="1_5f4wy"]
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_y54gt"]
+particle_flag_disable_z = true
+angle_min = 1.07288e-05
+angle_max = 360.0
+spread = 180.0
+initial_velocity_min = 120.0
+initial_velocity_max = 240.0
+gravity = Vector3(0, 800, 0)
+damping_min = 20.0
+damping_max = 40.0
+scale_min = 0.6
+scale_max = 1.2
+
+[node name="BloodBurst" type="GPUParticles2D"]
+emitting = false
+amount = 18
+texture = ExtResource("1_5f4wy")
+lifetime = 0.35
+one_shot = true
+explosiveness = 1.0
+randomness = 0.4
+process_material = SubResource("ParticleProcessMaterial_y54gt")

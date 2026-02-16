@@ -1,0 +1,68 @@
+[gd_scene load_steps=5 format=3 uid="uid://cpctsrqkuyufx"]
+
+[ext_resource type="Script" uid="uid://m3lfv64ogbrl" path="res://sripts/blood_droplet.gd" id="1_kxh5m"]
+[ext_resource type="Texture2D" uid="uid://clc0ibm3qkvb3" path="res://art/sprites/blood.png" id="1_rmcg4"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_xults"]
+
+[sub_resource type="GDScript" id="GDScript_luaej"]
+script/source = "extends RigidBody2D
+
+@export var splat_lifetime: float = 60.0
+
+var _done := false
+
+func _ready() -> void:
+	# Que la mancha quede debajo del player
+	z_index = -10
+
+	# Por si no toca nada, se borra solo (evita basura)
+	get_tree().create_timer(2.0).timeout.connect(func():
+		if is_instance_valid(self) and not _done:
+			queue_free()
+	)
+
+func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
+	if _done:
+		return
+
+	if state.get_contact_count() > 0:
+		_done = true
+
+		# Se \"congela\" como mancha en el piso
+		linear_velocity = Vector2.ZERO
+		angular_velocity = 0.0
+		freeze = true
+
+		# Un poco de variación para que no se vean clonadas
+		rotation = randf_range(0.0, TAU)
+		scale = Vector2.ONE * randf_range(0.8, 1.4)
+
+		# Quitar colisión para que no estorbe
+		if has_node(\"CollisionShape2D\"):
+			$CollisionShape2D.disabled = true
+
+		# Se borra después de X segundos
+		get_tree().create_timer(splat_lifetime).timeout.connect(func():
+			if is_instance_valid(self):
+				queue_free()
+		)
+"
+
+[node name="BloodDroplet" type="RigidBody2D"]
+gravity_scale = 1.4
+contact_monitor = true
+max_contacts_reported = 4
+linear_damp_mode = 1
+linear_damp = 0.4
+script = ExtResource("1_kxh5m")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+scale = Vector2(2, 2)
+shape = SubResource("CircleShape2D_xults")
+debug_color = Color(0.513152, 0.544307, 0.532765, 0.42)
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("1_rmcg4")
+script = SubResource("GDScript_luaej")

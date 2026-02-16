@@ -1,0 +1,81 @@
+[gd_scene load_steps=6 format=3 uid="uid://xn5wcwphhi48"]
+
+[ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
+[ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://sripts/main.gd" id="1_sugp2"]
+[ext_resource type="PackedScene" uid="uid://cmysaqnuq4nfh" path="res://scenes/cursor_2d.tscn" id="2_0wfyh"]
+[ext_resource type="PackedScene" uid="uid://b61xj3scmxra2" path="res://scenes/enemy.tscn" id="3_sugp2"]
+[ext_resource type="PackedScene" uid="uid://dbj287l3pfpyo" path="res://scenes/enemy_spawner.tscn" id="4_jyhfs"]
+
+[node name="Main" type="Node2D"]
+scale = Vector2(2.5, 2.5)
+script = ExtResource("1_sugp2")
+
+[node name="ColorRect" type="ColorRect" parent="."]
+offset_left = -6.0
+offset_top = -5.0
+offset_right = 262.0
+offset_bottom = 151.0
+color = Color(0.785028, 0.949588, 0.461168, 1)
+
+[node name="Player" parent="." instance=ExtResource("1_o5qli")]
+position = Vector2(126.8, 77.2)
+attack_push_speed = 90.0
+attack_push_time = 0.05
+droplet_speed_min = 80.0
+droplet_speed_max = 140.0
+
+[node name="MouseCursor" parent="." instance=ExtResource("2_0wfyh")]
+scale = Vector2(1.5, 1.5)
+
+[node name="Enemy" parent="." instance=ExtResource("3_sugp2")]
+position = Vector2(98.4, 93.6)
+
+[node name="EnemySpawner" parent="." instance=ExtResource("4_jyhfs")]
+position = Vector2(136, 13.6)
+scale = Vector2(320.873, -555.618)
+
+[node name="UI" type="CanvasLayer" parent="."]
+process_mode = 2
+offset = Vector2(300, 100)
+transform = Transform2D(1, 0, 0, 1, 300, 100)
+
+[node name="GameOverPanel" type="Control" parent="UI"]
+clip_contents = true
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -93.0
+offset_top = 29.0
+offset_right = -93.0
+offset_bottom = 29.0
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(1.35, 1.35)
+
+[node name="ColorRect" type="ColorRect" parent="UI/GameOverPanel"]
+layout_mode = 0
+offset_left = 82.0
+offset_right = 89.0
+offset_bottom = 10.0
+scale = Vector2(29.515, 11)
+pivot_offset = Vector2(2.84, 0)
+color = Color(0, 0, 0, 1)
+
+[node name="VBoxContainer" type="VBoxContainer" parent="UI/GameOverPanel"]
+layout_mode = 0
+offset_left = 8.455
+offset_right = 208.455
+offset_bottom = 200.0
+
+[node name="Label" type="Label" parent="UI/GameOverPanel/VBoxContainer"]
+layout_mode = 2
+text = "GAME OVER"
+
+[node name="RetryButton" type="Button" parent="UI/GameOverPanel/VBoxContainer"]
+layout_mode = 2
+text = "RETRY"
+
+[node name="QUIT" type="Button" parent="UI/GameOverPanel/VBoxContainer"]
+layout_mode = 2
+text = "QUIT"
