@@ -14,6 +14,7 @@ const HealthComponentScript = preload("res://scripts/components/HealthComponent.
 
 @export_group("Health")
 @export var max_hp: int = 3
+@export var hearts_ui: Node
 var hp: int
 
 @export_group("Attack Push")
@@ -109,6 +110,7 @@ func _ready() -> void:
 	weapon_pivot.z_index = 10
 	weapon_sprite.z_index = 10
 	_setup_health_component()
+	_update_hearts_ui()
 	weapon_sprite.visible = true
 	weapon_sprite.show()
 
@@ -332,6 +334,7 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 		hp -= dmg
 
 	print("PLAYER HP:", hp)
+	_update_hearts_ui()
 
 	_spawn_blood(blood_hit_amount)
 
@@ -373,6 +376,10 @@ func play_hurt() -> void:
 # =============================================================================
 func apply_knockback(force: Vector2) -> void:
 	knock_vel += force
+
+func _update_hearts_ui() -> void:
+	if hearts_ui != null and hearts_ui.has_method("set_hearts"):
+		hearts_ui.call("set_hearts", hp)
 	
 func die() -> void:
 	if dying:
