@@ -1,4 +1,4 @@
-[gd_scene load_steps=28 format=3 uid="uid://38k36ggowmkb"]
+[gd_scene load_steps=29 format=3 uid="uid://38k36ggowmkb"]
 
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="1_3vyb7"]
 [ext_resource type="Script" uid="uid://ckcw5d4tk1kyo" path="res://sripts/player.gd" id="1_qhqgy"]
@@ -11,6 +11,7 @@
 [ext_resource type="PackedScene" uid="uid://cpctsrqkuyufx" path="res://scenes/blood_droplet.tscn" id="4_y4r1p"]
 [ext_resource type="Script" uid="uid://cgitphdq6wjem" path="res://sripts/camera.gd" id="6_tuyoq"]
 
+[ext_resource type="Script" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_smehm")
 region = Rect2(0, 0, 16, 16)
@@ -149,6 +150,9 @@ blood_scene = ExtResource("3_ur7pv")
 droplet_scene = ExtResource("4_y4r1p")
 droplet_speed_min = 60.0
 droplet_speed_max = 120.0
+
+[node name="HealthComponent" type="Node" parent="."]
+script = ExtResource("7_healthc")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_oprun")

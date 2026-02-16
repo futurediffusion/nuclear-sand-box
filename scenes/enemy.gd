@@ -1,6 +1,7 @@
 class_name EnemyAI
 extends CharacterBody2D
 
+const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
 const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 
 # =============================================================================
@@ -66,6 +67,7 @@ var dying: bool = false
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
 @onready var detection_timer: Timer = Timer.new()
 @onready var tactic_timer: Timer = Timer.new()
+@onready var health_component: Node = get_node_or_null("HealthComponent")
 
 # =============================================================================
 # ESTADO DE COMBATE
@@ -114,7 +116,7 @@ var hitstopping: bool = false
 # READY
 # =============================================================================
 func _ready() -> void:
-	hp = max_hp
+	_setup_health_component()
 	sprite.play("idle")
 	
 	# Setup z-index
@@ -136,6 +138,22 @@ func _ready() -> void:
 	
 	# Encontrar player
 	call_deferred("_find_player")
+
+
+func _setup_health_component() -> void:
+	if health_component == null:
+		health_component = HealthComponentScript.new()
+		health_component.name = "HealthComponent"
+		add_child(health_component)
+
+	if health_component != null:
+		health_component.max_hp = max_hp
+		health_component.hp = max_hp
+		if not health_component.died.is_connected(die):
+			health_component.died.connect(die)
+		hp = health_component.hp
+	else:
+		hp = max_hp
 
 func _find_player() -> void:
 	var players = get_tree().get_nodes_in_group("player")
@@ -420,28 +438,21 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if dying:
 		return
 
-	hp -= dmg
+	if health_component != null and health_component.has_method("take_damage"):
+		health_component.take_damage(dmg)
+		hp = health_component.hp
+	else:
+		hp -= dmg
+
 	print("ENEMY HP:", hp)
 
 	_spawn_blood(blood_hit_amount)
 
 	# Muerte
 	if hp <= 0:
-		dying = true
 		_spawn_blood(blood_death_amount)
-		_play_death_sound()
-		_trigger_death_shake()
-
-		# parar IA y movimiento
-		can_attack = false
-		attacking = false
-		velocity = Vector2.ZERO
-		knock_vel = Vector2.ZERO
-		set_physics_process(false)
-
-		sprite.play("death")
-		await sprite.animation_finished
-		queue_free()
+		if health_component == null:
+			die()
 		return
 
 	# Hurt normal
@@ -468,6 +479,25 @@ func _update_animation() -> void:
 		sprite.play("walk")
 	else:
 		sprite.play("idle")
+
+func die() -> void:
+	if dying:
+		return
+
+	dying = true
+	_play_death_sound()
+	_trigger_death_shake()
+
+	# parar IA y movimiento
+	can_attack = false
+	attacking = false
+	velocity = Vector2.ZERO
+	knock_vel = Vector2.ZERO
+	set_physics_process(false)
+
+	sprite.play("death")
+	await sprite.animation_finished
+	queue_free()
 
 func apply_knockback(force: Vector2) -> void:
 	knock_vel += force
