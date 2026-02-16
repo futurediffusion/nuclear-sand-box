@@ -16,7 +16,7 @@ func take_damage(amount: int) -> void:
 	if is_dead():
 		return
 
-	var final_damage := max(1, amount - armor)
+	var final_damage: int = maxi(1, amount - armor)
 	hp -= final_damage
 	damaged.emit(final_damage)
 
