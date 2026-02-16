@@ -7,6 +7,11 @@ extends Camera2D
 @export var shake_decay: float = 8.0
 var shake_strength: float = 0.0
 
+# --- IMPULSE SHAKE (muerte fuerte) ---
+var impulse_time_left: float = 0.0
+var impulse_duration: float = 0.0
+var impulse_magnitude: float = 0.0
+
 func _process(delta: float) -> void:
 	# -------------------
 	# LOOK AHEAD MOUSE
@@ -23,14 +28,30 @@ func _process(delta: float) -> void:
 		target_offset = dir * look_distance * t
 
 	# suavizado del look-ahead
-	offset = offset.lerp(target_offset, delta * smooth_speed)
+	var final_offset := offset.lerp(target_offset, delta * smooth_speed)
 
 	# -------------------
-	# SHAKE (encima del offset)
+	# SHAKE normal (golpes)
 	# -------------------
 	if shake_strength > 0.0:
-		offset += Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * shake_strength
+		final_offset += Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * shake_strength
 		shake_strength = lerp(shake_strength, 0.0, delta * shake_decay)
+
+	# -------------------
+	# SHAKE por impulso (muerte)
+	# -------------------
+	if impulse_time_left > 0.0:
+		impulse_time_left = max(impulse_time_left - delta, 0.0)
+		var normalized_time := impulse_time_left / max(impulse_duration, 0.001)
+		var impulse_strength := impulse_magnitude * normalized_time * normalized_time
+		final_offset += Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * impulse_strength
+
+	offset = final_offset
 
 func shake(amount: float) -> void:
 	shake_strength = max(shake_strength, amount)
+
+func shake_impulse(duration: float, magnitude: float) -> void:
+	impulse_duration = max(duration, 0.01)
+	impulse_time_left = impulse_duration
+	impulse_magnitude = max(impulse_magnitude, magnitude)
