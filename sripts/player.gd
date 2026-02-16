@@ -109,10 +109,34 @@ func _ready() -> void:
 	sprite.z_index = 0
 	weapon_pivot.z_index = 10
 	weapon_sprite.z_index = 10
+	_resolve_hearts_ui()
 	_setup_health_component()
 	_update_hearts_ui()
 	weapon_sprite.visible = true
 	weapon_sprite.show()
+
+func _resolve_hearts_ui() -> void:
+	if hearts_ui != null:
+		return
+
+	var scene_root := get_tree().current_scene
+	if scene_root == null:
+		return
+
+	hearts_ui = _find_hearts_ui_node(scene_root)
+
+func _find_hearts_ui_node(node: Node) -> Node:
+	if node == null:
+		return null
+	if node.has_method("set_hearts"):
+		return node
+
+	for child in node.get_children():
+		var found := _find_hearts_ui_node(child)
+		if found != null:
+			return found
+
+	return null
 
 func _setup_health_component() -> void:
 	if health_component == null:
@@ -123,6 +147,8 @@ func _setup_health_component() -> void:
 	if health_component != null:
 		health_component.max_hp = max_hp
 		health_component.hp = max_hp
+		if health_component.has_signal("damaged") and not health_component.damaged.is_connected(_on_health_damaged):
+			health_component.damaged.connect(_on_health_damaged)
 		if not health_component.died.is_connected(die):
 			health_component.died.connect(die)
 		hp = health_component.hp
@@ -377,8 +403,13 @@ func play_hurt() -> void:
 func apply_knockback(force: Vector2) -> void:
 	knock_vel += force
 
+func _on_health_damaged(_amount: int) -> void:
+	hp = health_component.hp if health_component != null else hp
+	_update_hearts_ui()
+
 func _update_hearts_ui() -> void:
 	if hearts_ui != null and hearts_ui.has_method("set_hearts"):
+		hearts_ui.set("max_hearts", max_hp)
 		hearts_ui.call("set_hearts", hp)
 	
 func die() -> void:
