@@ -42,8 +42,8 @@ func _process(delta: float) -> void:
 	# -------------------
 	if impulse_time_left > 0.0:
 		impulse_time_left = max(impulse_time_left - delta, 0.0)
-		var normalized_time := impulse_time_left / max(impulse_duration, 0.001)
-		var impulse_strength := impulse_magnitude * normalized_time * normalized_time
+		var normalized_time: float = impulse_time_left / maxf(impulse_duration, 0.001)
+		var impulse_strength: float = impulse_magnitude * normalized_time * normalized_time
 		final_offset += Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * impulse_strength
 
 	offset = final_offset
