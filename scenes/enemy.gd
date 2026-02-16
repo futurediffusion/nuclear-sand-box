@@ -1,6 +1,8 @@
 class_name EnemyAI
 extends CharacterBody2D
 
+const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
+
 # =============================================================================
 # STATS & CONFIG
 # =============================================================================
@@ -45,6 +47,12 @@ extends CharacterBody2D
 @export var blood_scene: PackedScene
 @export var blood_hit_amount: int = 10
 @export var blood_death_amount: int = 30
+
+@export_group("Death Feedback")
+@export var death_shake_duration: float = 0.28
+@export var death_shake_magnitude: float = 18.0
+@export var death_sound_pitch_scale: float = 0.68
+@export var death_sound_volume_db: float = 2.0
 
 var dying: bool = false
 
@@ -421,6 +429,8 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if hp <= 0:
 		dying = true
 		_spawn_blood(blood_death_amount)
+		_play_death_sound()
+		_trigger_death_shake()
 
 		# parar IA y movimiento
 		can_attack = false
@@ -498,6 +508,35 @@ func apply_hitstop() -> void:
 	knock_vel = saved_knock
 	
 	hitstopping = false
+
+func _trigger_death_shake() -> void:
+	if not is_instance_valid(player):
+		return
+	if not player.has_node("Camera2D"):
+		return
+
+	var cam := player.get_node("Camera2D")
+	if cam and cam.has_method("shake_impulse"):
+		cam.shake_impulse(death_shake_duration, death_shake_magnitude)
+	elif cam and cam.has_method("shake"):
+		cam.shake(death_shake_magnitude)
+
+func _play_death_sound() -> void:
+	if ENEMY_DEATH_SOUND == null:
+		return
+
+	var death_audio := AudioStreamPlayer2D.new()
+	death_audio.stream = ENEMY_DEATH_SOUND
+	death_audio.pitch_scale = death_sound_pitch_scale
+	death_audio.volume_db = death_sound_volume_db
+	death_audio.global_position = global_position
+	get_tree().current_scene.add_child(death_audio)
+
+	death_audio.finished.connect(func():
+		if is_instance_valid(death_audio):
+			death_audio.queue_free()
+	)
+	death_audio.play()
 
 func _spawn_blood(amount: int) -> void:
 	if blood_scene == null:
