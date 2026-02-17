@@ -10,8 +10,8 @@
 [ext_resource type="Texture2D" uid="uid://daocjvvucs4qg" path="res://art/sprites/palo.png" id="4_dqkch"]
 [ext_resource type="PackedScene" uid="uid://cpctsrqkuyufx" path="res://scenes/blood_droplet.tscn" id="4_y4r1p"]
 [ext_resource type="Script" uid="uid://cgitphdq6wjem" path="res://sripts/camera.gd" id="6_tuyoq"]
+[ext_resource type="Script" uid="uid://c7qycylqtn28i" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
 
-[ext_resource type="Script" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_smehm")
 region = Rect2(0, 0, 16, 16)

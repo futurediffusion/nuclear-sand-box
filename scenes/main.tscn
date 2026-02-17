@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=10 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://sripts/main.gd" id="1_sugp2"]
@@ -6,6 +6,9 @@
 [ext_resource type="PackedScene" uid="uid://b61xj3scmxra2" path="res://scenes/enemy.tscn" id="3_sugp2"]
 [ext_resource type="PackedScene" uid="uid://dbj287l3pfpyo" path="res://scenes/enemy_spawner.tscn" id="4_jyhfs"]
 [ext_resource type="Script" path="res://sripts/hud.gd" id="5_hud"]
+[ext_resource type="Script" uid="uid://bmnvtxmikdtap" path="res://sripts/hearts.gd" id="6_tefeu"]
+[ext_resource type="Texture2D" uid="uid://buxyqe0n15fc7" path="res://art/sprites/heart.png" id="8_85g3d"]
+[ext_resource type="Texture2D" uid="uid://bgcahwp1ti4nn" path="res://art/sprites/heart-empty.png" id="9_choun"]
 
 [node name="Main" type="Node2D"]
 scale = Vector2(2.5, 2.5)
@@ -44,12 +47,11 @@ process_mode = 2
 offset = Vector2(300, 100)
 transform = Transform2D(1, 0, 0, 1, 300, 100)
 
-
 [node name="HUD" type="Control" parent="UI"]
 layout_mode = 3
 anchors_preset = 0
 offset_right = 170.0
-offset_bottom = 24.0
+offset_bottom = 100.0
 script = ExtResource("5_hud")
 
 [node name="StaminaBar" type="TextureProgressBar" parent="UI/HUD"]
@@ -58,6 +60,19 @@ offset_right = 160.0
 offset_bottom = 16.0
 step = 0.1
 value = 100.0
+
+[node name="Control" type="Control" parent="UI/HUD"]
+layout_mode = 1
+anchors_preset = 0
+
+[node name="Hearts" type="HBoxContainer" parent="UI/HUD/Control"]
+layout_mode = 1
+offset_right = 9.0
+offset_bottom = 8.0
+theme_override_constants/separation = 1
+script = ExtResource("6_tefeu")
+full_heart = ExtResource("8_85g3d")
+empty_heart = ExtResource("9_choun")
 
 [node name="GameOverPanel" type="Control" parent="UI"]
 clip_contents = true
