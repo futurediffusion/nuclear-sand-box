@@ -312,3 +312,85 @@ Nodos clave:
 - Existen escenas `.tmp` en `scenes/`; ideal ignorarlas en control de versiones si no son necesarias.
 - `sripts/blood_burst.gd` usa `CPUParticles2D`, pero el pipeline activo de sangre utiliza `GPUParticles2D` (`blood_burst.tscn`).
 
+
+---
+
+## 9) ✅ Actualización del AGENTS.MD (estado actual del proyecto)
+
+Esta sección agrega lo que hoy existe en el repo y no estaba explícito/centralizado en la versión inicial del documento.
+
+### Nuevas piezas detectadas en arquitectura
+
+- Existe una segunda raíz de scripts: **`/scripts/components`** (además de `/sripts`).
+- Se incorporó un componente reutilizable de vida:
+  - `scripts/components/HealthComponent.gd`
+- Se incorporaron scripts de UI/HUD en uso real:
+  - `sripts/hud.gd`
+  - `sripts/hearts.gd`
+- Existe además un script alternativo/legacy de corazones:
+  - `sripts/hearts_ui.gd` (no cableado en `main.tscn` actual).
+
+### Escenas y nodos que ahora forman parte del flujo principal
+
+#### `scenes/main.tscn`
+Además de lo ya documentado, hoy contiene:
+
+- `UI/HUD` con script `sripts/hud.gd`.
+- `UI/HUD/StaminaBar2` como `TextureProgressBar` con texturas:
+  - `stamina-under.png`
+  - `stamina-over..png`
+  - `stamina-progress.png`
+- `UI/HUD/Control/Hearts` con script `sripts/hearts.gd` y texturas:
+  - `heart.png`
+  - `heart-empty.png`
+
+#### `scenes/player.tscn` y `scenes/enemy.tscn`
+- Ambos incluyen nodo hijo `HealthComponent` con script `scripts/components/HealthComponent.gd`.
+- Esto formaliza un patrón de composición para vida/daño y señales (`damaged`, `died`).
+
+### Sistemas agregados/expandidos respecto a la primera versión
+
+#### Sistema de salud por componente
+- `HealthComponent` encapsula:
+  - `max_hp`, `hp`, `armor`
+  - `take_damage(amount)` con daño mínimo de 1
+  - `heal(amount)`
+  - señales `damaged(amount)` y `died`
+- `player.gd` puede crear el componente en runtime si falta y se conecta a sus señales.
+- `hearts.gd` se conecta al `HealthComponent` del player para reflejar vida en UI.
+
+#### Sistema de stamina visible en HUD
+- `player.gd` emite `stamina_changed(stamina, max_stamina)`.
+- `hud.gd` busca player por grupo `"player"` y sincroniza `StaminaBar2`.
+- El binding es robusto: si no existe player al inicio, reintenta en diferido.
+
+### Script inventory actualizado (además de los ya descritos)
+
+- `scripts/components/HealthComponent.gd` → componente reusable de HP/armor/señales.
+- `sripts/hud.gd` → controlador HUD de stamina.
+- `sripts/hearts.gd` → render y actualización de corazones por señales de daño/muerte.
+- `sripts/hearts_ui.gd` → implementación alternativa simple de corazones (`set_hearts`).
+
+### Convenciones adicionales importantes
+
+- **No asumir una sola carpeta de scripts**:
+  - Hay referencias válidas a `res://sripts/...`
+  - Y referencias válidas a `res://scripts/components/...`
+- Cualquier refactor de nombres/rutas debe actualizar también `ext_resource` en escenas `.tscn`.
+
+### Estado de assets UI (nuevo en comparación al enfoque inicial de solo combate)
+
+- Hearts:
+  - `art/sprites/heart.png`
+  - `art/sprites/heart-empty.png`
+- Stamina:
+  - `art/sprites/stamina-under.png`
+  - `art/sprites/stamina-over..png`
+  - `art/sprites/stamina-progress.png`
+
+### Riesgos actuales a tener en cuenta
+
+- Persisten múltiples `.tmp` en `scenes/`.
+- Se mantiene coexistencia entre scripts usados y scripts alternativos no conectados (ej. `hearts_ui.gd`, `blood_burst.gd` helper).
+- El botón `QUIT` del panel de game over sigue sin lógica conectada.
+
