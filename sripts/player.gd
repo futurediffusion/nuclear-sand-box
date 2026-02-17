@@ -25,6 +25,12 @@ var hp: int
 @export_group("Knockback")
 @export var knockback_friction: float = 2200.0   # qué tan rápido se detiene el empuje cuando te pegan
 
+@export_group("Stamina")
+@export var max_stamina: float = 100.0
+@export var stamina: float = 100.0
+@export var stamina_cost_attack: float = 10.0
+@export var stamina_regen_rate: float = max_stamina / 15.0
+
 @export_group("Juice")
 @export var hurt_time: float = 0.15  # cuánto dura la animación hurt
 
@@ -100,6 +106,8 @@ var knock_vel: Vector2 = Vector2.ZERO
 var hurt_t: float = 0.0
 var dying: bool = false
 
+signal stamina_changed(stamina: float, max_stamina: float)
+
 
 # =============================================================================
 func _ready() -> void:
@@ -114,6 +122,8 @@ func _ready() -> void:
 	_update_hearts_ui()
 	weapon_sprite.visible = true
 	weapon_sprite.show()
+	stamina = clampf(stamina, 0.0, max_stamina)
+	stamina_changed.emit(stamina, max_stamina)
 
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
@@ -165,6 +175,11 @@ func _physics_process(delta: float) -> void:
 	# 1) Actualizar timer de hurt
 	if hurt_t > 0.0:
 		hurt_t -= delta
+
+	var prev_stamina := stamina
+	stamina = clampf(stamina + stamina_regen_rate * delta, 0.0, max_stamina)
+	if not is_equal_approx(prev_stamina, stamina):
+		stamina_changed.emit(stamina, max_stamina)
 
 	_process_movement(delta)
 	_update_facing_from_mouse()
@@ -265,6 +280,11 @@ func _snap_to_attack_angle(delta: float) -> void:
 # =============================================================================
 func _process_attack(delta: float) -> void:
 	if Input.is_action_just_pressed("attack") and not attacking:
+		if stamina < stamina_cost_attack:
+			return
+
+		stamina = maxf(stamina - stamina_cost_attack, 0.0)
+		stamina_changed.emit(stamina, max_stamina)
 		_calculate_attack_angle()
 		_spawn_slash(mouse_angle)
 		_try_attack_push()
