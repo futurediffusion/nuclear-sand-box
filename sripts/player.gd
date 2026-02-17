@@ -1,6 +1,8 @@
 class_name Player
 extends CharacterBody2D
 
+const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
+
 # =============================================================================
 # MOVIMIENTO
 # =============================================================================
@@ -12,6 +14,7 @@ extends CharacterBody2D
 
 @export_group("Health")
 @export var max_hp: int = 3
+@export var hearts_ui: HBoxContainer
 var hp: int
 
 @export_group("Attack Push")
@@ -50,6 +53,7 @@ var hp: int
 @onready var weapon_pivot: Node2D = $WeaponPivot
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
+@onready var health_component: Node = get_node_or_null("HealthComponent")
 
 #____________________
 # SANGRE
@@ -105,9 +109,26 @@ func _ready() -> void:
 	sprite.z_index = 0
 	weapon_pivot.z_index = 10
 	weapon_sprite.z_index = 10
-	hp = max_hp
+	_setup_health_component()
 	weapon_sprite.visible = true
 	weapon_sprite.show()
+
+func _setup_health_component() -> void:
+	if health_component == null:
+		health_component = HealthComponentScript.new()
+		health_component.name = "HealthComponent"
+		add_child(health_component)
+
+	if health_component != null:
+		health_component.max_hp = max_hp
+		health_component.hp = max_hp
+		if not health_component.died.is_connected(die):
+			health_component.died.connect(die)
+		hp = health_component.hp
+	else:
+		hp = max_hp
+
+	_update_hearts_ui()
 
 func _physics_process(delta: float) -> void:
 	# 0) Si está muriendo: no hacer nada más
@@ -307,8 +328,14 @@ func _update_animation() -> void:
 # RECIBIR DAÑO
 # =============================================================================
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
-	hp -= dmg
+	if health_component != null and health_component.has_method("take_damage"):
+		health_component.take_damage(dmg)
+		hp = health_component.hp
+	else:
+		hp -= dmg
+
 	print("PLAYER HP:", hp)
+	_update_hearts_ui()
 
 	_spawn_blood(blood_hit_amount)
 
@@ -322,7 +349,8 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if hp <= 0:
 		_spawn_blood(blood_death_amount)
 		_spawn_droplets(droplet_count_death, hit_dir)
-		die()
+		if health_component == null:
+			die()
 		return
 
 	play_hurt()
@@ -332,6 +360,10 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 			sprite.modulate = Color(1, 1, 1, 1)
 	)
 
+
+func _update_hearts_ui() -> void:
+	if hearts_ui != null and hearts_ui.has_method("set_hearts"):
+		hearts_ui.call("set_hearts", hp)
 
 func play_hurt() -> void:
 	hurt_t = hurt_time
