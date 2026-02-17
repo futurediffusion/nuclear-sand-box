@@ -10,32 +10,38 @@ var _player: Node = null
 
 func _ready() -> void:
 	alignment = BoxContainer.ALIGNMENT_BEGIN
+	# Separación va aquí, UNA VEZ, antes de construir los hijos
+	add_theme_constant_override("separation", 4)
 	_build()
 	call_deferred("_find_and_connect_player")
 
 func _build() -> void:
+	# Borrar hijos viejos
 	for c in get_children():
 		c.queue_free()
 	_hearts.clear()
-	
-	# Aplicar separación AQUÍ, después de limpiar
-	add_theme_constant_override("separation", 4)
-	
+
+	# Calcular tamaño base del sprite
+	var sprite_size := Vector2(9, 8)
+	if full_heart:
+		sprite_size = full_heart.get_size()
+
+	var final_size := sprite_size * heart_scale
+
 	for i in range(max_hearts):
 		var t := TextureRect.new()
 		t.texture = full_heart if full_heart else null
-		t.stretch_mode = TextureRect.STRETCH_KEEP
-		t.expand_mode = TextureRect.EXPAND_KEEP_SIZE
-		
-		# Tamaño exacto: sprite real * escala
-		var sprite_size := Vector2(9, 8)
-		if full_heart:
-			sprite_size = full_heart.get_size()
-		
-		var final_size := sprite_size * heart_scale
+
+		# STRETCH_SCALE escala la textura al tamaño que le indiques
+		# (a diferencia de STRETCH_KEEP que solo la muestra a tamaño nativo)
+		t.stretch_mode = TextureRect.STRETCH_SCALE
+
+		# Esto es lo que respeta el HBoxContainer para dimensionar el hijo
 		t.custom_minimum_size = final_size
-		t.size = final_size
-		
+
+		# expand_mode KEEP_SIZE le dice al TextureRect que respete su minimum_size
+		t.expand_mode = TextureRect.EXPAND_KEEP_SIZE
+
 		add_child(t)
 		_hearts.append(t)
 
@@ -44,19 +50,19 @@ func _find_and_connect_player() -> void:
 	if players.size() == 0:
 		get_tree().create_timer(0.5).timeout.connect(_find_and_connect_player)
 		return
-	
+
 	_player = players[0]
-	
+
 	var health_comp := _player.get_node_or_null("HealthComponent")
 	if health_comp == null:
 		return
-	
+
 	if not health_comp.damaged.is_connected(_on_player_damaged):
 		health_comp.damaged.connect(_on_player_damaged)
-	
+
 	if not health_comp.died.is_connected(_on_player_died):
 		health_comp.died.connect(_on_player_died)
-	
+
 	max_hearts = health_comp.max_hp
 	_build()
 	set_hp(health_comp.hp)
