@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=7 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://sripts/main.gd" id="1_sugp2"]
 [ext_resource type="PackedScene" uid="uid://cmysaqnuq4nfh" path="res://scenes/cursor_2d.tscn" id="2_0wfyh"]
 [ext_resource type="PackedScene" uid="uid://b61xj3scmxra2" path="res://scenes/enemy.tscn" id="3_sugp2"]
 [ext_resource type="PackedScene" uid="uid://dbj287l3pfpyo" path="res://scenes/enemy_spawner.tscn" id="4_jyhfs"]
+[ext_resource type="Script" path="res://sripts/hud.gd" id="6_hud"]
 
 [node name="Main" type="Node2D"]
 scale = Vector2(2.5, 2.5)
@@ -42,6 +43,20 @@ scale = Vector2(320.873, -555.618)
 process_mode = 2
 offset = Vector2(300, 100)
 transform = Transform2D(1, 0, 0, 1, 300, 100)
+
+
+[node name="HUD" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 178.0
+offset_bottom = 29.0
+script = ExtResource("6_hud")
+
+[node name="StaminaBar" type="TextureProgressBar" parent="UI/HUD"]
+layout_mode = 0
+offset_right = 160.0
+offset_bottom = 16.0
+value = 100.0
 
 [node name="GameOverPanel" type="Control" parent="UI"]
 clip_contents = true

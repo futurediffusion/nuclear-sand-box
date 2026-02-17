@@ -3,6 +3,8 @@ extends CharacterBody2D
 
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
 
+signal stamina_changed(stamina: float, max_stamina: float)
+
 # =============================================================================
 # MOVIMIENTO
 # =============================================================================
@@ -16,6 +18,12 @@ const HealthComponentScript = preload("res://scripts/components/HealthComponent.
 @export var max_hp: int = 3
 @export var hearts_ui: Node
 var hp: int
+
+@export_group("Stamina")
+@export var max_stamina: float = 100.0
+@export var stamina: float = 100.0
+@export var stamina_cost_attack: float = 10.0
+@export var stamina_regen_rate: float = max_stamina / 15.0
 
 @export_group("Attack Push")
 @export var attack_push_speed: float = 220.0     # fuerza del empujón
@@ -114,6 +122,7 @@ func _ready() -> void:
 	_update_hearts_ui()
 	weapon_sprite.visible = true
 	weapon_sprite.show()
+	emit_signal("stamina_changed", stamina, max_stamina)
 
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
@@ -156,6 +165,11 @@ func _setup_health_component() -> void:
 		hp = max_hp
 
 func _physics_process(delta: float) -> void:
+	var previous_stamina := stamina
+	stamina = clamp(stamina + stamina_regen_rate * delta, 0.0, max_stamina)
+	if not is_equal_approx(stamina, previous_stamina):
+		emit_signal("stamina_changed", stamina, max_stamina)
+
 	# 0) Si está muriendo: no hacer nada más
 	if dying:
 		velocity = Vector2.ZERO
@@ -265,6 +279,11 @@ func _snap_to_attack_angle(delta: float) -> void:
 # =============================================================================
 func _process_attack(delta: float) -> void:
 	if Input.is_action_just_pressed("attack") and not attacking:
+		if stamina < stamina_cost_attack:
+			return
+
+		stamina = clamp(stamina - stamina_cost_attack, 0.0, max_stamina)
+		emit_signal("stamina_changed", stamina, max_stamina)
 		_calculate_attack_angle()
 		_spawn_slash(mouse_angle)
 		_try_attack_push()
