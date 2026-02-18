@@ -442,10 +442,8 @@ func die() -> void:
 	# Esperar a que termine (IMPORTANTE: death debe NO tener loop)
 	await sprite.animation_finished
 
-	# Avisar al Main (Game Over)
-	var main = get_tree().current_scene
-	if main and main.has_method("on_player_died"):
-		main.call("on_player_died")
+	# Emitir evento global de muerte del jugador (sin depender de Main).
+	GameManager.player_died.emit()
 
 	queue_free()
 	
