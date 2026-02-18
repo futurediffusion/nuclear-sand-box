@@ -6,7 +6,7 @@ func _spawn_blood(amount: int) -> void:
 	if blood_scene == null:
 		return
 
-	var p := blood_scene.instantiate() as CPUParticles2D
+	var p := blood_scene.instantiate() as GPUParticles2D
 	get_tree().current_scene.add_child(p)
 	p.global_position = global_position
 	p.amount = amount

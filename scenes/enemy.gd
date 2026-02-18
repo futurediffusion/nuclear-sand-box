@@ -194,7 +194,7 @@ func _update_detection() -> void:
 	var dist := global_position.distance_to(player.global_position)
 	
 	# Actualizar predicción de posición del player
-	var player_velocity = player.velocity if player.has_method("velocity") else Vector2.ZERO
+	var player_velocity: Vector2 = player.velocity if "velocity" in player else Vector2.ZERO
 	predicted_player_pos = player.global_position + player_velocity * 0.3
 
 func _update_ai_state() -> void:
