@@ -19,8 +19,8 @@ func _try_bind_player() -> void:
 
 	# Configurar rango de la barra
 	stamina_bar.min_value = 0.0
-	stamina_bar.max_value = player.max_stamina
-	stamina_bar.value = player.stamina
+	stamina_bar.max_value = player.get_max_stamina()
+	stamina_bar.value = player.get_current_stamina()
 
 	# Conectar señal de stamina
 	if not player.stamina_changed.is_connected(_on_player_stamina_changed):

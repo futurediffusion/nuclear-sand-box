@@ -1,4 +1,4 @@
-[gd_scene load_steps=29 format=3 uid="uid://38k36ggowmkb"]
+[gd_scene load_steps=30 format=3 uid="uid://38k36ggowmkb"]
 
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="1_3vyb7"]
 [ext_resource type="Script" uid="uid://ckcw5d4tk1kyo" path="res://scripts/gameplay/player.gd" id="1_qhqgy"]
@@ -11,6 +11,7 @@
 [ext_resource type="PackedScene" uid="uid://cpctsrqkuyufx" path="res://scenes/blood_droplet.tscn" id="4_y4r1p"]
 [ext_resource type="Script" uid="uid://cgitphdq6wjem" path="res://scripts/camera/camera.gd" id="6_tuyoq"]
 [ext_resource type="Script" uid="uid://fs8idwdgvpd3" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
+[ext_resource type="Script" uid="uid://w4j8nlnv6yfr" path="res://scripts/components/StaminaComponent.gd" id="8_staminac"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_smehm")
@@ -154,9 +155,6 @@ attack_push_speed = null
 attack_push_time = null
 attack_push_deadzone = null
 knockback_friction = null
-max_stamina = null
-stamina = null
-stamina_cost_attack = null
 hurt_time = null
 weapon_follow_speed = null
 attack_snap_speed = null
@@ -179,6 +177,9 @@ droplet_spread_deg = null
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("7_healthc")
+
+[node name="StaminaComponent" type="Node" parent="."]
+script = ExtResource("8_staminac")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_oprun")

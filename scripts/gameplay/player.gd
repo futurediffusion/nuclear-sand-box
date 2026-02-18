@@ -2,6 +2,7 @@ class_name Player
 extends CharacterBody2D
 
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
+const StaminaComponentScript = preload("res://scripts/components/StaminaComponent.gd")
 
 # =============================================================================
 # MOVIMIENTO
@@ -24,12 +25,6 @@ var hp: int
 
 @export_group("Knockback")
 @export var knockback_friction: float = 2200.0   # qué tan rápido se detiene el empuje cuando te pegan
-
-@export_group("Stamina")
-@export var max_stamina: float = 100.0
-@export var stamina: float = 100.0
-@export var stamina_cost_attack: float = 10.0
-@export var stamina_regen_rate: float = max_stamina / 15.0
 
 @export_group("Juice")
 @export var hurt_time: float = 0.15  # cuánto dura la animación hurt
@@ -60,6 +55,7 @@ var hp: int
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
 @onready var health_component: Node = get_node_or_null("HealthComponent")
+@onready var stamina_component: Node = get_node_or_null("StaminaComponent")
 
 #____________________
 # SANGRE
@@ -119,11 +115,10 @@ func _ready() -> void:
 	weapon_sprite.z_index = 10
 	_resolve_hearts_ui()
 	_setup_health_component()
+	_setup_stamina_component()
 	_update_hearts_ui()
 	weapon_sprite.visible = true
 	weapon_sprite.show()
-	stamina = clampf(stamina, 0.0, max_stamina)
-	stamina_changed.emit(stamina, max_stamina)
 
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
@@ -165,6 +160,32 @@ func _setup_health_component() -> void:
 	else:
 		hp = max_hp
 
+
+func _setup_stamina_component() -> void:
+	if stamina_component == null:
+		stamina_component = StaminaComponentScript.new()
+		stamina_component.name = "StaminaComponent"
+		add_child(stamina_component)
+
+	if stamina_component != null:
+		if stamina_component.has_signal("stamina_changed") and not stamina_component.stamina_changed.is_connected(_on_stamina_changed):
+			stamina_component.stamina_changed.connect(_on_stamina_changed)
+		if stamina_component.has_method("get_current_stamina") and stamina_component.has_method("get_max_stamina"):
+			stamina_changed.emit(stamina_component.get_current_stamina(), stamina_component.get_max_stamina())
+
+func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
+	stamina_changed.emit(current_stamina, max_stamina)
+
+func get_current_stamina() -> float:
+	if stamina_component != null and stamina_component.has_method("get_current_stamina"):
+		return stamina_component.get_current_stamina()
+	return 0.0
+
+func get_max_stamina() -> float:
+	if stamina_component != null and stamina_component.has_method("get_max_stamina"):
+		return stamina_component.get_max_stamina()
+	return 0.0
+
 func _physics_process(delta: float) -> void:
 	# 0) Si está muriendo: no hacer nada más
 	if dying:
@@ -175,11 +196,6 @@ func _physics_process(delta: float) -> void:
 	# 1) Actualizar timer de hurt
 	if hurt_t > 0.0:
 		hurt_t -= delta
-
-	var prev_stamina := stamina
-	stamina = clampf(stamina + stamina_regen_rate * delta, 0.0, max_stamina)
-	if not is_equal_approx(prev_stamina, stamina):
-		stamina_changed.emit(stamina, max_stamina)
 
 	_process_movement(delta)
 	_update_facing_from_mouse()
@@ -269,11 +285,10 @@ func _snap_to_attack_angle(delta: float) -> void:
 # =============================================================================
 func _process_attack(delta: float) -> void:
 	if Input.is_action_just_pressed("attack") and not attacking:
-		if stamina < stamina_cost_attack:
+		if stamina_component == null or not stamina_component.has_method("spend_attack_cost"):
 			return
-
-		stamina = maxf(stamina - stamina_cost_attack, 0.0)
-		stamina_changed.emit(stamina, max_stamina)
+		if not stamina_component.spend_attack_cost():
+			return
 		_calculate_attack_angle()
 		_spawn_slash(mouse_angle)
 		_try_attack_push()
