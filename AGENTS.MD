@@ -391,3 +391,72 @@ Además de lo ya documentado, hoy contiene:
 - Persisten múltiples `.tmp` en `scenes/`.
 - Se mantiene coexistencia entre scripts usados y scripts alternativos no conectados (ej. `hearts_ui.gd`, `blood_burst.gd` helper).
 - El botón `QUIT` del panel de game over sigue sin lógica conectada.
+
+---
+
+## 10) 🆕 Cambios recientes pendientes de registro (post actualización anterior)
+
+Esta sección documenta cambios introducidos después de la última actualización grande del AGENTS (la de HUD/Health), para dejar trazabilidad de arquitectura vigente.
+
+### 10.1 Autoload de sistema global
+
+- Se agregó **`GameManager`** como singleton en `project.godot`:
+  - `[autoload] GameManager="*res://scripts/systems/game_manager.gd"`
+- `GameManager` centraliza señales/eventos globales del run actual:
+  - `player_died`
+  - `player_healed(amount)`
+  - `zone_entered(zone_name)`
+- También expone estado global inicial (`current_wave`, `gold`) para futura progresión.
+
+### 10.2 Flujo de Game Over desacoplado vía manager
+
+- `scripts/gameplay/main.gd` ahora escucha `GameManager.player_died` en `_ready()`.
+- Al recibir señal:
+  - muestra `UI/GameOverPanel`
+  - pausa el árbol (`get_tree().paused = true`)
+  - fuerza cursor visible.
+- Se mantiene método de compatibilidad `on_player_died()` que redirige al nuevo flujo basado en manager.
+
+### 10.3 Datos de mundo formalizados en Resource
+
+- Se añadió `scripts/resources/WorldData.gd` (`class_name WorldData`, `extends Resource`).
+- `main.gd` exporta:
+  - `world_data`
+  - `world_map_size`
+  - `default_tavern_position`
+- En `_ready()`, `main.gd` ejecuta `_ensure_world_data()` para garantizar inicialización.
+- `WorldData` encapsula:
+  - tamaño de mapa (`map_size`)
+  - posición de taberna (`tavern_position`)
+  - tiles (`tile_ids`) y nodos de recurso (`resource_nodes`)
+  - helpers `set_tile/get_tile` y `set_resource_amount/get_resource_amount`.
+
+### 10.4 Stamina separada a componente reusable
+
+- Se agregó `scripts/components/StaminaComponent.gd`.
+- Responsabilidades del componente:
+  - stamina máxima/actual
+  - costo por ataque
+  - regeneración en `_physics_process`
+  - API reusable:
+    - `can_attack()`
+    - `spend_attack_cost()`
+    - `get_current_stamina()`
+    - `get_max_stamina()`
+  - señal `stamina_changed(current_stamina, max_stamina)`.
+
+### 10.5 Integración del Player con componentes Health + Stamina
+
+- `player.gd` ahora pre-carga ambos componentes:
+  - `HealthComponent.gd`
+  - `StaminaComponent.gd`
+- Si faltan en la escena, el player puede crearlos runtime (`_setup_health_component`, `_setup_stamina_component`).
+- La UI de stamina se alimenta por forwarding de señal:
+  - componente `stamina_changed` → player `stamina_changed`.
+- La lógica de ataque consulta/gasta stamina mediante el componente (sin depender de variables inline de stamina en `player.gd`).
+
+### 10.6 Convenciones nuevas a respetar
+
+- **Eventos globales de partida**: priorizar señales del `GameManager` (autoload) para evitar acoplamiento directo entre escenas.
+- **Estado de mundo persistible**: usar `WorldData` como contenedor único para mapa/tiles/recursos y pasar este recurso entre sistemas.
+- **Recursos jugables reutilizables**: preferir componentes (`HealthComponent`, `StaminaComponent`) frente a duplicar lógica en actores.
