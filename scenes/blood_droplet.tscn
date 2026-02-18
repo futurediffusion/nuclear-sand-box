@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3 uid="uid://cpctsrqkuyufx"]
 
-[ext_resource type="Script" uid="uid://m3lfv64ogbrl" path="res://sripts/blood_droplet.gd" id="1_kxh5m"]
+[ext_resource type="Script" uid="uid://m3lfv64ogbrl" path="res://scripts/fx/blood_droplet.gd" id="1_kxh5m"]
 [ext_resource type="Texture2D" uid="uid://clc0ibm3qkvb3" path="res://art/sprites/blood.png" id="1_rmcg4"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_xults"]

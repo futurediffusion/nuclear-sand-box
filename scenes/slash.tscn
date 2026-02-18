@@ -1,6 +1,6 @@
 [gd_scene load_steps=12 format=3 uid="uid://bo7s8ewd7s0wy"]
 
-[ext_resource type="Script" uid="uid://cn2w7jm1c3on" path="res://sripts/slash.gd" id="1_3c2nd"]
+[ext_resource type="Script" uid="uid://cn2w7jm1c3on" path="res://scripts/gameplay/slash.gd" id="1_3c2nd"]
 [ext_resource type="Texture2D" uid="uid://dip55ne07cmea" path="res://art/sprites/slash.png" id="2_fg1j7"]
 [ext_resource type="AudioStream" uid="uid://bcwjqgmntqnq5" path="res://art/Sounds/windslash.ogg" id="3_fg1j7"]
 [ext_resource type="AudioStream" uid="uid://beglyil8wimp2" path="res://art/Sounds/impact.ogg" id="4_e2dr4"]

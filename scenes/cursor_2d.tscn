@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3 uid="uid://cmysaqnuq4nfh"]
 
-[ext_resource type="Script" uid="uid://ctqr3xi0bwmf5" path="res://sripts/Cursor2D.gd" id="1_plvei"]
+[ext_resource type="Script" uid="uid://ctqr3xi0bwmf5" path="res://scripts/ui/cursor_2d.gd" id="1_plvei"]
 [ext_resource type="Texture2D" uid="uid://bctencbm3dlw1" path="res://art/sprites/mouse-cursor.png" id="1_uf72c"]
 
 [node name="MouseCursor" type="Node2D"]

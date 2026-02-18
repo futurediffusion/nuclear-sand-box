@@ -16,9 +16,9 @@ Este documento resume la estructura, escenas, scripts y convenciones del proyect
   - También hay archivos temporales `*.tmp` generados por editor/autoguardado. No forman parte del flujo jugable.
   - Nota: existe un script dentro de esta carpeta (`scenes/enemy.gd`), usado por `enemy.tscn`.
 
-- **`/sripts`** (sic)
-  - Carpeta de scripts GDScript del proyecto. El nombre está mal escrito intencionalmente en repo actual (`sripts` en lugar de `scripts`), por lo que **no renombrar sin migración completa de rutas**.
-  - Incluye lógica de player, cámara, slash, spawner, partículas y UI principal.
+- **`/scripts`**
+  - Carpeta única de scripts GDScript del proyecto.
+  - Organizada por dominio (`gameplay`, `camera`, `ui`, `fx`, `components`).
 
 - **`/art/sprites`**
   - Sprites de personajes, arma, cursor y sangre.
@@ -32,10 +32,10 @@ Este documento resume la estructura, escenas, scripts y convenciones del proyect
 
 ### Grupos de scripts por responsabilidad
 
-- **Core gameplay**: `sripts/player.gd`, `scenes/enemy.gd`, `sripts/slash.gd`.
-- **Spawning/flujo de partida**: `sripts/enemy_spawner.gd`, `sripts/main.gd`.
-- **Cámara/cursor**: `sripts/camera.gd`, `sripts/Cursor2D.gd`.
-- **FX sangre**: `sripts/blood_droplet.gd`, `sripts/blood_burst.gd` (este último parece helper no conectado directamente en escenas actuales).
+- **Core gameplay**: `scripts/gameplay/player.gd`, `scenes/enemy.gd`, `scripts/gameplay/slash.gd`.
+- **Spawning/flujo de partida**: `scripts/gameplay/enemy_spawner.gd`, `scripts/gameplay/main.gd`.
+- **Cámara/cursor**: `scripts/camera/camera.gd`, `scripts/ui/cursor_2d.gd`.
+- **FX sangre**: `scripts/fx/blood_droplet.gd`, `scripts/fx/blood_burst.gd` (este último parece helper no conectado directamente en escenas actuales).
 
 ---
 
@@ -47,7 +47,7 @@ Este documento resume la estructura, escenas, scripts y convenciones del proyect
 **Rol:** escena principal del juego.
 
 Nodos clave:
-- `Main (Node2D)` + script `sripts/main.gd`: coordina Game Over y retry.
+- `Main (Node2D)` + script `scripts/gameplay/main.gd`: coordina Game Over y retry.
 - `BackgroundLayer/ColorRect`: fondo de color.
 - `Player` (instancia de `player.tscn`): protagonista.
 - `MouseCursor` (instancia de `cursor_2d.tscn`): cursor custom.
@@ -59,12 +59,12 @@ Nodos clave:
 **Rol:** prefab del player.
 
 Nodos clave:
-- `Player (CharacterBody2D)` + script `sripts/player.gd`.
+- `Player (CharacterBody2D)` + script `scripts/gameplay/player.gd`.
 - `AnimatedSprite2D`: animaciones `idle`, `walk`, `hurt`, `death`.
 - `CollisionShape2D`: colisión del cuerpo.
 - `WeaponPivot` + `WeaponSprite`: rotación visual del arma.
 - `SlashSpawn (Marker2D)`: punto de spawn del ataque.
-- `Camera2D` + script `sripts/camera.gd`: look-ahead y shake.
+- `Camera2D` + script `scripts/camera/camera.gd`: look-ahead y shake.
 
 ### `scenes/enemy.tscn`
 **Rol:** prefab de enemigo con IA.
@@ -80,14 +80,14 @@ Nodos clave:
 **Rol:** emisor de enemigos.
 
 Nodos clave:
-- `EnemySpawner (Node2D)` + script `sripts/enemy_spawner.gd`.
+- `EnemySpawner (Node2D)` + script `scripts/gameplay/enemy_spawner.gd`.
 - Exporta `enemy_scene`, `spawn_interval`, `max_enemies`, `spawn_radius`.
 
 ### `scenes/slash.tscn`
 **Rol:** hitbox + animación + audio del corte.
 
 Nodos clave:
-- `Slash (Node2D)` + script `sripts/slash.gd`.
+- `Slash (Node2D)` + script `scripts/gameplay/slash.gd`.
 - `Anim (AnimatedSprite2D)`: animación del golpe.
 - `Hitbox (Area2D)` + `CollisionShape2D`: detección de impacto.
 - `Sfx`, `ImpactSound` (AudioStreamPlayer2D): sonido de ataque y de impacto.
@@ -102,7 +102,7 @@ Nodos clave:
 **Rol:** gota física que “salpica” y se congela como mancha.
 
 Nodos clave:
-- `BloodDroplet (RigidBody2D)` + script `sripts/blood_droplet.gd`.
+- `BloodDroplet (RigidBody2D)` + script `scripts/fx/blood_droplet.gd`.
 - `CollisionShape2D`: detecta contacto para splat.
 - `Sprite2D`: textura de sangre.
 
@@ -111,13 +111,13 @@ Nodos clave:
 
 Nodos clave:
 - `MouseCursor (Node2D)`.
-- `Sprite2D` + script `sripts/Cursor2D.gd` (el script está puesto en el hijo Sprite).
+- `Sprite2D` + script `scripts/ui/cursor_2d.gd` (el script está puesto en el hijo Sprite).
 
 ---
 
 ## 3) 📌 Lista de scripts principales
 
-### `sripts/player.gd`
+### `scripts/gameplay/player.gd`
 - **Nodo:** `Player` (`scenes/player.tscn`).
 - **Propósito:** movimiento, ataque, animaciones, daño/vida, muerte, knockback, blood FX y droplets.
 - **Funciones clave:**
@@ -135,7 +135,7 @@ Nodos clave:
   - Ataque con slash (`setup(&"enemy", self)`) y cooldown.
   - Hitstop sobre enemigo al recibir impacto (vía slash).
 
-### `sripts/slash.gd`
+### `scripts/gameplay/slash.gd`
 - **Nodo:** `Slash` (`scenes/slash.tscn`).
 - **Propósito:** vida corta del golpe, ventana de hitbox, aplicación de daño y knockback.
 - **Funciones clave:**
@@ -144,7 +144,7 @@ Nodos clave:
   - Evita múltiples hits al mismo target con `already_hit`.
   - Aplica `take_damage`, `apply_knockback`, y opcional `apply_hitstop`.
 
-### `sripts/enemy_spawner.gd`
+### `scripts/gameplay/enemy_spawner.gd`
 - **Nodo:** `EnemySpawner`.
 - **Propósito:** spawn periódico con límite de enemigos vivos.
 - **Funciones clave:**
@@ -152,26 +152,26 @@ Nodos clave:
   - Spawneo alrededor de radio configurable.
   - Contador decrementado al `tree_exited` del enemigo.
 
-### `sripts/main.gd`
+### `scripts/gameplay/main.gd`
 - **Nodo:** `Main`.
 - **Propósito:** estado de Game Over y reload de escena.
 - **Funciones clave:**
   - `on_player_died()` pausa árbol y muestra panel.
   - `_on_retry_pressed()` reanuda y recarga escena.
 
-### `sripts/camera.gd`
+### `scripts/camera/camera.gd`
 - **Nodo:** `Camera2D` hijo del Player.
 - **Propósito:** look-ahead hacia mouse + shake procedural.
 
-### `sripts/Cursor2D.gd`
+### `scripts/ui/cursor_2d.gd`
 - **Nodo usado:** `Sprite2D` dentro de `cursor_2d.tscn`.
 - **Propósito:** ocultar cursor del SO y mover cursor visual a `get_global_mouse_position()`.
 
-### `sripts/blood_droplet.gd`
+### `scripts/fx/blood_droplet.gd`
 - **Nodo:** `BloodDroplet` (`RigidBody2D`).
 - **Propósito:** al colisionar se congela como mancha, desactiva colisión y se limpia por tiempo.
 
-### `sripts/blood_burst.gd`
+### `scripts/fx/blood_burst.gd`
 - **Nodo esperado:** no hay escena que lo use directamente hoy.
 - **Propósito:** helper de spawn de partículas CPU (`_spawn_blood`).
 - **Observación:** el juego actual usa `blood_burst.tscn` como `GPUParticles2D` directamente desde player/enemy.
@@ -246,7 +246,7 @@ Nodos clave:
 
 ### Crear nuevas armas
 1. Crear una nueva escena tipo ataque (ej. `slash_heavy.tscn`) con `Area2D` + animación.
-2. Basarte en `sripts/slash.gd` o derivar script (daño, knockback, tiempo activo, SFX).
+2. Basarte en `scripts/gameplay/slash.gd` o derivar script (daño, knockback, tiempo activo, SFX).
 3. En el actor que ataque, cambiar `slash_scene` exportado.
 4. Mantener contrato mínimo de API:
    - `setup(team, owner)` para filtrar equipos.
@@ -308,9 +308,9 @@ Nodos clave:
 
 ## Notas técnicas observadas durante la revisión
 
-- Hay duplicación de bloques de knockback/move_and_slide en `sripts/player.gd` dentro de `_physics_process`; conviene consolidarlo para evitar aplicar fuerzas dos veces por frame.
+- Hay duplicación de bloques de knockback/move_and_slide en `scripts/gameplay/player.gd` dentro de `_physics_process`; conviene consolidarlo para evitar aplicar fuerzas dos veces por frame.
 - Existen escenas `.tmp` en `scenes/`; ideal ignorarlas en control de versiones si no son necesarias.
-- `sripts/blood_burst.gd` usa `CPUParticles2D`, pero el pipeline activo de sangre utiliza `GPUParticles2D` (`blood_burst.tscn`).
+- `scripts/fx/blood_burst.gd` usa `CPUParticles2D`, pero el pipeline activo de sangre utiliza `GPUParticles2D` (`blood_burst.tscn`).
 
 
 ---
@@ -321,26 +321,26 @@ Esta sección agrega lo que hoy existe en el repo y no estaba explícito/central
 
 ### Nuevas piezas detectadas en arquitectura
 
-- Existe una segunda raíz de scripts: **`/scripts/components`** (además de `/sripts`).
+- La raíz de scripts está unificada en **`/scripts`**, con subcarpetas por dominio.
 - Se incorporó un componente reutilizable de vida:
   - `scripts/components/HealthComponent.gd`
 - Se incorporaron scripts de UI/HUD en uso real:
-  - `sripts/hud.gd`
-  - `sripts/hearts.gd`
+  - `scripts/ui/hud.gd`
+  - `scripts/ui/hearts.gd`
 - Existe además un script alternativo/legacy de corazones:
-  - `sripts/hearts_ui.gd` (no cableado en `main.tscn` actual).
+  - `scripts/ui/hearts_ui.gd` (no cableado en `main.tscn` actual).
 
 ### Escenas y nodos que ahora forman parte del flujo principal
 
 #### `scenes/main.tscn`
 Además de lo ya documentado, hoy contiene:
 
-- `UI/HUD` con script `sripts/hud.gd`.
+- `UI/HUD` con script `scripts/ui/hud.gd`.
 - `UI/HUD/StaminaBar2` como `TextureProgressBar` con texturas:
   - `stamina-under.png`
   - `stamina-over..png`
   - `stamina-progress.png`
-- `UI/HUD/Control/Hearts` con script `sripts/hearts.gd` y texturas:
+- `UI/HUD/Control/Hearts` con script `scripts/ui/hearts.gd` y texturas:
   - `heart.png`
   - `heart-empty.png`
 
@@ -367,15 +367,13 @@ Además de lo ya documentado, hoy contiene:
 ### Script inventory actualizado (además de los ya descritos)
 
 - `scripts/components/HealthComponent.gd` → componente reusable de HP/armor/señales.
-- `sripts/hud.gd` → controlador HUD de stamina.
-- `sripts/hearts.gd` → render y actualización de corazones por señales de daño/muerte.
-- `sripts/hearts_ui.gd` → implementación alternativa simple de corazones (`set_hearts`).
+- `scripts/ui/hud.gd` → controlador HUD de stamina.
+- `scripts/ui/hearts.gd` → render y actualización de corazones por señales de daño/muerte.
+- `scripts/ui/hearts_ui.gd` → implementación alternativa simple de corazones (`set_hearts`).
 
 ### Convenciones adicionales importantes
 
-- **No asumir una sola carpeta de scripts**:
-  - Hay referencias válidas a `res://sripts/...`
-  - Y referencias válidas a `res://scripts/components/...`
+- **Asumir una sola carpeta de scripts (`/scripts`)** con subcarpetas por dominio.
 - Cualquier refactor de nombres/rutas debe actualizar también `ext_resource` en escenas `.tscn`.
 
 ### Estado de assets UI (nuevo en comparación al enfoque inicial de solo combate)
@@ -393,4 +391,3 @@ Además de lo ya documentado, hoy contiene:
 - Persisten múltiples `.tmp` en `scenes/`.
 - Se mantiene coexistencia entre scripts usados y scripts alternativos no conectados (ej. `hearts_ui.gd`, `blood_burst.gd` helper).
 - El botón `QUIT` del panel de game over sigue sin lógica conectada.
-
