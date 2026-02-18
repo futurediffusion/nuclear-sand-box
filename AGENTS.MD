@@ -460,3 +460,24 @@ Esta sección documenta cambios introducidos después de la última actualizaci�
 - **Eventos globales de partida**: priorizar señales del `GameManager` (autoload) para evitar acoplamiento directo entre escenas.
 - **Estado de mundo persistible**: usar `WorldData` como contenedor único para mapa/tiles/recursos y pasar este recurso entre sistemas.
 - **Recursos jugables reutilizables**: preferir componentes (`HealthComponent`, `StaminaComponent`) frente a duplicar lógica en actores.
+
+### 10.7 Sistema mínimo de Inventario + Monedas (MVP sin UI)
+
+- Se añadió `scripts/components/InventoryComponent.gd` como componente reusable (`Node`) para economía base.
+- Estado encapsulado:
+  - `gold: int`
+  - `items: Dictionary` (`item_id -> cantidad`)
+- API genérica implementada para loop minar/vender/comprar:
+  - `add_item`, `remove_item`, `get_count`, `sell_item`, `sell_all`, `buy_item`, `debug_print`.
+- Reglas clave:
+  - Sin hardcode de recursos (ej. `"copper"` se maneja como `item_id` string).
+  - Upgrades quedan fuera del inventario (se tratarán en otro sistema).
+  - Flujo de prueba por `print()` sin UI.
+- Integración en `scripts/gameplay/player.gd`:
+  - preload del nuevo componente y creación runtime si falta como hijo `InventoryComponent`.
+  - hotkeys de test en `_input`:
+    - `KEY_1`: `add_item("copper", 3)`
+    - `KEY_2`: `sell_all("copper", 5)`
+    - `KEY_3`: `buy_item("medkit", 1, 20)`
+    - `KEY_4`: cheat `gold += 50`
+  - tras cada acción se llama `inventory.debug_print()`.

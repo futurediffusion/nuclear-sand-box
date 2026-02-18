@@ -3,6 +3,7 @@ extends CharacterBody2D
 
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
 const StaminaComponentScript = preload("res://scripts/components/StaminaComponent.gd")
+const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 
 # =============================================================================
 # MOVIMIENTO
@@ -56,6 +57,7 @@ var hp: int
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
 @onready var health_component: Node = get_node_or_null("HealthComponent")
 @onready var stamina_component: Node = get_node_or_null("StaminaComponent")
+@onready var inventory: Node = get_node_or_null("InventoryComponent")
 
 #____________________
 # SANGRE
@@ -116,9 +118,11 @@ func _ready() -> void:
 	_resolve_hearts_ui()
 	_setup_health_component()
 	_setup_stamina_component()
+	_setup_inventory_component()
 	_update_hearts_ui()
 	weapon_sprite.visible = true
 	weapon_sprite.show()
+	inventory.debug_print()
 
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
@@ -173,6 +177,14 @@ func _setup_stamina_component() -> void:
 		if stamina_component.has_method("get_current_stamina") and stamina_component.has_method("get_max_stamina"):
 			stamina_changed.emit(stamina_component.get_current_stamina(), stamina_component.get_max_stamina())
 
+
+func _setup_inventory_component() -> void:
+	if inventory == null:
+		inventory = InventoryComponentScript.new()
+		inventory.name = "InventoryComponent"
+		add_child(inventory)
+		print("[INV] InventoryComponent creado en Player")
+
 func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
 	stamina_changed.emit(current_stamina, max_stamina)
 
@@ -185,6 +197,28 @@ func get_max_stamina() -> float:
 	if stamina_component != null and stamina_component.has_method("get_max_stamina"):
 		return stamina_component.get_max_stamina()
 	return 0.0
+
+
+func _input(event: InputEvent) -> void:
+	if inventory == null:
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key_event := event as InputEventKey
+
+		if key_event.keycode == KEY_1:
+			inventory.add_item("copper", 3)
+			inventory.debug_print()
+		elif key_event.keycode == KEY_2:
+			inventory.sell_all("copper", 5)
+			inventory.debug_print()
+		elif key_event.keycode == KEY_3:
+			inventory.buy_item("medkit", 1, 20)
+			inventory.debug_print()
+		elif key_event.keycode == KEY_4:
+			inventory.gold += 50
+			print("[INV] cheat +50 gold. gold=", inventory.gold)
+			inventory.debug_print()
 
 func _physics_process(delta: float) -> void:
 	# 0) Si está muriendo: no hacer nada más
