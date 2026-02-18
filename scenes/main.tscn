@@ -30,10 +30,34 @@ color = Color(0.785028, 0.949588, 0.461168, 1)
 
 [node name="Player" parent="." instance=ExtResource("1_o5qli")]
 position = Vector2(126.8, 77.2)
+max_speed = null
+acceleration = null
+friction = null
+turn_speed = null
+max_hp = null
 attack_push_speed = 90.0
 attack_push_time = 0.05
-droplet_speed_min = 80.0
-droplet_speed_max = 140.0
+attack_push_deadzone = null
+knockback_friction = null
+max_stamina = null
+stamina = null
+stamina_cost_attack = null
+hurt_time = null
+weapon_follow_speed = null
+attack_snap_speed = null
+attack_duration = null
+facing_deadzone_px = null
+angle_offset_left = null
+angle_offset_right = null
+slash_visual_offset_deg = null
+blood_hit_amount = null
+blood_death_amount = null
+splat_lifetime = null
+droplet_count_hit = null
+droplet_count_death = null
+droplet_speed_min = null
+droplet_speed_max = null
+droplet_spread_deg = null
 
 [node name="MouseCursor" parent="." instance=ExtResource("2_0wfyh")]
 scale = Vector2(1.5, 1.5)

@@ -1,5 +1,4 @@
 extends Node
-class_name GameManager
 
 signal player_died
 signal player_healed(amount: int)
