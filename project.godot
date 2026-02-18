@@ -14,6 +14,10 @@ config/name="NUCLEAR SAND BOX"
 config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+GameManager="*res://scripts/systems/game_manager.gd"
+
 [display]
 
 window/size/viewport_width=1920
