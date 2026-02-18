@@ -206,17 +206,6 @@ func _physics_process(delta: float) -> void:
 	knock_vel = knock_vel.move_toward(Vector2.ZERO, knockback_friction * delta)
 
 	move_and_slide()
-	
-	# Empujón corto del ataque (solo dura attack_push_time)
-	if attack_push_t > 0.0:
-		attack_push_t -= delta
-		velocity += attack_push_vel
-	
-	# Knockback cuando te pegan (se va frenando con fricción)
-	velocity += knock_vel
-	knock_vel = knock_vel.move_toward(Vector2.ZERO, knockback_friction * delta)
-
-	move_and_slide()
 
 # =============================================================================
 # MOVIMIENTO SUAVE

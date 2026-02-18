@@ -8,8 +8,6 @@ extends Node2D
 @export var max_enemies: int = 10
 @export var spawn_radius: float = 200.0
 
-@onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
-
 
 # ==========================================================
 # ESTADO
