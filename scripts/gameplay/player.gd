@@ -80,7 +80,7 @@ var hp: int
 @export var droplet_speed_max: float = 140.0
 @export var droplet_spread_deg: float = 70.0
 
-
+const MAX_DROPLETS_IN_SCENE := 40
 
 
 # =============================================================================
@@ -610,8 +610,16 @@ func _spawn_droplets(count: int, base_dir: Vector2) -> void:
 	if droplet_scene == null:
 		return
 
-	for i in range(count):
+	var existing := get_tree().get_nodes_in_group("blood_droplet").size()
+	var allowed := mini(count, MAX_DROPLETS_IN_SCENE - existing)
+	if allowed <= 0:
+		return
+
+	for i in range(allowed):
 		var d := droplet_scene.instantiate() as RigidBody2D
+		if d == null:
+			continue
+		d.add_to_group("blood_droplet")
 		get_tree().current_scene.add_child(d)
 		d.global_position = global_position
 

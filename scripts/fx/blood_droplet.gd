@@ -7,6 +7,8 @@ extends RigidBody2D
 var _done := false
 
 func _ready() -> void:
+	add_to_group("blood_droplet")
+
 	# Que la mancha quede debajo del player, pero visible sobre el fondo
 	z_index = -1
 
