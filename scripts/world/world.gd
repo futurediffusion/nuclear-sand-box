@@ -4,9 +4,10 @@ extends Node2D
 
 @export var width: int = 256
 @export var height: int = 256
-@export var chunk_size: int = 64
-@export var active_radius: int = 2  # chunks activos alrededor del player
+@export var chunk_size: int = 32
+@export var active_radius: int = 1  # chunks activos alrededor del player
 @export var copper_ore_scene: PackedScene
+@export var chunk_check_interval: float = 0.3
 
 # Noise para bioma dominante
 var biome_noise := FastNoiseLite.new()
@@ -19,10 +20,13 @@ var current_player_chunk := Vector2i(-999, -999)
 
 var spawn_tile: Vector2i
 const COPPER_MIN_DIST_TILES := 20
+var _chunk_timer: float = 0.0
+var _pick_rng := RandomNumberGenerator.new()
 
 @export var bandit_camp_scene: PackedScene
 @export var bandit_scene: PackedScene  # tu Enemy (bandido)
 var generated_chunks: Dictionary = {} # {Vector2i: true}
+var generating_chunks: Dictionary = {} # {Vector2i: true}
 var chunk_save: Dictionary = {}       # {Vector2i: { "ores":[], "camps":[] } }
 
 # Tabla de tiles por bioma
@@ -64,9 +68,15 @@ func _ready() -> void:
 	if player:
 		player.global_position = tilemap.map_to_local(spawn_tile)
 
-	update_chunks(world_to_chunk(tilemap.map_to_local(spawn_tile)))
+	current_player_chunk = world_to_chunk(tilemap.map_to_local(spawn_tile))
+	update_chunks(current_player_chunk)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_chunk_timer += delta
+	if _chunk_timer < chunk_check_interval:
+		return
+	_chunk_timer = 0.0
+
 	if not player:
 		return
 	var pchunk := world_to_chunk(player.position)
@@ -87,9 +97,12 @@ func update_chunks(center: Vector2i) -> void:
 			var cpos := Vector2i(cx, cy)
 			needed[cpos] = true
 
-			if not generated_chunks.has(cpos):
+			if not generated_chunks.has(cpos) and not generating_chunks.has(cpos):
+				generating_chunks[cpos] = true
 				generate_chunk(cpos)
-				generated_chunks[cpos] = true
+
+			if generating_chunks.has(cpos):
+				continue
 
 			if not loaded_chunks.has(cpos):
 				load_chunk_entities(cpos)
@@ -98,10 +111,15 @@ func update_chunks(center: Vector2i) -> void:
 	# Descargar chunks lejanos
 	for cpos in loaded_chunks.keys():
 		if not needed.has(cpos):
+			unload_chunk(cpos)
+			generated_chunks.erase(cpos)
+			generating_chunks.erase(cpos)
 			unload_chunk_entities(cpos)
 			loaded_chunks.erase(cpos)
 
 func generate_chunk(chunk_pos: Vector2i) -> void:
+	spawn_entities_in_chunk(chunk_pos)
+
 	var start_x := chunk_pos.x * chunk_size
 	var start_y := chunk_pos.y * chunk_size
 	
@@ -113,8 +131,12 @@ func generate_chunk(chunk_pos: Vector2i) -> void:
 			
 			var tile_atlas := pick_tile(x, y)
 			tilemap.set_cell(0, Vector2i(x, y), 0, tile_atlas)
+
+		if y % 8 == 0:
+			await get_tree().process_frame
 	
-	spawn_entities_in_chunk(chunk_pos)
+	generated_chunks[chunk_pos] = true
+	generating_chunks.erase(chunk_pos)
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
 	var start_x := chunk_pos.x * chunk_size
@@ -123,7 +145,6 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 		for x in range(start_x, start_x + chunk_size):
 			tilemap.erase_cell(0, Vector2i(x, y))
 	
-	despawn_entities_in_chunk(chunk_pos)
 
 # ─── Tile picking ────────────────────────────────────────────────
 
@@ -144,11 +165,10 @@ func pick_tile(x: int, y: int) -> Vector2i:
 	for t in tiles:
 		total_weight += t["w"]
 
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(Vector2i(x, y))
+	_pick_rng.seed = hash(Vector2i(x, y))
 
 	# 1) elegir qué grupo de tile gana (por peso)
-	var roll := rng.randi_range(0, total_weight - 1)
+	var roll := _pick_rng.randi_range(0, total_weight - 1)
 	var acc := 0
 	var winner: Dictionary
 	for t in tiles:
@@ -158,7 +178,7 @@ func pick_tile(x: int, y: int) -> Vector2i:
 			break
 
 	# 2) dentro del grupo ganador, elegir la columna aleatoria (los 3 cuadros)
-	var col := rng.randi_range(winner["col_range"][0], winner["col_range"][1])
+	var col := _pick_rng.randi_range(winner["col_range"][0], winner["col_range"][1])
 	return Vector2i(col, winner["row"])
 
 # ─── Spawner ────────────────────────────────────────────────────
