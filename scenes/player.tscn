@@ -146,34 +146,11 @@ size = Vector2(14, 15)
 
 [node name="Player" type="CharacterBody2D"]
 script = ExtResource("1_qhqgy")
-max_speed = null
-acceleration = null
-friction = null
-turn_speed = null
-max_hp = null
-attack_push_speed = null
-attack_push_time = null
-attack_push_deadzone = null
-knockback_friction = null
-hurt_time = null
-weapon_follow_speed = null
-attack_snap_speed = null
-attack_duration = null
-facing_deadzone_px = null
-angle_offset_left = null
-angle_offset_right = null
 slash_scene = ExtResource("2_qlg0r")
-slash_visual_offset_deg = null
 blood_scene = ExtResource("3_ur7pv")
-blood_hit_amount = null
-blood_death_amount = null
 droplet_scene = ExtResource("4_y4r1p")
-splat_lifetime = null
-droplet_count_hit = null
-droplet_count_death = null
 droplet_speed_min = 60.0
 droplet_speed_max = 120.0
-droplet_spread_deg = null
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("7_healthc")

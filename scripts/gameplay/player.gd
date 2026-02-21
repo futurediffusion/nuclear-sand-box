@@ -2,7 +2,7 @@ class_name Player
 extends CharacterBody2D
 
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
-const StaminaComponentScript = preload("res://scripts/components/StaminaComponent.gd")
+@onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 
 # =============================================================================
@@ -47,6 +47,7 @@ var hp: int
 @export_group("Slash")
 @export var slash_scene: PackedScene
 @export var slash_visual_offset_deg: float = 0.0  # Por si el sprite del slash está rotado
+@export var block_guard_margin_deg: float = 10.0 # extra de tolerancia
 
 # =============================================================================
 # NODOS
@@ -56,7 +57,6 @@ var hp: int
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
 @onready var health_component: Node = get_node_or_null("HealthComponent")
-@onready var stamina_component: Node = get_node_or_null("StaminaComponent")
 @onready var inventory: Node = get_node_or_null("InventoryComponent")
 
 #____________________
@@ -79,6 +79,8 @@ var hp: int
 @export var droplet_speed_min: float = 80.0
 @export var droplet_speed_max: float = 140.0
 @export var droplet_spread_deg: float = 70.0
+
+
 
 
 # =============================================================================
@@ -112,6 +114,9 @@ var block_angle: float = 0.0
 @export var block_hit_stamina_cost: float = 0.10 # 10% de max_stamina al recibir golpe bloqueando
 
 signal stamina_changed(stamina: float, max_stamina: float)
+@export var block_wiggle_deg: float = 60.0     # amplitud del bamboleo
+@export var block_wiggle_hz: float = 6.0       # cuántas veces por segundo
+var block_wiggle_t: float = 0.0
 
 
 # =============================================================================
@@ -174,15 +179,15 @@ func _setup_health_component() -> void:
 
 func _setup_stamina_component() -> void:
 	if stamina_component == null:
-		stamina_component = StaminaComponentScript.new()
+		stamina_component = StaminaComponent.new()
 		stamina_component.name = "StaminaComponent"
 		add_child(stamina_component)
 
 	if stamina_component != null:
 		if stamina_component.has_signal("stamina_changed") and not stamina_component.stamina_changed.is_connected(_on_stamina_changed):
 			stamina_component.stamina_changed.connect(_on_stamina_changed)
-		if stamina_component.has_method("get_current_stamina") and stamina_component.has_method("get_max_stamina"):
-			stamina_changed.emit(stamina_component.get_current_stamina(), stamina_component.get_max_stamina())
+
+		stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
 
 
 func _setup_inventory_component() -> void:
@@ -242,9 +247,11 @@ func _physics_process(delta: float) -> void:
 	_update_facing_from_mouse()
 	_update_mouse_angle()
 
+	# --- ROTACIÓN DEL ARMA ---
 	if attacking:
 		_snap_to_attack_angle(delta)
 	elif blocking:
+		_update_block_wiggle(delta) # block_angle = mouse_angle + wiggle
 		weapon_pivot.rotation = lerp_angle(
 			weapon_pivot.rotation,
 			block_angle,
@@ -256,8 +263,6 @@ func _physics_process(delta: float) -> void:
 	_update_weapon_flip()
 	_process_attack(delta)
 	_update_animation()
-	
-
 
 	# Empujón corto del ataque (solo dura attack_push_time)
 	if attack_push_t > 0.0:
@@ -266,7 +271,7 @@ func _physics_process(delta: float) -> void:
 
 	# --- Drain de stamina por bloqueo activo ---
 	if blocking and stamina_component != null:
-		var drained := block_stamina_drain * delta
+		var drained := (block_stamina_drain * 2.0) * delta
 		stamina_component.current_stamina = maxf(stamina_component.current_stamina - drained, 0.0)
 		stamina_component.stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
 		if stamina_component.current_stamina <= 0.0:
@@ -327,10 +332,42 @@ func _update_weapon_aim(delta: float) -> void:
 	)
 
 func _calculate_block_angle() -> float:
-	if last_hit_from == Vector2.ZERO:
-		return mouse_angle + deg_to_rad(90.0)
-	var dir_from_attacker := (global_position - last_hit_from).normalized()
-	return dir_from_attacker.angle() + deg_to_rad(90.0)
+	# Bloqueo centrado en donde apunta el mouse (igual que cuando no bloqueas)
+	return mouse_angle
+
+func _is_hit_blocked(from_pos: Vector2) -> bool:
+	# Si no nos dan posición del atacante, no podemos decidir: no bloquear
+	if from_pos == Vector2.INF:
+		return false
+
+	# Dirección desde el player hacia el atacante
+	var to_attacker := (from_pos - global_position)
+	if to_attacker.length() < 0.001:
+		return true
+
+	to_attacker = to_attacker.normalized()
+
+	# Dirección hacia donde apunta el bloqueo (mouse)
+	var block_dir := Vector2.RIGHT.rotated(mouse_angle)
+
+	# Ángulo entre ambos (0 = enfrente, PI = detrás)
+	var dot := clampf(block_dir.dot(to_attacker), -1.0, 1.0)
+	var ang := acos(dot)
+
+	# Cobertura: wiggle_deg + margen, pero en radianes
+	var half_cone := deg_to_rad(block_wiggle_deg + block_guard_margin_deg)
+
+	# Si el atacante está dentro del cono frontal, bloquea
+	return ang <= half_cone
+
+func _update_block_wiggle(delta: float) -> void:
+	var base := mouse_angle
+
+	block_wiggle_t += delta
+
+	var wiggle_rad := deg_to_rad(block_wiggle_deg) * sin(block_wiggle_t * TAU * block_wiggle_hz)
+
+	block_angle = base + wiggle_rad
 
 # =============================================================================
 # SNAP RÁPIDO AL ÁNGULO DE ATAQUE
@@ -350,8 +387,7 @@ func _process_attack(delta: float) -> void:
 	if Input.is_action_just_pressed("block"):
 		if stamina_component != null and stamina_component.current_stamina > 0.0:
 			blocking = true
-			block_angle = _calculate_block_angle()
-			print("[BLOCK] activado angulo=", rad_to_deg(block_angle))
+			block_wiggle_t = 0.0
 
 	if Input.is_action_just_released("block"):
 		if blocking:
@@ -451,21 +487,24 @@ func _update_animation() -> void:
 # RECIBIR DAÑO
 # =============================================================================
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
-	# --- Si está bloqueando, absorber con stamina en vez de HP ---
-	if blocking and stamina_component != null:
+	# --- BLOQUEO: solo si el golpe entra en el cono ---
+	if blocking and stamina_component != null and _is_hit_blocked(from_pos):
 		var cost := stamina_component.max_stamina * block_hit_stamina_cost
 		stamina_component.current_stamina = maxf(stamina_component.current_stamina - cost, 0.0)
 		stamina_component.stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
-		print("[BLOCK] golpe absorbido, stamina restante=", stamina_component.current_stamina)
+		print("[BLOCK] golpe bloqueado. stamina restante=", stamina_component.current_stamina)
+
 		if stamina_component.current_stamina <= 0.0:
 			blocking = false
 			print("[BLOCK] roto por golpe sin stamina")
-		# Aun así guardar de dónde vino para actualizar el ángulo de bloqueo
-		if from_pos != Vector2.INF:
-			last_hit_from = from_pos
-			block_angle = _calculate_block_angle()
-		return  # <- no baja HP, termina aquí
+		return # <- no baja HP, termina aquí
 
+	# Si estabas bloqueando pero el golpe viene fuera del cono, entra daño normal
+	# (Opcional: log para debug)
+	if blocking and from_pos != Vector2.INF and not _is_hit_blocked(from_pos):
+		print("[BLOCK] fallo: golpe fuera del cono")
+
+	# --- DAÑO NORMAL ---
 	if health_component != null and health_component.has_method("take_damage"):
 		health_component.take_damage(dmg)
 		hp = health_component.hp

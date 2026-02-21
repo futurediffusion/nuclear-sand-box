@@ -30,31 +30,31 @@ color = Color(0.785028, 0.949588, 0.461168, 1)
 
 [node name="Player" parent="." instance=ExtResource("1_o5qli")]
 position = Vector2(126.8, 77.2)
-max_speed = null
-acceleration = null
-friction = null
-turn_speed = null
-max_hp = null
+max_speed = 300.0
+acceleration = 1200.0
+friction = 1800.0
+turn_speed = 2000.0
+max_hp = 3
 attack_push_speed = 90.0
 attack_push_time = 0.05
-attack_push_deadzone = null
-knockback_friction = null
-hurt_time = null
-weapon_follow_speed = null
-attack_snap_speed = null
-attack_duration = null
-facing_deadzone_px = null
-angle_offset_left = null
-angle_offset_right = null
-slash_visual_offset_deg = null
-blood_hit_amount = null
-blood_death_amount = null
-splat_lifetime = null
-droplet_count_hit = null
-droplet_count_death = null
-droplet_speed_min = null
-droplet_speed_max = null
-droplet_spread_deg = null
+attack_push_deadzone = 15.0
+knockback_friction = 2200.0
+hurt_time = 0.15
+weapon_follow_speed = 25.0
+attack_snap_speed = 50.0
+attack_duration = 0.3
+facing_deadzone_px = 2.0
+angle_offset_left = -150.0
+angle_offset_right = 150.0
+slash_visual_offset_deg = 0.0
+blood_hit_amount = 12
+blood_death_amount = 40
+splat_lifetime = 60.0
+droplet_count_hit = 6
+droplet_count_death = 14
+droplet_speed_min = 80.0
+droplet_speed_max = 140.0
+droplet_spread_deg = 70.0
 
 [node name="MouseCursor" parent="." instance=ExtResource("2_0wfyh")]
 scale = Vector2(1.5, 1.5)
@@ -65,6 +65,8 @@ position = Vector2(98.4, 93.6)
 [node name="EnemySpawner" parent="." instance=ExtResource("4_jyhfs")]
 position = Vector2(136, 13.6)
 scale = Vector2(320.873, -555.618)
+spawn_interval = 0.9
+max_enemies = 10
 
 [node name="UI" type="CanvasLayer" parent="."]
 process_mode = 2
@@ -152,3 +154,9 @@ text = "RETRY"
 [node name="QUIT" type="Button" parent="UI/GameOverPanel/VBoxContainer"]
 layout_mode = 2
 text = "QUIT"
+
+[node name="EnemySpawner2" parent="." instance=ExtResource("4_jyhfs")]
+position = Vector2(43777.7, -7544.99)
+scale = Vector2(102959, 308711)
+spawn_interval = 0.9
+max_enemies = 10
