@@ -86,14 +86,19 @@ func update_chunks(center: Vector2i) -> void:
 		for cx in range(center.x - active_radius, center.x + active_radius + 1):
 			var cpos := Vector2i(cx, cy)
 			needed[cpos] = true
-			if not loaded_chunks.has(cpos):
+
+			if not generated_chunks.has(cpos):
 				generate_chunk(cpos)
+				generated_chunks[cpos] = true
+
+			if not loaded_chunks.has(cpos):
+				load_chunk_entities(cpos)
 				loaded_chunks[cpos] = true
 	
 	# Descargar chunks lejanos
 	for cpos in loaded_chunks.keys():
 		if not needed.has(cpos):
-			unload_chunk(cpos)
+			unload_chunk_entities(cpos)
 			loaded_chunks.erase(cpos)
 
 func generate_chunk(chunk_pos: Vector2i) -> void:
@@ -161,7 +166,11 @@ func pick_tile(x: int, y: int) -> Vector2i:
 var chunk_entities: Dictionary = {}  # {Vector2i -> Array[Node]}
 
 func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
-	chunk_entities[chunk_pos] = []
+	if not chunk_save.has(chunk_pos):
+		chunk_save[chunk_pos] = {"ores": [], "camps": []}
+	else:
+		return
+
 	if copper_ore_scene == null:
 		return
 
@@ -217,11 +226,10 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 				if rng.randf() > 0.20:
 					continue
 
-		# spawn cobre
-		var ore := copper_ore_scene.instantiate()
-		ore.global_position = tilemap.map_to_local(tpos)
-		add_child(ore)
-		chunk_entities[chunk_pos].append(ore)
+		chunk_save[chunk_pos]["ores"].append({
+			"tile": tpos,
+			"remaining": -1
+		})
 		copper_positions.append(tpos)
 
 	# -----------------------------
@@ -242,7 +250,9 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		if camp_tile == Vector2i(-999, -999):
 			continue
 
-		_spawn_camp_at(chunk_pos, camp_tile)
+		chunk_save[chunk_pos]["camps"].append({
+			"tile": camp_tile
+		})
 
 	# (B) Algunos campamentos random (NO cerca del cobre)
 	var random_camps := rng.randi_range(0, 2) # 0-1 campamentos extra por chunk
@@ -256,7 +266,56 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		if _is_close_to_any(try_tile, copper_positions, 10):
 			continue
 
-		_spawn_camp_at(chunk_pos, try_tile)
+		chunk_save[chunk_pos]["camps"].append({
+			"tile": try_tile
+		})
+
+func load_chunk_entities(chunk_pos: Vector2i) -> void:
+	chunk_entities[chunk_pos] = []
+
+	if not chunk_save.has(chunk_pos):
+		return
+
+	for d in chunk_save[chunk_pos]["ores"]:
+		var tpos: Vector2i = d["tile"]
+		var ore := copper_ore_scene.instantiate()
+		ore.global_position = tilemap.map_to_local(tpos)
+
+		if d.has("remaining") and d["remaining"] != -1:
+			ore.set("remaining", int(d["remaining"]))
+
+		add_child(ore)
+		chunk_entities[chunk_pos].append(ore)
+
+	for c in chunk_save[chunk_pos]["camps"]:
+		var ct: Vector2i = c["tile"]
+		var camp := bandit_camp_scene.instantiate()
+		camp.global_position = tilemap.map_to_local(ct)
+		add_child(camp)
+		chunk_entities[chunk_pos].append(camp)
+
+		camp.set("bandit_scene", bandit_scene)
+
+func unload_chunk_entities(chunk_pos: Vector2i) -> void:
+	if not chunk_entities.has(chunk_pos):
+		return
+
+	if chunk_save.has(chunk_pos):
+		var ore_list = chunk_save[chunk_pos]["ores"]
+
+		for e in chunk_entities[chunk_pos]:
+			if is_instance_valid(e) and e is CopperOre:
+				var tile := tilemap.local_to_map(e.global_position)
+				for d in ore_list:
+					if d["tile"] == tile:
+						d["remaining"] = int(e.get("remaining"))
+						break
+
+	for e in chunk_entities[chunk_pos]:
+		if is_instance_valid(e):
+			e.queue_free()
+
+	chunk_entities.erase(chunk_pos)
 
 func despawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	if not chunk_entities.has(chunk_pos):
