@@ -104,6 +104,13 @@ var knock_vel: Vector2 = Vector2.ZERO
 var hurt_t: float = 0.0
 var dying: bool = false
 
+# Sistema de bloqueo
+var blocking: bool = false
+var last_hit_from: Vector2 = Vector2.ZERO
+var block_angle: float = 0.0
+@export var block_stamina_drain: float = 12.0   # stamina por segundo mientras bloqueas
+@export var block_hit_stamina_cost: float = 0.10 # 10% de max_stamina al recibir golpe bloqueando
+
 signal stamina_changed(stamina: float, max_stamina: float)
 
 
@@ -237,6 +244,12 @@ func _physics_process(delta: float) -> void:
 
 	if attacking:
 		_snap_to_attack_angle(delta)
+	elif blocking:
+		weapon_pivot.rotation = lerp_angle(
+			weapon_pivot.rotation,
+			block_angle,
+			1.0 - exp(-attack_snap_speed * delta)
+		)
 	else:
 		_update_weapon_aim(delta)
 
@@ -250,6 +263,15 @@ func _physics_process(delta: float) -> void:
 	if attack_push_t > 0.0:
 		attack_push_t -= delta
 		velocity += attack_push_vel
+
+	# --- Drain de stamina por bloqueo activo ---
+	if blocking and stamina_component != null:
+		var drained := block_stamina_drain * delta
+		stamina_component.current_stamina = maxf(stamina_component.current_stamina - drained, 0.0)
+		stamina_component.stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
+		if stamina_component.current_stamina <= 0.0:
+			blocking = false
+			print("[BLOCK] roto por stamina agotada")
 
 	# Knockback cuando te pegan (se va frenando con fricción)
 	velocity += knock_vel
@@ -304,6 +326,12 @@ func _update_weapon_aim(delta: float) -> void:
 		1.0 - exp(-weapon_follow_speed * delta)
 	)
 
+func _calculate_block_angle() -> float:
+	if last_hit_from == Vector2.ZERO:
+		return mouse_angle + deg_to_rad(90.0)
+	var dir_from_attacker := (global_position - last_hit_from).normalized()
+	return dir_from_attacker.angle() + deg_to_rad(90.0)
+
 # =============================================================================
 # SNAP RÁPIDO AL ÁNGULO DE ATAQUE
 # =============================================================================
@@ -318,6 +346,18 @@ func _snap_to_attack_angle(delta: float) -> void:
 # ATAQUE CON OFFSETS RELATIVOS AL MOUSE
 # =============================================================================
 func _process_attack(delta: float) -> void:
+	# --- BLOQUEO ---
+	if Input.is_action_just_pressed("block"):
+		if stamina_component != null and stamina_component.current_stamina > 0.0:
+			blocking = true
+			block_angle = _calculate_block_angle()
+			print("[BLOCK] activado angulo=", rad_to_deg(block_angle))
+
+	if Input.is_action_just_released("block"):
+		if blocking:
+			blocking = false
+			print("[BLOCK] desactivado")
+
 	if Input.is_action_just_pressed("attack") and not attacking:
 		if stamina_component == null or not stamina_component.has_method("spend_attack_cost"):
 			return
@@ -411,6 +451,21 @@ func _update_animation() -> void:
 # RECIBIR DAÑO
 # =============================================================================
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
+	# --- Si está bloqueando, absorber con stamina en vez de HP ---
+	if blocking and stamina_component != null:
+		var cost := stamina_component.max_stamina * block_hit_stamina_cost
+		stamina_component.current_stamina = maxf(stamina_component.current_stamina - cost, 0.0)
+		stamina_component.stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
+		print("[BLOCK] golpe absorbido, stamina restante=", stamina_component.current_stamina)
+		if stamina_component.current_stamina <= 0.0:
+			blocking = false
+			print("[BLOCK] roto por golpe sin stamina")
+		# Aun así guardar de dónde vino para actualizar el ángulo de bloqueo
+		if from_pos != Vector2.INF:
+			last_hit_from = from_pos
+			block_angle = _calculate_block_angle()
+		return  # <- no baja HP, termina aquí
+
 	if health_component != null and health_component.has_method("take_damage"):
 		health_component.take_damage(dmg)
 		hp = health_component.hp
