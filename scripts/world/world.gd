@@ -91,6 +91,9 @@ func world_to_chunk(pos: Vector2) -> Vector2i:
 	return Vector2i(tile_pos.x / chunk_size, tile_pos.y / chunk_size)
 
 func update_chunks(center: Vector2i) -> void:
+	if player:
+		_debug_check_tile_alignment(player.global_position)
+
 	var needed: Dictionary = {}
 	for cy in range(center.y - active_radius, center.y + active_radius + 1):
 		for cx in range(center.x - active_radius, center.x + active_radius + 1):
@@ -191,6 +194,20 @@ const SAFE_PLAYER_SPAWN_RADIUS_TILES := 6
 const SPAWN_MAX_TRIES := 30
 const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
+const DEBUG_SPAWN: bool = true
+
+func _debug_spawn_report(chunk_key: Vector2i, player_tile: Vector2i, chosen_tile: Vector2i, reason: String) -> void:
+	if not DEBUG_SPAWN:
+		return
+	print("[SPAWN][chunk=", chunk_key, "] player_tile=", player_tile, " chosen=", chosen_tile, " -> ", reason)
+
+func _debug_check_tile_alignment(player_global: Vector2) -> void:
+	if not DEBUG_SPAWN:
+		return
+
+	var local_pos: Vector2 = tilemap.to_local(player_global)
+	var tile_pos: Vector2i = tilemap.local_to_map(local_pos)
+	print("[ALIGN] player_global=", player_global, " local=", local_pos, " tile=", tile_pos)
 
 func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	if not chunk_save.has(chunk_pos):
@@ -236,7 +253,7 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		var tpos: Vector2i = _find_valid_spawn_tile(chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, SPAWN_MAX_TRIES, rng, COPPER_FOOTPRINT_RADIUS_TILES)
 		if tpos == INVALID_SPAWN_TILE:
 			if not copper_spawn_failed_logged:
-				print("Spawn cobre cancelado: no hay espacio en chunk ", chunk_pos)
+				_debug_spawn_report(chunk_pos, player_tile, INVALID_SPAWN_TILE, "CANCEL: no valid tile after tries")
 				copper_spawn_failed_logged = true
 			continue
 
@@ -306,7 +323,7 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 
 		if try_tile == INVALID_SPAWN_TILE:
 			if not camp_spawn_failed_logged:
-				print("Spawn campamento cancelado: no hay espacio en chunk ", chunk_pos)
+				_debug_spawn_report(chunk_pos, player_tile, INVALID_SPAWN_TILE, "CANCEL: no valid tile after tries")
 				camp_spawn_failed_logged = true
 			continue
 
