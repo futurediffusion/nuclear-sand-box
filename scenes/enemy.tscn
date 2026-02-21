@@ -143,6 +143,7 @@ size = Vector2(14, 15)
 
 [node name="Enemy" type="CharacterBody2D"]
 collision_layer = 4
+collision_mask = 5
 script = ExtResource("1_4ra3w")
 slash_scene = ExtResource("2_c4w8v")
 blood_scene = ExtResource("3_md484")

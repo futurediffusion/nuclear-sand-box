@@ -1,10 +1,11 @@
-[gd_scene load_steps=13 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=16 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
 [ext_resource type="PackedScene" uid="uid://cmysaqnuq4nfh" path="res://scenes/cursor_2d.tscn" id="2_0wfyh"]
+[ext_resource type="Script" uid="uid://d37y038e3w6ny" path="res://scripts/world/world.gd" id="2_jkv2x"]
 [ext_resource type="PackedScene" uid="uid://b61xj3scmxra2" path="res://scenes/enemy.tscn" id="3_sugp2"]
-[ext_resource type="PackedScene" uid="uid://dbj287l3pfpyo" path="res://scenes/enemy_spawner.tscn" id="4_jyhfs"]
+[ext_resource type="PackedScene" uid="uid://ckdqo63fw6dkw" path="res://scenes/bandit_camp.tscn" id="4_jkv2x"]
 [ext_resource type="Script" uid="uid://dauw3snnx1ppx" path="res://scripts/ui/hud.gd" id="5_hud"]
 [ext_resource type="Script" uid="uid://bmnvtxmikdtap" path="res://scripts/ui/hearts.gd" id="6_tefeu"]
 [ext_resource type="Texture2D" uid="uid://buxyqe0n15fc7" path="res://art/sprites/heart.png" id="8_85g3d"]
@@ -12,61 +13,34 @@
 [ext_resource type="Texture2D" uid="uid://b3wu74258jwbc" path="res://art/sprites/stamina-over..png" id="10_eb6dy"]
 [ext_resource type="Texture2D" uid="uid://dml1n360g720t" path="res://art/sprites/stamina-under.png" id="10_trceg"]
 [ext_resource type="Texture2D" uid="uid://b5syi5vb3w5xy" path="res://art/sprites/stamina-progress.png" id="11_trceg"]
+[ext_resource type="PackedScene" uid="uid://x4mnfcrurq20" path="res://scenes/copper_ore.tscn" id="13_trceg"]
+[ext_resource type="TileSet" uid="uid://cw5iyp3lgbpre" path="res://art/tiles/terrain.tres" id="14_a8y0u"]
 
 [node name="Main" type="Node2D"]
 scale = Vector2(2.5, 2.5)
 script = ExtResource("1_sugp2")
 
-[node name="BackgroundLayer" type="CanvasLayer" parent="."]
-layer = -100
+[node name="World" type="Node2D" parent="."]
+scale = Vector2(1, 1)
+script = ExtResource("2_jkv2x")
+copper_ore_scene = ExtResource("13_trceg")
+bandit_camp_scene = ExtResource("4_jkv2x")
+bandit_scene = ExtResource("3_sugp2")
 
-[node name="ColorRect" type="ColorRect" parent="BackgroundLayer"]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-color = Color(0.785028, 0.949588, 0.461168, 1)
+[node name="WorldTileMap" type="TileMap" parent="World"]
+scale = Vector2(1, 1)
+tile_set = ExtResource("14_a8y0u")
+format = 2
 
 [node name="Player" parent="." instance=ExtResource("1_o5qli")]
 position = Vector2(126.8, 77.2)
-max_speed = 300.0
-acceleration = 1200.0
-friction = 1800.0
-turn_speed = 2000.0
-max_hp = 3
 attack_push_speed = 90.0
 attack_push_time = 0.05
-attack_push_deadzone = 15.0
-knockback_friction = 2200.0
-hurt_time = 0.15
-weapon_follow_speed = 25.0
-attack_snap_speed = 50.0
-attack_duration = 0.3
-facing_deadzone_px = 2.0
-angle_offset_left = -150.0
-angle_offset_right = 150.0
-slash_visual_offset_deg = 0.0
-blood_hit_amount = 12
-blood_death_amount = 40
-splat_lifetime = 60.0
-droplet_count_hit = 6
-droplet_count_death = 14
 droplet_speed_min = 80.0
 droplet_speed_max = 140.0
-droplet_spread_deg = 70.0
 
 [node name="MouseCursor" parent="." instance=ExtResource("2_0wfyh")]
 scale = Vector2(1.5, 1.5)
-
-[node name="Enemy" parent="." instance=ExtResource("3_sugp2")]
-position = Vector2(98.4, 93.6)
-
-[node name="EnemySpawner" parent="." instance=ExtResource("4_jyhfs")]
-position = Vector2(136, 13.6)
-scale = Vector2(320.873, -555.618)
-spawn_interval = 0.9
-max_enemies = 10
 
 [node name="UI" type="CanvasLayer" parent="."]
 process_mode = 2
@@ -154,9 +128,3 @@ text = "RETRY"
 [node name="QUIT" type="Button" parent="UI/GameOverPanel/VBoxContainer"]
 layout_mode = 2
 text = "QUIT"
-
-[node name="EnemySpawner2" parent="." instance=ExtResource("4_jyhfs")]
-position = Vector2(43777.7, -7544.99)
-scale = Vector2(102959, 308711)
-spawn_interval = 0.9
-max_enemies = 10

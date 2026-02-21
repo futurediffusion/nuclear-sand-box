@@ -70,6 +70,13 @@ var dying: bool = false
 @onready var health_component: Node = get_node_or_null("HealthComponent")
 
 # =============================================================================
+# COLISION DE ALIADOS
+# =============================================================================
+
+@export var separation_radius: float = 40.0
+@export var separation_strength: float = 120.0
+
+# =============================================================================
 # ESTADO DE COMBATE
 # =============================================================================
 var hp: int
@@ -116,6 +123,7 @@ var hitstopping: bool = false
 # READY
 # =============================================================================
 func _ready() -> void:
+	add_to_group("enemy")
 	_setup_health_component()
 	sprite.play("idle")
 	
@@ -177,6 +185,9 @@ func _physics_process(delta: float) -> void:
 	_execute_current_state(dt)
 	_update_weapon(dt)
 	_update_animation()
+
+	# 👇 Esto evita que se monten unos encima de otros
+	_apply_separation_force(dt)
 
 	velocity += knock_vel
 	knock_vel = knock_vel.move_toward(Vector2.ZERO, knockback_friction * dt)
@@ -479,6 +490,24 @@ func _update_animation() -> void:
 		sprite.play("walk")
 	else:
 		sprite.play("idle")
+		
+func _apply_separation_force(dt: float) -> void:
+	var enemies := get_tree().get_nodes_in_group("enemy")
+
+	for e in enemies:
+		if e == self:
+			continue
+		if not (e is Node2D):
+			continue
+
+		var other := e as Node2D
+		var dist := global_position.distance_to(other.global_position)
+
+		if dist > 0.0 and dist < separation_radius:
+			# Empuja alejándote del otro
+			var push_dir := (global_position - other.global_position).normalized()
+			var t := 1.0 - (dist / separation_radius) # más cerca = más fuerza
+			velocity += push_dir * separation_strength * t * dt
 
 func die() -> void:
 	if dying:

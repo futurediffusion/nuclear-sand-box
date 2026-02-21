@@ -11,11 +11,15 @@ extends Node2D
 
 @export var pitch_min: float = 0.8
 @export var pitch_max: float = 1.2
+@export var can_mine: bool = true
 
+	
 var already_hit := {}
 var owner_team: StringName = &"player"
 var owner_node: Node = null
 var did_hitstop: bool = false
+
+
 
 func setup(team: StringName, owner: Node) -> void:
 	owner_team = team
@@ -54,9 +58,11 @@ func _set_hitbox_enabled(enabled: bool) -> void:
 
 func _configure_mask() -> void:
 	if owner_team == &"player":
-		hitbox.collision_mask = 1 << (3 - 1) # pega enemies
+		# Enemy (3) + Resources (4)
+		hitbox.collision_mask = (1 << (3 - 1)) | (1 << (4 - 1))
 	else:
-		hitbox.collision_mask = 1 << (1 - 1) # pega player
+		# Player (1)
+		hitbox.collision_mask = 1 << (1 - 1)
 
 func _on_anim_finished() -> void:
 	queue_free()
@@ -74,35 +80,50 @@ func _try_damage(target: Node) -> void:
 		return
 	
 	already_hit[id] = true
-	
-	# Solo si realmente tiene vida/daño
-	if target.has_method("take_damage"):
 
+	# 1) Si es un recurso (cobre, etc) y tiene método hit()
+	#    Le pasamos el dueño del slash (player/enemy)
+	# Solo minar si este slash puede minar
+	if can_mine and target.has_method("hit"):
+		target.call("hit", owner_node)
+
+		# Sonido especial si el recurso lo define (mining/clink)
+		var s: AudioStream = null
+		if target.has_method("get_hit_sound"):
+			s = target.call("get_hit_sound")
+
+		if s != null:
+			impact_sound.stream = s
+			impact_sound.play()
+		elif impact_sound and impact_sound.stream:
+			# fallback por si no tiene sonido custom
+			impact_sound.play()
+
+		return
+
+	# 2) Si no es recurso, entonces es combate normal
+	if target.has_method("take_damage"):
 		var from_pos := global_position
-		if owner_node != null:
+		if owner_node != null and "global_position" in owner_node:
 			from_pos = owner_node.global_position
 
 		target.call("take_damage", damage, from_pos)
 
-		
 		# Impact SFX SOLO si pegó
 		if impact_sound and impact_sound.stream:
 			impact_sound.play()
-		
-		# Knockback - CALCULADO CORRECTAMENTE desde el atacante hacia el objetivo
+
+		# Knockback
 		if target.has_method("apply_knockback"):
 			var knockback_dir: Vector2
-			
-			# Calcular dirección desde el DUEÑO del slash hacia el objetivo
-			if owner_node != null:
+			if owner_node != null and "global_position" in owner_node:
 				knockback_dir = (target.global_position - owner_node.global_position).normalized()
 			else:
-				# Fallback: usar la rotación del slash
 				knockback_dir = Vector2.RIGHT.rotated(global_rotation)
-			
+
 			target.call("apply_knockback", knockback_dir * knockback_strength)
-		
-		# Hitstop SOLO si el objetivo tiene el método
+
+		# Hitstop
 		if not did_hitstop and target.has_method("apply_hitstop"):
 			did_hitstop = true
 			target.call("apply_hitstop")

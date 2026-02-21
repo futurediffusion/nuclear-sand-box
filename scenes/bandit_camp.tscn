@@ -1,0 +1,46 @@
+[gd_scene load_steps=7 format=3 uid="uid://ckdqo63fw6dkw"]
+
+[ext_resource type="Texture2D" uid="uid://ba5ri5rpnqvoi" path="res://art/sprites/campfire.png" id="1_yflsb"]
+[ext_resource type="Script" uid="uid://c542j43xrs2jt" path="res://scripts/world/bandit_camp.gd" id="2_kojof"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_kojof"]
+atlas = ExtResource("1_yflsb")
+region = Rect2(0, 0, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_xu6e0"]
+atlas = ExtResource("1_yflsb")
+region = Rect2(32, 0, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ecb5w"]
+atlas = ExtResource("1_yflsb")
+region = Rect2(64, 0, 32, 32)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_ob2w7"]
+animations = [{
+"frames": [{
+"duration": 1.5,
+"texture": SubResource("AtlasTexture_kojof")
+}, {
+"duration": 1.5,
+"texture": SubResource("AtlasTexture_xu6e0")
+}, {
+"duration": 1.5,
+"texture": SubResource("AtlasTexture_ecb5w")
+}],
+"loop": true,
+"name": &"default",
+"speed": 5.0
+}]
+
+[node name="BanditCamp" type="Node2D"]
+script = ExtResource("2_kojof")
+
+[node name="SpawnPoint1" type="Marker2D" parent="."]
+
+[node name="SpawnPoint2" type="Marker2D" parent="."]
+
+[node name="SpawnPoint3" type="Marker2D" parent="."]
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+sprite_frames = SubResource("SpriteFrames_ob2w7")
+frame_progress = 0.307805
