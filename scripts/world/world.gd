@@ -184,10 +184,16 @@ func pick_tile(x: int, y: int) -> Vector2i:
 # ─── Spawner ────────────────────────────────────────────────────
 
 var chunk_entities: Dictionary = {}  # {Vector2i -> Array[Node]}
+var chunk_occupied_tiles: Dictionary = {}  # {Vector2i -> {Vector2i: true}}
+
+const INVALID_SPAWN_TILE := Vector2i(999999, 999999)
+const SAFE_PLAYER_SPAWN_RADIUS_TILES := 6
+const SPAWN_MAX_TRIES := 30
 
 func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	if not chunk_save.has(chunk_pos):
 		chunk_save[chunk_pos] = {"ores": [], "camps": []}
+		chunk_occupied_tiles[chunk_pos] = {}
 	else:
 		return
 
@@ -218,14 +224,15 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	if _tile_distance_to_spawn(chunk_center_tile) <= 30:
 		attempts = max(attempts, 1)
 
+	var player_tile: Vector2i = spawn_tile
+	if player:
+		player_tile = _world_to_tile(player.global_position)
+
 	for i in range(attempts):
-		var tx := rng.randi_range(chunk_pos.x * chunk_size, chunk_pos.x * chunk_size + chunk_size - 1)
-		var ty := rng.randi_range(chunk_pos.y * chunk_size, chunk_pos.y * chunk_size + chunk_size - 1)
-
-		if tx < 0 or tx >= width or ty < 0 or ty >= height:
+		var tpos: Vector2i = _find_valid_spawn_tile(chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, SPAWN_MAX_TRIES, rng)
+		if tpos == INVALID_SPAWN_TILE:
+			print("Spawn cobre cancelado: no hay espacio en chunk ", chunk_pos)
 			continue
-
-		var tpos := Vector2i(tx, ty)
 
 		# regla distancia (la mayoría lejos)
 		var dist := _tile_distance_to_spawn(tpos)
@@ -234,7 +241,7 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 			continue
 
 		# regla por BIOMA del tile: 60% piedra / 30% pasto / 20% arena
-		var tile_biome := get_biome(tx, ty)
+		var tile_biome := get_biome(tpos.x, tpos.y)
 		match tile_biome:
 			2:
 				if rng.randf() > 0.60:
@@ -250,6 +257,7 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 			"tile": tpos,
 			"remaining": -1
 		})
+		_mark_tile_occupied(chunk_pos, tpos)
 		copper_positions.append(tpos)
 
 	# -----------------------------
@@ -269,29 +277,39 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		var camp_tile := _find_nearby_tile(rng, copper_tile, 6, 14) # cerca (6-14 tiles)
 		if camp_tile == Vector2i(-999, -999):
 			continue
+		if not _is_spawn_tile_valid(chunk_pos, camp_tile, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES):
+			continue
 
 		chunk_save[chunk_pos]["camps"].append({
 			"tile": camp_tile
 		})
+		_mark_tile_occupied(chunk_pos, camp_tile)
 
 	# (B) Algunos campamentos random (NO cerca del cobre)
 	var random_camps := rng.randi_range(0, 2) # 0-1 campamentos extra por chunk
 	for r in range(random_camps):
-		var try_tile := Vector2i(
-			rng.randi_range(chunk_pos.x * chunk_size, chunk_pos.x * chunk_size + chunk_size - 1),
-			rng.randi_range(chunk_pos.y * chunk_size, chunk_pos.y * chunk_size + chunk_size - 1)
-		)
+		var try_tile: Vector2i = INVALID_SPAWN_TILE
+		for i in range(SPAWN_MAX_TRIES):
+			var candidate: Vector2i = _find_valid_spawn_tile(chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, SPAWN_MAX_TRIES, rng)
+			if candidate == INVALID_SPAWN_TILE:
+				break
+			if not _is_close_to_any(candidate, copper_positions, 10):
+				try_tile = candidate
+				break
 
-		# evitar spawn muy cerca del cobre
-		if _is_close_to_any(try_tile, copper_positions, 10):
+		if try_tile == INVALID_SPAWN_TILE:
+			print("Spawn campamento cancelado: no hay espacio en chunk ", chunk_pos)
 			continue
 
+		# evitar spawn muy cerca del cobre
 		chunk_save[chunk_pos]["camps"].append({
 			"tile": try_tile
 		})
+		_mark_tile_occupied(chunk_pos, try_tile)
 
 func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	chunk_entities[chunk_pos] = []
+	_rebuild_chunk_occupied_tiles(chunk_pos)
 
 	if not chunk_save.has(chunk_pos):
 		return
@@ -315,6 +333,54 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		chunk_entities[chunk_pos].append(camp)
 
 		camp.set("bandit_scene", bandit_scene)
+
+func _world_to_tile(world_pos: Vector2) -> Vector2i:
+	return tilemap.local_to_map(world_pos)
+
+func _get_random_tile_in_chunk(chunk_key: Vector2i, rng: RandomNumberGenerator) -> Vector2i:
+	var tx: int = rng.randi_range(chunk_key.x * chunk_size, chunk_key.x * chunk_size + chunk_size - 1)
+	var ty: int = rng.randi_range(chunk_key.y * chunk_size, chunk_key.y * chunk_size + chunk_size - 1)
+	return Vector2i(tx, ty)
+
+func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: Vector2i, safe_radius_tiles: int) -> bool:
+	if tile_pos.x < 0 or tile_pos.x >= width or tile_pos.y < 0 or tile_pos.y >= height:
+		return false
+
+	if tile_pos.distance_to(player_tile) <= float(safe_radius_tiles):
+		return false
+
+	var occ: Dictionary = chunk_occupied_tiles.get(chunk_key, {})
+	if occ.has(tile_pos):
+		return false
+
+	return true
+
+func _find_valid_spawn_tile(chunk_key: Vector2i, player_tile: Vector2i, safe_radius_tiles: int, max_tries: int, rng: RandomNumberGenerator) -> Vector2i:
+	var tries: int = 0
+	while tries < max_tries:
+		var candidate: Vector2i = _get_random_tile_in_chunk(chunk_key, rng)
+		if _is_spawn_tile_valid(chunk_key, candidate, player_tile, safe_radius_tiles):
+			return candidate
+		tries += 1
+
+	return INVALID_SPAWN_TILE
+
+func _mark_tile_occupied(chunk_key: Vector2i, tile_pos: Vector2i) -> void:
+	if not chunk_occupied_tiles.has(chunk_key):
+		chunk_occupied_tiles[chunk_key] = {}
+	var occ: Dictionary = chunk_occupied_tiles[chunk_key]
+	occ[tile_pos] = true
+
+func _rebuild_chunk_occupied_tiles(chunk_key: Vector2i) -> void:
+	chunk_occupied_tiles[chunk_key] = {}
+	if not chunk_save.has(chunk_key):
+		return
+
+	for d in chunk_save[chunk_key]["ores"]:
+		_mark_tile_occupied(chunk_key, d["tile"])
+
+	for c in chunk_save[chunk_key]["camps"]:
+		_mark_tile_occupied(chunk_key, c["tile"])
 
 func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 	if not chunk_entities.has(chunk_pos):
