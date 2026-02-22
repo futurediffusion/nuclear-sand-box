@@ -32,6 +32,36 @@ var chunk_save: Dictionary = {}       # {Vector2i: { "ores":[], "camps":[] } }
 # Tabla de tiles por bioma
 # Formato: [atlas_coords, peso_relativo]
 # Bioma: 0=arena, 1=pasto, 2=piedra
+# Layers
+const LAYER_GROUND: int = 0
+const LAYER_FLOOR: int = 1
+const LAYER_WALLS: int = 2
+
+# Sources
+const SRC_FLOOR: int = 1
+const SRC_WALLS: int = 2
+
+# Floor
+const FLOOR_WOOD: Vector2i = Vector2i(0, 0)
+
+# -----------------------------
+# WALL TILESET (4x2)
+# Fila 0 = ROOF
+# Fila 1 = WALL
+# -----------------------------
+
+# --- ROOF (fila superior y=0)
+const ROOF_VERTICAL: Vector2i = Vector2i(0, 0)   # techo completo (columna vertical)
+const ROOF_CONT_LEFT: Vector2i = Vector2i(1, 0)  # continuidad hacia izquierda
+const ROOF_CONT_RIGHT: Vector2i = Vector2i(2, 0) # continuidad hacia derecha
+const ROOF_BOTH: Vector2i = Vector2i(3, 0)       # continuidad L/R (tramo horizontal)
+
+# --- WALL (fila inferior y=1)
+const WALL_SINGLE: Vector2i = Vector2i(0, 1)     # pared sola / poste vertical
+const WALL_END_RIGHT: Vector2i = Vector2i(1, 1)  # termina derecha / marco izquierdo puerta
+const WALL_END_LEFT: Vector2i = Vector2i(2, 1)   # termina izquierda / marco derecho puerta
+const WALL_MID: Vector2i = Vector2i(3, 1)        # tramo horizontal
+
 const BIOME_TILES = {
 	0: [  # Arena dominante
 		{"col_range": [0,2], "rows": [1], "w": 70},  # arena
@@ -159,7 +189,9 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 	var start_y := chunk_pos.y * chunk_size
 	for y in range(start_y, start_y + chunk_size):
 		for x in range(start_x, start_x + chunk_size):
-			tilemap.erase_cell(0, Vector2i(x, y))
+			tilemap.erase_cell(LAYER_GROUND, Vector2i(x, y))
+			tilemap.erase_cell(LAYER_FLOOR, Vector2i(x, y))
+			tilemap.erase_cell(LAYER_WALLS, Vector2i(x, y))
 	
 
 # ─── Tile picking ────────────────────────────────────────────────
@@ -224,7 +256,13 @@ func _debug_check_tile_alignment(player_global: Vector2) -> void:
 
 func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	if not chunk_save.has(chunk_pos):
-		chunk_save[chunk_pos] = {"ores": [], "camps": []}
+		chunk_save[chunk_pos] = {
+			"ores": [],
+			"camps": [],
+			"placed_tiles": []
+		}
+		# 10% de probabilidad de taberna
+		generate_tavern_in_chunk(chunk_pos)
 		chunk_occupied_tiles[chunk_pos] = {}
 	else:
 		return
@@ -363,6 +401,9 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 
 		add_child(ore)
 		chunk_entities[chunk_pos].append(ore)
+	if chunk_save.has(chunk_pos):
+		for t in chunk_save[chunk_pos]["placed_tiles"]:
+			tilemap.set_cell(t["layer"], t["tile"], t["source"], t["atlas"])
 
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
@@ -556,4 +597,61 @@ func _is_close_to_any(p: Vector2i, points: Array[Vector2i], max_dist: int) -> bo
 		if p.distance_to(q) <= float(max_dist):
 			return true
 	return false
-	
+
+func _place_tile_persistent(chunk_pos: Vector2i, layer: int, tile_pos: Vector2i, source: int, atlas: Vector2i) -> void:
+	tilemap.set_cell(layer, tile_pos, source, atlas)
+
+	chunk_save[chunk_pos]["placed_tiles"].append({
+		"layer": layer,
+		"tile": tile_pos,
+		"source": source,
+		"atlas": atlas
+	})
+func generate_tavern_in_chunk(chunk_pos: Vector2i) -> void:
+	if not chunk_save.has(chunk_pos):
+		return
+	if not chunk_save[chunk_pos].has("placed_tiles"):
+		chunk_save[chunk_pos]["placed_tiles"] = []
+
+	var w: int = 12
+	var h: int = 8
+	var x0: int = chunk_pos.x * chunk_size + 4
+	var y0: int = chunk_pos.y * chunk_size + 3
+	var x1: int = x0 + w - 1
+	var y1: int = y0 + h - 1
+	var door_x: int = x0 + w / 2
+
+	# 1) PISO INTERIOR
+	for x in range(x0 + 1, x1):
+		for y in range(y0 + 1, y1):
+			_place_tile_persistent(chunk_pos, LAYER_FLOOR, Vector2i(x, y), SRC_FLOOR, FLOOR_WOOD)
+
+	# 2) PARED SUPERIOR + ESQUINAS ROOF
+	# Esquinas superiores
+	_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x0, y0 + 1), SRC_WALLS, ROOF_CONT_RIGHT)
+	_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x1, y0 + 1), SRC_WALLS, ROOF_CONT_LEFT)
+	# Pared horizontal (sin tocar x0 ni x1)
+	for x in range(x0 + 1, x1):
+		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x, y0 + 1), SRC_WALLS, WALL_MID)
+
+	# 3) PARED INFERIOR con puerta
+	for x in range(x0, x1 + 1):
+		if x == door_x:
+			continue
+		var atlas_b: Vector2i
+		if x == x0:
+			atlas_b = WALL_END_LEFT
+		elif x == x1:
+			atlas_b = WALL_END_RIGHT
+		elif x == door_x - 1:
+			atlas_b = WALL_END_RIGHT
+		elif x == door_x + 1:
+			atlas_b = WALL_END_LEFT
+		else:
+			atlas_b = WALL_MID
+		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x, y1), SRC_WALLS, atlas_b)
+
+	# 4) PAREDES LATERALES VERTICALES
+	for y in range(y0 + 2, y1):
+		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x0, y), SRC_WALLS, ROOF_VERTICAL)
+		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x1, y), SRC_WALLS, ROOF_VERTICAL)
