@@ -96,8 +96,15 @@ func update_chunks(center: Vector2i) -> void:
 		_debug_check_player_chunk(player.global_position)
 
 	var needed: Dictionary = {}
+	var min_chunk_x: int = 0
+	var min_chunk_y: int = 0
+	var max_chunk_x: int = int(floor(float(width - 1) / float(chunk_size)))
+	var max_chunk_y: int = int(floor(float(height - 1) / float(chunk_size)))
 	for cy in range(center.y - active_radius, center.y + active_radius + 1):
 		for cx in range(center.x - active_radius, center.x + active_radius + 1):
+			if cx < min_chunk_x or cx > max_chunk_x or cy < min_chunk_y or cy > max_chunk_y:
+				continue
+
 			var cpos := Vector2i(cx, cy)
 			needed[cpos] = true
 
@@ -407,13 +414,48 @@ func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: 
 
 func _find_valid_spawn_tile(chunk_key: Vector2i, player_tile: Vector2i, safe_radius_tiles: int, max_tries: int, rng: RandomNumberGenerator, footprint_radius_tiles: int = 0) -> Vector2i:
 	var tries: int = 0
+	var reject_prints: int = 0
 	while tries < max_tries:
 		var candidate: Vector2i = _get_random_tile_in_chunk(chunk_key, rng)
 		if _is_spawn_tile_valid(chunk_key, candidate, player_tile, safe_radius_tiles, footprint_radius_tiles):
 			return candidate
+
+		if DEBUG_SPAWN and reject_prints < 3:
+			var occ: Dictionary = chunk_occupied_tiles.get(chunk_key, {})
+			print(
+				"[REJECT] chunk=", chunk_key,
+				" cand=", candidate,
+				" dist=", candidate.distance_to(player_tile),
+				" occupied=", occ.has(candidate),
+				" reason=", _get_spawn_reject_reason(chunk_key, candidate, player_tile, safe_radius_tiles, footprint_radius_tiles)
+			)
+			reject_prints += 1
 		tries += 1
 
 	return INVALID_SPAWN_TILE
+
+func _get_spawn_reject_reason(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: Vector2i, safe_radius_tiles: int, footprint_radius_tiles: int = 0) -> String:
+	if tile_pos == INVALID_SPAWN_TILE:
+		return "invalid_spawn_tile"
+
+	if tile_pos.x < 0 or tile_pos.x >= width or tile_pos.y < 0 or tile_pos.y >= height:
+		return "out_of_world_bounds"
+
+	var occ: Dictionary = chunk_occupied_tiles.get(chunk_key, {})
+	for oy in range(-footprint_radius_tiles, footprint_radius_tiles + 1):
+		for ox in range(-footprint_radius_tiles, footprint_radius_tiles + 1):
+			var probe := tile_pos + Vector2i(ox, oy)
+
+			if probe.x < 0 or probe.x >= width or probe.y < 0 or probe.y >= height:
+				return "footprint_out_of_world_bounds"
+
+			if probe.distance_to(player_tile) <= float(safe_radius_tiles):
+				return "inside_safe_radius"
+
+			if occ.has(probe):
+				return "occupied"
+
+	return "unknown"
 
 func _mark_tile_occupied(chunk_key: Vector2i, tile_pos: Vector2i) -> void:
 	if tile_pos == INVALID_SPAWN_TILE:
