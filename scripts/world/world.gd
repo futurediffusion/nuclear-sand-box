@@ -4,7 +4,7 @@ extends Node2D
 
 @export var width: int = 256
 @export var height: int = 256
-@export var chunk_size: int = 32
+@export var chunk_size: int = 64
 @export var active_radius: int = 1  # chunks activos alrededor del player
 @export var copper_ore_scene: PackedScene
 @export var chunk_check_interval: float = 0.3
@@ -87,12 +87,13 @@ func _process(delta: float) -> void:
 # ─── Chunk logic ────────────────────────────────────────────────
 
 func world_to_chunk(pos: Vector2) -> Vector2i:
-	var tile_pos = tilemap.local_to_map(tilemap.to_local(pos))
-	return Vector2i(tile_pos.x / chunk_size, tile_pos.y / chunk_size)
+	var tile_pos: Vector2i = _world_to_tile(pos)
+	return _tile_to_chunk(tile_pos)
 
 func update_chunks(center: Vector2i) -> void:
 	if player:
 		_debug_check_tile_alignment(player.global_position)
+		_debug_check_player_chunk(player.global_position)
 
 	var needed: Dictionary = {}
 	for cy in range(center.y - active_radius, center.y + active_radius + 1):
@@ -362,6 +363,19 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 
 func _world_to_tile(world_pos: Vector2) -> Vector2i:
 	return tilemap.local_to_map(tilemap.to_local(world_pos))
+
+func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
+	var cx: int = int(floor(float(tile_pos.x) / float(chunk_size)))
+	var cy: int = int(floor(float(tile_pos.y) / float(chunk_size)))
+	return Vector2i(cx, cy)
+
+func _debug_check_player_chunk(player_global: Vector2) -> void:
+	if not DEBUG_SPAWN:
+		return
+
+	var player_tile: Vector2i = _world_to_tile(player_global)
+	var chunk_key: Vector2i = _tile_to_chunk(player_tile)
+	print("[CHUNK_CHECK] player_tile=", player_tile, " player_chunk=", chunk_key)
 
 func _get_random_tile_in_chunk(chunk_key: Vector2i, rng: RandomNumberGenerator) -> Vector2i:
 	var tx: int = rng.randi_range(chunk_key.x * chunk_size, chunk_key.x * chunk_size + chunk_size - 1)
