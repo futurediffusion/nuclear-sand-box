@@ -4,7 +4,7 @@ extends Node2D
 
 @export var width: int = 256
 @export var height: int = 256
-@export var chunk_size: int = 64
+@export var chunk_size: int = 32
 @export var active_radius: int = 1  # chunks activos alrededor del player
 @export var copper_ore_scene: PackedScene
 @export var chunk_check_interval: float = 0.3
@@ -19,7 +19,7 @@ var loaded_chunks: Dictionary = {}  # {Vector2i chunk_pos -> bool}
 var current_player_chunk := Vector2i(-999, -999)
 
 var spawn_tile: Vector2i
-const COPPER_MIN_DIST_TILES := 20
+const COPPER_MIN_DIST_TILES := 10
 var _chunk_timer: float = 0.0
 var _pick_rng := RandomNumberGenerator.new()
 
@@ -33,20 +33,20 @@ var chunk_save: Dictionary = {}       # {Vector2i: { "ores":[], "camps":[] } }
 # Formato: [atlas_coords, peso_relativo]
 # Bioma: 0=arena, 1=pasto, 2=piedra
 const BIOME_TILES = {
-	0: [  # Arena
-		{"col_range": [0,2], "row": 1, "w": 70},  # los 3 tiles de arena
-		{"col_range": [0,2], "row": 2, "w": 15},  # los 3 tiles de piedra (invasión)
-		{"col_range": [0,2], "row": 0, "w": 15},  # los 3 tiles de pasto (invasión)
+	0: [  # Arena dominante
+		{"col_range": [0,2], "rows": [1], "w": 70},  # arena
+		{"col_range": [0,2], "rows": [2], "w": 15},  # invasión piedra
+		{"col_range": [0,2], "rows": [0], "w": 15},  # invasión pasto
 	],
-	1: [  # Pasto
-		{"col_range": [0,2], "row": 0, "w": 70},  # los 3 tiles de pasto
-		{"col_range": [0,2], "row": 2, "w": 20},  # los 3 tiles de piedra
-		{"col_range": [0,2], "row": 1, "w": 10},  # los 3 tiles de arena
+	1: [  # Pasto dominante
+		{"col_range": [0,2], "rows": [0], "w": 70},  # pasto
+		{"col_range": [0,2], "rows": [2], "w": 20},  # piedra
+		{"col_range": [0,2], "rows": [1], "w": 10},  # arena
 	],
-	2: [  # Piedra
-		{"col_range": [0,2], "row": 2, "w": 70},  # los 3 tiles de piedra
-		{"col_range": [0,2], "row": 1, "w": 20},  # los 3 tiles de arena
-		{"col_range": [0,2], "row": 0, "w": 10},  # los 3 tiles de pasto
+	2: [  # Piedra dominante
+		{"col_range": [0,2], "rows": [2], "w": 70},  # piedra
+		{"col_range": [0,2], "rows": [1], "w": 20},  # arena
+		{"col_range": [0,2], "rows": [0], "w": 10},  # pasto
 	],
 }
 
@@ -123,8 +123,12 @@ func update_chunks(center: Vector2i) -> void:
 	for cpos in loaded_chunks.keys():
 		if not needed.has(cpos):
 			unload_chunk(cpos)
-			generated_chunks.erase(cpos)
-			generating_chunks.erase(cpos)
+
+			# OJO: NO borrar generated_chunks.
+			# Si lo borras, el chunk se regenera al volver y rompe la coherencia del mundo.
+			# generated_chunks.erase(cpos)
+			# generating_chunks.erase(cpos)
+
 			unload_chunk_entities(cpos)
 			loaded_chunks.erase(cpos)
 
@@ -141,6 +145,7 @@ func generate_chunk(chunk_pos: Vector2i) -> void:
 				continue
 			
 			var tile_atlas := pick_tile(x, y)
+			tile_atlas.y = clampi(tile_atlas.y, 0, 2)
 			tilemap.set_cell(0, Vector2i(x, y), 0, tile_atlas)
 
 		if y % 8 == 0:
@@ -172,25 +177,25 @@ func pick_tile(x: int, y: int) -> Vector2i:
 	var biome := get_biome(x, y)
 	var tiles: Array = BIOME_TILES[biome]
 
-	var total_weight := 0
+	var total_weight: int = 0
 	for t in tiles:
-		total_weight += t["w"]
+		total_weight += int(t["w"])
 
 	_pick_rng.seed = hash(Vector2i(x, y))
 
-	# 1) elegir qué grupo de tile gana (por peso)
-	var roll := _pick_rng.randi_range(0, total_weight - 1)
-	var acc := 0
-	var winner: Dictionary
+	var roll: int = _pick_rng.randi_range(0, total_weight - 1)
+	var acc: int = 0
+	var winner: Dictionary = {}
 	for t in tiles:
-		acc += t["w"]
+		acc += int(t["w"])
 		if roll < acc:
 			winner = t
 			break
 
-	# 2) dentro del grupo ganador, elegir la columna aleatoria (los 3 cuadros)
-	var col := _pick_rng.randi_range(winner["col_range"][0], winner["col_range"][1])
-	return Vector2i(col, winner["row"])
+	var col: int = _pick_rng.randi_range(int(winner["col_range"][0]), int(winner["col_range"][1]))
+	var rows: Array = winner["rows"]
+	var row: int = rows[_pick_rng.randi_range(0, rows.size() - 1)]
+	return Vector2i(col, row)
 
 # ─── Spawner ────────────────────────────────────────────────────
 
@@ -198,7 +203,7 @@ var chunk_entities: Dictionary = {}  # {Vector2i -> Array[Node]}
 var chunk_occupied_tiles: Dictionary = {}  # {Vector2i -> {Vector2i: true}}
 
 const INVALID_SPAWN_TILE := Vector2i(999999, 999999)
-const SAFE_PLAYER_SPAWN_RADIUS_TILES := 6
+const SAFE_PLAYER_SPAWN_RADIUS_TILES := 3
 const SPAWN_MAX_TRIES := 30
 const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
@@ -248,7 +253,7 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 
 	# Cerca del spawn: mínimo 1 intento
 	var chunk_center_tile := Vector2i(cx, cy)
-	if _tile_distance_to_spawn(chunk_center_tile) <= 30:
+	if _tile_distance_to_spawn(chunk_center_tile) <= 15:
 		attempts = max(attempts, 1)
 
 	var player_tile: Vector2i = spawn_tile
@@ -513,6 +518,9 @@ func despawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		if is_instance_valid(e):
 			e.queue_free()
 	chunk_entities.erase(chunk_pos)
+	print("[SPAWN_SUMMARY] chunk=", chunk_pos,
+	" ores=", chunk_save[chunk_pos]["ores"].size(),
+	" camps=", chunk_save[chunk_pos]["camps"].size())
 func _tile_distance_to_spawn(t: Vector2i) -> float:
 	return spawn_tile.distance_to(t)
 	
