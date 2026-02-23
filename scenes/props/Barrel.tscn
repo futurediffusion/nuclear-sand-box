@@ -3,7 +3,8 @@
 [ext_resource type="Script" uid="uid://okmxbn4v51ma" path="res://scripts/world/Prop.gd" id="1_0tyq8"]
 [ext_resource type="Texture2D" uid="uid://5djo0vj16aeo" path="res://art/props/barrel.png" id="1_j7ti7"]
 
-[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_j7ti7"]
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_0tyq8"]
+size = Vector2(20, 23.1868)
 
 [node name="Barrel" type="Node2D"]
 z_index = 10
@@ -15,6 +16,6 @@ texture = ExtResource("1_j7ti7")
 [node name="StaticBody2D" type="StaticBody2D" parent="."]
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D"]
-position = Vector2(0, 9)
+position = Vector2(0, 9.725)
 scale = Vector2(1.04, 0.455)
-shape = SubResource("CapsuleShape2D_j7ti7")
+shape = SubResource("RectangleShape2D_0tyq8")
