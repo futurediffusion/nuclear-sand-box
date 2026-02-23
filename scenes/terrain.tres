@@ -1,4 +1,4 @@
-[gd_resource type="TileSet" load_steps=7 format=3 uid="uid://cw5iyp3lgbpre"]
+[gd_resource type="TileSet" load_steps=7 format=3 uid="uid://clohxginp8ly0"]
 
 [ext_resource type="Texture2D" uid="uid://q6q3alo0lsht" path="res://art/tiles/floortiles.png" id="1_7fais"]
 [ext_resource type="Texture2D" uid="uid://75hy32gbfvjl" path="res://art/tiles/wood_floor.png" id="2_v1e5s"]
@@ -25,46 +25,22 @@ texture_region_size = Vector2i(32, 32)
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_jthic"]
 texture = ExtResource("3_qd40d")
 texture_region_size = Vector2i(32, 32)
-0:0/next_alternative_id = 2
 0:0/0 = 0
 0:0/0/physics_layer_0/polygon_0/points = PackedVector2Array(-16, -16, -16, 16, 16, 16, 16, -16)
-0:0/2 = 2
-0:0/2/physics_layer_0/polygon_0/points = PackedVector2Array(-16, -16, 16, -16, 16, 16, -16, 16)
-1:0/next_alternative_id = 2
 1:0/0 = 0
 1:0/0/physics_layer_0/polygon_0/points = PackedVector2Array(-16, -16, 16, -16, 16, 16, -16, 16)
-1:0/2 = 2
-1:0/2/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 16, -16, 4.46083, 16, 4.77946, 16, 16)
-2:0/next_alternative_id = 2
 2:0/0 = 0
 2:0/0/physics_layer_0/polygon_0/points = PackedVector2Array(-16, -16, 16, -16, 16, 16, -16, 16)
-2:0/2 = 2
-2:0/2/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 4.46083, 16, 4.77946, 16, 16, -16, 16)
-3:0/next_alternative_id = 2
 3:0/0 = 0
 3:0/0/physics_layer_0/polygon_0/points = PackedVector2Array(-16, -16, -16, 16, 16, 16, 16, -16)
-3:0/2 = 2
-3:0/2/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 4.46083, 16, 4.77946, 16, 16, -16, 16)
-3:1/next_alternative_id = 2
 3:1/0 = 0
 3:1/0/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 16, 16, 16, 16, -16, -16, -16)
-3:1/2 = 2
-3:1/2/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 4.46083, 16, 4.77946, 16, 16, -16, 16)
-2:1/next_alternative_id = 2
 2:1/0 = 0
 2:1/0/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 16, 16, 16, 16, -16, -16, -16)
-2:1/2 = 2
-2:1/2/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 4.46083, 16, 4.77946, 16, 16, -16, 16)
-1:1/next_alternative_id = 2
 1:1/0 = 0
 1:1/0/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 16, 16, 16, 16, -16, -16, -16)
-1:1/2 = 2
-1:1/2/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 4.46083, 16, 4.46083, 16, 16, -16, 16)
-0:1/next_alternative_id = 2
 0:1/0 = 0
 0:1/0/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 16, 16, 16, 16, -16, -16, -16)
-0:1/2 = 2
-0:1/2/physics_layer_0/polygon_0/points = PackedVector2Array(-16, 4.77946, 16, 4.77946, 16, 16, -16, 16)
 
 [resource]
 tile_size = Vector2i(32, 32)

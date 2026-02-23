@@ -82,6 +82,136 @@ var hp: int
 
 const MAX_DROPLETS_IN_SCENE := 40
 
+# =============================================================================
+# WALL TOGGLE (Tile Alternativo) - SOLO tile actual + tile debajo
+# =============================================================================
+@export_group("Wall Toggle")
+@export var tilemap_path: NodePath
+@export var walls_layer: int = 2
+@export var walls_source_id: int = 2
+
+@export var wall_alt_full: int = 0
+@export var wall_alt_small: int = 2
+@export var wall_probe_px: float = 14.0 # qué tan abajo “sondea” (ajústalo)
+@export var probe_tile_offset: Vector2i = Vector2i(0, 1) # mira 1 tile abajo
+var _tilemap: TileMap = null
+var _opened_wall_tiles: Dictionary = {} # Dictionary[Vector2i, bool]
+
+func _ready_wall_toggle() -> void:
+	# 1) Inspector manda
+	if tilemap_path != NodePath():
+		_tilemap = get_node_or_null(tilemap_path) as TileMap
+
+	# 2) Fallback por ruta (tu setup actual)
+	if _tilemap == null:
+		_tilemap = get_node_or_null("../World/WorldTileMap") as TileMap
+
+	if _tilemap == null:
+		push_error("[WALL_TOGGLE] No encuentro el TileMap. Asigna tilemap_path en el Inspector.")
+	else:
+		print("[WALL_TOGGLE] OK tilemap=", _tilemap.get_path())
+
+func _is_wall_cell(tile_pos: Vector2i) -> bool:
+	if _tilemap == null:
+		return false
+	return _tilemap.get_cell_source_id(walls_layer, tile_pos) == walls_source_id
+
+func _set_wall_alt(tile_pos: Vector2i, alt: int) -> void:
+	if _tilemap == null:
+		return
+
+	var src := _tilemap.get_cell_source_id(walls_layer, tile_pos)
+	if src == -1:
+		return
+
+	var atlas := _tilemap.get_cell_atlas_coords(walls_layer, tile_pos)
+	var prev_alt := _tilemap.get_cell_alternative_tile(walls_layer, tile_pos)
+	if prev_alt == alt:
+		return
+
+	# Setear alt
+	_tilemap.set_cell(walls_layer, tile_pos, src, atlas, alt)
+
+	# Validación: si el tile NO tiene ese alt, Godot puede hacer cosas raras.
+	var check_alt := _tilemap.get_cell_alternative_tile(walls_layer, tile_pos)
+	if check_alt != alt:
+		# Revertimos para que NO desaparezca
+		_tilemap.set_cell(walls_layer, tile_pos, src, atlas, prev_alt)
+func _probe_tile() -> Vector2i:
+	if _tilemap == null:
+		return Vector2i.ZERO
+
+	# Un punto un poquito abajo del player (en mundo)
+	var probe_world_pos := global_position + Vector2(0.0, wall_probe_px)
+
+	# Lo convertimos a celda del tilemap
+	var local_pos := _tilemap.to_local(probe_world_pos)
+	return _tilemap.local_to_map(local_pos)
+func _has_wall(pos: Vector2i) -> bool:
+	return _is_wall_cell(pos)
+
+func _is_horizontal_member(pos: Vector2i) -> bool:
+	if not _has_wall(pos):
+		return false
+	return _has_wall(pos + Vector2i(-1, 0)) or _has_wall(pos + Vector2i(1, 0))
+
+func _is_horizontal_interior(pos: Vector2i) -> bool:
+	if not _has_wall(pos):
+		return false
+	return _has_wall(pos + Vector2i(-1, 0)) and _has_wall(pos + Vector2i(1, 0))
+
+func _wall_toggle_update() -> void:
+	if _tilemap == null:
+		return
+
+	var still_open: Dictionary = {}
+
+	var base_tile := _probe_tile()
+	var tpos := base_tile + probe_tile_offset
+	var tpos_up := tpos + Vector2i(0, -1)
+
+	var behind_mode := false
+
+	if _has_wall(tpos):
+		_set_wall_alt(tpos, wall_alt_small)
+		still_open[tpos] = true
+		behind_mode = true
+
+	if _has_wall(tpos_up):
+		_set_wall_alt(tpos_up, wall_alt_small)
+		still_open[tpos_up] = true
+		behind_mode = true
+
+	var main_is_h := _is_horizontal_member(tpos) or _is_horizontal_member(tpos_up)
+
+	if behind_mode and main_is_h and absf(velocity.x) > 0.1:
+		var side := 1 if velocity.x > 0.0 else -1
+
+		var lateral := tpos + Vector2i(side, 0)
+		var lateral_up := tpos_up + Vector2i(side, 0)
+
+		if _is_horizontal_interior(lateral):
+			_set_wall_alt(lateral, wall_alt_small)
+			still_open[lateral] = true
+
+		if _is_horizontal_interior(lateral_up):
+			_set_wall_alt(lateral_up, wall_alt_small)
+			still_open[lateral_up] = true
+
+	for old_tpos in _opened_wall_tiles.keys():
+		if not still_open.has(old_tpos):
+			_set_wall_alt(old_tpos, wall_alt_full)
+
+	_opened_wall_tiles = still_open
+
+func _close_opened_walls() -> void:
+	for tpos in _opened_wall_tiles.keys():
+		_set_wall_alt(tpos, wall_alt_full)
+	_opened_wall_tiles.clear()
+
+func _exit_tree() -> void:
+	# Si el player se borra/cambia escena, no dejamos paredes abiertas
+	_close_opened_walls()
 
 # =============================================================================
 # ESTADO
@@ -135,6 +265,7 @@ func _ready() -> void:
 	weapon_sprite.visible = true
 	weapon_sprite.show()
 	inventory.debug_print()
+	_ready_wall_toggle()
 
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
@@ -236,6 +367,7 @@ func _physics_process(delta: float) -> void:
 	# 0) Si está muriendo: no hacer nada más
 	if dying:
 		velocity = Vector2.ZERO
+		_wall_toggle_update()
 		move_and_slide()
 		return
 
@@ -281,7 +413,7 @@ func _physics_process(delta: float) -> void:
 	# Knockback cuando te pegan (se va frenando con fricción)
 	velocity += knock_vel
 	knock_vel = knock_vel.move_toward(Vector2.ZERO, knockback_friction * delta)
-
+	_wall_toggle_update()
 	move_and_slide()
 
 # =============================================================================

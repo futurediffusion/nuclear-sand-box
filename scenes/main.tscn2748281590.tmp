@@ -1,0 +1,164 @@
+[gd_scene load_steps=16 format=3 uid="uid://xn5wcwphhi48"]
+
+[ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
+[ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
+[ext_resource type="PackedScene" uid="uid://cmysaqnuq4nfh" path="res://scenes/cursor_2d.tscn" id="2_0wfyh"]
+[ext_resource type="Script" uid="uid://d37y038e3w6ny" path="res://scripts/world/world.gd" id="2_jkv2x"]
+[ext_resource type="PackedScene" uid="uid://b61xj3scmxra2" path="res://scenes/enemy.tscn" id="3_sugp2"]
+[ext_resource type="PackedScene" uid="uid://ckdqo63fw6dkw" path="res://scenes/bandit_camp.tscn" id="4_jkv2x"]
+[ext_resource type="Script" uid="uid://dauw3snnx1ppx" path="res://scripts/ui/hud.gd" id="5_hud"]
+[ext_resource type="Script" uid="uid://bmnvtxmikdtap" path="res://scripts/ui/hearts.gd" id="6_tefeu"]
+[ext_resource type="Texture2D" uid="uid://buxyqe0n15fc7" path="res://art/sprites/heart.png" id="8_85g3d"]
+[ext_resource type="Texture2D" uid="uid://bgcahwp1ti4nn" path="res://art/sprites/heart-empty.png" id="9_choun"]
+[ext_resource type="Texture2D" uid="uid://b3wu74258jwbc" path="res://art/sprites/stamina-over..png" id="10_eb6dy"]
+[ext_resource type="Texture2D" uid="uid://dml1n360g720t" path="res://art/sprites/stamina-under.png" id="10_trceg"]
+[ext_resource type="Texture2D" uid="uid://b5syi5vb3w5xy" path="res://art/sprites/stamina-progress.png" id="11_trceg"]
+[ext_resource type="PackedScene" uid="uid://x4mnfcrurq20" path="res://scenes/copper_ore.tscn" id="13_trceg"]
+[ext_resource type="TileSet" uid="uid://cw5iyp3lgbpre" path="res://art/tiles/terrain.tres" id="14_a8y0u"]
+
+[node name="Main" type="Node2D"]
+scale = Vector2(2.5, 2.5)
+script = ExtResource("1_sugp2")
+
+[node name="World" type="Node2D" parent="."]
+script = ExtResource("2_jkv2x")
+copper_ore_scene = ExtResource("13_trceg")
+bandit_camp_scene = ExtResource("4_jkv2x")
+bandit_scene = ExtResource("3_sugp2")
+
+[node name="WorldTileMap" type="TileMap" parent="World"]
+tile_set = ExtResource("14_a8y0u")
+format = 2
+layer_0/name = "Ground"
+layer_1/name = "floor"
+layer_2/name = "Walls"
+
+[node name="Player" parent="." instance=ExtResource("1_o5qli")]
+position = Vector2(126.8, 77.2)
+max_speed = null
+acceleration = null
+friction = null
+turn_speed = null
+max_hp = null
+attack_push_speed = 90.0
+attack_push_time = 0.05
+attack_push_deadzone = null
+knockback_friction = null
+hurt_time = null
+weapon_follow_speed = null
+attack_snap_speed = null
+attack_duration = null
+facing_deadzone_px = null
+angle_offset_left = null
+angle_offset_right = null
+slash_visual_offset_deg = null
+block_guard_margin_deg = null
+blood_hit_amount = null
+blood_death_amount = null
+splat_lifetime = null
+droplet_count_hit = null
+droplet_count_death = null
+droplet_speed_min = null
+droplet_speed_max = null
+droplet_spread_deg = null
+tilemap_path = null
+walls_layer = null
+walls_source_id = null
+wall_alt_full = null
+wall_alt_small = null
+wall_probe_px = null
+probe_tile_offset = null
+block_stamina_drain = null
+block_hit_stamina_cost = null
+block_wiggle_deg = null
+block_wiggle_hz = null
+
+[node name="MouseCursor" parent="." instance=ExtResource("2_0wfyh")]
+scale = Vector2(1.5, 1.5)
+
+[node name="UI" type="CanvasLayer" parent="."]
+process_mode = 2
+offset = Vector2(300, 100)
+transform = Transform2D(1, 0, 0, 1, 300, 100)
+
+[node name="HUD" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 170.0
+offset_bottom = 100.0
+script = ExtResource("5_hud")
+
+[node name="StaminaBar" type="TextureProgressBar" parent="UI/HUD"]
+layout_mode = 0
+offset_right = 160.0
+offset_bottom = 16.0
+step = 0.1
+value = 100.0
+
+[node name="Control" type="Control" parent="UI/HUD"]
+layout_mode = 1
+anchors_preset = 0
+offset_left = -290.0
+offset_top = -100.0
+offset_right = -290.0
+offset_bottom = -100.0
+
+[node name="Hearts" type="HBoxContainer" parent="UI/HUD/Control"]
+layout_mode = 1
+offset_right = 4.5
+offset_bottom = 4.0
+theme_override_constants/separation = 1
+script = ExtResource("6_tefeu")
+full_heart = ExtResource("8_85g3d")
+empty_heart = ExtResource("9_choun")
+
+[node name="StaminaBar2" type="TextureProgressBar" parent="UI/HUD"]
+layout_mode = 0
+offset_left = -295.0
+offset_top = -65.0
+offset_right = -167.0
+offset_bottom = -49.0
+texture_under = ExtResource("10_trceg")
+texture_over = ExtResource("10_eb6dy")
+texture_progress = ExtResource("11_trceg")
+
+[node name="GameOverPanel" type="Control" parent="UI"]
+clip_contents = true
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -93.0
+offset_top = 29.0
+offset_right = -93.0
+offset_bottom = 29.0
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(1.35, 1.35)
+
+[node name="ColorRect" type="ColorRect" parent="UI/GameOverPanel"]
+layout_mode = 0
+offset_left = 82.0
+offset_right = 89.0
+offset_bottom = 10.0
+scale = Vector2(29.515, 11)
+pivot_offset = Vector2(2.84, 0)
+color = Color(0, 0, 0, 1)
+
+[node name="VBoxContainer" type="VBoxContainer" parent="UI/GameOverPanel"]
+layout_mode = 0
+offset_left = 8.455
+offset_right = 208.455
+offset_bottom = 200.0
+
+[node name="Label" type="Label" parent="UI/GameOverPanel/VBoxContainer"]
+layout_mode = 2
+text = "GAME OVER"
+
+[node name="RetryButton" type="Button" parent="UI/GameOverPanel/VBoxContainer"]
+layout_mode = 2
+text = "RETRY"
+
+[node name="QUIT" type="Button" parent="UI/GameOverPanel/VBoxContainer"]
+layout_mode = 2
+text = "QUIT"
