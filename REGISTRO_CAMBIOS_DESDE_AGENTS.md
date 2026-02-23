@@ -91,3 +91,24 @@ Desde la última actualización de `AGENTS.MD`, el proyecto pasó de mejoras de 
 - defensa del player más avanzada,
 - loop de minería/contenido de mundo,
 - arquitectura de chunks con persistencia y optimización de rendimiento.
+
+---
+
+## Actualización breve más reciente (desde `d4eb59c`)
+
+Últimos cambios relevantes detectados en el proyecto:
+
+- **Validación y estabilidad de spawns por chunks** (`scripts/world/world.gd`):
+  - corrección de cálculo de chunk usando coordenadas de tile,
+  - validación de ocupación/anti-overlap,
+  - rechazo de spawns inválidos en chunks vecinos,
+  - logs de diagnóstico para depuración.
+- **Nueva Taberna procedural como POI** integrada al flujo de generación del mundo.
+- **Ajustes visuales y de colisión del entorno**:
+  - colisiones de paredes refinadas,
+  - transparencia por oclusión “por detrás” para mejorar lectura visual,
+  - actualización de tileset/terreno y ajustes en `main.tscn`.
+
+Commits de referencia recientes:
+- `709e281`, `651bfff`, `ed6f323`, `c7e0bd2`, `f07b275`
+- `dac1ab0`, `4ea239b`, `a528f3d`, `1980dde`
