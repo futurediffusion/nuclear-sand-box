@@ -98,9 +98,9 @@ func _ready() -> void:
 
 	# mover player al centro REAL en el mundo
 	if player:
-		player.global_position = tilemap.map_to_local(spawn_tile)
+		player.global_position = tilemap.to_global(tilemap.map_to_local(spawn_tile))
 
-	current_player_chunk = world_to_chunk(tilemap.map_to_local(spawn_tile))
+	current_player_chunk = world_to_chunk(tilemap.to_global(tilemap.map_to_local(spawn_tile)))
 	update_chunks(current_player_chunk)
 
 func _process(delta: float) -> void:
@@ -403,7 +403,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	for d in chunk_save[chunk_pos]["ores"]:
 		var tpos: Vector2i = d["tile"]
 		var ore := copper_ore_scene.instantiate()
-		ore.global_position = tilemap.map_to_local(tpos)
+		ore.global_position = tilemap.to_global(tilemap.map_to_local(tpos))
 
 		if d.has("remaining") and d["remaining"] != -1:
 			ore.set("remaining", int(d["remaining"]))
@@ -417,7 +417,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
 		var camp := bandit_camp_scene.instantiate()
-		camp.global_position = tilemap.map_to_local(ct)
+		camp.global_position = tilemap.to_global(tilemap.map_to_local(ct))
 		add_child(camp)
 		chunk_entities[chunk_pos].append(camp)
 
@@ -586,7 +586,7 @@ func _tile_distance_to_spawn(t: Vector2i) -> float:
 	
 func _spawn_camp_at(chunk_pos: Vector2i, tile_pos: Vector2i) -> void:
 	var camp := bandit_camp_scene.instantiate()
-	camp.global_position = tilemap.map_to_local(tile_pos)
+	camp.global_position = tilemap.to_global(tilemap.map_to_local(tile_pos))
 	add_child(camp)
 	chunk_entities[chunk_pos].append(camp)
 
