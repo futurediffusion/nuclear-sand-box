@@ -255,6 +255,7 @@ var chunk_occupied_tiles: Dictionary = {}  # {Vector2i -> {Vector2i: true}}
 
 const INVALID_SPAWN_TILE := Vector2i(999999, 999999)
 const SAFE_PLAYER_SPAWN_RADIUS_TILES := 3
+const TAVERN_SAFE_MARGIN_TILES := 4
 const SPAWN_MAX_TRIES := 30
 const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
@@ -678,9 +679,10 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i) -> void:
 		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x0, y), SRC_WALLS, ROOF_VERTICAL)
 		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x1, y), SRC_WALLS, ROOF_VERTICAL)
 
-	# Reservar la huella de la taberna para que no se superpongan ores/camps.
-	for y in range(y0, y1 + 1):
-		for x in range(x0, x1 + 1):
+	# Reservar huella + un margen pequeño de seguridad alrededor de la taberna
+	# para evitar que spawneen cobre o campamentos demasiado cerca.
+	for y in range(y0 - TAVERN_SAFE_MARGIN_TILES, y1 + TAVERN_SAFE_MARGIN_TILES + 1):
+		for x in range(x0 - TAVERN_SAFE_MARGIN_TILES, x1 + TAVERN_SAFE_MARGIN_TILES + 1):
 			_mark_tile_occupied(chunk_pos, Vector2i(x, y))
 
 func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
