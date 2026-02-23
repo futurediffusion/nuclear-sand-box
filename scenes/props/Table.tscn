@@ -1,0 +1,20 @@
+[gd_scene load_steps=4 format=3 uid="uid://owag1m5x1axv"]
+
+[ext_resource type="Script" uid="uid://okmxbn4v51ma" path="res://scripts/world/Prop.gd" id="1_sslsb"]
+[ext_resource type="Texture2D" uid="uid://bc1bawudv1opk" path="res://art/props/table.png" id="2_1r28g"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_2f7xg"]
+size = Vector2(31, 23)
+
+[node name="Table" type="Node2D"]
+z_index = 10
+script = ExtResource("1_sslsb")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("2_1r28g")
+
+[node name="StaticBody2D" type="StaticBody2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="StaticBody2D"]
+position = Vector2(0.5, 4.5)
+shape = SubResource("RectangleShape2D_2f7xg")

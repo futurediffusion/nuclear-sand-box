@@ -279,7 +279,8 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		chunk_save[chunk_pos] = {
 			"ores": [],
 			"camps": [],
-			"placed_tiles": []
+			"placed_tiles": [],
+			"placements": []
 		}
 		chunk_occupied_tiles[chunk_pos] = {}
 		if chunk_pos == tavern_chunk:
@@ -293,23 +294,21 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(chunk_pos) ^ biome_noise.seed
 
-	# -----------------------------
-	# 1) SPAWN COBRE
-	# -----------------------------
 	var copper_positions: Array[Vector2i] = []
 
-	# Bioma del centro del chunk (para “densidad” general)
 	var cx := chunk_pos.x * chunk_size + chunk_size / 2
 	var cy := chunk_pos.y * chunk_size + chunk_size / 2
 	var biome := get_biome(cx, cy)
 
 	var attempts := 0
 	match biome:
-		2: attempts = rng.randi_range(6, 16)  # piedra: bastante
-		0: attempts = rng.randi_range(3, 7)   # arena: medio
-		1: attempts = rng.randi_range(0, 3)   # pasto: poco
+		2:
+			attempts = rng.randi_range(6, 16)
+		0:
+			attempts = rng.randi_range(3, 7)
+		1:
+			attempts = rng.randi_range(0, 3)
 
-	# Cerca del spawn: mínimo 1 intento
 	var chunk_center_tile := Vector2i(cx, cy)
 	if _tile_distance_to_spawn(chunk_center_tile) <= 15:
 		attempts = max(attempts, 1)
@@ -321,20 +320,26 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	var copper_spawn_failed_logged := false
 
 	for i in range(attempts):
-		var tpos: Vector2i = _find_valid_spawn_tile(chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, SPAWN_MAX_TRIES, rng, COPPER_FOOTPRINT_RADIUS_TILES)
+		var tpos: Vector2i = _find_valid_spawn_tile(
+			chunk_pos,
+			player_tile,
+			SAFE_PLAYER_SPAWN_RADIUS_TILES,
+			SPAWN_MAX_TRIES,
+			rng,
+			COPPER_FOOTPRINT_RADIUS_TILES
+		)
+
 		if tpos == INVALID_SPAWN_TILE:
 			if not copper_spawn_failed_logged:
 				_debug_spawn_report(chunk_pos, player_tile, INVALID_SPAWN_TILE, "CANCEL: no valid tile after tries")
 				copper_spawn_failed_logged = true
 			continue
 
-		# regla distancia (la mayoría lejos)
 		var dist := _tile_distance_to_spawn(tpos)
 		var allow_close := rng.randf() < 0.15
 		if not allow_close and dist < COPPER_MIN_DIST_TILES:
 			continue
 
-		# regla por BIOMA del tile: 60% piedra / 30% pasto / 20% arena
 		var tile_biome := get_biome(tpos.x, tpos.y)
 		match tile_biome:
 			2:
@@ -354,21 +359,17 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		_mark_footprint_occupied(chunk_pos, tpos, COPPER_FOOTPRINT_RADIUS_TILES)
 		copper_positions.append(tpos)
 
-	# -----------------------------
-	# 2) SPAWN CAMPAMENTOS (BANDIDOS)
-	# -----------------------------
 	if bandit_camp_scene == null or bandit_scene == null:
 		return
 
-	# (A) Algunos cobres custodiados (no todos)
-	var guarded_count := int(floor(copper_positions.size() * 0.40)) # 25% custodiados
-	guarded_count = clampi(guarded_count, 0, 3) # por chunk, máximo 3
+	var guarded_count := int(floor(copper_positions.size() * 0.40))
+	guarded_count = clampi(guarded_count, 0, 3)
 
 	for g in range(guarded_count):
 		var idx := rng.randi_range(0, copper_positions.size() - 1)
 		var copper_tile := copper_positions[idx]
 
-		var camp_tile := _find_nearby_tile(rng, copper_tile, 6, 14) # cerca (6-14 tiles)
+		var camp_tile := _find_nearby_tile(rng, copper_tile, 6, 14)
 		if camp_tile == INVALID_SPAWN_TILE:
 			continue
 		if not _is_spawn_tile_valid(chunk_pos, camp_tile, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, CAMP_FOOTPRINT_RADIUS_TILES):
@@ -379,15 +380,25 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		})
 		_mark_footprint_occupied(chunk_pos, camp_tile, CAMP_FOOTPRINT_RADIUS_TILES)
 
-	# (B) Algunos campamentos random (NO cerca del cobre)
-	var random_camps := rng.randi_range(0, 2) # 0-1 campamentos extra por chunk
+	var random_camps := rng.randi_range(0, 2)
 	var camp_spawn_failed_logged := false
+
 	for r in range(random_camps):
 		var try_tile: Vector2i = INVALID_SPAWN_TILE
+
 		for i in range(SPAWN_MAX_TRIES):
-			var candidate: Vector2i = _find_valid_spawn_tile(chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, SPAWN_MAX_TRIES, rng, CAMP_FOOTPRINT_RADIUS_TILES)
+			var candidate: Vector2i = _find_valid_spawn_tile(
+				chunk_pos,
+				player_tile,
+				SAFE_PLAYER_SPAWN_RADIUS_TILES,
+				SPAWN_MAX_TRIES,
+				rng,
+				CAMP_FOOTPRINT_RADIUS_TILES
+			)
+
 			if candidate == INVALID_SPAWN_TILE:
 				break
+
 			if not _is_close_to_any(candidate, copper_positions, 10):
 				try_tile = candidate
 				break
@@ -398,12 +409,11 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 				camp_spawn_failed_logged = true
 			continue
 
-		# evitar spawn muy cerca del cobre
 		chunk_save[chunk_pos]["camps"].append({
 			"tile": try_tile
 		})
 		_mark_footprint_occupied(chunk_pos, try_tile, CAMP_FOOTPRINT_RADIUS_TILES)
-
+		
 func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	chunk_entities[chunk_pos] = []
 	_rebuild_chunk_occupied_tiles(chunk_pos)
@@ -411,29 +421,68 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	if not chunk_save.has(chunk_pos):
 		return
 
+	# 1) ORES
 	for d in chunk_save[chunk_pos]["ores"]:
 		var tpos: Vector2i = d["tile"]
 		var ore := copper_ore_scene.instantiate()
-		ore.global_position = tilemap.map_to_local(tpos)
+		ore.position = tilemap.map_to_local(tpos)
+		tilemap.add_child(ore)
+		chunk_entities[chunk_pos].append(ore)
 
 		if d.has("remaining") and d["remaining"] != -1:
 			ore.set("remaining", int(d["remaining"]))
 
-		add_child(ore)
-		chunk_entities[chunk_pos].append(ore)
-	if chunk_save.has(chunk_pos):
-		for t in chunk_save[chunk_pos]["placed_tiles"]:
-			tilemap.set_cell(t["layer"], t["tile"], t["source"], t["atlas"])
+	# 2) TILES PERSISTENTES (taberna piso/paredes)
+	for t in chunk_save[chunk_pos]["placed_tiles"]:
+		tilemap.set_cell(t["layer"], t["tile"], t["source"], t["atlas"])
 
+	# 3) CAMPS
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
 		var camp := bandit_camp_scene.instantiate()
-		camp.global_position = tilemap.map_to_local(ct)
-		add_child(camp)
+		camp.position = tilemap.map_to_local(ct)
+		tilemap.add_child(camp)
 		chunk_entities[chunk_pos].append(camp)
-
 		camp.set("bandit_scene", bandit_scene)
 
+	# 4) PROPS (taberna furniture)
+	var spawned_count: int = 0
+
+	if chunk_save[chunk_pos].has("placements"):
+		for p in chunk_save[chunk_pos]["placements"]:
+			if typeof(p) != TYPE_DICTIONARY:
+				continue
+
+			var d: Dictionary = p
+			if String(d.get("kind", "")) != "prop":
+				continue
+
+			var prop_id: String = String(d.get("prop_id", ""))
+			var path: String = PropDB.scene_path(prop_id)
+
+			if path == "":
+				print("[PROPS] prop_id desconocido:", prop_id)
+				continue
+
+			var ps: PackedScene = load(path) as PackedScene
+			if ps == null:
+				print("[PROPS] no pude load:", path)
+				continue
+
+			var inst: Node2D = ps.instantiate() as Node2D
+
+			var ccell: Array = d.get("cell", [0, 0])
+			var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
+
+			inst.position = tilemap.map_to_local(cell)
+			inst.z_index = tilemap.z_index + 5
+
+			tilemap.add_child(inst)
+			chunk_entities[chunk_pos].append(inst)
+
+			spawned_count += 1
+
+	print("[PROPS] spawned_count=", spawned_count, " chunk=", chunk_pos)
 func _world_to_tile(world_pos: Vector2) -> Vector2i:
 	return tilemap.local_to_map(tilemap.to_local(world_pos))
 
@@ -679,15 +728,129 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i) -> void:
 		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x0, y), SRC_WALLS, ROOF_VERTICAL)
 		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x1, y), SRC_WALLS, ROOF_VERTICAL)
 
-	# Reservar huella + un margen pequeño de seguridad alrededor de la taberna
-	# para evitar que spawneen cobre o campamentos demasiado cerca.
+		# Reservar huella + un margen pequeño de seguridad alrededor de la taberna
 	for y in range(y0 - TAVERN_SAFE_MARGIN_TILES, y1 + TAVERN_SAFE_MARGIN_TILES + 1):
 		for x in range(x0 - TAVERN_SAFE_MARGIN_TILES, x1 + TAVERN_SAFE_MARGIN_TILES + 1):
 			_mark_tile_occupied(chunk_pos, Vector2i(x, y))
 
+	var inner_min: Vector2i = Vector2i(x0 + 1, y0 + 1)
+	var inner_max: Vector2i = Vector2i(x1 - 1, y1 - 1)
+	var door_cell: Vector2i = Vector2i(door_x, y1)
+
+	generate_tavern_furniture_simple(chunk_pos, inner_min, inner_max, door_cell)
+	print("[TAVERN] placements=", chunk_save[chunk_pos].get("placements", []).size())
+	
 func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var w: int = 12
 	var h: int = 8
 	var x0: int = chunk_pos.x * chunk_size + 4
 	var y0: int = chunk_pos.y * chunk_size + 3
 	return Vector2i(x0 + (w / 2), y0 + (h / 2))
+	
+func _is_free(occupied: Dictionary, cell: Vector2i) -> bool:
+	return not occupied.has(cell)
+
+func _mark_rect(occupied: Dictionary, pos: Vector2i, size: Vector2i) -> void:
+	for y: int in range(size.y):
+		for x: int in range(size.x):
+			occupied[Vector2i(pos.x + x, pos.y + y)] = true
+
+func _rect_fits_and_free(occupied: Dictionary, pos: Vector2i, size: Vector2i, inner_min: Vector2i, inner_max: Vector2i) -> bool:
+	# inner_min: esquina sup-izq (incluida)
+	# inner_max: esquina inf-der (incluida)
+	for y: int in range(size.y):
+		for x: int in range(size.x):
+			var c: Vector2i = Vector2i(pos.x + x, pos.y + y)
+			if c.x < inner_min.x or c.y < inner_min.y or c.x > inner_max.x or c.y > inner_max.y:
+				return false
+			if occupied.has(c):
+				return false
+	return true
+	
+func _ensure_chunk_save_key(chunk_key: Vector2i) -> void:
+	if not chunk_save.has(chunk_key):
+		# OJO: normalmente esta parte ya se crea en spawn_entities_in_chunk,
+		# pero esto nos protege si llamas furniture antes.
+		chunk_save[chunk_key] = {
+			"ores": [],
+			"camps": [],
+			"placed_tiles": [],
+			"placements": []
+		}
+	if not chunk_save[chunk_key].has("placements"):
+		chunk_save[chunk_key]["placements"] = []
+
+func add_prop_placement(chunk_key: Vector2i, prop_id: String, site_id: String, cell: Vector2i) -> void:
+	_ensure_chunk_save_key(chunk_key)
+
+	for p in chunk_save[chunk_key]["placements"]:
+		if typeof(p) == TYPE_DICTIONARY and String((p as Dictionary).get("site_id","")) == site_id:
+			return
+
+	chunk_save[chunk_key]["placements"].append({
+		"kind": "prop",
+		"prop_id": prop_id,
+		"site_id": site_id,
+		"cell": [cell.x, cell.y]
+	})
+	
+func generate_tavern_furniture_simple(chunk_key: Vector2i, inner_min: Vector2i, inner_max: Vector2i, door_cell: Vector2i) -> void:
+	var occupied: Dictionary = {}
+
+	var corridor_width: int = 2
+	var corridor_len: int = 4
+
+	for i: int in range(corridor_len):
+		for w: int in range(corridor_width):
+			var c: Vector2i = Vector2i(door_cell.x + w, door_cell.y - i)
+			occupied[c] = true
+
+	var counter_size: Vector2i = Vector2i(3, 1)
+	var counter_y: int = inner_min.y + 2
+	var counter_x: int = door_cell.x + 0
+	var counter_pos: Vector2i = Vector2i(counter_x, counter_y)
+
+	if _rect_fits_and_free(occupied, counter_pos, counter_size, inner_min, inner_max):
+		_mark_rect(occupied, counter_pos, counter_size)
+		add_prop_placement(chunk_key, "counter", "tavern_counter_01", counter_pos)
+
+		var behind: Vector2i = Vector2i(counter_pos.x, counter_pos.y - 1)
+		if behind.y >= inner_min.y:
+			_mark_rect(occupied, behind, Vector2i(counter_size.x, 1))
+
+	var table_size: Vector2i = Vector2i(2, 2)
+	var placed_tables: int = 0
+
+	var candidates: Array[Vector2i] = []
+	candidates.append(Vector2i(inner_min.x + 2, inner_min.y + 3))
+	candidates.append(Vector2i(inner_max.x - 3, inner_min.y + 3))
+	candidates.append(Vector2i(inner_min.x + 2, inner_max.y - 3))
+	candidates.append(Vector2i(inner_max.x - 3, inner_max.y - 3))
+
+	for pos in candidates:
+		if placed_tables >= 2:
+			break
+		if _rect_fits_and_free(occupied, pos, table_size, inner_min, inner_max):
+			_mark_rect(occupied, pos, table_size)
+			placed_tables += 1
+			add_prop_placement(chunk_key, "table", "tavern_table_%02d" % placed_tables, pos)
+
+	var corners: Array[Vector2i] = [
+		Vector2i(inner_min.x + 1, inner_min.y + 1),
+		Vector2i(inner_max.x - 1, inner_min.y + 1),
+		Vector2i(inner_min.x + 1, inner_max.y - 1),
+		Vector2i(inner_max.x - 1, inner_max.y - 1),
+	]
+
+	var barrel_count: int = 0
+	for c in corners:
+		if barrel_count >= 2:
+			break
+		if _is_free(occupied, c):
+			occupied[c] = true
+			barrel_count += 1
+			add_prop_placement(chunk_key, "barrel", "tavern_barrel_%02d" % barrel_count, c)
+
+	# IMPORTANTÍSIMO:
+	# NO va ninguna llamada a generate_tavern_furniture_simple aquí.
+	# Esa línea se borra porque causaba recursión infinita.
