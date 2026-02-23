@@ -222,16 +222,17 @@ Implementado:
 - ✅ Persistencia en sesión.
 - ✅ Cobre minable.
 - ✅ Campamentos bandido.
+- ✅ Taberna procedural como POI integrado al mundo.
 - ✅ Enemigos funcionales.
 - ✅ Bloqueo direccional.
 - ✅ Stamina.
 - ✅ Inventario básico.
 - ✅ HUD funcional.
 - ✅ Game Over desacoplado.
+- ✅ Colisiones de paredes y ajuste visual de transparencia por oclusión.
 
 Pendiente / futuro inmediato:
 
-- Taberna como POI real.
 - Sistema de facciones.
 - Control territorial.
 - Sistema de caminos.
