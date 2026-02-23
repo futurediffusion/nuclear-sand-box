@@ -122,6 +122,13 @@ func world_to_chunk(pos: Vector2) -> Vector2i:
 	var tile_pos: Vector2i = _world_to_tile(pos)
 	return _tile_to_chunk(tile_pos)
 
+func _is_chunk_in_active_window(chunk_pos: Vector2i, center: Vector2i) -> bool:
+	if abs(chunk_pos.x - center.x) > active_radius:
+		return false
+	if abs(chunk_pos.y - center.y) > active_radius:
+		return false
+	return true
+
 func update_chunks(center: Vector2i) -> void:
 	if player:
 		_debug_check_tile_alignment(player.global_position)
@@ -185,6 +192,15 @@ func generate_chunk(chunk_pos: Vector2i) -> void:
 	
 	generated_chunks[chunk_pos] = true
 	generating_chunks.erase(chunk_pos)
+
+	# Si el chunk se terminó de cocinar mientras seguía dentro del radio activo,
+	# hay que cargar sus entidades y tiles persistentes de inmediato.
+	# Esto evita que la taberna/estructuras no aparezcan hasta que el jugador
+	# cambie de chunk (o que parezcan no generarse nunca en el spawn inicial).
+	if _is_chunk_in_active_window(chunk_pos, current_player_chunk):
+		if not loaded_chunks.has(chunk_pos):
+			load_chunk_entities(chunk_pos)
+			loaded_chunks[chunk_pos] = true
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
 	var start_x := chunk_pos.x * chunk_size
