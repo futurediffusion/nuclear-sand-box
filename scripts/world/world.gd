@@ -269,12 +269,12 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 			"camps": [],
 			"placed_tiles": []
 		}
+		chunk_occupied_tiles[chunk_pos] = {}
 		# --- TABERNA: SOLO 1 VEZ (BUGFIX) ---
 		# Solo generar taberna en el chunk del spawn (chunk del jugador al inicio).
 		var spawn_chunk: Vector2i = _tile_to_chunk(spawn_tile)
 		if chunk_pos == spawn_chunk and not has_tavern:
 			generate_tavern_in_chunk(chunk_pos)
-		chunk_occupied_tiles[chunk_pos] = {}
 	else:
 		return
 
@@ -449,6 +449,13 @@ func _get_random_tile_in_chunk(chunk_key: Vector2i, rng: RandomNumberGenerator) 
 	var ty: int = rng.randi_range(chunk_key.y * chunk_size, chunk_key.y * chunk_size + chunk_size - 1)
 	return Vector2i(tx, ty)
 
+func _is_tavern_safe_radius_active_for_chunk(chunk_key: Vector2i) -> bool:
+	if not has_tavern:
+		return false
+
+	var spawn_chunk: Vector2i = _tile_to_chunk(spawn_tile)
+	return chunk_key == spawn_chunk
+
 func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: Vector2i, safe_radius_tiles: int, footprint_radius_tiles: int = 0) -> bool:
 	if tile_pos == INVALID_SPAWN_TILE:
 		return false
@@ -466,7 +473,7 @@ func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: 
 			if probe.distance_to(player_tile) <= float(safe_radius_tiles):
 				return false
 
-			if has_tavern and safe_radius_tiles > 0:
+			if _is_tavern_safe_radius_active_for_chunk(chunk_key) and safe_radius_tiles > 0:
 				var dist_to_tavern: int = probe.distance_to(tavern_tile)
 				if dist_to_tavern <= safe_radius_tiles:
 					return false
@@ -517,7 +524,7 @@ func _get_spawn_reject_reason(chunk_key: Vector2i, tile_pos: Vector2i, player_ti
 			if probe.distance_to(player_tile) <= float(safe_radius_tiles):
 				return "inside_safe_radius"
 
-			if has_tavern and safe_radius_tiles > 0:
+			if _is_tavern_safe_radius_active_for_chunk(chunk_key) and safe_radius_tiles > 0:
 				var dist_to_tavern: int = probe.distance_to(tavern_tile)
 				if dist_to_tavern <= safe_radius_tiles:
 					return "inside_tavern_safe_radius"
