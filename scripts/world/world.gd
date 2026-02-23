@@ -182,7 +182,7 @@ func generate_chunk(chunk_pos: Vector2i) -> void:
 			tile_atlas.y = clampi(tile_atlas.y, 0, 2)
 			tilemap.set_cell(0, Vector2i(x, y), 0, tile_atlas)
 
-		if y % 8 == 0:
+		if y % CHUNK_GENERATION_YIELD_EVERY_ROWS == 0:
 			await get_tree().process_frame
 	
 	generated_chunks[chunk_pos] = true
@@ -244,7 +244,8 @@ const TAVERN_SAFE_RADIUS_TILES: int = 20
 const SPAWN_MAX_TRIES := 30
 const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
-const DEBUG_SPAWN: bool = true
+const DEBUG_SPAWN: bool = false
+const CHUNK_GENERATION_YIELD_EVERY_ROWS: int = 32
 
 var tavern_tile: Vector2i = Vector2i(0, 0)
 var has_tavern: bool = false
