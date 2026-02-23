@@ -188,6 +188,10 @@ func generate_chunk(chunk_pos: Vector2i) -> void:
 	generated_chunks[chunk_pos] = true
 	generating_chunks.erase(chunk_pos)
 
+	if not loaded_chunks.has(chunk_pos):
+		load_chunk_entities(chunk_pos)
+		loaded_chunks[chunk_pos] = true
+
 func unload_chunk(chunk_pos: Vector2i) -> void:
 	var start_x := chunk_pos.x * chunk_size
 	var start_y := chunk_pos.y * chunk_size
