@@ -1,10 +1,11 @@
-[gd_scene load_steps=24 format=3 uid="uid://c1eimnkv5d2r2"]
+[gd_scene load_steps=25 format=3 uid="uid://c1eimnkv5d2r2"]
 
 [ext_resource type="Script" uid="uid://daeh17nvsxhyc" path="res://scripts/npc/tavern_keeper.gd" id="1_sxn48"]
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="2_448nf"]
 [ext_resource type="Texture2D" uid="uid://csi1e66pf1k75" path="res://art/sprites/GOBLIN1-death.png" id="3_l7ece"]
 [ext_resource type="Texture2D" uid="uid://cy2jbrjibs00h" path="res://art/sprites/goblinhurt.png" id="4_rnc8v"]
 [ext_resource type="Texture2D" uid="uid://vje5af61y85f" path="res://art/sprites/GOBLIN1-Shee-walkt.png" id="5_7ccs8"]
+[ext_resource type="Texture2D" uid="uid://cj70iqi85uw61" path="res://art/ui/ekey.png" id="6_rnc8v"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_l7ece")
@@ -153,11 +154,13 @@ animation = &"idle"
 position = Vector2(-0.5, 0)
 shape = SubResource("RectangleShape2D_l7ece")
 
-[node name="InteractLabel" type="Label" parent="."]
-offset_right = 40.0
-offset_bottom = 23.0
+[node name="InteractIcon" type="Sprite2D" parent="."]
+z_index = 10
+position = Vector2(0.89, -14.335)
+scale = Vector2(0.353, 0.353)
+texture = ExtResource("6_rnc8v")
 
-[node name="Area2D" type="Area2D" parent="."]
+[node name="DetectionArea" type="Area2D" parent="."]
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+[node name="CollisionShape2D" type="CollisionShape2D" parent="DetectionArea"]
 shape = SubResource("CircleShape2D_rnc8v")

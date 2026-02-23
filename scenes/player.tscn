@@ -170,6 +170,7 @@ shape = SubResource("RectangleShape2D_3v2ag")
 rotation = -3.58316
 
 [node name="WeaponSprite" type="Sprite2D" parent="WeaponPivot"]
+z_index = 10
 texture = ExtResource("4_dqkch")
 offset = Vector2(12, 0)
 

@@ -22,7 +22,7 @@ extends CharacterBody2D
 
 # --- Refs ---
 @onready var sprite: AnimatedSprite2D        = $AnimatedSprite2D
-@onready var interact_label: Label           = $InteractLabel
+@onready var interact_icon: Sprite2D = $InteractIcon
 @onready var detection_area: Area2D          = $DetectionArea
 
 # =============================================================================
@@ -41,7 +41,7 @@ var _player_ref: Node    = null
 var _tilemap: TileMap = null
 
 # --- Salud ---
-@export var max_health: int = 30
+@export var max_health: int = 5
 var _health: int = max_health
 var _is_dead: bool = false
 var _is_hurt: bool = false
@@ -52,22 +52,17 @@ func _ready() -> void:
 	add_to_group("npc")
 	add_to_group("tavern_keeper")
 
-	interact_label.visible = false
-	interact_label.text    = "[E]"
+	# ✅ Prompt apagado por defecto
+	interact_icon.visible = false
 
-	# Posición inicial: detrás del mostrador
 	_go_to_counter()
-
-	# Timer inicial de wander
 	_reset_wander_timer()
-
 	sprite.play("idle")
 
-	# Conectar área de detección
+	# ✅ Conectar área de detección
 	if detection_area:
 		detection_area.body_entered.connect(_on_body_entered)
 		detection_area.body_exited.connect(_on_body_exited)
-
 
 # =============================================================================
 # FÍSICA
@@ -159,8 +154,7 @@ func _reset_wander_timer() -> void:
 func _on_body_entered(body: Node) -> void:
 	if body.is_in_group("player"):
 		_player_nearby = true
-		_player_ref    = body
-
+		_player_ref = body
 
 func _on_body_exited(body: Node) -> void:
 	if body.is_in_group("player"):
@@ -168,22 +162,21 @@ func _on_body_exited(body: Node) -> void:
 		if _player_ref == body:
 			_player_ref = null
 
-
 # =============================================================================
 # PROMPT DE INTERACCIÓN
 # =============================================================================
 func _update_interact_prompt() -> void:
-	interact_label.visible = _player_nearby
+	# ✅ Mostrar icono SOLO si el player está dentro del área
+	interact_icon.visible = _player_nearby and (not _is_dead)
 
 	# Girar sprite hacia el player cuando está cerca
 	if _player_nearby and _player_ref != null:
 		var dx: float = (_player_ref as Node2D).global_position.x - global_position.x
 		sprite.flip_h = dx < 0.0
 
-	# Tecla E → abrir tienda (placeholder)
+	# Tecla E → placeholder (solo imprime)
 	if _player_nearby and Input.is_action_just_pressed("interact"):
 		_open_shop()
-
 
 func _open_shop() -> void:
 	# TODO: abrir UI de compra/venta
@@ -222,7 +215,7 @@ func take_damage(amount: int, from_pos: Vector2 = Vector2.ZERO) -> void:
 	# Reproducir hurt y volver a idle al terminar
 	_is_hurt = true
 	velocity = Vector2.ZERO
-	interact_label.visible = false
+	interact_icon.visible = false
 
 	sprite.play("hurt")
 	await sprite.animation_finished
@@ -235,7 +228,7 @@ func die() -> void:
 	_is_dead = true
 
 	velocity = Vector2.ZERO
-	interact_label.visible = false
+	interact_icon.visible = false
 
 	# Deshabilitar colisiones para que no bloquee al player
 	set_collision_layer_value(1, false)
