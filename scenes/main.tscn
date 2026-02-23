@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=17 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" uid="uid://b61xj3scmxra2" path="res://scenes/enemy.tscn" id="3_sugp2"]
 [ext_resource type="PackedScene" uid="uid://ckdqo63fw6dkw" path="res://scenes/bandit_camp.tscn" id="4_jkv2x"]
 [ext_resource type="Script" uid="uid://dauw3snnx1ppx" path="res://scripts/ui/hud.gd" id="5_hud"]
+[ext_resource type="PackedScene" uid="uid://c1eimnkv5d2r2" path="res://scenes/tavern_keeper.tscn" id="6_jbj1t"]
 [ext_resource type="Script" uid="uid://bmnvtxmikdtap" path="res://scripts/ui/hearts.gd" id="6_tefeu"]
 [ext_resource type="Texture2D" uid="uid://buxyqe0n15fc7" path="res://art/sprites/heart.png" id="8_85g3d"]
 [ext_resource type="Texture2D" uid="uid://bgcahwp1ti4nn" path="res://art/sprites/heart-empty.png" id="9_choun"]
@@ -25,6 +26,7 @@ script = ExtResource("2_jkv2x")
 copper_ore_scene = ExtResource("13_trceg")
 bandit_camp_scene = ExtResource("4_jkv2x")
 bandit_scene = ExtResource("3_sugp2")
+tavern_keeper_scene = ExtResource("6_jbj1t")
 
 [node name="WorldTileMap" type="TileMap" parent="World"]
 tile_set = ExtResource("14_a8y0u")

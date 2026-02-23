@@ -31,6 +31,10 @@ var generating_chunks: Dictionary = {}  # {Vector2i: true} — generación de ti
 var entities_spawned_chunks: Dictionary = {}  # {Vector2i: true} — spawn_entities ya corrió para este chunk
 var chunk_save: Dictionary = {}         # {Vector2i: { "ores":[], "camps":[], "placed_tiles":[], "placements":[] } }
 
+#tabern keeper
+@export var tavern_keeper_scene: PackedScene
+
+
 # Layers
 const LAYER_GROUND: int = 0
 const LAYER_FLOOR: int = 1
@@ -394,7 +398,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	if not chunk_save.has(chunk_pos):
 		return
 
-	# 1) ORES — child del tilemap, position local al tilemap
+	# 1) ORES
 	for d in chunk_save[chunk_pos]["ores"]:
 		var tpos: Vector2i = d["tile"]
 		var ore := copper_ore_scene.instantiate()
@@ -408,7 +412,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	for t in chunk_save[chunk_pos]["placed_tiles"]:
 		tilemap.set_cell(t["layer"], t["tile"], t["source"], t["atlas"])
 
-	# 3) CAMPS — child del tilemap, position local al tilemap
+	# 3) CAMPS
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
 		var camp := bandit_camp_scene.instantiate()
@@ -416,36 +420,61 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		tilemap.add_child(camp)
 		chunk_entities[chunk_pos].append(camp)
 		camp.set("bandit_scene", bandit_scene)
-
-	# 4) PROPS (furniture taberna)
+	print("[DEBUG] load_chunk_entities chunk=", chunk_pos, " placements=", chunk_save[chunk_pos].get("placements", []).size())
+	for p in chunk_save[chunk_pos].get("placements", []):
+		print("[DEBUG] placement kind=", p.get("kind","?"), " site=", p.get("site_id","?"))
+	# 4) PLACEMENTS (props + npc_keeper)
+	print("[DEBUG] intentando instanciar keeper, scene=", tavern_keeper_scene)
 	var spawned_count: int = 0
 	if chunk_save[chunk_pos].has("placements"):
 		for p in chunk_save[chunk_pos]["placements"]:
 			if typeof(p) != TYPE_DICTIONARY:
 				continue
 			var d: Dictionary = p
-			if String(d.get("kind", "")) != "prop":
-				continue
+			var kind: String = String(d.get("kind", ""))
 
-			var prop_id: String = String(d.get("prop_id", ""))
-			var path: String = PropDB.scene_path(prop_id)
-			if path == "":
-				print("[PROPS] prop_id desconocido:", prop_id)
-				continue
+			# ── PROPS ──────────────────────────────────────────────
+			if kind == "prop":
+				var prop_id: String = String(d.get("prop_id", ""))
+				var path: String = PropDB.scene_path(prop_id)
+				if path == "":
+					print("[PROPS] prop_id desconocido:", prop_id)
+					continue
+				var ps: PackedScene = load(path) as PackedScene
+				if ps == null:
+					print("[PROPS] no pude load:", path)
+					continue
+				var inst: Node2D = ps.instantiate() as Node2D
+				var ccell: Array = d.get("cell", [0, 0])
+				var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
+				inst.position = tilemap.map_to_local(cell)
+				inst.z_index = tilemap.z_index + 5
+				tilemap.add_child(inst)
+				chunk_entities[chunk_pos].append(inst)
+				spawned_count += 1
 
-			var ps: PackedScene = load(path) as PackedScene
-			if ps == null:
-				print("[PROPS] no pude load:", path)
-				continue
-
-			var inst: Node2D = ps.instantiate() as Node2D
-			var ccell: Array = d.get("cell", [0, 0])
-			var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
-			inst.position = tilemap.map_to_local(cell)
-			inst.z_index = tilemap.z_index + 5
-			tilemap.add_child(inst)
-			chunk_entities[chunk_pos].append(inst)
-			spawned_count += 1
+			# ── NPC KEEPER ─────────────────────────────────────────
+			elif kind == "npc_keeper":
+				if tavern_keeper_scene == null:
+					print("[NPC] tavern_keeper_scene no asignada en el Inspector")
+					continue
+				var keeper := tavern_keeper_scene.instantiate() as TavernKeeper
+				# Recuperar datos guardados
+				var ccell: Array = d.get("cell", [0, 0])
+				var counter_cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
+				var imin: Array = d.get("inner_min", [0, 0])
+				var imax: Array = d.get("inner_max", [0, 0])
+				var inner_min: Vector2i = Vector2i(int(imin[0]), int(imin[1]))
+				var inner_max: Vector2i = Vector2i(int(imax[0]), int(imax[1]))
+				# setup ANTES de add_child para que _ready() ya tenga los datos
+				keeper.set("_tilemap", tilemap)
+				keeper.set("tavern_inner_min", inner_min)
+				keeper.set("tavern_inner_max", inner_max)
+				keeper.set("counter_tile", counter_cell)
+				keeper.position = tilemap.map_to_local(counter_cell)
+				tilemap.add_child(keeper)
+				chunk_entities[chunk_pos].append(keeper)
+				spawned_count += 1
 
 	print("[PROPS] spawned_count=", spawned_count, " chunk=", chunk_pos)
 
@@ -736,12 +765,15 @@ func generate_tavern_furniture_simple(chunk_key: Vector2i, inner_min: Vector2i, 
 	# COUNTER
 	var counter_size: Vector2i = Vector2i(3, 1)
 	var counter_pos: Vector2i = Vector2i(door_cell.x, inner_min.y + 2)
+	var counter_cell: Vector2i = counter_pos  # tile donde para el keeper
 	if _rect_fits_and_free(occupied, counter_pos, counter_size, inner_min, inner_max):
 		_mark_rect(occupied, counter_pos, counter_size)
 		add_prop_placement(chunk_key, "counter", "tavern_counter_01", counter_pos)
 		var behind: Vector2i = Vector2i(counter_pos.x, counter_pos.y - 1)
 		if behind.y >= inner_min.y:
 			_mark_rect(occupied, behind, Vector2i(counter_size.x, 1))
+		# El keeper se para justo detrás del centro del counter
+		counter_cell = Vector2i(counter_pos.x + 1, counter_pos.y - 1)
 
 	# MESAS
 	var table_size: Vector2i = Vector2i(2, 2)
@@ -773,3 +805,13 @@ func generate_tavern_furniture_simple(chunk_key: Vector2i, inner_min: Vector2i, 
 			occupied[c] = true
 			barrel_count += 1
 			add_prop_placement(chunk_key, "barrel", "tavern_barrel_%02d" % barrel_count, c)
+
+	# NPC KEEPER — guardar placement con bounds para que load_chunk_entities lo instancie
+	_ensure_chunk_save_key(chunk_key)
+	chunk_save[chunk_key]["placements"].append({
+		"kind":      "npc_keeper",
+		"site_id":   "tavern_keeper_01",
+		"cell":      [counter_cell.x, counter_cell.y],
+		"inner_min": [inner_min.x, inner_min.y],
+		"inner_max": [inner_max.x, inner_max.y]
+	})

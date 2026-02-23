@@ -1,0 +1,163 @@
+[gd_scene load_steps=24 format=3 uid="uid://c1eimnkv5d2r2"]
+
+[ext_resource type="Script" uid="uid://daeh17nvsxhyc" path="res://scripts/npc/tavern_keeper.gd" id="1_sxn48"]
+[ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="2_448nf"]
+[ext_resource type="Texture2D" uid="uid://csi1e66pf1k75" path="res://art/sprites/GOBLIN1-death.png" id="3_l7ece"]
+[ext_resource type="Texture2D" uid="uid://cy2jbrjibs00h" path="res://art/sprites/goblinhurt.png" id="4_rnc8v"]
+[ext_resource type="Texture2D" uid="uid://vje5af61y85f" path="res://art/sprites/GOBLIN1-Shee-walkt.png" id="5_7ccs8"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
+atlas = ExtResource("3_l7ece")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fulsm"]
+atlas = ExtResource("3_l7ece")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_4r5pv"]
+atlas = ExtResource("3_l7ece")
+region = Rect2(32, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_oprun"]
+atlas = ExtResource("4_rnc8v")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_a8ls1"]
+atlas = ExtResource("4_rnc8v")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ipns3"]
+atlas = ExtResource("2_448nf")
+region = Rect2(48, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_8qclf"]
+atlas = ExtResource("2_448nf")
+region = Rect2(32, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_w8i8w"]
+atlas = ExtResource("2_448nf")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_otmr2"]
+atlas = ExtResource("2_448nf")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_wtq4b"]
+atlas = ExtResource("5_7ccs8")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_j0cyh"]
+atlas = ExtResource("5_7ccs8")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_g0wcc"]
+atlas = ExtResource("5_7ccs8")
+region = Rect2(32, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_s1ycm"]
+atlas = ExtResource("5_7ccs8")
+region = Rect2(48, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_shcg2"]
+atlas = ExtResource("5_7ccs8")
+region = Rect2(64, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ile5s"]
+atlas = ExtResource("5_7ccs8")
+region = Rect2(80, 0, 16, 16)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_2hr7f"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_qfm1y")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_fulsm")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_4r5pv")
+}],
+"loop": false,
+"name": &"death",
+"speed": 5.0
+}, {
+"frames": [{
+"duration": 0.3,
+"texture": SubResource("AtlasTexture_oprun")
+}, {
+"duration": 2.0,
+"texture": SubResource("AtlasTexture_a8ls1")
+}],
+"loop": false,
+"name": &"hurt",
+"speed": 5.0
+}, {
+"frames": [{
+"duration": 5.0,
+"texture": SubResource("AtlasTexture_ipns3")
+}, {
+"duration": 5.0,
+"texture": SubResource("AtlasTexture_8qclf")
+}, {
+"duration": 5.0,
+"texture": SubResource("AtlasTexture_w8i8w")
+}, {
+"duration": 5.0,
+"texture": SubResource("AtlasTexture_otmr2")
+}],
+"loop": true,
+"name": &"idle",
+"speed": 5.0
+}, {
+"frames": [{
+"duration": 0.4,
+"texture": SubResource("AtlasTexture_wtq4b")
+}, {
+"duration": 0.4,
+"texture": SubResource("AtlasTexture_j0cyh")
+}, {
+"duration": 0.4,
+"texture": SubResource("AtlasTexture_g0wcc")
+}, {
+"duration": 0.4,
+"texture": SubResource("AtlasTexture_s1ycm")
+}, {
+"duration": 0.4,
+"texture": SubResource("AtlasTexture_shcg2")
+}, {
+"duration": 0.4,
+"texture": SubResource("AtlasTexture_ile5s")
+}],
+"loop": true,
+"name": &"walk",
+"speed": 5.0
+}]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_l7ece"]
+size = Vector2(9, 16)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_rnc8v"]
+radius = 57.3149
+
+[node name="TavernKeeper" type="CharacterBody2D"]
+collision_layer = 4
+collision_mask = 5
+script = ExtResource("1_sxn48")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+sprite_frames = SubResource("SpriteFrames_2hr7f")
+animation = &"idle"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(-0.5, 0)
+shape = SubResource("RectangleShape2D_l7ece")
+
+[node name="InteractLabel" type="Label" parent="."]
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="Area2D" type="Area2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+shape = SubResource("CircleShape2D_rnc8v")
