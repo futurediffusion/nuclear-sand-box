@@ -236,10 +236,14 @@ var chunk_occupied_tiles: Dictionary = {}  # {Vector2i -> {Vector2i: true}}
 
 const INVALID_SPAWN_TILE := Vector2i(999999, 999999)
 const SAFE_PLAYER_SPAWN_RADIUS_TILES := 3
+const TAVERN_SAFE_RADIUS_TILES: int = 20
 const SPAWN_MAX_TRIES := 30
 const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
 const DEBUG_SPAWN: bool = true
+
+var tavern_tile: Vector2i = Vector2i(0, 0)
+var has_tavern: bool = false
 
 func _debug_spawn_report(chunk_key: Vector2i, player_tile: Vector2i, chosen_tile: Vector2i, reason: String) -> void:
 	if not DEBUG_SPAWN:
@@ -261,8 +265,11 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 			"camps": [],
 			"placed_tiles": []
 		}
-		# 10% de probabilidad de taberna
-		generate_tavern_in_chunk(chunk_pos)
+		# --- TABERNA: SOLO 1 VEZ (BUGFIX) ---
+		# Solo generar taberna en el chunk del spawn (chunk del jugador al inicio).
+		var spawn_chunk: Vector2i = _tile_to_chunk(spawn_tile)
+		if chunk_pos == spawn_chunk and not has_tavern:
+			generate_tavern_in_chunk(chunk_pos)
 		chunk_occupied_tiles[chunk_pos] = {}
 	else:
 		return
@@ -301,7 +308,7 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	var copper_spawn_failed_logged := false
 
 	for i in range(attempts):
-		var tpos: Vector2i = _find_valid_spawn_tile(chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, SPAWN_MAX_TRIES, rng, COPPER_FOOTPRINT_RADIUS_TILES)
+		var tpos: Vector2i = _find_valid_spawn_tile(chunk_pos, player_tile, TAVERN_SAFE_RADIUS_TILES, SPAWN_MAX_TRIES, rng, COPPER_FOOTPRINT_RADIUS_TILES)
 		if tpos == INVALID_SPAWN_TILE:
 			if not copper_spawn_failed_logged:
 				_debug_spawn_report(chunk_pos, player_tile, INVALID_SPAWN_TILE, "CANCEL: no valid tile after tries")
@@ -351,7 +358,7 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		var camp_tile := _find_nearby_tile(rng, copper_tile, 6, 14) # cerca (6-14 tiles)
 		if camp_tile == INVALID_SPAWN_TILE:
 			continue
-		if not _is_spawn_tile_valid(chunk_pos, camp_tile, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, CAMP_FOOTPRINT_RADIUS_TILES):
+		if not _is_spawn_tile_valid(chunk_pos, camp_tile, player_tile, TAVERN_SAFE_RADIUS_TILES, CAMP_FOOTPRINT_RADIUS_TILES):
 			continue
 
 		chunk_save[chunk_pos]["camps"].append({
@@ -365,7 +372,7 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	for r in range(random_camps):
 		var try_tile: Vector2i = INVALID_SPAWN_TILE
 		for i in range(SPAWN_MAX_TRIES):
-			var candidate: Vector2i = _find_valid_spawn_tile(chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, SPAWN_MAX_TRIES, rng, CAMP_FOOTPRINT_RADIUS_TILES)
+			var candidate: Vector2i = _find_valid_spawn_tile(chunk_pos, player_tile, TAVERN_SAFE_RADIUS_TILES, SPAWN_MAX_TRIES, rng, CAMP_FOOTPRINT_RADIUS_TILES)
 			if candidate == INVALID_SPAWN_TILE:
 				break
 			if not _is_close_to_any(candidate, copper_positions, 10):
@@ -452,6 +459,11 @@ func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: 
 			if probe.distance_to(player_tile) <= float(safe_radius_tiles):
 				return false
 
+			if has_tavern and safe_radius_tiles > 0:
+				var dist_to_tavern: int = probe.distance_to(tavern_tile)
+				if dist_to_tavern <= safe_radius_tiles:
+					return false
+
 			var occ: Dictionary = chunk_occupied_tiles.get(chunk_key, {})
 			if occ.has(probe):
 				return false
@@ -497,6 +509,11 @@ func _get_spawn_reject_reason(chunk_key: Vector2i, tile_pos: Vector2i, player_ti
 
 			if probe.distance_to(player_tile) <= float(safe_radius_tiles):
 				return "inside_safe_radius"
+
+			if has_tavern and safe_radius_tiles > 0:
+				var dist_to_tavern: int = probe.distance_to(tavern_tile)
+				if dist_to_tavern <= safe_radius_tiles:
+					return "inside_tavern_safe_radius"
 
 			if occ.has(probe):
 				return "occupied"
@@ -655,3 +672,7 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i) -> void:
 	for y in range(y0 + 2, y1):
 		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x0, y), SRC_WALLS, ROOF_VERTICAL)
 		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x1, y), SRC_WALLS, ROOF_VERTICAL)
+
+	# Guardamos el "centro" de la taberna para usarlo como zona segura.
+	tavern_tile = Vector2i(x0 + w / 2, y0 + h / 2)
+	has_tavern = true
