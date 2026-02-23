@@ -32,6 +32,7 @@ format = 2
 layer_0/name = "Ground"
 layer_1/name = "floor"
 layer_2/name = "Walls"
+layer_2/z_index = 5
 
 [node name="Player" parent="." instance=ExtResource("1_o5qli")]
 position = Vector2(126.8, 77.2)

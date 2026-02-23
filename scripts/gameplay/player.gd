@@ -160,50 +160,77 @@ func _is_horizontal_interior(pos: Vector2i) -> bool:
 		return false
 	return _has_wall(pos + Vector2i(-1, 0)) and _has_wall(pos + Vector2i(1, 0))
 
+# Extremo de pared horizontal: vecino solo en UN lado
+# Pero NO es esquina (no tiene pared arriba)
+func _is_horizontal_end(pos: Vector2i) -> bool:
+	if not _has_wall(pos):
+		return false
+	var has_left  := _has_wall(pos + Vector2i(-1, 0))
+	var has_right := _has_wall(pos + Vector2i( 1, 0))
+	# Si tiene vecino arriba o abajo, es esquina → no abrir
+	var has_above := _has_wall(pos + Vector2i(0, -1))
+	var has_below := _has_wall(pos + Vector2i(0,  1))
+	if has_above or has_below:
+		return false
+	return has_left != has_right  # XOR: exactamente un lado horizontal
+	
+func _is_top_corner(pos: Vector2i) -> bool:
+	if not _has_wall(pos):
+		return false
+	var has_left  := _has_wall(pos + Vector2i(-1, 0))
+	var has_right := _has_wall(pos + Vector2i( 1, 0))
+	var has_below := _has_wall(pos + Vector2i(0,  1))
+	return (has_left != has_right) and has_below
+	
 func _wall_toggle_update() -> void:
 	if _tilemap == null:
 		return
-
 	var still_open: Dictionary = {}
-
 	var base_tile := _probe_tile()
 	var tpos := base_tile + probe_tile_offset
 	var tpos_up := tpos + Vector2i(0, -1)
-
 	var behind_mode := false
-
 	if _has_wall(tpos):
 		_set_wall_alt(tpos, wall_alt_small)
 		still_open[tpos] = true
 		behind_mode = true
-
 	if _has_wall(tpos_up):
 		_set_wall_alt(tpos_up, wall_alt_small)
 		still_open[tpos_up] = true
 		behind_mode = true
-
 	var main_is_h := _is_horizontal_member(tpos) or _is_horizontal_member(tpos_up)
-
+	# --- Apertura lateral cuando ya estás DENTRO ---
 	if behind_mode and main_is_h and absf(velocity.x) > 0.1:
 		var side := 1 if velocity.x > 0.0 else -1
-
-		var lateral := tpos + Vector2i(side, 0)
+		var lateral    := tpos    + Vector2i(side, 0)
 		var lateral_up := tpos_up + Vector2i(side, 0)
-
-		if _is_horizontal_interior(lateral):
+		if _is_horizontal_interior(lateral) or _is_horizontal_end(lateral) or _is_top_corner(lateral):
 			_set_wall_alt(lateral, wall_alt_small)
 			still_open[lateral] = true
-
-		if _is_horizontal_interior(lateral_up):
+		if _is_horizontal_interior(lateral_up) or _is_horizontal_end(lateral_up) or _is_top_corner(lateral_up):
 			_set_wall_alt(lateral_up, wall_alt_small)
 			still_open[lateral_up] = true
-
+	# --- Apertura lateral cuando te APROXIMAS desde afuera ---
+	if absf(velocity.x) > 0.1:
+		var side := 1 if velocity.x > 0.0 else -1
+		var approach    := tpos    + Vector2i(side, 0)
+		var approach_up := tpos_up + Vector2i(side, 0)
+		if _is_horizontal_end(approach) or _is_top_corner(approach):
+			_set_wall_alt(approach, wall_alt_small)
+			still_open[approach] = true
+		if _is_horizontal_end(approach_up) or _is_top_corner(approach_up):
+			_set_wall_alt(approach_up, wall_alt_small)
+			still_open[approach_up] = true
 	for old_tpos in _opened_wall_tiles.keys():
 		if not still_open.has(old_tpos):
 			_set_wall_alt(old_tpos, wall_alt_full)
-
+	# --- Transparencia ---
+	if behind_mode and _has_wall(tpos_up):
+		_tilemap.set_layer_modulate(walls_layer, Color(1, 1, 1, 0.4))
+	else:
+		_tilemap.set_layer_modulate(walls_layer, Color(1, 1, 1, 1.0))
 	_opened_wall_tiles = still_open
-
+	
 func _close_opened_walls() -> void:
 	for tpos in _opened_wall_tiles.keys():
 		_set_wall_alt(tpos, wall_alt_full)
@@ -254,9 +281,9 @@ func _ready() -> void:
 	sprite.play("idle")
 	sprite.flip_h = false
 	add_to_group("player")
-	sprite.z_index = 0
-	weapon_pivot.z_index = 10
-	weapon_sprite.z_index = 10
+	sprite.z_index = 2
+	weapon_pivot.z_index = 2
+	weapon_sprite.z_index = 2
 	_resolve_hearts_ui()
 	_setup_health_component()
 	_setup_stamina_component()
