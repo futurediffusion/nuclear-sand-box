@@ -91,8 +91,10 @@ func _ready() -> void:
 
 	player = get_node_or_null("../Player")
 
-	# Spawn del mundo en el centro del mapa (en tiles)
-	spawn_tile = Vector2i(width / 2, height / 2)
+	# Spawn inicial: ubicar al jugador en el centro de la taberna del chunk inicial.
+	var initial_spawn_tile := Vector2i(width / 2, height / 2)
+	var spawn_chunk: Vector2i = _tile_to_chunk(initial_spawn_tile)
+	spawn_tile = _get_tavern_center_tile_for_chunk(spawn_chunk)
 
 	# mover player al centro REAL en el mundo
 	if player:
@@ -674,5 +676,11 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i) -> void:
 		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x1, y), SRC_WALLS, ROOF_VERTICAL)
 
 	# Guardamos el "centro" de la taberna para usarlo como zona segura.
-	tavern_tile = Vector2i(x0 + w / 2, y0 + h / 2)
+	tavern_tile = _get_tavern_center_tile_for_chunk(chunk_pos)
 	has_tavern = true
+
+func _get_tavern_center_tile_for_chunk(chunk_pos: Vector2i) -> Vector2i:
+	var tavern_width: int = 12
+	var x0: int = chunk_pos.x * chunk_size + 4
+	var y0: int = chunk_pos.y * chunk_size + 3
+	return Vector2i(x0 + tavern_width / 2, y0 + 8 / 2)
