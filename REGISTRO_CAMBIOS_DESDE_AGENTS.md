@@ -112,3 +112,12 @@ Desde la última actualización de `AGENTS.MD`, el proyecto pasó de mejoras de 
 Commits de referencia recientes:
 - `709e281`, `651bfff`, `ed6f323`, `c7e0bd2`, `f07b275`
 - `dac1ab0`, `4ea239b`, `a528f3d`, `1980dde`
+
+## Actualización reciente (fix spawn cobre/campamentos)
+
+- Se corrigieron y reforzaron las reglas de spawn en `scripts/world/world.gd` para evitar que cobre/campamentos queden prácticamente en cero por chunk.
+- Se agregaron multiplicadores configurables en `World`:
+  - `copper_spawn_multiplier`
+  - `camp_spawn_multiplier`
+- Se subió la densidad base de intentos de cobre por bioma y la cantidad de campamentos (custodiados + aleatorios) con límites controlados por chunk.
+- Se configuraron valores más altos en `scenes/main.tscn` para aumentar la aparición durante gameplay real.
