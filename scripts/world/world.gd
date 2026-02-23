@@ -19,6 +19,7 @@ var loaded_chunks: Dictionary = {}  # {Vector2i chunk_pos -> bool}
 var current_player_chunk := Vector2i(-999, -999)
 
 var spawn_tile: Vector2i
+var tavern_chunk: Vector2i
 const COPPER_MIN_DIST_TILES := 10
 var _chunk_timer: float = 0.0
 var _pick_rng := RandomNumberGenerator.new()
@@ -92,13 +93,15 @@ func _ready() -> void:
 	player = get_node_or_null("../Player")
 
 	# Spawn del mundo en el centro del mapa (en tiles)
-	spawn_tile = Vector2i(width / 2, height / 2)
+	tavern_chunk = _tile_to_chunk(Vector2i(width / 2, height / 2))
+	spawn_tile = get_tavern_center_tile(tavern_chunk)
 
 	# mover player al centro REAL en el mundo
+	var spawn_world: Vector2 = _tile_to_world(spawn_tile)
 	if player:
-		player.global_position = tilemap.map_to_local(spawn_tile)
+		player.global_position = spawn_world
 
-	current_player_chunk = world_to_chunk(tilemap.map_to_local(spawn_tile))
+	current_player_chunk = world_to_chunk(spawn_world)
 	update_chunks(current_player_chunk)
 
 func _process(delta: float) -> void:
@@ -119,6 +122,13 @@ func _process(delta: float) -> void:
 func world_to_chunk(pos: Vector2) -> Vector2i:
 	var tile_pos: Vector2i = _world_to_tile(pos)
 	return _tile_to_chunk(tile_pos)
+
+func _is_chunk_in_active_window(chunk_pos: Vector2i, center: Vector2i) -> bool:
+	if abs(chunk_pos.x - center.x) > active_radius:
+		return false
+	if abs(chunk_pos.y - center.y) > active_radius:
+		return false
+	return true
 
 func update_chunks(center: Vector2i) -> void:
 	if player:
@@ -183,6 +193,15 @@ func generate_chunk(chunk_pos: Vector2i) -> void:
 	
 	generated_chunks[chunk_pos] = true
 	generating_chunks.erase(chunk_pos)
+
+	# Si el chunk se terminó de cocinar mientras seguía dentro del radio activo,
+	# hay que cargar sus entidades y tiles persistentes de inmediato.
+	# Esto evita que la taberna/estructuras no aparezcan hasta que el jugador
+	# cambie de chunk (o que parezcan no generarse nunca en el spawn inicial).
+	if _is_chunk_in_active_window(chunk_pos, current_player_chunk):
+		if not loaded_chunks.has(chunk_pos):
+			load_chunk_entities(chunk_pos)
+			loaded_chunks[chunk_pos] = true
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
 	var start_x := chunk_pos.x * chunk_size
@@ -261,9 +280,9 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 			"camps": [],
 			"placed_tiles": []
 		}
-		# 10% de probabilidad de taberna
-		generate_tavern_in_chunk(chunk_pos)
 		chunk_occupied_tiles[chunk_pos] = {}
+		if chunk_pos == tavern_chunk:
+			generate_tavern_in_chunk(chunk_pos)
 	else:
 		return
 
@@ -416,6 +435,9 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 
 func _world_to_tile(world_pos: Vector2) -> Vector2i:
 	return tilemap.local_to_map(tilemap.to_local(world_pos))
+
+func _tile_to_world(tile_pos: Vector2i) -> Vector2:
+	return tilemap.to_global(tilemap.map_to_local(tile_pos))
 
 func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 	var cx: int = int(floor(float(tile_pos.x) / float(chunk_size)))
@@ -655,3 +677,15 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i) -> void:
 	for y in range(y0 + 2, y1):
 		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x0, y), SRC_WALLS, ROOF_VERTICAL)
 		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x1, y), SRC_WALLS, ROOF_VERTICAL)
+
+	# Reservar la huella de la taberna para que no se superpongan ores/camps.
+	for y in range(y0, y1 + 1):
+		for x in range(x0, x1 + 1):
+			_mark_tile_occupied(chunk_pos, Vector2i(x, y))
+
+func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
+	var w: int = 12
+	var h: int = 8
+	var x0: int = chunk_pos.x * chunk_size + 4
+	var y0: int = chunk_pos.y * chunk_size + 3
+	return Vector2i(x0 + (w / 2), y0 + (h / 2))

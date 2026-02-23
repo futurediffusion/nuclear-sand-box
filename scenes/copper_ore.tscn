@@ -1,7 +1,7 @@
 [gd_scene load_steps=7 format=3 uid="uid://x4mnfcrurq20"]
 
 [ext_resource type="Texture2D" uid="uid://16p5bi3hpaby" path="res://art/sprites/copper.png" id="1_oiful"]
-[ext_resource type="Script" path="res://scripts/resources/copper_ore.gd" id="1_w4g7b"]
+[ext_resource type="Script" uid="uid://7kpckbckondq" path="res://scripts/resources/copper_ore.gd" id="1_w4g7b"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_w4g7b"]
 size = Vector2(16, 7)
