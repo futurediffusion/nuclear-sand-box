@@ -8,6 +8,8 @@ extends Node2D
 @export var active_radius: int = 1  # chunks activos alrededor del player
 @export var copper_ore_scene: PackedScene
 @export var chunk_check_interval: float = 0.3
+@export_range(0.1, 4.0, 0.1) var copper_spawn_multiplier: float = 1.6
+@export_range(0.1, 4.0, 0.1) var camp_spawn_multiplier: float = 1.8
 
 # Noise para bioma dominante
 var biome_noise := FastNoiseLite.new()
@@ -294,9 +296,11 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 
 	var attempts := 0
 	match biome:
-		2: attempts = rng.randi_range(6, 16)  # piedra: bastante
-		0: attempts = rng.randi_range(3, 7)   # arena: medio
-		1: attempts = rng.randi_range(0, 3)   # pasto: poco
+		2: attempts = rng.randi_range(8, 18)  # piedra: bastante
+		0: attempts = rng.randi_range(4, 9)   # arena: medio
+		1: attempts = rng.randi_range(1, 5)   # pasto: poco
+
+	attempts = maxi(1, int(round(float(attempts) * copper_spawn_multiplier)))
 
 	# Cerca del spawn: mínimo 1 intento
 	var chunk_center_tile := Vector2i(cx, cy)
@@ -350,8 +354,8 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		return
 
 	# (A) Algunos cobres custodiados (no todos)
-	var guarded_count := int(floor(copper_positions.size() * 0.40)) # 25% custodiados
-	guarded_count = clampi(guarded_count, 0, 3) # por chunk, máximo 3
+	var guarded_count := int(floor(copper_positions.size() * 0.45))
+	guarded_count = clampi(int(round(float(guarded_count) * camp_spawn_multiplier)), 0, 5)
 
 	for g in range(guarded_count):
 		var idx := rng.randi_range(0, copper_positions.size() - 1)
@@ -369,7 +373,8 @@ func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 		_mark_footprint_occupied(chunk_pos, camp_tile, CAMP_FOOTPRINT_RADIUS_TILES)
 
 	# (B) Algunos campamentos random (NO cerca del cobre)
-	var random_camps := rng.randi_range(0, 2) # 0-1 campamentos extra por chunk
+	var random_camps := int(round(float(rng.randi_range(1, 3)) * camp_spawn_multiplier))
+	random_camps = clampi(random_camps, 1, 6)
 	var camp_spawn_failed_logged := false
 	for r in range(random_camps):
 		var try_tile: Vector2i = INVALID_SPAWN_TILE

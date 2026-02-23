@@ -22,6 +22,8 @@ script = ExtResource("1_sugp2")
 
 [node name="World" type="Node2D" parent="."]
 script = ExtResource("2_jkv2x")
+copper_spawn_multiplier = 1.8
+camp_spawn_multiplier = 2.0
 copper_ore_scene = ExtResource("13_trceg")
 bandit_camp_scene = ExtResource("4_jkv2x")
 bandit_scene = ExtResource("3_sugp2")
