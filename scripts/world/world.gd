@@ -97,10 +97,11 @@ func _ready() -> void:
 	spawn_tile = get_tavern_center_tile(tavern_chunk)
 
 	# mover player al centro REAL en el mundo
+	var spawn_world: Vector2 = _tile_to_world(spawn_tile)
 	if player:
-		player.global_position = tilemap.map_to_local(spawn_tile)
+		player.global_position = spawn_world
 
-	current_player_chunk = world_to_chunk(tilemap.map_to_local(spawn_tile))
+	current_player_chunk = world_to_chunk(spawn_world)
 	update_chunks(current_player_chunk)
 
 func _process(delta: float) -> void:
@@ -434,6 +435,9 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 
 func _world_to_tile(world_pos: Vector2) -> Vector2i:
 	return tilemap.local_to_map(tilemap.to_local(world_pos))
+
+func _tile_to_world(tile_pos: Vector2i) -> Vector2:
+	return tilemap.to_global(tilemap.map_to_local(tile_pos))
 
 func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 	var cx: int = int(floor(float(tile_pos.x) / float(chunk_size)))
