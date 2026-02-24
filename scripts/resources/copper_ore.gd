@@ -1,10 +1,15 @@
 class_name CopperOre
 extends Area2D
 
+signal ore_hit(item_id: String, amount: int, origin: Vector2, hitter: Node)
+signal ore_depleted(origin: Vector2)
+signal request_drop(item_id: String, amount: int, origin: Vector2, hitter: Node)
+
 @export var drop_item: ItemData
 @export var give_item_id: String = "copper"
 @export var give_amount: int = 1
 @export var mining_sfx: AudioStream = preload("res://art/Sounds/mining.ogg")
+@export var use_systems: bool = true
 func get_hit_sound() -> AudioStream:
 	return mining_sfx
 
@@ -80,10 +85,24 @@ func hit(by: Node) -> void:
 	# 1) gastar la mena
 	remaining -= amount
 
-	# 2) SIEMPRE dropear al suelo
-	_spawn_drop(amount)
+	var resolved_item_id := give_item_id
+	if drop_item != null and drop_item.id != "":
+		resolved_item_id = drop_item.id
+
+	var origin := global_position + Vector2(0.0, -10.0)
+	ore_hit.emit(resolved_item_id, amount, origin, by)
+	request_drop.emit(resolved_item_id, amount, origin, by)
+
+	if use_systems:
+		_spawn_drop(amount)
+		AudioSystem.play_2d(get_hit_sound(), global_position, get_parent())
+	else:
+		_spawn_drop_legacy(amount)
 
 	print("[COPPER] dropped=", amount, " remaining=", remaining)
+
+	if remaining <= 0:
+		ore_depleted.emit(origin)
 
 	if hit_particles:
 		hit_particles.restart()
@@ -144,6 +163,25 @@ func _try_give_to_player(by: Node, amount: int) -> int:
 	return 0
 
 func _spawn_drop(amount_to_drop: int) -> void:
+	if not use_systems:
+		_spawn_drop_legacy(amount_to_drop)
+		return
+
+	var icon_override: Texture2D = drop_icon if drop_icon != null else null
+	var pickup_override: AudioStream = drop_pickup_sfx if drop_pickup_sfx != null else null
+
+	var overrides := {
+		"drop_scene": drop_scene,
+		"icon": icon_override,
+		"pickup_sfx": pickup_override,
+	}
+
+	var origin := global_position + Vector2(0.0, -10.0)
+	var spawned := LootSystem.spawn_drop(drop_item, give_item_id, amount_to_drop, origin, get_parent(), overrides)
+	if spawned == null:
+		push_warning("[COPPER] LootSystem no pudo crear drop")
+
+func _spawn_drop_legacy(amount_to_drop: int) -> void:
 	print("[COPPER] spawn_drop amount=", amount_to_drop, " drop_scene=", drop_scene)
 	if drop_scene == null:
 		push_warning("[COPPER] drop_scene no asignado")
