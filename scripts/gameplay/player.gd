@@ -293,7 +293,22 @@ func _ready() -> void:
 	weapon_sprite.show()
 	inventory.debug_print()
 	_ready_wall_toggle()
+	# 1) agarrar el inventario del player (debe existir como hijo)
+	var inv := get_node_or_null("InventoryComponent")
+	if inv == null:
+		push_error("[Player] No encuentro InventoryComponent como hijo del Player")
+		return
 
+	print("[Player] inv_id=", inv.get_instance_id())
+
+	# 2) buscar la UI y pasarle el inventario
+	var ui := get_tree().get_first_node_in_group("inventory_ui") as InventoryUI
+	if ui == null:
+		push_error("[Player] No encuentro InventoryUI en grupo 'inventory_ui'")
+		return
+
+	ui.set_inventory(inv)
+	print("[Player] InventoryUI conectado")
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
 		return

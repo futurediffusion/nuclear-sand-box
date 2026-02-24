@@ -1,0 +1,40 @@
+[gd_scene load_steps=2 format=3 uid="uid://cq80ijwn6016r"]
+
+[ext_resource type="Script" uid="uid://6tdw84oj34oh" path="res://scripts/ui/inventory_slot.gd" id="1_kscix"]
+
+[node name="Slot" type="Control"]
+custom_minimum_size = Vector2(130, 130)
+layout_mode = 3
+anchors_preset = 0
+offset_right = 130.0
+offset_bottom = 130.0
+script = ExtResource("1_kscix")
+
+[node name="Icon" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.055
+offset_top = 13.19
+offset_right = 16.055
+offset_bottom = -16.81
+grow_horizontal = 2
+grow_vertical = 2
+stretch_mode = 5
+
+[node name="Count" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -23.965
+offset_top = -39.41
+offset_right = 26.645
+offset_bottom = -7.04001
+grow_horizontal = 0
+grow_vertical = 0
+scale = Vector2(1.7, 1.7)
+text = "99"

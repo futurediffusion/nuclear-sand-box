@@ -3,6 +3,8 @@ extends Node
 # Componente genérico de inventario + monedas.
 # Se puede usar como hijo del Player u otros actores.
 
+signal inventory_changed
+
 var gold: int = 0
 var items: Dictionary = {} # item_id:String -> count:int
 
@@ -14,7 +16,10 @@ func add_item(item_id: String, amount: int) -> void:
 
 	items[item_id] = get_count(item_id) + amount
 	print("[INV] +", item_id, "=", amount, " total=", get_count(item_id))
-
+	
+	# ✅ avisar a la UI
+	inventory_changed.emit()
+	print("[INV] inv_id=", get_instance_id())
 
 func remove_item(item_id: String, amount: int) -> bool:
 	if amount <= 0:
@@ -33,6 +38,9 @@ func remove_item(item_id: String, amount: int) -> bool:
 		items[item_id] = new_total
 
 	print("[INV] -", item_id, "=", amount, " total=", get_count(item_id))
+
+	# ✅ avisar a la UI
+	inventory_changed.emit()
 	return true
 
 
@@ -57,6 +65,9 @@ func sell_item(item_id: String, amount: int, price_per_unit: int) -> int:
 	var gained := amount * price_per_unit
 	gold += gained
 	print("[INV] sold ", amount, "x", item_id, " gained=", gained, " gold=", gold)
+
+	# remove_item ya emite señal, pero esto cambia gold también:
+	inventory_changed.emit()
 	return gained
 
 
@@ -86,6 +97,9 @@ func buy_item(item_id: String, amount: int, cost_per_unit: int) -> bool:
 	gold -= cost
 	add_item(item_id, amount)
 	print("[INV] bought ", amount, "x", item_id, " cost=", cost, " gold=", gold)
+
+	# add_item ya emite señal, pero por claridad:
+	inventory_changed.emit()
 	return true
 
 
