@@ -1,4 +1,4 @@
-[gd_scene load_steps=30 format=3 uid="uid://38k36ggowmkb"]
+[gd_scene load_steps=35 format=3 uid="uid://38k36ggowmkb"]
 
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="1_3vyb7"]
 [ext_resource type="Script" uid="uid://ckcw5d4tk1kyo" path="res://scripts/gameplay/player.gd" id="1_qhqgy"]
@@ -12,6 +12,12 @@
 [ext_resource type="Script" uid="uid://cgitphdq6wjem" path="res://scripts/camera/camera.gd" id="6_tuyoq"]
 [ext_resource type="Script" uid="uid://fs8idwdgvpd3" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
 [ext_resource type="Script" uid="uid://w4j8nlnv6yfr" path="res://scripts/components/StaminaComponent.gd" id="8_staminac"]
+
+[ext_resource type="Script" path="res://scripts/components/MovementComponent.gd" id="9_move"]
+[ext_resource type="Script" path="res://scripts/components/CombatComponent.gd" id="10_combat"]
+[ext_resource type="Script" path="res://scripts/components/BlockComponent.gd" id="11_block"]
+[ext_resource type="Script" path="res://scripts/components/WallOcclusionComponent.gd" id="12_wall"]
+[ext_resource type="Script" path="res://scripts/components/VFXComponent.gd" id="13_vfx"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_smehm")
@@ -157,6 +163,21 @@ script = ExtResource("7_healthc")
 
 [node name="StaminaComponent" type="Node" parent="."]
 script = ExtResource("8_staminac")
+
+[node name="MovementComponent" type="Node" parent="."]
+script = ExtResource("9_move")
+
+[node name="CombatComponent" type="Node" parent="."]
+script = ExtResource("10_combat")
+
+[node name="BlockComponent" type="Node" parent="."]
+script = ExtResource("11_block")
+
+[node name="WallOcclusionComponent" type="Node" parent="."]
+script = ExtResource("12_wall")
+
+[node name="VFXComponent" type="Node" parent="."]
+script = ExtResource("13_vfx")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_oprun")
