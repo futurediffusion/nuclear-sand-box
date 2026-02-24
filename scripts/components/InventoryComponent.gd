@@ -26,6 +26,8 @@ func add_item(item_id: String, amount: int) -> int:
 	if amount <= 0:
 		return 0
 
+	var stack_limit := _get_stack_limit(item_id)
+	print("[INV] add_item id=", item_id, " amount=", amount, " stack_limit=", stack_limit)
 	var remaining := amount
 
 	# 1) llenar stacks existentes del mismo item
@@ -38,7 +40,7 @@ func add_item(item_id: String, amount: int) -> int:
 		if String(s["id"]) != item_id:
 			continue
 
-		var can_put := max_stack - int(s["count"])
+		var can_put := stack_limit - int(s["count"])
 		if can_put <= 0:
 			continue
 
@@ -54,7 +56,7 @@ func add_item(item_id: String, amount: int) -> int:
 		if slots[i] != null:
 			continue
 
-		var put: int = mini(max_stack, remaining)
+		var put: int = mini(stack_limit, remaining)
 		slots[i] = {"id": item_id, "count": put}
 		remaining -= put
 
@@ -116,6 +118,8 @@ func get_total(item_id: String) -> int:
 
 func has_space_for(item_id: String, amount: int) -> bool:
 	# Simulación rápida: cuánto “hueco” hay para ese item
+	var stack_limit := _get_stack_limit(item_id)
+	print("[INV] has_space_for id=", item_id, " amount=", amount, " stack_limit=", stack_limit)
 	var capacity := 0
 
 	# hueco en stacks existentes
@@ -124,15 +128,21 @@ func has_space_for(item_id: String, amount: int) -> bool:
 		if s == null:
 			continue
 		if String(s["id"]) == item_id:
-			capacity += (max_stack - int(s["count"]))
+			capacity += (stack_limit - int(s["count"]))
 
 	# hueco en slots vacíos
 	for i in range(max_slots):
 		if slots[i] == null:
-			capacity += max_stack
+			capacity += stack_limit
 
 	return capacity >= amount
 
 
 func debug_print() -> void:
 	print("[INV] gold=", gold, " slots=", slots)
+
+func _get_stack_limit(item_id: String) -> int:
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db != null and item_db.has_method("get_max_stack"):
+		return int(item_db.get_max_stack(item_id, max_stack))
+	return max_stack

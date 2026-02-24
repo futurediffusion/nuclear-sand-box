@@ -112,3 +112,11 @@ Desde la última actualización de `AGENTS.MD`, el proyecto pasó de mejoras de 
 Commits de referencia recientes:
 - `709e281`, `651bfff`, `ed6f323`, `c7e0bd2`, `f07b275`
 - `dac1ab0`, `4ea239b`, `a528f3d`, `1980dde`
+
+## Actualización técnica: ItemData + ItemDB (migración incremental)
+
+- Se agregó una base de datos global de ítems (`ItemDB` como autoload) y un recurso tipado `ItemData` para mover la configuración de ítems desde strings sueltos hacia datos reutilizables.
+- `InventoryComponent` ahora consulta `ItemDB` para respetar `max_stack` por ítem (manteniendo `id:String` en slots para compatibilidad de guardado).
+- `ItemDrop` y `CopperOre` aceptan referencia `ItemData` como vía principal, pero conservan `item_id`/`give_item_id` como fallback legacy para escenas existentes.
+- `InventoryUI` ahora intenta resolver iconos desde `ItemDB` y deja `copper_icon` como fallback legacy.
+- Se creó `data/items/copper.tres` y se cableó en escenas de drop/mena para evitar tener que escribir `"copper"` manualmente en cada nodo nuevo.

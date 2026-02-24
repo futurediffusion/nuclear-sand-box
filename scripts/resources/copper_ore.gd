@@ -1,6 +1,7 @@
 class_name CopperOre
 extends Area2D
 
+@export var drop_item: ItemData
 @export var give_item_id: String = "copper"
 @export var give_amount: int = 1
 @export var mining_sfx: AudioStream = preload("res://art/Sounds/mining.ogg")
@@ -42,6 +43,13 @@ func _ready() -> void:
 	if remaining < 0:
 		remaining = randi_range(total_min, total_max)
 	_base_sprite_pos = sprite.position
+
+	if drop_item == null and give_item_id == "":
+		push_warning("[COPPER] Define drop_item o give_item_id")
+	elif drop_item != null:
+		print("[COPPER] drop_item id=", drop_item.id)
+	else:
+		print("[COPPER] using legacy give_item_id=", give_item_id)
 
 func _physics_process(delta: float) -> void:
 	# --- Temblor ---
@@ -142,10 +150,17 @@ func _spawn_drop(amount_to_drop: int) -> void:
 		return
 
 	var drop := drop_scene.instantiate() as ItemDrop
-	drop.item_id = give_item_id
+	if drop_item != null:
+		drop.item_data = drop_item
+		drop.item_id = drop_item.id
+	else:
+		drop.item_id = give_item_id
+
 	drop.amount = amount_to_drop
-	drop.icon = drop_icon
-	drop.pickup_sfx = drop_pickup_sfx
+	if drop_icon != null:
+		drop.icon = drop_icon
+	if drop_pickup_sfx != null:
+		drop.pickup_sfx = drop_pickup_sfx
 
 	# spawn EXACTO desde la mena (un poquito arriba del centro)
 	var origin := global_position + Vector2(0.0, -10.0)

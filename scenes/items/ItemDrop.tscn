@@ -1,12 +1,14 @@
-[gd_scene load_steps=4 format=3 uid="uid://calh2h2dc4ph3"]
+[gd_scene load_steps=5 format=3 uid="uid://calh2h2dc4ph3"]
 
 [ext_resource type="Script" uid="uid://1m6wd4bptkr1" path="res://scripts/items/item_drop.gd" id="1_3580i"]
 [ext_resource type="AudioStream" uid="uid://c5xw7gjl56i14" path="res://art/Sounds/pickup.ogg" id="2_u8iln"]
+[ext_resource type="Resource" path="res://data/items/copper.tres" id="3_data"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_c57pv"]
 
 [node name="ItemDrop" type="Area2D"]
 script = ExtResource("1_3580i")
+item_data = ExtResource("3_data")
 pickup_sfx = ExtResource("2_u8iln")
 magnet_range = 40.0
 magnet_speed = 650.0
