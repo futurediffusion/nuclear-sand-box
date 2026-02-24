@@ -281,34 +281,37 @@ func _ready() -> void:
 	sprite.play("idle")
 	sprite.flip_h = false
 	add_to_group("player")
+
 	sprite.z_index = 2
 	weapon_pivot.z_index = 2
 	weapon_sprite.z_index = 2
+
 	_resolve_hearts_ui()
 	_setup_health_component()
 	_setup_stamina_component()
+
+	# 1) INVENTARIO: crear/obtener componente primero
 	_setup_inventory_component()
+
 	_update_hearts_ui()
+
 	weapon_sprite.visible = true
 	weapon_sprite.show()
+
+	# 2) DEBUG (opcional)
 	inventory.debug_print()
+
 	_ready_wall_toggle()
-	# 1) agarrar el inventario del player (debe existir como hijo)
-	var inv := get_node_or_null("InventoryComponent")
-	if inv == null:
-		push_error("[Player] No encuentro InventoryComponent como hijo del Player")
-		return
 
-	print("[Player] inv_id=", inv.get_instance_id())
-
-	# 2) buscar la UI y pasarle el inventario
+	# 3) Conectar INVENTORY UI al inventario REAL del Player (EL MISMO)
 	var ui := get_tree().get_first_node_in_group("inventory_ui") as InventoryUI
 	if ui == null:
 		push_error("[Player] No encuentro InventoryUI en grupo 'inventory_ui'")
 		return
 
-	ui.set_inventory(inv)
-	print("[Player] InventoryUI conectado")
+	ui.set_inventory(inventory) # ✅ importante: usar la variable inventory del player
+	print("[Player] InventoryUI conectado inv_id=", inventory.get_instance_id())
+	
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
 		return
@@ -803,3 +806,5 @@ func _spawn_droplets(count: int, base_dir: Vector2) -> void:
 
 		var spd := randf_range(droplet_speed_min, droplet_speed_max)
 		d.linear_velocity = dir * spd
+func get_inventory() -> Node:
+	return inventory

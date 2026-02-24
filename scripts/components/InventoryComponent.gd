@@ -1,107 +1,138 @@
 extends Node
-
-# Componente genérico de inventario + monedas.
-# Se puede usar como hijo del Player u otros actores.
+class_name InventoryComponent
 
 signal inventory_changed
 
+@export var max_slots: int = 15
+@export var max_stack: int = 10
+
 var gold: int = 0
-var items: Dictionary = {} # item_id:String -> count:int
+
+# Cada slot: null o Dictionary {"id": String, "count": int}
+var slots: Array = []
 
 
-func add_item(item_id: String, amount: int) -> void:
+func _ready() -> void:
+	slots.resize(max_slots)
+	for i in range(max_slots):
+		slots[i] = null
+
+
+# ==========================
+# API PRO
+# ==========================
+func add_item(item_id: String, amount: int) -> int:
+	# Devuelve CUÁNTO se pudo meter (0..amount)
 	if amount <= 0:
-		print("[INV] add_item ignored amount<=0 item=", item_id, " amount=", amount)
-		return
-
-	items[item_id] = get_count(item_id) + amount
-	print("[INV] +", item_id, "=", amount, " total=", get_count(item_id))
-	
-	# ✅ avisar a la UI
-	inventory_changed.emit()
-	print("[INV] inv_id=", get_instance_id())
-
-func remove_item(item_id: String, amount: int) -> bool:
-	if amount <= 0:
-		print("[INV] remove_item ignored amount<=0 item=", item_id, " amount=", amount)
-		return false
-
-	var current := get_count(item_id)
-	if current < amount:
-		print("[INV] remove failed item=", item_id, " need=", amount, " have=", current)
-		return false
-
-	var new_total := current - amount
-	if new_total <= 0:
-		items.erase(item_id)
-	else:
-		items[item_id] = new_total
-
-	print("[INV] -", item_id, "=", amount, " total=", get_count(item_id))
-
-	# ✅ avisar a la UI
-	inventory_changed.emit()
-	return true
-
-
-func get_count(item_id: String) -> int:
-	if items.has(item_id):
-		return int(items[item_id])
-	return 0
-
-
-func sell_item(item_id: String, amount: int, price_per_unit: int) -> int:
-	if amount <= 0:
-		print("[INV] sell_item ignored amount<=0 item=", item_id, " amount=", amount)
 		return 0
 
-	if price_per_unit < 0:
-		print("[INV] sell_item ignored price<0 item=", item_id, " price=", price_per_unit)
-		return 0
+	var remaining := amount
 
-	if not remove_item(item_id, amount):
-		return 0
+	# 1) llenar stacks existentes del mismo item
+	for i in range(max_slots):
+		if remaining <= 0:
+			break
+		var s = slots[i]
+		if s == null:
+			continue
+		if String(s["id"]) != item_id:
+			continue
 
-	var gained := amount * price_per_unit
-	gold += gained
-	print("[INV] sold ", amount, "x", item_id, " gained=", gained, " gold=", gold)
+		var can_put := max_stack - int(s["count"])
+		if can_put <= 0:
+			continue
 
-	# remove_item ya emite señal, pero esto cambia gold también:
-	inventory_changed.emit()
-	return gained
+		var put: int = mini(max_stack, remaining)
+		s["count"] = int(s["count"]) + put
+		slots[i] = s
+		remaining -= put
+
+	# 2) crear nuevos stacks en slots vacíos
+	for i in range(max_slots):
+		if remaining <= 0:
+			break
+		if slots[i] != null:
+			continue
+
+		var put: int = mini(max_stack, remaining)
+		slots[i] = {"id": item_id, "count": put}
+		remaining -= put
+
+	var inserted := amount - remaining
+	if inserted > 0:
+		inventory_changed.emit()
+
+	if remaining > 0:
+		print("[INV] FULL. couldn't add ", remaining, " of ", item_id)
+
+	return inserted
 
 
-func sell_all(item_id: String, price_per_unit: int) -> int:
-	var amount := get_count(item_id)
+func remove_item(item_id: String, amount: int) -> int:
+	# Devuelve CUÁNTO se pudo quitar (0..amount)
 	if amount <= 0:
-		print("[INV] sell_all nothing to sell item=", item_id)
 		return 0
 
-	return sell_item(item_id, amount, price_per_unit)
+	var remaining := amount
+
+	# Quitar empezando por el final (opcional) o por el principio.
+	# Yo lo hago por el final para “vaciar” stacks de forma limpia.
+	for i in range(max_slots - 1, -1, -1):
+		if remaining <= 0:
+			break
+		var s = slots[i]
+		if s == null:
+			continue
+		if String(s["id"]) != item_id:
+			continue
+
+		var have := int(s["count"])
+		var take: int = mini(have, remaining)
+		have -= take
+		remaining -= take
+
+		if have <= 0:
+			slots[i] = null
+		else:
+			s["count"] = have
+			slots[i] = s
+
+	var removed := amount - remaining
+	if removed > 0:
+		inventory_changed.emit()
+	return removed
 
 
-func buy_item(item_id: String, amount: int, cost_per_unit: int) -> bool:
-	if amount <= 0:
-		print("[INV] buy_item ignored amount<=0 item=", item_id, " amount=", amount)
-		return false
+func get_total(item_id: String) -> int:
+	var total := 0
+	for i in range(max_slots):
+		var s = slots[i]
+		if s == null:
+			continue
+		if String(s["id"]) == item_id:
+			total += int(s["count"])
+	return total
 
-	if cost_per_unit < 0:
-		print("[INV] buy_item ignored cost<0 item=", item_id, " cost=", cost_per_unit)
-		return false
 
-	var cost := amount * cost_per_unit
-	if gold < cost:
-		print("[INV] buy failed item=", item_id, " need=", cost, " gold=", gold)
-		return false
+func has_space_for(item_id: String, amount: int) -> bool:
+	# Simulación rápida: cuánto “hueco” hay para ese item
+	var capacity := 0
 
-	gold -= cost
-	add_item(item_id, amount)
-	print("[INV] bought ", amount, "x", item_id, " cost=", cost, " gold=", gold)
+	# hueco en stacks existentes
+	for i in range(max_slots):
+		var s = slots[i]
+		if s == null:
+			continue
+		if String(s["id"]) == item_id:
+			capacity += (max_stack - int(s["count"]))
 
-	# add_item ya emite señal, pero por claridad:
-	inventory_changed.emit()
-	return true
+	# hueco en slots vacíos
+	for i in range(max_slots):
+		if slots[i] == null:
+			capacity += max_stack
+
+	return capacity >= amount
 
 
 func debug_print() -> void:
-	print("[INV] gold=", gold, " items=", items)
+	print("[INV] gold=", gold, " slots=", slots)

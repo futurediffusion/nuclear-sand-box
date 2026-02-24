@@ -64,10 +64,17 @@ func hit(by: Node) -> void:
 	var amount := int(round(yield_per_hit * yield_multiplier))
 	amount = clampi(amount, 1, remaining)
 
-	remaining -= amount
-	print("[COPPER] +", amount, give_item_id, " remaining=", remaining)
+	# ✅ 1) intentar meter al inventario primero
+	var inserted: int = _give_to_player_amount(by, amount)
 
-	_give_to_player_amount(by, amount)
+	# ✅ 2) si no entró nada, NO gastes la mena
+	if inserted <= 0:
+		print("[COPPER] Inventario lleno. No se pudo guardar.")
+		return
+
+	# ✅ 3) ahora sí, resta SOLO lo que realmente entró
+	remaining -= inserted
+	print("[COPPER] +", inserted, give_item_id, " remaining=", remaining)
 
 	if hit_particles:
 		hit_particles.restart()
@@ -95,20 +102,17 @@ func _give_to_player(by: Node) -> void:
 		var inv2 := p.get_node_or_null("InventoryComponent")
 		if inv2 != null and inv2.has_method("add_item"):
 			inv2.add_item(give_item_id, give_amount)
-func _give_to_player_amount(by: Node, amount: int) -> void:
-	# 1) Si quien golpeó tiene InventoryComponent directo
+func _give_to_player_amount(by: Node, amount: int) -> int:
 	if by != null and by.has_method("get_node_or_null"):
 		var inv := by.get_node_or_null("InventoryComponent")
 		if inv != null and inv.has_method("add_item"):
-			inv.add_item(give_item_id, amount)
-			return
+			return int(inv.add_item(give_item_id, amount))
 
-	# 2) Fallback: buscar al player por grupo
 	var players := get_tree().get_nodes_in_group("player")
 	if players.size() > 0:
 		var p := players[0]
 		var inv2 := p.get_node_or_null("InventoryComponent")
 		if inv2 != null and inv2.has_method("add_item"):
-			inv2.add_item(give_item_id, amount)
+			return int(inv2.add_item(give_item_id, amount))
 
-	
+	return 0

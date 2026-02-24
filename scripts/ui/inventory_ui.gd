@@ -62,23 +62,19 @@ func set_inventory(inv: Node) -> void:
 func refresh() -> void:
 	if _inventory == null:
 		return
-	if not ("items" in _inventory):
+	if not ("slots" in _inventory):
 		return
-	print("[InventoryUI] refresh inv_id=", _inventory.get_instance_id(), " items=", _inventory.items)
+
 	for s in _slots:
 		s.set_empty()
 
-	var items: Dictionary = _inventory.items
-	var idx: int = 0
-	for k in items.keys():
-		if idx >= _slots.size():
-			break
-
-		var amount: int = int(items.get(k, 0))
-		if amount <= 0:
+	for i in range(min(_slots.size(), _inventory.slots.size())):
+		var data = _inventory.slots[i]
+		if data == null:
 			continue
 
-		var item_id: String = str(k)
+		var item_id: String = String(data["id"])
+		var amount: int = int(data["count"])
+
 		var tex: Texture2D = copper_icon if item_id == "copper" else null
-		_slots[idx].set_item(amount, tex)
-		idx += 1
+		_slots[i].set_item(amount, tex)
