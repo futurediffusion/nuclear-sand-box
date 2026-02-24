@@ -1,13 +1,24 @@
 class_name Player
 extends CharacterBody2D
 
+const DEBUG_PLAYER := OS.is_debug_build()
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
-@onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 
-# =============================================================================
-# MOVIMIENTO
-# =============================================================================
+@onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
+@onready var movement_component: MovementComponent = get_node_or_null("MovementComponent") as MovementComponent
+@onready var combat_component: CombatComponent = get_node_or_null("CombatComponent") as CombatComponent
+@onready var block_component: BlockComponent = get_node_or_null("BlockComponent") as BlockComponent
+@onready var wall_occlusion_component: WallOcclusionComponent = get_node_or_null("WallOcclusionComponent") as WallOcclusionComponent
+@onready var vfx_component: VFXComponent = get_node_or_null("VFXComponent") as VFXComponent
+
+@export_group("Component Toggles")
+@export var use_movement_component := true
+@export var use_combat_component := true
+@export var use_block_component := true
+@export var use_wall_component := true
+@export var use_vfx_component := true
+
 @export_group("Movement")
 @export var max_speed: float = 300.0
 @export var acceleration: float = 1200.0
@@ -20,38 +31,31 @@ const InventoryComponentScript = preload("res://scripts/components/InventoryComp
 var hp: int
 
 @export_group("Attack Push")
-@export var attack_push_speed: float = 220.0     # fuerza del empujón
-@export var attack_push_time: float = 0.08       # cuánto dura
-@export var attack_push_deadzone: float = 15.0   # si ya te estás moviendo, no aplica
+@export var attack_push_speed: float = 220.0
+@export var attack_push_time: float = 0.08
+@export var attack_push_deadzone: float = 15.0
 
 @export_group("Knockback")
-@export var knockback_friction: float = 2200.0   # qué tan rápido se detiene el empuje cuando te pegan
+@export var knockback_friction: float = 2200.0
 
 @export_group("Juice")
-@export var hurt_time: float = 0.15  # cuánto dura la animación hurt
+@export var hurt_time: float = 0.15
 
-# =============================================================================
-# ARMA / APUNTADO / ATAQUE
-# =============================================================================
 @export_group("Weapon")
 @export var weapon_follow_speed: float = 25.0
 @export var attack_snap_speed: float = 50.0
 @export var attack_duration: float = 0.3
 @export var facing_deadzone_px: float = 2.0
 
-# Offsets relativos al ángulo del mouse (SOLO para el arma visual)
 @export_group("Attack Angles")
-@export var angle_offset_left: float = -150.0     # Offset cuando alterna a la izquierda
-@export var angle_offset_right: float = 150.0     # Offset cuando alterna a la derecha
+@export var angle_offset_left: float = -150.0
+@export var angle_offset_right: float = 150.0
 
 @export_group("Slash")
 @export var slash_scene: PackedScene
-@export var slash_visual_offset_deg: float = 0.0  # Por si el sprite del slash está rotado
-@export var block_guard_margin_deg: float = 10.0 # extra de tolerancia
+@export var slash_visual_offset_deg: float = 0.0
+@export var block_guard_margin_deg: float = 10.0
 
-# =============================================================================
-# NODOS
-# =============================================================================
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var weapon_pivot: Node2D = $WeaponPivot
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
@@ -59,280 +63,125 @@ var hp: int
 @onready var health_component: Node = get_node_or_null("HealthComponent")
 @onready var inventory: Node = get_node_or_null("InventoryComponent")
 
-#____________________
-# SANGRE
-#*******************
 @export_group("FX")
 @export var blood_scene: PackedScene
 @export var blood_hit_amount: int = 12
 @export var blood_death_amount: int = 40
-#____________________
-# DROPLETS
-#*******************
-
 @export var droplet_scene: PackedScene
 @export var splat_scene: PackedScene
 @export var splat_lifetime: float = 60.0
-
 @export var droplet_count_hit: int = 6
 @export var droplet_count_death: int = 14
 @export var droplet_speed_min: float = 80.0
 @export var droplet_speed_max: float = 140.0
 @export var droplet_spread_deg: float = 70.0
-
 const MAX_DROPLETS_IN_SCENE := 40
 
-# =============================================================================
-# WALL TOGGLE (Tile Alternativo) - SOLO tile actual + tile debajo
-# =============================================================================
 @export_group("Wall Toggle")
 @export var tilemap_path: NodePath
 @export var walls_layer: int = 2
 @export var walls_source_id: int = 2
-
 @export var wall_alt_full: int = 0
 @export var wall_alt_small: int = 2
-@export var wall_probe_px: float = 14.0 # qué tan abajo “sondea” (ajústalo)
-@export var probe_tile_offset: Vector2i = Vector2i(0, 1) # mira 1 tile abajo
-var _tilemap: TileMap = null
-var _opened_wall_tiles: Dictionary = {} # Dictionary[Vector2i, bool]
+@export var wall_probe_px: float = 14.0
+@export var probe_tile_offset: Vector2i = Vector2i(0, 1)
 
-func _ready_wall_toggle() -> void:
-	# 1) Inspector manda
-	if tilemap_path != NodePath():
-		_tilemap = get_node_or_null(tilemap_path) as TileMap
-
-	# 2) Fallback por ruta (tu setup actual)
-	if _tilemap == null:
-		_tilemap = get_node_or_null("../World/WorldTileMap") as TileMap
-
-	if _tilemap == null:
-		push_error("[WALL_TOGGLE] No encuentro el TileMap. Asigna tilemap_path en el Inspector.")
-	else:
-		print("[WALL_TOGGLE] OK tilemap=", _tilemap.get_path())
-
-func _is_wall_cell(tile_pos: Vector2i) -> bool:
-	if _tilemap == null:
-		return false
-	return _tilemap.get_cell_source_id(walls_layer, tile_pos) == walls_source_id
-
-func _set_wall_alt(tile_pos: Vector2i, alt: int) -> void:
-	if _tilemap == null:
-		return
-
-	var src := _tilemap.get_cell_source_id(walls_layer, tile_pos)
-	if src == -1:
-		return
-
-	var atlas := _tilemap.get_cell_atlas_coords(walls_layer, tile_pos)
-	var prev_alt := _tilemap.get_cell_alternative_tile(walls_layer, tile_pos)
-	if prev_alt == alt:
-		return
-
-	# Setear alt
-	_tilemap.set_cell(walls_layer, tile_pos, src, atlas, alt)
-
-	# Validación: si el tile NO tiene ese alt, Godot puede hacer cosas raras.
-	var check_alt := _tilemap.get_cell_alternative_tile(walls_layer, tile_pos)
-	if check_alt != alt:
-		# Revertimos para que NO desaparezca
-		_tilemap.set_cell(walls_layer, tile_pos, src, atlas, prev_alt)
-func _probe_tile() -> Vector2i:
-	if _tilemap == null:
-		return Vector2i.ZERO
-
-	# Un punto un poquito abajo del player (en mundo)
-	var probe_world_pos := global_position + Vector2(0.0, wall_probe_px)
-
-	# Lo convertimos a celda del tilemap
-	var local_pos := _tilemap.to_local(probe_world_pos)
-	return _tilemap.local_to_map(local_pos)
-func _has_wall(pos: Vector2i) -> bool:
-	return _is_wall_cell(pos)
-
-func _is_horizontal_member(pos: Vector2i) -> bool:
-	if not _has_wall(pos):
-		return false
-	return _has_wall(pos + Vector2i(-1, 0)) or _has_wall(pos + Vector2i(1, 0))
-
-func _is_horizontal_interior(pos: Vector2i) -> bool:
-	if not _has_wall(pos):
-		return false
-	return _has_wall(pos + Vector2i(-1, 0)) and _has_wall(pos + Vector2i(1, 0))
-
-# Extremo de pared horizontal: vecino solo en UN lado
-# Pero NO es esquina (no tiene pared arriba)
-func _is_horizontal_end(pos: Vector2i) -> bool:
-	if not _has_wall(pos):
-		return false
-	var has_left  := _has_wall(pos + Vector2i(-1, 0))
-	var has_right := _has_wall(pos + Vector2i( 1, 0))
-	# Si tiene vecino arriba o abajo, es esquina → no abrir
-	var has_above := _has_wall(pos + Vector2i(0, -1))
-	var has_below := _has_wall(pos + Vector2i(0,  1))
-	if has_above or has_below:
-		return false
-	return has_left != has_right  # XOR: exactamente un lado horizontal
-	
-func _is_top_corner(pos: Vector2i) -> bool:
-	if not _has_wall(pos):
-		return false
-	var has_left  := _has_wall(pos + Vector2i(-1, 0))
-	var has_right := _has_wall(pos + Vector2i( 1, 0))
-	var has_below := _has_wall(pos + Vector2i(0,  1))
-	return (has_left != has_right) and has_below
-	
-func _wall_toggle_update() -> void:
-	if _tilemap == null:
-		return
-	var still_open: Dictionary = {}
-	var base_tile := _probe_tile()
-	var tpos := base_tile + probe_tile_offset
-	var tpos_up := tpos + Vector2i(0, -1)
-	var behind_mode := false
-	if _has_wall(tpos):
-		_set_wall_alt(tpos, wall_alt_small)
-		still_open[tpos] = true
-		behind_mode = true
-	if _has_wall(tpos_up):
-		_set_wall_alt(tpos_up, wall_alt_small)
-		still_open[tpos_up] = true
-		behind_mode = true
-	var main_is_h := _is_horizontal_member(tpos) or _is_horizontal_member(tpos_up)
-	# --- Apertura lateral cuando ya estás DENTRO ---
-	if behind_mode and main_is_h and absf(velocity.x) > 0.1:
-		var side := 1 if velocity.x > 0.0 else -1
-		var lateral    := tpos    + Vector2i(side, 0)
-		var lateral_up := tpos_up + Vector2i(side, 0)
-		if _is_horizontal_interior(lateral) or _is_horizontal_end(lateral) or _is_top_corner(lateral):
-			_set_wall_alt(lateral, wall_alt_small)
-			still_open[lateral] = true
-		if _is_horizontal_interior(lateral_up) or _is_horizontal_end(lateral_up) or _is_top_corner(lateral_up):
-			_set_wall_alt(lateral_up, wall_alt_small)
-			still_open[lateral_up] = true
-	# --- Apertura lateral cuando te APROXIMAS desde afuera ---
-	if absf(velocity.x) > 0.1:
-		var side := 1 if velocity.x > 0.0 else -1
-		var approach    := tpos    + Vector2i(side, 0)
-		var approach_up := tpos_up + Vector2i(side, 0)
-		if _is_horizontal_end(approach) or _is_top_corner(approach):
-			_set_wall_alt(approach, wall_alt_small)
-			still_open[approach] = true
-		if _is_horizontal_end(approach_up) or _is_top_corner(approach_up):
-			_set_wall_alt(approach_up, wall_alt_small)
-			still_open[approach_up] = true
-	for old_tpos in _opened_wall_tiles.keys():
-		if not still_open.has(old_tpos):
-			_set_wall_alt(old_tpos, wall_alt_full)
-	# --- Transparencia ---
-	if behind_mode and _has_wall(tpos_up):
-		_tilemap.set_layer_modulate(walls_layer, Color(1, 1, 1, 0.4))
-	else:
-		_tilemap.set_layer_modulate(walls_layer, Color(1, 1, 1, 1.0))
-	_opened_wall_tiles = still_open
-	
-func _close_opened_walls() -> void:
-	for tpos in _opened_wall_tiles.keys():
-		_set_wall_alt(tpos, wall_alt_full)
-	_opened_wall_tiles.clear()
-
-func _exit_tree() -> void:
-	# Si el player se borra/cambia escena, no dejamos paredes abiertas
-	_close_opened_walls()
-
-# =============================================================================
-# ESTADO
-# =============================================================================
 var last_direction: Vector2 = Vector2.RIGHT
 var mouse_angle: float = 0.0
-
 var attacking := false
 var attack_t := 0.0
-
-# Sistema de alternancia (SOLO para el arma)
 var use_left_offset: bool = false
 var target_attack_angle: float = 0.0
-
 var attack_push_vel: Vector2 = Vector2.ZERO
 var attack_push_t: float = 0.0
-
-# Knockback cuando te pegan
 var knock_vel: Vector2 = Vector2.ZERO
-
-# Sistema hurt
 var hurt_t: float = 0.0
 var dying: bool = false
 
-# Sistema de bloqueo
 var blocking: bool = false
-var last_hit_from: Vector2 = Vector2.ZERO
 var block_angle: float = 0.0
-@export var block_stamina_drain: float = 12.0   # stamina por segundo mientras bloqueas
-@export var block_hit_stamina_cost: float = 0.10 # 10% de max_stamina al recibir golpe bloqueando
-
-signal stamina_changed(stamina: float, max_stamina: float)
-@export var block_wiggle_deg: float = 60.0     # amplitud del bamboleo
-@export var block_wiggle_hz: float = 6.0       # cuántas veces por segundo
+@export var block_stamina_drain: float = 12.0
+@export var block_hit_stamina_cost: float = 0.10
+@export var block_wiggle_deg: float = 60.0
+@export var block_wiggle_hz: float = 6.0
 var block_wiggle_t: float = 0.0
 
+signal stamina_changed(stamina: float, max_stamina: float)
+signal request_attack
+signal took_damage(amount: int)
+signal picked_item(item_id: String, amount: int)
+signal block_started
+signal block_ended
 
-# =============================================================================
+func player_debug(message: String) -> void:
+	if DEBUG_PLAYER:
+		print(message)
+
 func _ready() -> void:
 	sprite.play("idle")
 	sprite.flip_h = false
 	add_to_group("player")
-
 	sprite.z_index = 2
 	weapon_pivot.z_index = 2
 	weapon_sprite.z_index = 2
 
+	_setup_components()
 	_resolve_hearts_ui()
 	_setup_health_component()
 	_setup_stamina_component()
-
-	# 1) INVENTARIO: crear/obtener componente primero
 	_setup_inventory_component()
-
 	_update_hearts_ui()
 
 	weapon_sprite.visible = true
 	weapon_sprite.show()
+	if inventory != null and DEBUG_PLAYER:
+		inventory.debug_print()
 
-	# 2) DEBUG (opcional)
-	inventory.debug_print()
-
-	_ready_wall_toggle()
-
-	# 3) Conectar INVENTORY UI al inventario REAL del Player (EL MISMO)
 	var ui := get_tree().get_first_node_in_group("inventory_ui") as InventoryUI
 	if ui == null:
 		push_error("[Player] No encuentro InventoryUI en grupo 'inventory_ui'")
 		return
+	ui.set_inventory(inventory)
+	player_debug("[Player] InventoryUI conectado inv_id=%s" % inventory.get_instance_id())
 
-	ui.set_inventory(inventory) # ✅ importante: usar la variable inventory del player
-	print("[Player] InventoryUI conectado inv_id=", inventory.get_instance_id())
-	
+func _setup_components() -> void:
+	if movement_component != null:
+		movement_component.setup(self)
+	else:
+		push_warning("[Player] Missing MovementComponent")
+	if combat_component != null:
+		combat_component.setup(self)
+	else:
+		push_warning("[Player] Missing CombatComponent")
+	if block_component != null:
+		block_component.setup(self)
+	else:
+		push_warning("[Player] Missing BlockComponent")
+	if wall_occlusion_component != null:
+		wall_occlusion_component.setup(self)
+	else:
+		push_warning("[Player] Missing WallOcclusionComponent")
+	if vfx_component != null:
+		vfx_component.setup(self)
+	else:
+		push_warning("[Player] Missing VFXComponent")
+
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
 		return
-
 	var scene_root := get_tree().current_scene
-	if scene_root == null:
-		return
-
-	hearts_ui = _find_hearts_ui_node(scene_root)
+	if scene_root != null:
+		hearts_ui = _find_hearts_ui_node(scene_root)
 
 func _find_hearts_ui_node(node: Node) -> Node:
 	if node == null:
 		return null
 	if node.has_method("set_hearts"):
 		return node
-
 	for child in node.get_children():
 		var found := _find_hearts_ui_node(child)
 		if found != null:
 			return found
-
 	return null
 
 func _setup_health_component() -> void:
@@ -340,7 +189,6 @@ func _setup_health_component() -> void:
 		health_component = HealthComponentScript.new()
 		health_component.name = "HealthComponent"
 		add_child(health_component)
-
 	if health_component != null:
 		health_component.max_hp = max_hp
 		health_component.hp = max_hp
@@ -352,383 +200,292 @@ func _setup_health_component() -> void:
 	else:
 		hp = max_hp
 
-
 func _setup_stamina_component() -> void:
 	if stamina_component == null:
 		stamina_component = StaminaComponent.new()
 		stamina_component.name = "StaminaComponent"
 		add_child(stamina_component)
-
 	if stamina_component != null:
 		if stamina_component.has_signal("stamina_changed") and not stamina_component.stamina_changed.is_connected(_on_stamina_changed):
 			stamina_component.stamina_changed.connect(_on_stamina_changed)
-
 		stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
-
 
 func _setup_inventory_component() -> void:
 	if inventory == null:
 		inventory = InventoryComponentScript.new()
 		inventory.name = "InventoryComponent"
 		add_child(inventory)
-		print("[INV] InventoryComponent creado en Player")
+		player_debug("[INV] InventoryComponent creado en Player")
 
 func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
 	stamina_changed.emit(current_stamina, max_stamina)
 
-func get_current_stamina() -> float:
-	if stamina_component != null and stamina_component.has_method("get_current_stamina"):
-		return stamina_component.get_current_stamina()
-	return 0.0
-
-func get_max_stamina() -> float:
-	if stamina_component != null and stamina_component.has_method("get_max_stamina"):
-		return stamina_component.get_max_stamina()
-	return 0.0
-
-
 func _input(event: InputEvent) -> void:
 	if inventory == null:
 		return
-
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key_event := event as InputEventKey
-
 		if key_event.keycode == KEY_1:
 			inventory.add_item("copper", 3)
-			inventory.debug_print()
+			if DEBUG_PLAYER: inventory.debug_print()
 		elif key_event.keycode == KEY_2:
 			inventory.sell_all("copper", 5)
-			inventory.debug_print()
+			if DEBUG_PLAYER: inventory.debug_print()
 		elif key_event.keycode == KEY_3:
 			inventory.buy_item("medkit", 1, 20)
-			inventory.debug_print()
+			if DEBUG_PLAYER: inventory.debug_print()
 		elif key_event.keycode == KEY_4:
 			inventory.gold += 50
-			print("[INV] cheat +50 gold. gold=", inventory.gold)
-			inventory.debug_print()
+			player_debug("[INV] cheat +50 gold. gold=%s" % inventory.gold)
+			if DEBUG_PLAYER: inventory.debug_print()
 
 func _physics_process(delta: float) -> void:
-	# 0) Si está muriendo: no hacer nada más
 	if dying:
 		velocity = Vector2.ZERO
-		_wall_toggle_update()
+		_update_wall(delta)
 		move_and_slide()
 		return
 
-	# 1) Actualizar timer de hurt
 	if hurt_t > 0.0:
 		hurt_t -= delta
 
-	_process_movement(delta)
+	if use_movement_component and movement_component != null:
+		movement_component.physics_tick(delta)
+	else:
+		_legacy_movement_physics(delta)
+
 	_update_facing_from_mouse()
 	_update_mouse_angle()
 
-	# --- ROTACIÓN DEL ARMA ---
 	if attacking:
 		_snap_to_attack_angle(delta)
-	elif blocking:
-		_update_block_wiggle(delta) # block_angle = mouse_angle + wiggle
-		weapon_pivot.rotation = lerp_angle(
-			weapon_pivot.rotation,
-			block_angle,
-			1.0 - exp(-attack_snap_speed * delta)
-		)
+	elif _is_currently_blocking():
+		if use_block_component and block_component != null:
+			block_angle = block_component.get_block_angle()
+		else:
+			_legacy_block_tick(delta)
+		weapon_pivot.rotation = lerp_angle(weapon_pivot.rotation, block_angle, 1.0 - exp(-attack_snap_speed * delta))
 	else:
 		_update_weapon_aim(delta)
 
 	_update_weapon_flip()
-	_process_attack(delta)
-	_update_animation()
+	if use_combat_component and combat_component != null:
+		combat_component.tick(delta)
+	else:
+		_legacy_attack_tick(delta)
 
-	# Empujón corto del ataque (solo dura attack_push_time)
+	if use_block_component and block_component != null:
+		block_component.tick(delta)
+		blocking = block_component.is_blocking()
+	else:
+		_legacy_block_input_and_drain(delta)
+
+	_update_animation()
 	if attack_push_t > 0.0:
 		attack_push_t -= delta
 		velocity += attack_push_vel
 
-	# --- Drain de stamina por bloqueo activo ---
+	velocity += knock_vel
+	knock_vel = knock_vel.move_toward(Vector2.ZERO, knockback_friction * delta)
+	_update_wall(delta)
+	move_and_slide()
+
+func _update_wall(_delta: float) -> void:
+	if use_wall_component and wall_occlusion_component != null:
+		wall_occlusion_component.on_player_moved(global_position)
+	else:
+		_legacy_wall_toggle_update()
+
+func _legacy_movement_physics(delta: float) -> void:
+	var input_dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if input_dir != Vector2.ZERO:
+		input_dir = input_dir.normalized()
+		last_direction = input_dir
+		var current_speed := acceleration
+		if velocity.length() > 0.0 and velocity.normalized().dot(input_dir) < 0.5:
+			current_speed = turn_speed
+		velocity = velocity.move_toward(input_dir * max_speed, current_speed * delta)
+	else:
+		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
+
+func _legacy_attack_tick(delta: float) -> void:
+	if Input.is_action_just_pressed("attack") and not attacking:
+		if stamina_component == null or not stamina_component.has_method("spend_attack_cost"):
+			return
+		if not stamina_component.spend_attack_cost():
+			return
+		emit_signal("request_attack")
+		_calculate_attack_angle()
+		_spawn_slash(mouse_angle)
+		_try_attack_push()
+		attacking = true
+		attack_t = 0.0
+	if attacking:
+		attack_t += delta
+		if attack_t >= attack_duration:
+			attacking = false
+
+func _legacy_block_tick(delta: float) -> void:
+	block_wiggle_t += delta
+	var wiggle_rad := deg_to_rad(block_wiggle_deg) * sin(block_wiggle_t * TAU * block_wiggle_hz)
+	block_angle = mouse_angle + wiggle_rad
+
+func _legacy_block_input_and_drain(delta: float) -> void:
+	if Input.is_action_just_pressed("block"):
+		if stamina_component != null and stamina_component.current_stamina > 0.0:
+			blocking = true
+			block_wiggle_t = 0.0
+			emit_signal("block_started")
+	if Input.is_action_just_released("block"):
+		if blocking:
+			blocking = false
+			emit_signal("block_ended")
 	if blocking and stamina_component != null:
 		var drained := (block_stamina_drain * 2.0) * delta
 		stamina_component.current_stamina = maxf(stamina_component.current_stamina - drained, 0.0)
 		stamina_component.stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
 		if stamina_component.current_stamina <= 0.0:
 			blocking = false
-			print("[BLOCK] roto por stamina agotada")
+			emit_signal("block_ended")
 
-	# Knockback cuando te pegan (se va frenando con fricción)
-	velocity += knock_vel
-	knock_vel = knock_vel.move_toward(Vector2.ZERO, knockback_friction * delta)
-	_wall_toggle_update()
-	move_and_slide()
+func _is_currently_blocking() -> bool:
+	if use_block_component and block_component != null:
+		return block_component.is_blocking()
+	return blocking
 
-# =============================================================================
-# MOVIMIENTO SUAVE
-# =============================================================================
-func _process_movement(delta: float) -> void:
-	var input_dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-
-	if input_dir != Vector2.ZERO:
-		input_dir = input_dir.normalized()
-		last_direction = input_dir
-
-		var current_speed := acceleration
-		if velocity.length() > 0.0 and velocity.normalized().dot(input_dir) < 0.5:
-			current_speed = turn_speed
-
-		velocity = velocity.move_toward(input_dir * max_speed, current_speed * delta)
-	else:
-		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
-
-# =============================================================================
-# PERSONAJE MIRA AL MOUSE
-# =============================================================================
-func _update_facing_from_mouse() -> void:
-	var mouse := get_global_mouse_position()
-	var dx := mouse.x - global_position.x
-
-	if abs(dx) > facing_deadzone_px:
-		sprite.flip_h = dx < 0.0
-
-# =============================================================================
-# CALCULAR ÁNGULO HACIA EL MOUSE
-# =============================================================================
-func _update_mouse_angle() -> void:
-	var mouse := get_global_mouse_position()
-	var dir := mouse - global_position
-	if dir.length() > 0.001:
-		mouse_angle = dir.angle()
-
-# =============================================================================
-# APUNTADO SUAVE (cuando NO está atacando)
-# =============================================================================
-func _update_weapon_aim(delta: float) -> void:
-	weapon_pivot.rotation = lerp_angle(
-		weapon_pivot.rotation,
-		mouse_angle,
-		1.0 - exp(-weapon_follow_speed * delta)
-	)
-
-func _calculate_block_angle() -> float:
-	# Bloqueo centrado en donde apunta el mouse (igual que cuando no bloqueas)
-	return mouse_angle
-
-func _is_hit_blocked(from_pos: Vector2) -> bool:
-	# Si no nos dan posición del atacante, no podemos decidir: no bloquear
+func _legacy_is_hit_blocked(from_pos: Vector2) -> bool:
 	if from_pos == Vector2.INF:
 		return false
-
-	# Dirección desde el player hacia el atacante
 	var to_attacker := (from_pos - global_position)
 	if to_attacker.length() < 0.001:
 		return true
-
 	to_attacker = to_attacker.normalized()
-
-	# Dirección hacia donde apunta el bloqueo (mouse)
 	var block_dir := Vector2.RIGHT.rotated(mouse_angle)
-
-	# Ángulo entre ambos (0 = enfrente, PI = detrás)
 	var dot := clampf(block_dir.dot(to_attacker), -1.0, 1.0)
 	var ang := acos(dot)
-
-	# Cobertura: wiggle_deg + margen, pero en radianes
 	var half_cone := deg_to_rad(block_wiggle_deg + block_guard_margin_deg)
-
-	# Si el atacante está dentro del cono frontal, bloquea
 	return ang <= half_cone
 
-func _update_block_wiggle(delta: float) -> void:
-	var base := mouse_angle
+func _update_facing_from_mouse() -> void:
+	var dx := get_global_mouse_position().x - global_position.x
+	if abs(dx) > facing_deadzone_px:
+		sprite.flip_h = dx < 0.0
 
-	block_wiggle_t += delta
+func _update_mouse_angle() -> void:
+	var dir := get_global_mouse_position() - global_position
+	if dir.length() > 0.001:
+		mouse_angle = dir.angle()
 
-	var wiggle_rad := deg_to_rad(block_wiggle_deg) * sin(block_wiggle_t * TAU * block_wiggle_hz)
+func _update_weapon_aim(delta: float) -> void:
+	weapon_pivot.rotation = lerp_angle(weapon_pivot.rotation, mouse_angle, 1.0 - exp(-weapon_follow_speed * delta))
 
-	block_angle = base + wiggle_rad
-
-# =============================================================================
-# SNAP RÁPIDO AL ÁNGULO DE ATAQUE
-# =============================================================================
 func _snap_to_attack_angle(delta: float) -> void:
-	weapon_pivot.rotation = lerp_angle(
-		weapon_pivot.rotation,
-		target_attack_angle,
-		1.0 - exp(-attack_snap_speed * delta)
-	)
-
-# =============================================================================
-# ATAQUE CON OFFSETS RELATIVOS AL MOUSE
-# =============================================================================
-func _process_attack(delta: float) -> void:
-	# --- BLOQUEO ---
-	if Input.is_action_just_pressed("block"):
-		if stamina_component != null and stamina_component.current_stamina > 0.0:
-			blocking = true
-			block_wiggle_t = 0.0
-
-	if Input.is_action_just_released("block"):
-		if blocking:
-			blocking = false
-			print("[BLOCK] desactivado")
-
-	if Input.is_action_just_pressed("attack") and not attacking:
-		if stamina_component == null or not stamina_component.has_method("spend_attack_cost"):
-			return
-		if not stamina_component.spend_attack_cost():
-			return
-		_calculate_attack_angle()
-		_spawn_slash(mouse_angle)
-		_try_attack_push()
-		attacking = true
-		attack_t = 0.0
-
-	if attacking:
-		attack_t += delta
-		
-		if attack_t >= attack_duration:
-			attacking = false
+	weapon_pivot.rotation = lerp_angle(weapon_pivot.rotation, target_attack_angle, 1.0 - exp(-attack_snap_speed * delta))
 
 func _calculate_attack_angle() -> void:
-	# El ángulo base es donde apunta el mouse
 	var base_angle := mouse_angle
-	
-	# Agregar offset según alternancia (SOLO para el arma visual)
-	if use_left_offset:
-		target_attack_angle = base_angle + deg_to_rad(angle_offset_left)
-	else:
-		target_attack_angle = base_angle + deg_to_rad(angle_offset_right)
-	
-	# Alternar para el próximo ataque
+	target_attack_angle = base_angle + deg_to_rad(angle_offset_left if use_left_offset else angle_offset_right)
 	use_left_offset = not use_left_offset
 
 func _spawn_slash(angle: float) -> void:
 	if slash_scene == null:
 		return
-
 	var s = slash_scene.instantiate()
-
-	# primero setup
 	s.setup(&"player", self)
-
-	# ahora lo metes a la escena
 	get_tree().current_scene.add_child(s)
-
 	s.global_position = slash_spawn.global_position
 	s.global_rotation = angle + deg_to_rad(slash_visual_offset_deg)
-	
-	# camera shake pequeño al atacar
+	_legacy_play_attack_vfx()
+
+func _legacy_play_attack_vfx() -> void:
 	if has_node("Camera2D"):
 		$Camera2D.shake(4.0)
 
 func _try_attack_push() -> void:
-	# Solo si NO estás moviendo con WASD (o sea, casi quieto)
 	if velocity.length() > attack_push_deadzone:
 		return
-
-	var mouse_pos := get_global_mouse_position()
-	var dir := (mouse_pos - global_position)
+	var dir := get_global_mouse_position() - global_position
 	if dir.length() < 0.001:
 		return
-	dir = dir.normalized()
-
-	attack_push_vel = dir * attack_push_speed
+	attack_push_vel = dir.normalized() * attack_push_speed
 	attack_push_t = attack_push_time
 
-# =============================================================================
-# FLIP DEL ARMA
-# =============================================================================
 func _update_weapon_flip() -> void:
 	var angle := wrapf(weapon_pivot.rotation, -PI, PI)
-	
-	if abs(angle) > PI / 2.0:
-		weapon_sprite.flip_v = true
-	else:
-		weapon_sprite.flip_v = false
+	weapon_sprite.flip_v = abs(angle) > PI / 2.0
 
-# =============================================================================
-# ANIMACIONES
-# =============================================================================
 func _update_animation() -> void:
-	# NO cambiar animación si está en hurt
 	if hurt_t > 0.0:
 		return
-	
-	var is_moving := velocity.length() > 5.0
+	sprite.play("walk" if velocity.length() > 5.0 else "idle")
 
-	if is_moving:
-		sprite.play("walk")
-	else:
-		sprite.play("idle")
-
-# =============================================================================
-# RECIBIR DAÑO
-# =============================================================================
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
-	# --- BLOQUEO: solo si el golpe entra en el cono ---
-	if blocking and stamina_component != null and _is_hit_blocked(from_pos):
-		var cost := stamina_component.max_stamina * block_hit_stamina_cost
-		stamina_component.current_stamina = maxf(stamina_component.current_stamina - cost, 0.0)
-		stamina_component.stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
-		print("[BLOCK] golpe bloqueado. stamina restante=", stamina_component.current_stamina)
+	var blocked := false
+	if _is_currently_blocking() and stamina_component != null:
+		if use_block_component and block_component != null:
+			blocked = block_component.can_block_hit(from_pos)
+		else:
+			blocked = _legacy_is_hit_blocked(from_pos)
 
-		if stamina_component.current_stamina <= 0.0:
-			blocking = false
-			print("[BLOCK] roto por golpe sin stamina")
-		return # <- no baja HP, termina aquí
+	if blocked:
+		if use_block_component and block_component != null:
+			block_component.on_blocked_hit()
+		else:
+			var cost := stamina_component.max_stamina * block_hit_stamina_cost
+			stamina_component.current_stamina = maxf(stamina_component.current_stamina - cost, 0.0)
+			stamina_component.stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
+			if stamina_component.current_stamina <= 0.0:
+				blocking = false
+		emit_signal("took_damage", 0)
+		if use_vfx_component and vfx_component != null:
+			vfx_component.play_block_vfx()
+		return
 
-	# Si estabas bloqueando pero el golpe viene fuera del cono, entra daño normal
-	# (Opcional: log para debug)
-	if blocking and from_pos != Vector2.INF and not _is_hit_blocked(from_pos):
-		print("[BLOCK] fallo: golpe fuera del cono")
-
-	# --- DAÑO NORMAL ---
 	if health_component != null and health_component.has_method("take_damage"):
 		health_component.take_damage(dmg)
 		hp = health_component.hp
 	else:
 		hp -= dmg
 
-	print("PLAYER HP:", hp)
+	emit_signal("took_damage", dmg)
 	_update_hearts_ui()
 
-	_spawn_blood(blood_hit_amount)
-
-	# Dirección del golpe (si no la mandan, sale random)
 	var hit_dir := Vector2.RIGHT.rotated(randf_range(0.0, TAU))
 	if from_pos != Vector2.INF:
 		hit_dir = (global_position - from_pos).normalized()
 
-	_spawn_droplets(droplet_count_hit, hit_dir)
+	if use_vfx_component and vfx_component != null:
+		vfx_component.play_hit_vfx(hit_dir, hp <= 0)
+	else:
+		_spawn_blood(blood_hit_amount)
+		_spawn_droplets(droplet_count_hit, hit_dir)
+		if hp <= 0:
+			_spawn_blood(blood_death_amount)
+			_spawn_droplets(droplet_count_death, hit_dir)
 
 	if hp <= 0:
-		_spawn_blood(blood_death_amount)
-		_spawn_droplets(droplet_count_death, hit_dir)
 		if health_component == null:
 			die()
 		return
 
 	play_hurt()
-	sprite.modulate = Color(1, 0.5, 0.5, 1)
-	get_tree().create_timer(0.06).timeout.connect(func():
-		if is_instance_valid(self):
-			sprite.modulate = Color(1, 1, 1, 1)
-	)
-
+	if use_vfx_component and vfx_component != null:
+		vfx_component.play_hit_flash()
+	else:
+		sprite.modulate = Color(1, 0.5, 0.5, 1)
+		get_tree().create_timer(0.06).timeout.connect(func():
+			if is_instance_valid(self):
+				sprite.modulate = Color(1, 1, 1, 1)
+		)
 
 func play_hurt() -> void:
 	hurt_t = hurt_time
 	sprite.play("hurt")
-	
-	# Cuando termine la animación hurt, volver a idle/walk automáticamente
-	# (solo si el player sigue vivo)
 	get_tree().create_timer(hurt_time).timeout.connect(func():
 		if is_instance_valid(self) and hp > 0:
 			_update_animation()
 	)
 
-# =============================================================================
-# KNOCKBACK (llamado desde el slash del enemigo)
-# =============================================================================
 func apply_knockback(force: Vector2) -> void:
 	knock_vel += force
 
@@ -740,44 +497,31 @@ func _update_hearts_ui() -> void:
 	if hearts_ui != null and hearts_ui.has_method("set_hearts"):
 		hearts_ui.set("max_hearts", max_hp)
 		hearts_ui.call("set_hearts", hp)
-	
+
 func die() -> void:
 	if dying:
 		return
 	dying = true
-
-	# Esconder arma
 	weapon_sprite.visible = false
-
-	# Limpiar estados para que nada "pise" la animación
 	hurt_t = 0.0
 	attacking = false
 	attack_push_t = 0.0
 	knock_vel = Vector2.ZERO
 	velocity = Vector2.ZERO
-
-	# Reproducir animación de muerte
 	sprite.play("death")
-
-	# Esperar a que termine (IMPORTANTE: death debe NO tener loop)
 	await sprite.animation_finished
-
-	# Emitir evento global de muerte del jugador (sin depender de Main).
 	GameManager.player_died.emit()
-
 	queue_free()
-	
+
 func _spawn_blood(amount: int) -> void:
 	if blood_scene == null:
 		return
-
 	var p := blood_scene.instantiate() as GPUParticles2D
 	get_tree().current_scene.add_child(p)
 	p.global_position = global_position
 	p.amount = amount
 	p.one_shot = true
 	p.emitting = true
-
 	get_tree().create_timer(p.lifetime + 0.1).timeout.connect(func():
 		if is_instance_valid(p):
 			p.queue_free()
@@ -786,12 +530,10 @@ func _spawn_blood(amount: int) -> void:
 func _spawn_droplets(count: int, base_dir: Vector2) -> void:
 	if droplet_scene == null:
 		return
-
 	var existing := get_tree().get_nodes_in_group("blood_droplet").size()
 	var allowed := mini(count, MAX_DROPLETS_IN_SCENE - existing)
 	if allowed <= 0:
 		return
-
 	for i in range(allowed):
 		var d := droplet_scene.instantiate() as RigidBody2D
 		if d == null:
@@ -799,12 +541,17 @@ func _spawn_droplets(count: int, base_dir: Vector2) -> void:
 		d.add_to_group("blood_droplet")
 		get_tree().current_scene.add_child(d)
 		d.global_position = global_position
-
-		# abanico alrededor de la dirección del golpe
 		var ang := randf_range(-deg_to_rad(droplet_spread_deg), deg_to_rad(droplet_spread_deg))
 		var dir := base_dir.rotated(ang)
+		d.linear_velocity = dir * randf_range(droplet_speed_min, droplet_speed_max)
 
-		var spd := randf_range(droplet_speed_min, droplet_speed_max)
-		d.linear_velocity = dir * spd
+func _legacy_wall_toggle_update() -> void:
+	if wall_occlusion_component != null:
+		wall_occlusion_component.on_player_moved(global_position)
+
+func _exit_tree() -> void:
+	if wall_occlusion_component != null:
+		wall_occlusion_component.close()
+
 func get_inventory() -> Node:
 	return inventory
