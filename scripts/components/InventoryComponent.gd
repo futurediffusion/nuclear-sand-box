@@ -42,7 +42,7 @@ func add_item(item_id: String, amount: int) -> int:
 		if can_put <= 0:
 			continue
 
-		var put: int = mini(max_stack, remaining)
+		var put: int = mini(can_put, remaining)
 		s["count"] = int(s["count"]) + put
 		slots[i] = s
 		remaining -= put
