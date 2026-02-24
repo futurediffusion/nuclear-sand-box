@@ -1,6 +1,7 @@
 extends Area2D
 class_name ItemDrop
 
+@export var item_data: ItemData
 @export var item_id: String = "copper"
 @export var amount: int = 1
 @export var icon: Texture2D
@@ -40,6 +41,8 @@ var _throwing: bool = false
 var _ground_y: float = 0.0
 
 func _ready() -> void:
+	_resolve_item_data()
+
 	if icon != null:
 		spr.texture = icon
 
@@ -55,6 +58,29 @@ func _ready() -> void:
 
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
+
+
+func _resolve_item_data() -> void:
+	var item_db := get_node_or_null("/root/ItemDB")
+
+	if item_data != null:
+		item_id = item_data.id
+	elif item_id != "" and item_db != null and item_db.has_method("get_item"):
+		item_data = item_db.get_item(item_id)
+
+	if item_data == null and item_id == "":
+		push_warning("[ItemDrop] Define item_data o item_id para este drop")
+
+	if icon == null and item_data != null:
+		icon = item_data.icon
+
+	if pickup_sfx == null and item_data != null and item_data.pickup_sfx != null:
+		pickup_sfx = item_data.pickup_sfx
+
+	if item_data != null:
+		print("[ItemDrop] resolved item_data id=", item_data.id)
+	else:
+		print("[ItemDrop] using legacy item_id=", item_id)
 
 func _process(delta: float) -> void:
 	_t += delta

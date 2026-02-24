@@ -76,5 +76,14 @@ func refresh() -> void:
 		var item_id: String = String(data["id"])
 		var amount: int = int(data["count"])
 
-		var tex: Texture2D = copper_icon if item_id == "copper" else null
+		var tex: Texture2D = _resolve_icon(item_id)
 		_slots[i].set_item(amount, tex)
+
+
+func _resolve_icon(item_id: String) -> Texture2D:
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db != null and item_db.has_method("get_item"):
+		var data: ItemData = item_db.get_item(item_id)
+		if data != null and data.icon != null:
+			return data.icon
+	return copper_icon if item_id == "copper" else null

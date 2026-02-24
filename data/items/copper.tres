@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/ItemData.gd" id="1_1"]
+[ext_resource type="Texture2D" path="res://art/props/copper/copperore.png" id="2_1"]
+[ext_resource type="AudioStream" path="res://art/Sounds/pickup.ogg" id="3_1"]
+
+[resource]
+script = ExtResource("1_1")
+id = "copper"
+display_name = "Copper Ore"
+icon = ExtResource("2_1")
+max_stack = 10
+sell_price = 5
+pickup_sfx = ExtResource("3_1")
