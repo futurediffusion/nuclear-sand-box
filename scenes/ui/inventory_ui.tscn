@@ -29,8 +29,9 @@ texture = ExtResource("1_7nagc")
 
 [node name="Grid" type="GridContainer" parent="Root"]
 layout_mode = 1
-offset_left = 549.68
-offset_top = 296.78
-offset_right = 1416.02
-offset_bottom = 750.125
+offset_left = 523.81
+offset_top = 292.36
+offset_right = 1390.15
+offset_bottom = 745.705
+scale = Vector2(1.3, 1.18)
 columns = 5

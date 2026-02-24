@@ -27,6 +27,11 @@ func get_hit_sound() -> AudioStream:
 #owner ship enchufe para futuro
 @export var faction_owner_id: int = -1  # -1 = nadie
 
+#item drops 
+@export var drop_scene: PackedScene
+@export var drop_icon: Texture2D
+@export var drop_pickup_sfx: AudioStream
+
 #-------
 
 var _base_sprite_pos: Vector2
@@ -64,17 +69,13 @@ func hit(by: Node) -> void:
 	var amount := int(round(yield_per_hit * yield_multiplier))
 	amount = clampi(amount, 1, remaining)
 
-	# ✅ 1) intentar meter al inventario primero
-	var inserted: int = _give_to_player_amount(by, amount)
+	# 1) gastar la mena
+	remaining -= amount
 
-	# ✅ 2) si no entró nada, NO gastes la mena
-	if inserted <= 0:
-		print("[COPPER] Inventario lleno. No se pudo guardar.")
-		return
+	# 2) SIEMPRE dropear al suelo
+	_spawn_drop(amount)
 
-	# ✅ 3) ahora sí, resta SOLO lo que realmente entró
-	remaining -= inserted
-	print("[COPPER] +", inserted, give_item_id, " remaining=", remaining)
+	print("[COPPER] dropped=", amount, " remaining=", remaining)
 
 	if hit_particles:
 		hit_particles.restart()
@@ -116,3 +117,46 @@ func _give_to_player_amount(by: Node, amount: int) -> int:
 			return int(inv2.add_item(give_item_id, amount))
 
 	return 0
+	
+func _try_give_to_player(by: Node, amount: int) -> int:
+	# 1) directo en el que pegó
+	if by != null and by.has_method("get_node_or_null"):
+		var inv := by.get_node_or_null("InventoryComponent")
+		if inv != null and inv.has_method("add_item"):
+			return int(inv.add_item(give_item_id, amount))
+
+	# 2) fallback: primer player del grupo
+	var players := get_tree().get_nodes_in_group("player")
+	if players.size() > 0:
+		var p := players[0]
+		var inv2 := p.get_node_or_null("InventoryComponent")
+		if inv2 != null and inv2.has_method("add_item"):
+			return int(inv2.add_item(give_item_id, amount))
+
+	return 0
+
+func _spawn_drop(amount_to_drop: int) -> void:
+	print("[COPPER] spawn_drop amount=", amount_to_drop, " drop_scene=", drop_scene)
+	if drop_scene == null:
+		push_warning("[COPPER] drop_scene no asignado")
+		return
+
+	var drop := drop_scene.instantiate() as ItemDrop
+	drop.item_id = give_item_id
+	drop.amount = amount_to_drop
+	drop.icon = drop_icon
+	drop.pickup_sfx = drop_pickup_sfx
+
+	# spawn EXACTO desde la mena (un poquito arriba del centro)
+	var origin := global_position + Vector2(0.0, -10.0)
+
+	get_parent().add_child(drop)
+
+	# Dirección random + fuerza
+	var angle := randf_range(-PI * 0.15, PI + PI * 0.15)
+	var dir := Vector2(cos(angle), sin(angle))
+
+	var speed := randf_range(160.0, 220.0)
+	var up_boost := randf_range(240.0, 320.0)
+
+	drop.throw_from(origin, dir, speed, up_boost)
