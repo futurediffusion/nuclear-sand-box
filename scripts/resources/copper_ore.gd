@@ -179,7 +179,7 @@ func _spawn_drop(amount_to_drop: int) -> void:
 	}
 
 	var origin := global_position + Vector2(0.0, -10.0)
-	var spawned := LootSystem.spawn_drop(drop_item, give_item_id, amount_to_drop, origin, get_parent(), overrides)
+	var spawned := LootSystem.spawn_drop(drop_item, give_item_id, amount_to_drop, origin, get_parent(), overrides, entity_uid)
 	if spawned == null:
 		push_warning("[COPPER] LootSystem no pudo crear drop")
 

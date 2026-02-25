@@ -514,6 +514,8 @@ func die() -> void:
 		return
 
 	dying = true
+	if GameEvents != null and GameEvents.has_method("emit_entity_died"):
+		GameEvents.emit_entity_died("", "enemy", global_position, null)
 	_play_death_sound()
 	_trigger_death_shake()
 
