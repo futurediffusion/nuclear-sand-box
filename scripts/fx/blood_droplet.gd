@@ -54,12 +54,16 @@ func on_pool_released() -> void:
 		$CollisionShape2D.disabled = true
 
 func _start_lifecycle_timers(token: int) -> void:
-	get_tree().create_timer(fly_time).timeout.connect(func() -> void:
+	var tree := get_tree()
+	if tree == null:
+		call_deferred("_start_lifecycle_timers", token)
+		return
+	tree.create_timer(fly_time).timeout.connect(func() -> void:
 		if not is_instance_valid(self) or token != _lifecycle_token or _done:
 			return
 		_finish_splat()
 	)
-	get_tree().create_timer(2.0).timeout.connect(func() -> void:
+	tree.create_timer(2.0).timeout.connect(func() -> void:
 		if not is_instance_valid(self) or token != _lifecycle_token or _done:
 			return
 		_despawn()
@@ -86,8 +90,12 @@ func _finish_splat() -> void:
 	if has_node("CollisionShape2D"):
 		$CollisionShape2D.disabled = true
 
+	var tree := get_tree()
+	if tree == null:
+		return
+
 	var token := _lifecycle_token
-	get_tree().create_timer(splat_lifetime).timeout.connect(func() -> void:
+	tree.create_timer(splat_lifetime).timeout.connect(func() -> void:
 		if not is_instance_valid(self) or token != _lifecycle_token:
 			return
 		_despawn()
