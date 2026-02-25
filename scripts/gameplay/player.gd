@@ -131,7 +131,9 @@ func _ready() -> void:
 	_setup_stamina_component()
 	_setup_inventory_component()
 	_update_hearts_ui()
-
+	var listener := AudioListener2D.new()
+	add_child(listener)
+	listener.make_current()
 	weapon_sprite.visible = true
 	weapon_sprite.show()
 	if inventory != null and DEBUG_PLAYER:

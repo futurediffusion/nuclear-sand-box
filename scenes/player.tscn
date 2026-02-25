@@ -16,7 +16,7 @@
 [ext_resource type="Script" uid="uid://d08btcr32onya" path="res://scripts/components/CombatComponent.gd" id="10_combat"]
 [ext_resource type="Script" uid="uid://bflvrglg1anxj" path="res://scripts/components/BlockComponent.gd" id="11_block"]
 [ext_resource type="Script" uid="uid://ctgv8fsqlh1dp" path="res://scripts/components/WallOcclusionComponent.gd" id="12_wall"]
-[ext_resource type="Script" path="res://scripts/components/VFXComponent.gd" id="13_vfx"]
+[ext_resource type="Script" uid="uid://mhndtbtfl4hv" path="res://scripts/components/VFXComponent.gd" id="13_vfx"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_smehm")
@@ -149,7 +149,7 @@ animations = [{
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_3v2ag"]
 size = Vector2(9, 15)
 
-[node name="Player" type="CharacterBody2D"]
+[node name="Player" type="CharacterBody2D" groups=["player"]]
 script = ExtResource("1_qhqgy")
 slash_scene = ExtResource("2_qlg0r")
 blood_scene = ExtResource("3_ur7pv")

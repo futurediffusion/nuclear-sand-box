@@ -97,7 +97,7 @@ func hit(by: Node) -> void:
 
 	if use_systems:
 		_spawn_drop(amount)
-		AudioSystem.play_2d(get_hit_sound(), global_position, get_parent())
+		AudioSystem.play_2d(get_hit_sound(), global_position)
 	else:
 		_spawn_drop_legacy(amount)
 

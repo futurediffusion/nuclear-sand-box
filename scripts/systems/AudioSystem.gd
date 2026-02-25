@@ -38,12 +38,11 @@ func play_2d(stream: AudioStream, pos: Vector2, parent: Node = null, bus: String
 
 	var player := AudioStreamPlayer2D.new()
 	player.stream = stream
-	player.global_position = pos
 	player.bus = bus
-	if debug_force_master_bus:
-		player.bus = &"Master"
 	player.volume_db = volume_db
+	# Primero add_child, LUEGO global_position
 	target_parent.add_child(player)
+	player.global_position = pos  # ← mover esta línea aquí
 	print("[AudioSystem] added child. inside_tree=", player.is_inside_tree(), " tree_paused=", get_tree().paused)
 	player.tree_entered.connect(func(): print("[AudioSystem] player tree_entered"))
 	player.finished.connect(func(): print("[AudioSystem] player finished (queue_free next)"))
@@ -89,30 +88,25 @@ func play_1d(stream: AudioStream, parent: Node = null, bus: StringName = &"Maste
 
 func _on_item_picked(item_id: String, amount: int, picker: Node) -> void:
 	print("[AudioSystem] RECEIVED item_picked item_id=", item_id, " amount=", amount, " picker=", picker)
-
 	if amount <= 0 or picker == null:
 		print("[AudioSystem] abort: amount<=0 o picker null")
 		return
 	if pickup_player_only and not picker.is_in_group("player"):
 		print("[AudioSystem] abort: picker no está en grupo player")
 		return
-
 	var item_data: ItemData = ItemDB.get_item(item_id)
 	if item_data == null:
 		print("[AudioSystem] ItemDB.get_item returned NULL for item_id=", item_id)
 		return
-
 	var stream: AudioStream = item_data.pickup_sfx
 	if stream == null:
 		print("[AudioSystem] pickup_sfx NULL for item_id=", item_id, " (revisa .tres)")
 		return
-
 	print("[AudioSystem] playing pickup_sfx=", stream, " bus=SFX")
 	if debug_force_1d_master:
-		play_1d(stream, null, &"Master", 0.0)
+		play_1d(stream, null, &"Master", 12.0)
 		return
-
 	if picker is Node2D:
-		play_2d(stream, (picker as Node2D).global_position)
+		play_2d(stream, (picker as Node2D).global_position, null, &"SFX", 12.0)
 	else:
-		play_2d(stream, Vector2.ZERO)
+		play_2d(stream, Vector2.ZERO, null, &"SFX", 12.0)
