@@ -211,7 +211,7 @@ func _setup_inventory_component() -> void:
 		inventory = InventoryComponentScript.new()
 		inventory.name = "InventoryComponent"
 		add_child(inventory)
-		player_debug("[INV] InventoryComponent creado en Player")
+		Debug.log("inv", "[INV] InventoryComponent creado en Player")
 
 func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
 	stamina_changed.emit(current_stamina, max_stamina)
@@ -242,7 +242,7 @@ func _input(event: InputEvent) -> void:
 			if DEBUG_PLAYER: inventory.debug_print()
 		elif key_event.keycode == KEY_4:
 			inventory.gold += 50
-			player_debug("[INV] cheat +50 gold. gold=%s" % inventory.gold)
+			Debug.log("inv", "[INV] cheat +50 gold. gold=%s" % inventory.gold)
 			if DEBUG_PLAYER: inventory.debug_print()
 
 func _physics_process(delta: float) -> void:
@@ -296,9 +296,9 @@ func _physics_process(delta: float) -> void:
 	_update_wall(delta)
 	move_and_slide()
 
-func _update_wall(_delta: float) -> void:
+func _update_wall(delta: float) -> void:
 	if use_wall_component and wall_occlusion_component != null:
-		wall_occlusion_component.on_player_moved(global_position)
+		wall_occlusion_component.physics_tick(delta)
 	else:
 		_legacy_wall_toggle_update()
 
