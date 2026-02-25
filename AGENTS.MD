@@ -168,6 +168,18 @@ Ubicación:
 - La lógica reusable va en componentes.
 - No duplicar sistemas dentro de `Player` o `Enemy`.
 
+### 👥 ENEMY REGISTRY (Autoload)
+
+Ubicación:
+
+- `scripts/systems/EnemyRegistry.gd`
+
+Rol:
+
+- Registro central de enemigos vivos usando `WeakRef`.
+- Evita referencias stale/freed en lógica de separación.
+- API: `register_enemy`, `unregister_enemy`, `get_live_enemies`, `count`.
+
 ### 🧾 GameManager (Autoload)
 
 Ubicación:
