@@ -1,7 +1,7 @@
 extends Node
 class_name WallOcclusionComponent
 
-var owner: Node = null
+var player: Node = null
 var tilemap: TileMap = null
 var opened_wall_tiles: Dictionary = {}
 var enabled: bool = true
@@ -26,10 +26,12 @@ func on_player_moved(_global_pos: Vector2) -> void:
 		return
 
 	var still_open: Dictionary = {}
-	var base_tile := _probe_tile()
-	var tpos := base_tile + owner.probe_tile_offset
-	var tpos_up := tpos + Vector2i(0, -1)
-	var behind_mode := false
+
+	var base_tile: Vector2i = _probe_tile()
+	var tpos: Vector2i = base_tile + player.probe_tile_offset
+	var tpos_up: Vector2i = tpos + Vector2i(0, -1)
+
+	var behind_mode: bool = false
 
 	if _has_wall(tpos):
 		_set_wall_alt(tpos, owner.wall_alt_small)

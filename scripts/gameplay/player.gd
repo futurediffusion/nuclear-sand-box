@@ -1,7 +1,7 @@
 class_name Player
 extends CharacterBody2D
 
-const DEBUG_PLAYER := OS.is_debug_build()
+var DEBUG_PLAYER := OS.is_debug_build()
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 

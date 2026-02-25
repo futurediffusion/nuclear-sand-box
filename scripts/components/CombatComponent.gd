@@ -1,7 +1,7 @@
 extends Node
 class_name CombatComponent
 
-var owner: Node = null
+var player: Node = null
 
 func setup(p_owner: Node) -> void:
 	owner = p_owner
@@ -37,7 +37,7 @@ func _spawn_slash(angle: float) -> void:
 	if owner.slash_scene == null:
 		return
 
-	var s := owner.slash_scene.instantiate()
+	var s: Node = player.slash_scene.instantiate()
 	s.setup(&"player", owner)
 	owner.get_tree().current_scene.add_child(s)
 	s.global_position = owner.slash_spawn.global_position
@@ -52,8 +52,8 @@ func _try_attack_push() -> void:
 	if owner.velocity.length() > owner.attack_push_deadzone:
 		return
 
-	var mouse_pos := owner.get_global_mouse_position()
-	var dir := mouse_pos - owner.global_position
+	var mouse_pos: Vector2 = player.get_global_mouse_position()
+	var dir: Vector2 = mouse_pos - player.global_position
 	if dir.length() < 0.001:
 		return
 	owner.attack_push_vel = dir.normalized() * owner.attack_push_speed

@@ -32,8 +32,8 @@ color_ramp = SubResource("GradientTexture1D_3kycq")
 [node name="CopperOre" type="Area2D"]
 collision_layer = 8
 script = ExtResource("1_w4g7b")
-drop_scene = ExtResource("2_oh74w")
 drop_item = ExtResource("5_data")
+drop_scene = ExtResource("2_oh74w")
 drop_icon = ExtResource("3_a1bgc")
 drop_pickup_sfx = ExtResource("4_lc5jf")
 

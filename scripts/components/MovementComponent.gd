@@ -1,7 +1,7 @@
 extends Node
 class_name MovementComponent
 
-var owner: Node = null
+var player: Node = null
 
 func setup(p_owner: Node) -> void:
 	owner = p_owner

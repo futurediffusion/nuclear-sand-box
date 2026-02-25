@@ -1,7 +1,7 @@
 extends Node
 class_name BlockComponent
 
-var owner: Node = null
+var player: Node = null
 var blocking: bool = false
 var block_angle: float = 0.0
 var block_wiggle_t: float = 0.0
@@ -25,7 +25,7 @@ func tick(delta: float) -> void:
 		owner.player_debug("[BLOCK] desactivado")
 
 	if blocking and owner.stamina_component != null:
-		var drained := (owner.block_stamina_drain * 2.0) * delta
+		var drained: float = (player.block_stamina_drain * 2.0) * delta
 		owner.stamina_component.current_stamina = maxf(owner.stamina_component.current_stamina - drained, 0.0)
 		owner.stamina_component.stamina_changed.emit(owner.stamina_component.current_stamina, owner.stamina_component.max_stamina)
 		if owner.stamina_component.current_stamina <= 0.0:
@@ -45,28 +45,38 @@ func get_block_angle() -> float:
 	return block_angle
 
 func can_block_hit(from_pos: Vector2) -> bool:
-	if owner == null or from_pos == Vector2.INF:
+	if player == null or from_pos == Vector2.INF:
 		return false
 
-	var to_attacker := from_pos - owner.global_position
+	var to_attacker: Vector2 = from_pos - player.global_position
 	if to_attacker.length() < 0.001:
 		return true
+
 	to_attacker = to_attacker.normalized()
 
-	var block_dir := Vector2.RIGHT.rotated(owner.mouse_angle)
-	var dot := clampf(block_dir.dot(to_attacker), -1.0, 1.0)
-	var ang := acos(dot)
-	var half_cone := deg_to_rad(owner.block_wiggle_deg + owner.block_guard_margin_deg)
+	var block_dir: Vector2 = Vector2.RIGHT.rotated(player.mouse_angle)
+	var dotv: float = clampf(block_dir.dot(to_attacker), -1.0, 1.0)
+	var ang: float = acos(dotv)
+	var half_cone: float = deg_to_rad(player.block_wiggle_deg + player.block_guard_margin_deg)
+
 	return ang <= half_cone
 
 func on_blocked_hit() -> void:
-	if owner == null or owner.stamina_component == null:
+	if player == null or player.stamina_component == null:
 		return
 
-	var cost := owner.stamina_component.max_stamina * owner.block_hit_stamina_cost
-	owner.stamina_component.current_stamina = maxf(owner.stamina_component.current_stamina - cost, 0.0)
-	owner.stamina_component.stamina_changed.emit(owner.stamina_component.current_stamina, owner.stamina_component.max_stamina)
-	if owner.stamina_component.current_stamina <= 0.0:
+	var cost: float = player.stamina_component.max_stamina * player.block_hit_stamina_cost
+
+	player.stamina_component.current_stamina = maxf(
+		player.stamina_component.current_stamina - cost,
+		0.0
+	)
+
+	player.stamina_component.stamina_changed.emit(
+		player.stamina_component.current_stamina
+	)
+
+	if player.stamina_component.current_stamina <= 0.0:
 		blocking = false
-		owner.emit_signal("block_ended")
-		owner.player_debug("[BLOCK] roto por golpe sin stamina")
+		player.emit_signal("block_ended")
+		player.player_debug("[BLOCK] roto por golpe sin stamina")
