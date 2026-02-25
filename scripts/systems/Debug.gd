@@ -14,7 +14,9 @@ const BOOT_TRACE := true
 	"ai": false,
 	"wall": false,
 	"inv": false,
-	"chunk": false,
+	"chunk": true,
+	"spawn": false,
+	"save": false,
 }
 
 func log(cat: String, msg: String) -> void:
