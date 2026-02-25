@@ -1,27 +1,29 @@
 extends Node
 class_name MovementComponent
 
-var player: Node = null
+var player: Player = null
 
-func setup(p_owner: Node) -> void:
-	owner = p_owner
+func setup(p_player: Player) -> void:
+	player = p_player
 
 func tick(_delta: float) -> void:
+	if player == null:
+		return
 	pass
 
 func physics_tick(delta: float) -> void:
-	if owner == null:
+	if player == null:
 		return
 
-	var input_dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	var input_dir: Vector2 = Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	if input_dir != Vector2.ZERO:
 		input_dir = input_dir.normalized()
-		owner.last_direction = input_dir
+		player.last_direction = input_dir
 
-		var current_speed: float = owner.acceleration
-		if owner.velocity.length() > 0.0 and owner.velocity.normalized().dot(input_dir) < 0.5:
-			current_speed = owner.turn_speed
+		var current_speed: float = player.acceleration
+		if player.velocity.length() > 0.0 and player.velocity.normalized().dot(input_dir) < 0.5:
+			current_speed = player.turn_speed
 
-		owner.velocity = owner.velocity.move_toward(input_dir * owner.max_speed, current_speed * delta)
+		player.velocity = player.velocity.move_toward(input_dir * player.max_speed, current_speed * delta)
 	else:
-		owner.velocity = owner.velocity.move_toward(Vector2.ZERO, owner.friction * delta)
+		player.velocity = player.velocity.move_toward(Vector2.ZERO, player.friction * delta)
