@@ -44,6 +44,8 @@ var _base_sprite_pos: Vector2
 var _shake_t: float = 0.0
 var _flash_t: float = 0.0
 
+var entity_uid: String = ""
+
 func _ready() -> void:
 	if remaining < 0:
 		remaining = randi_range(total_min, total_max)
@@ -213,3 +215,11 @@ func _spawn_drop_legacy(amount_to_drop: int) -> void:
 	var up_boost := randf_range(240.0, 320.0)
 
 	drop.throw_from(origin, dir, speed, up_boost)
+
+
+func get_save_state() -> Dictionary:
+	return {"remaining": remaining}
+
+func apply_save_state(state: Dictionary) -> void:
+	if state.has("remaining"):
+		remaining = int(state["remaining"])
