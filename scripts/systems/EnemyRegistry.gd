@@ -7,8 +7,8 @@ func register_enemy(e: Node) -> void:
 	if e == null:
 		return
 
-	for w in _enemies:
-		var obj := w.get_ref()
+	for w: WeakRef in _enemies:
+		var obj: Object = w.get_ref()
 		if obj == e:
 			return
 
@@ -19,8 +19,8 @@ func unregister_enemy(e: Node) -> void:
 	if e == null:
 		return
 
-	for i in range(_enemies.size() - 1, -1, -1):
-		var obj := _enemies[i].get_ref()
+	for i: int in range(_enemies.size() - 1, -1, -1):
+		var obj: Object = _enemies[i].get_ref()
 		if obj == null or obj == e:
 			_enemies.remove_at(i)
 
@@ -28,14 +28,15 @@ func unregister_enemy(e: Node) -> void:
 func get_live_enemies() -> Array[Node2D]:
 	var out: Array[Node2D] = []
 
-	for i in range(_enemies.size() - 1, -1, -1):
-		var obj := _enemies[i].get_ref()
+	for i: int in range(_enemies.size() - 1, -1, -1):
+		var obj: Object = _enemies[i].get_ref()
 		if obj == null:
 			_enemies.remove_at(i)
 			continue
 
-		if obj is Node2D:
-			out.append(obj)
+		var enemy: Node2D = obj as Node2D
+		if enemy != null:
+			out.append(enemy)
 
 	return out
 
