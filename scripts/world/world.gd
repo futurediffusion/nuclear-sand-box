@@ -2,6 +2,7 @@ extends Node2D
 
 @onready var tilemap: TileMap = $WorldTileMap
 @onready var prop_spawner := PropSpawner.new()
+@onready var chunk_generator := ChunkGenerator.new()
 
 @export var width: int = 256
 @export var height: int = 256
@@ -168,20 +169,7 @@ func generate_chunk(chunk_pos: Vector2i) -> void:
 	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
 	# Spawn de entidades PRIMERO (síncrono, antes del await)
 	prop_spawner.generate_chunk_spawns(chunk_pos, _make_spawn_ctx())
-
-	var start_x := chunk_pos.x * chunk_size
-	var start_y := chunk_pos.y * chunk_size
-
-	for y in range(start_y, start_y + chunk_size):
-		for x in range(start_x, start_x + chunk_size):
-			if x < 0 or x >= width or y < 0 or y >= height:
-				continue
-			var tile_atlas := pick_tile(x, y)
-			tile_atlas.y = clampi(tile_atlas.y, 0, 2)
-			tilemap.set_cell(0, Vector2i(x, y), 0, tile_atlas)
-
-		if y % 8 == 0:
-			await get_tree().process_frame
+	await chunk_generator.apply_ground(chunk_pos, _make_ground_ctx())
 
 	generated_chunks[chunk_pos] = true
 	generating_chunks.erase(chunk_pos)
@@ -277,6 +265,17 @@ func _make_spawn_ctx() -> Dictionary:
 		"copper_ore_scene": copper_ore_scene,
 		"bandit_camp_scene": bandit_camp_scene,
 		"bandit_scene": bandit_scene,
+	}
+
+func _make_ground_ctx() -> Dictionary:
+	return {
+		"tilemap": tilemap,
+		"width": width,
+		"height": height,
+		"chunk_size": chunk_size,
+		"pick_tile": Callable(self, "pick_tile"),
+		"tree": get_tree(),
+		"generating_yield_stride": 8,
 	}
 
 func load_chunk_entities(chunk_pos: Vector2i) -> void:
