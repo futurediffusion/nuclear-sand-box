@@ -179,10 +179,13 @@ func _physics_process(delta: float) -> void:
 	if not player or hp <= 0:
 		return
 
-	_cache_time_left -= delta
-	if _cache_time_left <= 0.0:
-		_cache_time_left = _cache_interval
+	if Debug.safe_mode and Debug.disable_enemy_cache:
 		_cached_enemies = get_tree().get_nodes_in_group("enemy")
+	else:
+		_cache_time_left = maxf(_cache_time_left - delta, -0.01)
+		if _cache_time_left <= 0.0:
+			_cache_time_left = _cache_interval
+			_cached_enemies = get_tree().get_nodes_in_group("enemy")
 
 	var dt := delta * Engine.time_scale
 

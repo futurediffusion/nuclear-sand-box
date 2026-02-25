@@ -78,6 +78,7 @@ const BIOME_TILES = {
 }
 
 func _ready() -> void:
+	Debug.log("boot", "World._ready begin")
 	biome_noise.seed = randi()
 	biome_noise.frequency = 0.015
 	biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -125,6 +126,7 @@ func _is_chunk_in_active_window(chunk_pos: Vector2i, center: Vector2i) -> bool:
 	return true
 
 func update_chunks(center: Vector2i) -> void:
+	Debug.log("boot", "ChunkManager load begin center=%s" % center)
 	if player:
 		_debug_check_tile_alignment(player.global_position)
 		_debug_check_player_chunk(player.global_position)
@@ -159,6 +161,7 @@ func update_chunks(center: Vector2i) -> void:
 			unload_chunk(cpos)
 			unload_chunk_entities(cpos)
 			loaded_chunks.erase(cpos)
+	Debug.log("boot", "ChunkManager load end center=%s" % center)
 
 func generate_chunk(chunk_pos: Vector2i) -> void:
 	# Spawn de entidades PRIMERO (síncrono, antes del await)

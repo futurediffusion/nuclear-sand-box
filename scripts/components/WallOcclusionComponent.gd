@@ -14,6 +14,8 @@ var _last_player_pos := Vector2.INF
 func setup(p_player: Player) -> void:
 	player = p_player
 	_resolve_tilemap()
+	if tilemap == null:
+		push_warning("[WallOcclusion] setup without tilemap")
 
 func tick(_delta: float) -> void:
 	if player == null:
@@ -22,8 +24,13 @@ func tick(_delta: float) -> void:
 
 func physics_tick(delta: float) -> void:
 	if player == null:
+		push_warning("[WallOcclusion] Player missing in physics_tick")
 		return
-	if not enabled or tilemap == null:
+	if not enabled:
+		return
+	if tilemap == null:
+		push_warning("[WallOcclusion] TileMap missing, disabling component")
+		enabled = false
 		return
 	if not player.is_in_group("player"):
 		return

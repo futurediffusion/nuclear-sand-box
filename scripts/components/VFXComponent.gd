@@ -2,6 +2,7 @@ extends Node
 class_name VFXComponent
 
 const MAX_DROPLETS_IN_SCENE: int = 40
+const MAX_PREWARM := 20
 const NodePoolScript = preload("res://scripts/systems/NodePool.gd")
 
 var player: Player = null
@@ -61,17 +62,20 @@ func _setup_pools() -> void:
 		return
 	if not use_pooling:
 		return
+	var burst_prewarm := mini(maxi(blood_burst_prewarm, 0), MAX_PREWARM)
+	var droplet_prewarm := mini(maxi(blood_droplet_prewarm, 0), MAX_PREWARM)
+	Debug.log("boot", "VFX pools setup pooling=%s burst_prewarm=%s droplet_prewarm=%s" % [use_pooling, burst_prewarm, droplet_prewarm])
 	var root := player.get_tree().current_scene
 	if root == null:
 		root = player.get_tree().root
 	if player.blood_scene != null:
 		_burst_pool = NodePoolScript.new()
 		add_child(_burst_pool)
-		_burst_pool.configure(player.blood_scene, root, blood_burst_prewarm)
+		_burst_pool.configure(player.blood_scene, root, burst_prewarm)
 	if player.droplet_scene != null:
 		_droplet_pool = NodePoolScript.new()
 		add_child(_droplet_pool)
-		_droplet_pool.configure(player.droplet_scene, root, blood_droplet_prewarm)
+		_droplet_pool.configure(player.droplet_scene, root, droplet_prewarm)
 
 func _spawn_blood(amount: int) -> void:
 	if player == null or player.blood_scene == null:
@@ -120,8 +124,6 @@ func _spawn_droplets(count: int, base_dir: Vector2) -> void:
 		d.global_position = player.global_position
 		if d.has_method("setup_pooling"):
 			d.call("setup_pooling", use_pooling and _droplet_pool != null, Callable(self, "_release_droplet"))
-		if d.has_method("on_pool_acquired"):
-			d.call("on_pool_acquired")
 		var ang: float = randf_range(-deg_to_rad(player.droplet_spread_deg), deg_to_rad(player.droplet_spread_deg))
 		var dir: Vector2 = base_dir.rotated(ang)
 		d.linear_velocity = dir * randf_range(player.droplet_speed_min, player.droplet_speed_max)

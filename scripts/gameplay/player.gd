@@ -118,6 +118,7 @@ func player_debug(message: String) -> void:
 		print(message)
 
 func _ready() -> void:
+	Debug.log("boot", "Player ready begin")
 	sprite.play("idle")
 	sprite.flip_h = false
 	add_to_group("player")
@@ -138,6 +139,7 @@ func _ready() -> void:
 	weapon_sprite.show()
 	if inventory != null and DEBUG_PLAYER:
 		inventory.debug_print()
+	Debug.log("boot", "Player ready end")
 
 
 func _setup_components() -> void:
@@ -155,9 +157,13 @@ func _setup_components() -> void:
 		push_warning("[Player] Missing BlockComponent")
 	if wall_occlusion_component != null:
 		wall_occlusion_component.setup(self)
+		if Debug.safe_mode and Debug.disable_wall_occlusion:
+			wall_occlusion_component.set_enabled(false)
 	else:
 		push_warning("[Player] Missing WallOcclusionComponent")
 	if vfx_component != null:
+		if Debug.safe_mode and Debug.disable_vfx_pooling:
+			vfx_component.use_pooling = false
 		vfx_component.setup(self)
 	else:
 		push_warning("[Player] Missing VFXComponent")
