@@ -1,7 +1,14 @@
 extends Node
 
-@export var enabled := false
+const BOOT_TRACE := true
+
+@export var enabled := BOOT_TRACE
+@export var safe_mode := true
+@export var disable_vfx_pooling := false
+@export var disable_wall_occlusion := false
+@export var disable_enemy_cache := false
 @export var categories := {
+	"boot": BOOT_TRACE,
 	"audio": false,
 	"events": false,
 	"ai": false,

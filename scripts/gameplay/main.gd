@@ -8,11 +8,13 @@ extends Node2D
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
 @onready var inv_ui: InventoryUI = $UI/InventoryUI
 func _ready() -> void:
+	Debug.log("boot", "Main._ready begin")
 	_ensure_world_data()
 	game_over_panel.visible = false
 	retry_button.pressed.connect(_on_retry_pressed)
 	if not GameManager.player_died.is_connected(_on_player_died_from_manager):
 		GameManager.player_died.connect(_on_player_died_from_manager)
+	get_tree().process_frame.connect(_boot_frame_ping, CONNECT_ONE_SHOT)
 
 func _on_player_died_from_manager() -> void:
 	game_over_panel.visible = true
@@ -35,3 +37,7 @@ func _ensure_world_data() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("inventory"):
 		inv_ui.toggle()
+
+
+func _boot_frame_ping() -> void:
+	Debug.log("boot", "First frame reached")

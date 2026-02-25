@@ -16,6 +16,7 @@ var owner_actor: Node = null
 @onready var _events := get_node_or_null("/root/GameEvents")
 
 func _ready() -> void:
+	Debug.log("boot", "InventoryUI ready begin")
 	print("[InventoryUI] _ready() OK. node=", name)
 
 	_grid = get_node_or_null(grid_path) as GridContainer
@@ -55,6 +56,7 @@ func _ready() -> void:
 	_connect_inventory_signal(inventory_ref)
 
 	visible = false
+	Debug.log("boot", "InventoryUI ready end")
 
 func toggle() -> void:
 	print("[InventoryUI] toggle() visible antes=", visible, " slots=", _slots.size())

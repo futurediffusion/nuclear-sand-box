@@ -4,16 +4,30 @@ class_name NodePool
 var scene: PackedScene = null
 var _available: Array[Node] = []
 var _holder: Node = null
+var _pending_prewarm: int = 0
 
 func configure(p_scene: PackedScene, holder: Node, prewarm_count: int = 0) -> void:
 	scene = p_scene
 	_holder = holder
 	if scene == null or _holder == null:
 		return
-	for _i: int in range(maxi(prewarm_count, 0)):
+	_pending_prewarm = maxi(prewarm_count, 0)
+	if _pending_prewarm > 0:
+		call_deferred("_prewarm_step")
+
+func _prewarm_step() -> void:
+	if scene == null or _holder == null:
+		return
+	if _pending_prewarm <= 0:
+		return
+	var batch := mini(_pending_prewarm, 4)
+	for _i: int in range(batch):
 		var node := _create_instance()
 		if node != null:
 			release(node)
+	_pending_prewarm -= batch
+	if _pending_prewarm > 0:
+		call_deferred("_prewarm_step")
 
 func acquire() -> Node:
 	if _available.is_empty():
