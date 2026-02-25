@@ -18,7 +18,7 @@ func configure(p_scene: PackedScene, holder: Node, prewarm_count: int = 0) -> vo
 func acquire() -> Node:
 	if _available.is_empty():
 		return _create_instance()
-	var node := _available.pop_back()
+	var node: Node = _available.pop_back() as Node
 	if node == null:
 		return _create_instance()
 	_activate(node)
@@ -35,7 +35,7 @@ func release(node: Node) -> void:
 func _create_instance() -> Node:
 	if scene == null or _holder == null:
 		return null
-	var node := scene.instantiate()
+	var node: Node = scene.instantiate()
 	_holder.add_child(node)
 	_activate(node)
 	return node
