@@ -161,6 +161,9 @@ func _try_pickup() -> void:
 	if inserted <= 0:
 		return
 
+	if GameEvents != null and GameEvents.has_method("emit_item_picked"):
+		GameEvents.emit_item_picked(item_id, inserted, _player)
+
 	# ✅ tocar sonido y destruir después (sin cortarlo)
 	if pickup_sfx != null:
 		sfx.stream = pickup_sfx

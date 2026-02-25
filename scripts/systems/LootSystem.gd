@@ -1,6 +1,6 @@
 extends Node
 
-func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, parent: Node, overrides: Dictionary = {}) -> Node:
+func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, parent: Node, overrides: Dictionary = {}, source_uid: String = "") -> Node:
 	var resolved_item_data: ItemData = item
 	var resolved_id := item_id
 
@@ -60,4 +60,6 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 		drop.global_position = origin
 
 	print("[LootSystem] spawned drop item_id=", resolved_id, " amount=", amount)
+	if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
+		GameEvents.emit_loot_spawned(resolved_id, amount, origin, source_uid)
 	return drop
