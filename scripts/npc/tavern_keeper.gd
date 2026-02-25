@@ -46,6 +46,8 @@ var _health: int = max_health
 var _is_dead: bool = false
 var _is_hurt: bool = false
 
+var entity_uid: String = ""
+
 # =============================================================================
 func _ready() -> void:
 	_health = max_health
@@ -252,3 +254,11 @@ func setup(tilemap: TileMap, inner_min: Vector2i, inner_max: Vector2i, the_count
 	counter_tile     = the_counter_tile
 	# Reposicionarse en el counter con los datos correctos
 	_go_to_counter()
+
+
+func get_save_state() -> Dictionary:
+	return {"spawned": true}
+
+func apply_save_state(_state: Dictionary) -> void:
+	# Future: status/inventory/faction hooks (alive/ko/dead, etc.)
+	pass

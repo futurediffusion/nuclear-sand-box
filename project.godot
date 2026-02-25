@@ -21,6 +21,7 @@ GameManager="*res://scripts/systems/game_manager.gd"
 ItemDB="*res://scripts/items/ItemDB.gd"
 LootSystem="*res://scripts/systems/LootSystem.gd"
 AudioSystem="*res://scripts/systems/AudioSystem.gd"
+WorldSave="*res://scripts/systems/WorldSave.gd"
 
 [display]
 
