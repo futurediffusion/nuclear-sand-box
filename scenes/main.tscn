@@ -138,3 +138,5 @@ text = "QUIT"
 offset = Vector2(-103.985, -26.945)
 scale = Vector2(0.435, 0.435)
 transform = Transform2D(0.435, 0, 0, 0.435, -103.985, -26.945)
+owner_actor_path = NodePath("../../Player")
+inventory_path = NodePath("../../Player/InventoryComponent")
