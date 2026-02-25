@@ -6,10 +6,13 @@ class_name InventoryUI
 @export var columns: int = 5
 @export var rows: int = 3
 @export var copper_icon: Texture2D
+@export var owner_actor_path: NodePath
+@export var inventory_path: NodePath
 
 var _grid: GridContainer
 var _slots: Array[InventorySlot] = []
-var _inventory: Node = null
+var inventory_ref: InventoryComponent = null
+var owner_actor: Node = null
 
 func _ready() -> void:
 	print("[InventoryUI] _ready() OK. node=", name)
@@ -28,6 +31,15 @@ func _ready() -> void:
 		push_error("[InventoryUI] ERROR: slot_scene NO asignado en el Inspector (en la instancia de Main)")
 		return
 
+	owner_actor = get_node_or_null(owner_actor_path)
+	inventory_ref = get_node_or_null(inventory_path) as InventoryComponent
+	if owner_actor == null:
+		push_warning("[InventoryUI] owner_actor_path no apunta a un actor válido")
+	if inventory_ref == null:
+		push_warning("[InventoryUI] inventory_path no apunta a InventoryComponent")
+	elif owner_actor == null:
+		owner_actor = inventory_ref.get_parent()
+
 	_grid.columns = columns
 
 	_build_slots()
@@ -36,6 +48,8 @@ func _ready() -> void:
 	if GameEvents != null and GameEvents.has_signal("item_picked"):
 		if not GameEvents.item_picked.is_connected(_on_item_picked):
 			GameEvents.item_picked.connect(_on_item_picked)
+
+	_connect_inventory_signal(inventory_ref)
 
 	visible = false
 
@@ -52,28 +66,33 @@ func _build_slots() -> void:
 		_grid.add_child(s)
 		_slots.append(s)
 
-func set_inventory(inv: Node) -> void:
-	_inventory = inv
-	print("[InventoryUI] set_inventory inv_id=", _inventory.get_instance_id())
+func set_inventory(inv: InventoryComponent, owner: Node = null) -> void:
+	if inventory_ref != null and inventory_ref != inv and inventory_ref.inventory_changed.is_connected(refresh):
+		inventory_ref.inventory_changed.disconnect(refresh)
 
-	# ✅ conectar señal del inventario
-	if _inventory.has_signal("inventory_changed"):
-		if not _inventory.inventory_changed.is_connected(refresh):
-			_inventory.inventory_changed.connect(refresh)
+	inventory_ref = inv
+	if owner != null:
+		owner_actor = owner
+	elif inventory_ref != null and owner_actor == null:
+		owner_actor = inventory_ref.get_parent()
+
+	if inventory_ref != null:
+		print("[InventoryUI] set_inventory inv_id=", inventory_ref.get_instance_id())
+	_connect_inventory_signal(inventory_ref)
 
 	refresh()
 
 func refresh() -> void:
-	if _inventory == null:
+	if inventory_ref == null:
 		return
-	if not ("slots" in _inventory):
+	if not ("slots" in inventory_ref):
 		return
 
 	for s in _slots:
 		s.set_empty()
 
-	for i in range(min(_slots.size(), _inventory.slots.size())):
-		var data = _inventory.slots[i]
+	for i in range(min(_slots.size(), inventory_ref.slots.size())):
+		var data = inventory_ref.slots[i]
 		if data == null:
 			continue
 
@@ -84,19 +103,19 @@ func refresh() -> void:
 		_slots[i].set_item(amount, tex)
 
 
-func _on_item_picked(_item_id: String, _amount: int, picker: Node) -> void:
-	if picker == null:
+func _on_item_picked(_item_id: String, amount: int, picker: Node) -> void:
+	if amount <= 0:
 		return
-
-	var inv := picker.get_node_or_null("InventoryComponent")
-	if inv == null:
-		return
-
-	if inv != _inventory:
-		set_inventory(inv)
+	if owner_actor != null and picker != owner_actor:
 		return
 
 	refresh()
+
+func _connect_inventory_signal(inv: InventoryComponent) -> void:
+	if inv == null:
+		return
+	if not inv.inventory_changed.is_connected(refresh):
+		inv.inventory_changed.connect(refresh)
 
 
 func _resolve_icon(item_id: String) -> Texture2D:

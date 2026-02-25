@@ -1,11 +1,15 @@
 extends Node
 
 @export var default_pickup_sfx: AudioStream
+@export var debug_events := false
+@export var pickup_player_only := false
 
 func _ready() -> void:
 	if GameEvents != null and GameEvents.has_signal("item_picked"):
 		if not GameEvents.item_picked.is_connected(_on_item_picked):
 			GameEvents.item_picked.connect(_on_item_picked)
+			if debug_events:
+				print("[AudioSystem] connected to item_picked")
 
 func play_2d(stream: AudioStream, pos: Vector2, parent: Node = null, bus: StringName = &"SFX", volume_db: float = 0.0) -> void:
 	if stream == null:
@@ -26,21 +30,27 @@ func play_2d(stream: AudioStream, pos: Vector2, parent: Node = null, bus: String
 	player.finished.connect(player.queue_free)
 	player.play()
 
-func _on_item_picked(item_id: String, _amount: int, picker: Node) -> void:
-	var stream := _resolve_pickup_sfx(item_id)
-	if stream == null:
+func _on_item_picked(item_id: String, amount: int, picker: Node) -> void:
+	if amount <= 0 or picker == null:
+		return
+	if pickup_player_only and not picker.is_in_group("player"):
+		return
+	if debug_events:
+		print("[AudioSystem] item_picked item_id=", item_id, " amount=", amount, " picker=", picker)
+
+	var item_data: ItemData = ItemDB.get_item(item_id)
+	if item_data == null:
+		if debug_events:
+			print("[AudioSystem] item not found in ItemDB: ", item_id)
 		return
 
-	var pos := Vector2.ZERO
+	var stream: AudioStream = item_data.pickup_sfx
+	if stream == null:
+		if debug_events:
+			print("[AudioSystem] pickup_sfx missing for item: ", item_id)
+		return
+
 	if picker is Node2D:
-		pos = (picker as Node2D).global_position
-
-	play_2d(stream, pos)
-
-func _resolve_pickup_sfx(item_id: String) -> AudioStream:
-	var item_db := get_node_or_null("/root/ItemDB")
-	if item_db != null and item_db.has_method("get_item"):
-		var item_data: ItemData = item_db.get_item(item_id)
-		if item_data != null and item_data.pickup_sfx != null:
-			return item_data.pickup_sfx
-	return default_pickup_sfx
+		play_2d(stream, (picker as Node2D).global_position)
+	else:
+		play_2d(stream, Vector2.ZERO)
