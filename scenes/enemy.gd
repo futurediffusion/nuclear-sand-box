@@ -118,9 +118,13 @@ var knock_vel: Vector2 = Vector2.ZERO
 var hurt_t: float = 0.0
 var hitstopping: bool = false
 
-static var _cached_enemies: Array = []
-static var _cache_time_left := 0.0
-static var _cache_interval := 0.25
+
+func _enter_tree() -> void:
+	EnemyRegistry.register_enemy(self)
+
+
+func _exit_tree() -> void:
+	EnemyRegistry.unregister_enemy(self)
 
 
 # =============================================================================
@@ -178,14 +182,6 @@ func _find_player() -> void:
 func _physics_process(delta: float) -> void:
 	if not player or hp <= 0:
 		return
-
-	if Debug.safe_mode and Debug.disable_enemy_cache:
-		_cached_enemies = get_tree().get_nodes_in_group("enemy")
-	else:
-		_cache_time_left = maxf(_cache_time_left - delta, -0.01)
-		if _cache_time_left <= 0.0:
-			_cache_time_left = _cache_interval
-			_cached_enemies = get_tree().get_nodes_in_group("enemy")
 
 	var dt := delta * Engine.time_scale
 
@@ -504,18 +500,17 @@ func _update_animation() -> void:
 		sprite.play("idle")
 		
 func _apply_separation_force(dt: float) -> void:
-	if _cached_enemies.is_empty():
+	var enemies: Array[Node2D] = EnemyRegistry.get_live_enemies()
+	if enemies.is_empty():
 		return
+
 	var radius_sq := separation_radius * separation_radius
 
-	for e in _cached_enemies:
+	for e in enemies:
 		if e == self:
 			continue
-		if not (e is Node2D):
-			continue
 
-		var other := e as Node2D
-		var delta_pos := global_position - other.global_position
+		var delta_pos := global_position - e.global_position
 		var dist_sq := delta_pos.length_squared()
 		if dist_sq <= 0.0001 or dist_sq >= radius_sq:
 			continue
@@ -538,6 +533,7 @@ func die() -> void:
 	# parar IA y movimiento
 	can_attack = false
 	attacking = false
+	EnemyRegistry.unregister_enemy(self)
 	velocity = Vector2.ZERO
 	knock_vel = Vector2.ZERO
 	set_physics_process(false)
