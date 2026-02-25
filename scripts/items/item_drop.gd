@@ -150,18 +150,30 @@ func _on_body_exited(body: Node) -> void:
 		_player = null
 func _try_pickup() -> void:
 	if _player == null:
+		print("[ItemDrop] _try_pickup: NO player")
 		return
 
 	var inv := _player.get_node_or_null("InventoryComponent")
-	if inv == null or not inv.has_method("add_item"):
+	if inv == null:
+		print("[ItemDrop] _try_pickup: NO InventoryComponent en player=", _player.name, " children=", _player.get_children())
+		return
+	if not inv.has_method("add_item"):
+		print("[ItemDrop] _try_pickup: InventoryComponent sin add_item()")
 		return
 
 	var inserted: int = int(inv.add_item(item_id, amount))
+	print("[ItemDrop] add_item result inserted=", inserted, " item_id=", item_id, " amount=", amount)
+
 	if inserted <= 0:
+		print("[ItemDrop] inserted<=0 (inventario lleno o rechazado). No evento, no audio.")
 		return
 
-	if GameEvents != null and GameEvents.has_method("emit_item_picked"):
-		GameEvents.emit_item_picked(item_id, inserted, _player)
+	var events := get_node_or_null("/root/GameEvents")
+	if events == null:
+		print("[ItemDrop] NO /root/GameEvents. No evento.")
+	else:
+		print("[ItemDrop] Emitting item_picked item_id=", item_id, " inserted=", inserted)
+		events.emit_item_picked(item_id, inserted, _player)
 
 	# el audio de pickup ahora lo reproduce AudioSystem escuchando GameEvents.item_picked
 	monitoring = false

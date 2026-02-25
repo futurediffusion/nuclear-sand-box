@@ -13,6 +13,7 @@ var _grid: GridContainer
 var _slots: Array[InventorySlot] = []
 var inventory_ref: InventoryComponent = null
 var owner_actor: Node = null
+@onready var _events := get_node_or_null("/root/GameEvents")
 
 func _ready() -> void:
 	print("[InventoryUI] _ready() OK. node=", name)
@@ -45,9 +46,11 @@ func _ready() -> void:
 	_build_slots()
 	print("[InventoryUI] total slots=", _slots.size(), " grid children=", _grid.get_child_count())
 
-	if GameEvents != null and GameEvents.has_signal("item_picked"):
-		if not GameEvents.item_picked.is_connected(_on_item_picked):
-			GameEvents.item_picked.connect(_on_item_picked)
+	if _events != null and _events.has_signal("item_picked"):
+		if not _events.item_picked.is_connected(_on_item_picked):
+			_events.item_picked.connect(_on_item_picked)
+	else:
+		push_warning("[InventoryUI] GameEvents no existe en /root o no tiene signal item_picked")
 
 	_connect_inventory_signal(inventory_ref)
 
