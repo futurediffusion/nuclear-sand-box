@@ -6,6 +6,11 @@ var tilemap: TileMap = null
 var opened_wall_tiles: Dictionary = {}
 var enabled: bool = true
 
+@export var update_interval := 0.10
+@export var move_threshold_px := 8.0
+var _accum := 0.0
+var _last_player_pos := Vector2.INF
+
 func setup(p_player: Player) -> void:
 	player = p_player
 	_resolve_tilemap()
@@ -15,10 +20,24 @@ func tick(_delta: float) -> void:
 		return
 	pass
 
-func physics_tick(_delta: float) -> void:
+func physics_tick(delta: float) -> void:
 	if player == null:
 		return
-	pass
+	if not enabled or tilemap == null:
+		return
+	if not player.is_in_group("player"):
+		return
+
+	_accum += delta
+	if _accum < update_interval:
+		return
+	_accum = 0.0
+
+	if _last_player_pos != Vector2.INF and player.global_position.distance_to(_last_player_pos) < move_threshold_px:
+		return
+
+	_last_player_pos = player.global_position
+	_update_occlusion()
 
 func set_enabled(value: bool) -> void:
 	if player == null:
@@ -32,7 +51,28 @@ func on_player_moved(_global_pos: Vector2) -> void:
 		return
 	if not enabled or tilemap == null:
 		return
+	if not player.is_in_group("player"):
+		return
+	_update_occlusion()
 
+func close() -> void:
+	if player == null:
+		return
+	_close_opened_walls()
+
+func _resolve_tilemap() -> void:
+	if player == null:
+		return
+	if player.tilemap_path != NodePath():
+		tilemap = player.get_node_or_null(player.tilemap_path) as TileMap
+	if tilemap == null:
+		tilemap = player.get_node_or_null("../World/WorldTileMap") as TileMap
+	if tilemap == null:
+		push_warning("[WALL_TOGGLE] No encuentro el TileMap. Asigna tilemap_path en el Inspector.")
+	else:
+		Debug.log("wall", "[WALL_TOGGLE] OK tilemap=%s" % tilemap.get_path())
+
+func _update_occlusion() -> void:
 	var still_open: Dictionary = {}
 
 	var base_tile: Vector2i = _probe_tile()
@@ -83,23 +123,6 @@ func on_player_moved(_global_pos: Vector2) -> void:
 		tilemap.set_layer_modulate(player.walls_layer, Color(1, 1, 1, 1.0))
 
 	opened_wall_tiles = still_open
-
-func close() -> void:
-	if player == null:
-		return
-	_close_opened_walls()
-
-func _resolve_tilemap() -> void:
-	if player == null:
-		return
-	if player.tilemap_path != NodePath():
-		tilemap = player.get_node_or_null(player.tilemap_path) as TileMap
-	if tilemap == null:
-		tilemap = player.get_node_or_null("../World/WorldTileMap") as TileMap
-	if tilemap == null:
-		push_warning("[WALL_TOGGLE] No encuentro el TileMap. Asigna tilemap_path en el Inspector.")
-	else:
-		player.player_debug("[WALL_TOGGLE] OK tilemap=%s" % tilemap.get_path())
 
 func _probe_tile() -> Vector2i:
 	if tilemap == null or player == null:
@@ -162,3 +185,5 @@ func _close_opened_walls() -> void:
 	for tpos: Variant in opened_wall_tiles.keys():
 		_set_wall_alt(tpos as Vector2i, player.wall_alt_full)
 	opened_wall_tiles.clear()
+	_last_player_pos = Vector2.INF
+	_accum = 0.0

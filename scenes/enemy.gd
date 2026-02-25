@@ -118,6 +118,10 @@ var knock_vel: Vector2 = Vector2.ZERO
 var hurt_t: float = 0.0
 var hitstopping: bool = false
 
+static var _cached_enemies: Array = []
+static var _cache_time_left := 0.0
+static var _cache_interval := 0.25
+
 
 # =============================================================================
 # READY
@@ -174,6 +178,11 @@ func _find_player() -> void:
 func _physics_process(delta: float) -> void:
 	if not player or hp <= 0:
 		return
+
+	_cache_time_left -= delta
+	if _cache_time_left <= 0.0:
+		_cache_time_left = _cache_interval
+		_cached_enemies = get_tree().get_nodes_in_group("enemy")
 
 	var dt := delta * Engine.time_scale
 
@@ -455,7 +464,7 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	else:
 		hp -= dmg
 
-	print("ENEMY HP:", hp)
+	Debug.log("ai", "ENEMY HP: %s" % hp)
 
 	_spawn_blood(blood_hit_amount)
 
@@ -492,22 +501,26 @@ func _update_animation() -> void:
 		sprite.play("idle")
 		
 func _apply_separation_force(dt: float) -> void:
-	var enemies := get_tree().get_nodes_in_group("enemy")
+	if _cached_enemies.is_empty():
+		return
+	var radius_sq := separation_radius * separation_radius
 
-	for e in enemies:
+	for e in _cached_enemies:
 		if e == self:
 			continue
 		if not (e is Node2D):
 			continue
 
 		var other := e as Node2D
-		var dist := global_position.distance_to(other.global_position)
+		var delta_pos := global_position - other.global_position
+		var dist_sq := delta_pos.length_squared()
+		if dist_sq <= 0.0001 or dist_sq >= radius_sq:
+			continue
 
-		if dist > 0.0 and dist < separation_radius:
-			# Empuja alejándote del otro
-			var push_dir := (global_position - other.global_position).normalized()
-			var t := 1.0 - (dist / separation_radius) # más cerca = más fuerza
-			velocity += push_dir * separation_strength * t * dt
+		var dist := sqrt(dist_sq)
+		var push_dir := delta_pos / dist
+		var t := 1.0 - (dist / separation_radius)
+		velocity += push_dir * separation_strength * t * dt
 
 func die() -> void:
 	if dying:

@@ -22,6 +22,7 @@ ItemDB="*res://scripts/items/ItemDB.gd"
 LootSystem="*res://scripts/systems/LootSystem.gd"
 GameEvents="*res://scripts/systems/GameEvents.gd"
 AudioSystem="*res://scripts/systems/AudioSystem.gd"
+Debug="*res://scripts/systems/Debug.gd"
 WorldSave="*res://scripts/systems/WorldSave.gd"
 
 [display]
