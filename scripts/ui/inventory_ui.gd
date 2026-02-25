@@ -33,6 +33,10 @@ func _ready() -> void:
 	_build_slots()
 	print("[InventoryUI] total slots=", _slots.size(), " grid children=", _grid.get_child_count())
 
+	if GameEvents != null and GameEvents.has_signal("item_picked"):
+		if not GameEvents.item_picked.is_connected(_on_item_picked):
+			GameEvents.item_picked.connect(_on_item_picked)
+
 	visible = false
 
 func toggle() -> void:
@@ -78,6 +82,21 @@ func refresh() -> void:
 
 		var tex: Texture2D = _resolve_icon(item_id)
 		_slots[i].set_item(amount, tex)
+
+
+func _on_item_picked(_item_id: String, _amount: int, picker: Node) -> void:
+	if picker == null:
+		return
+
+	var inv := picker.get_node_or_null("InventoryComponent")
+	if inv == null:
+		return
+
+	if inv != _inventory:
+		set_inventory(inv)
+		return
+
+	refresh()
 
 
 func _resolve_icon(item_id: String) -> Texture2D:

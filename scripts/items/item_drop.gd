@@ -27,7 +27,6 @@ class_name ItemDrop
 @export var ground_y_offset: float = 0.0  # por si quieres ajustar donde “queda” el sprite
 
 @onready var spr: Sprite2D = $Sprite2D
-@onready var sfx: AudioStreamPlayer2D = $Sfx
 @onready var magnet_delay: Timer = $MagnetDelay
 
 var _t: float = 0.0
@@ -164,22 +163,10 @@ func _try_pickup() -> void:
 	if GameEvents != null and GameEvents.has_method("emit_item_picked"):
 		GameEvents.emit_item_picked(item_id, inserted, _player)
 
-	# ✅ tocar sonido y destruir después (sin cortarlo)
-	if pickup_sfx != null:
-		sfx.stream = pickup_sfx
-		sfx.play()
-
-	# desactiva para que no se vuelva a recoger mientras suena
+	# el audio de pickup ahora lo reproduce AudioSystem escuchando GameEvents.item_picked
 	monitoring = false
 	monitorable = false
 	spr.visible = false
-
-	# si no hay sonido asignado, igualmente se borra
-	if pickup_sfx == null:
-		queue_free()
-		return
-
-	await sfx.finished
 	queue_free()
 	
 func throw_from(origin: Vector2, dir: Vector2, speed: float, up_boost: float = 260.0) -> void:

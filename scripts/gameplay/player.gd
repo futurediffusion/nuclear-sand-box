@@ -137,12 +137,6 @@ func _ready() -> void:
 	if inventory != null and DEBUG_PLAYER:
 		inventory.debug_print()
 
-	var ui := get_tree().get_first_node_in_group("inventory_ui") as InventoryUI
-	if ui == null:
-		push_error("[Player] No encuentro InventoryUI en grupo 'inventory_ui'")
-		return
-	ui.set_inventory(inventory)
-	player_debug("[Player] InventoryUI conectado inv_id=%s" % inventory.get_instance_id())
 
 func _setup_components() -> void:
 	if movement_component != null:
