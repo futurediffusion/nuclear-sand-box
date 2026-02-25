@@ -5,11 +5,17 @@ extends Node
 @export var pickup_player_only := false
 
 func _ready() -> void:
-	if GameEvents != null and GameEvents.has_signal("item_picked"):
-		if not GameEvents.item_picked.is_connected(_on_item_picked):
-			GameEvents.item_picked.connect(_on_item_picked)
-			if debug_events:
-				print("[AudioSystem] connected to item_picked")
+	var events := get_node_or_null("/root/GameEvents")
+	if events == null:
+		push_error("[AudioSystem] NO /root/GameEvents. No se puede conectar.")
+		return
+
+	if events.has_signal("item_picked"):
+		if not events.item_picked.is_connected(_on_item_picked):
+			events.item_picked.connect(_on_item_picked)
+			print("[AudioSystem] connected to /root/GameEvents.item_picked")
+	else:
+		push_error("[AudioSystem] GameEvents sin signal item_picked")
 
 func play_2d(stream: AudioStream, pos: Vector2, parent: Node = null, bus: StringName = &"SFX", volume_db: float = 0.0) -> void:
 	if stream == null:
@@ -31,25 +37,26 @@ func play_2d(stream: AudioStream, pos: Vector2, parent: Node = null, bus: String
 	player.play()
 
 func _on_item_picked(item_id: String, amount: int, picker: Node) -> void:
+	print("[AudioSystem] RECEIVED item_picked item_id=", item_id, " amount=", amount, " picker=", picker)
+
 	if amount <= 0 or picker == null:
+		print("[AudioSystem] abort: amount<=0 o picker null")
 		return
 	if pickup_player_only and not picker.is_in_group("player"):
+		print("[AudioSystem] abort: picker no está en grupo player")
 		return
-	if debug_events:
-		print("[AudioSystem] item_picked item_id=", item_id, " amount=", amount, " picker=", picker)
 
 	var item_data: ItemData = ItemDB.get_item(item_id)
 	if item_data == null:
-		if debug_events:
-			print("[AudioSystem] item not found in ItemDB: ", item_id)
+		print("[AudioSystem] ItemDB.get_item returned NULL for item_id=", item_id)
 		return
 
 	var stream: AudioStream = item_data.pickup_sfx
 	if stream == null:
-		if debug_events:
-			print("[AudioSystem] pickup_sfx missing for item: ", item_id)
+		print("[AudioSystem] pickup_sfx NULL for item_id=", item_id, " (revisa .tres)")
 		return
 
+	print("[AudioSystem] playing pickup_sfx=", stream, " bus=SFX")
 	if picker is Node2D:
 		play_2d(stream, (picker as Node2D).global_position)
 	else:
