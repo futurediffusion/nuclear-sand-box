@@ -220,6 +220,16 @@ func _setup_inventory_component() -> void:
 func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
 	stamina_changed.emit(current_stamina, max_stamina)
 
+func get_current_stamina() -> float:
+	if stamina_component == null:
+		return 0.0
+	return stamina_component.get_current_stamina()
+
+func get_max_stamina() -> float:
+	if stamina_component == null:
+		return 0.0
+	return stamina_component.get_max_stamina()
+
 func _input(event: InputEvent) -> void:
 	if inventory == null:
 		return
