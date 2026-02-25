@@ -127,6 +127,7 @@ func _is_chunk_in_active_window(chunk_pos: Vector2i, center: Vector2i) -> bool:
 
 func update_chunks(center: Vector2i) -> void:
 	Debug.log("boot", "ChunkManager load begin center=%s" % center)
+	Debug.log("chunk", "CENTER moved -> (%d,%d)" % [center.x, center.y])
 	if player:
 		_debug_check_tile_alignment(player.global_position)
 		_debug_check_player_chunk(player.global_position)
@@ -164,6 +165,7 @@ func update_chunks(center: Vector2i) -> void:
 	Debug.log("boot", "ChunkManager load end center=%s" % center)
 
 func generate_chunk(chunk_pos: Vector2i) -> void:
+	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
 	# Spawn de entidades PRIMERO (síncrono, antes del await)
 	spawn_entities_in_chunk(chunk_pos)
 
@@ -251,14 +253,14 @@ const DEBUG_SAVE: bool = true
 func _debug_spawn_report(chunk_key: Vector2i, player_tile: Vector2i, chosen_tile: Vector2i, reason: String) -> void:
 	if not DEBUG_SPAWN:
 		return
-	print("[SPAWN][chunk=", chunk_key, "] player_tile=", player_tile, " chosen=", chosen_tile, " -> ", reason)
+	Debug.log("spawn", "chunk=%s player_tile=%s chosen=%s -> %s" % [str(chunk_key), str(player_tile), str(chosen_tile), reason])
 
 func _debug_check_tile_alignment(player_global: Vector2) -> void:
 	if not DEBUG_SPAWN:
 		return
 	var local_pos: Vector2 = tilemap.to_local(player_global)
 	var tile_pos: Vector2i = tilemap.local_to_map(local_pos)
-	print("[ALIGN] player_global=", player_global, " local=", local_pos, " tile=", tile_pos)
+	Debug.log("spawn", "ALIGN player_global=%s local=%s tile=%s" % [str(player_global), str(local_pos), str(tile_pos)])
 
 func spawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 	# Guardia con flag dedicado — nunca depender de chunk_save.has() ni generated_chunks
@@ -404,6 +406,11 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	if not chunk_save.has(chunk_pos):
 		return
 
+	var placements_count: int = chunk_save[chunk_pos].get("placements", []).size()
+	var ores_count: int = chunk_save[chunk_pos]["ores"].size()
+	var camps_count: int = chunk_save[chunk_pos]["camps"].size()
+	Debug.log("chunk", "LOAD_ENTITIES chunk=(%d,%d) placements=%d ores=%d camps=%d" % [chunk_pos.x, chunk_pos.y, placements_count, ores_count, camps_count])
+
 	var cx: int = chunk_pos.x
 	var cy: int = chunk_pos.y
 	WorldSave.get_chunk_save(cx, cy)
@@ -422,7 +429,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		if ore_state != null:
 			ore.apply_save_state(ore_state)
 			if DEBUG_SAVE:
-				print("[SAVE] apply state uid=", ore_uid, " remaining=", ore.get("remaining"))
+				Debug.log("save", "apply state uid=%s remaining=%d" % [ore_uid, int(ore.get("remaining"))])
 		elif d.has("remaining") and d["remaining"] != -1:
 			ore.set("remaining", int(d["remaining"]))
 			WorldSave.set_entity_state(cx, cy, ore_uid, ore.get_save_state())
@@ -445,6 +452,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 
 	# 4) PLACEMENTS (props + npc_keeper)
 	var spawned_count: int = 0
+	var spawned_npc_count: int = 0
 	var spawned_keeper_uids: Dictionary = {}
 	if chunk_save[chunk_pos].has("placements"):
 		for p in chunk_save[chunk_pos]["placements"]:
@@ -457,11 +465,11 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 				var prop_id: String = String(d.get("prop_id", ""))
 				var path: String = PropDB.scene_path(prop_id)
 				if path == "":
-					print("[PROPS] prop_id desconocido:", prop_id)
+					Debug.log("chunk", "PROPS unknown prop_id=%s" % prop_id)
 					continue
 				var ps: PackedScene = load(path) as PackedScene
 				if ps == null:
-					print("[PROPS] no pude load:", path)
+					Debug.log("chunk", "PROPS failed load path=%s" % path)
 					continue
 				var inst: Node2D = ps.instantiate() as Node2D
 				var ccell: Array = d.get("cell", [0, 0])
@@ -474,7 +482,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 
 			elif kind == "npc_keeper":
 				if tavern_keeper_scene == null:
-					print("[NPC] tavern_keeper_scene no asignada en el Inspector")
+					Debug.log("chunk", "NPC tavern_keeper_scene missing in inspector")
 					continue
 
 				var site_id: String = String(d.get("site_id", ""))
@@ -487,7 +495,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 				if keeper_state == null:
 					WorldSave.set_entity_state(cx, cy, keeper_uid, {"spawned": true})
 					if DEBUG_SAVE:
-						print("[SAVE] seed keeper uid=", keeper_uid)
+						Debug.log("save", "seed keeper uid=%s" % keeper_uid)
 
 				var keeper := tavern_keeper_scene.instantiate() as TavernKeeper
 				var ccell: Array = d.get("cell", [0, 0])
@@ -507,9 +515,10 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 				tilemap.add_child(keeper)
 				chunk_entities[chunk_pos].append(keeper)
 				chunk_saveables[chunk_pos].append(keeper)
+				spawned_npc_count += 1
 				spawned_count += 1
 
-	print("[PROPS] spawned_count=", spawned_count, " chunk=", chunk_pos)
+	Debug.log("chunk", "SPAWNED chunk=(%d,%d) props=%d npcs=%d ores=%d camps=%d saveables=%d" % [chunk_pos.x, chunk_pos.y, spawned_count - spawned_npc_count, spawned_npc_count, chunk_save[chunk_pos]["ores"].size(), chunk_save[chunk_pos]["camps"].size(), chunk_saveables[chunk_pos].size()])
 
 func _world_to_tile(world_pos: Vector2) -> Vector2i:
 	return tilemap.local_to_map(tilemap.to_local(world_pos))
@@ -527,7 +536,7 @@ func _debug_check_player_chunk(player_global: Vector2) -> void:
 		return
 	var player_tile: Vector2i = _world_to_tile(player_global)
 	var chunk_key: Vector2i = _tile_to_chunk(player_tile)
-	print("[CHUNK_CHECK] player_tile=", player_tile, " player_chunk=", chunk_key)
+	Debug.log("spawn", "CHUNK_CHECK player_tile=%s player_chunk=%s" % [str(player_tile), str(chunk_key)])
 
 func _get_random_tile_in_chunk(chunk_key: Vector2i, rng: RandomNumberGenerator) -> Vector2i:
 	var tx: int = rng.randi_range(chunk_key.x * chunk_size, chunk_key.x * chunk_size + chunk_size - 1)
@@ -562,13 +571,7 @@ func _find_valid_spawn_tile(chunk_key: Vector2i, player_tile: Vector2i, safe_rad
 
 		if DEBUG_SPAWN and reject_prints < 3:
 			var occ: Dictionary = chunk_occupied_tiles.get(chunk_key, {})
-			print(
-				"[REJECT] chunk=", chunk_key,
-				" cand=", candidate,
-				" dist=", candidate.distance_to(player_tile),
-				" occupied=", occ.has(candidate),
-				" reason=", _get_spawn_reject_reason(chunk_key, candidate, player_tile, safe_radius_tiles, footprint_radius_tiles)
-			)
+			Debug.log("spawn", "REJECT chunk=%s cand=%s dist=%s occupied=%s reason=%s" % [str(chunk_key), str(candidate), str(candidate.distance_to(player_tile)), str(occ.has(candidate)), _get_spawn_reject_reason(chunk_key, candidate, player_tile, safe_radius_tiles, footprint_radius_tiles)])
 			reject_prints += 1
 		tries += 1
 	return INVALID_SPAWN_TILE
@@ -618,6 +621,10 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 	if not chunk_entities.has(chunk_pos):
 		return
 
+	var saveables_count: int = chunk_saveables.get(chunk_pos, []).size()
+	var entities_count: int = chunk_entities.get(chunk_pos, []).size()
+	Debug.log("chunk", "UNLOAD chunk=(%d,%d) entities=%d saveables=%d" % [chunk_pos.x, chunk_pos.y, entities_count, saveables_count])
+
 	var cx: int = chunk_pos.x
 	var cy: int = chunk_pos.y
 	if chunk_saveables.has(chunk_pos):
@@ -635,7 +642,7 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 			var state: Dictionary = entity.get_save_state()
 			WorldSave.set_entity_state(cx, cy, uid, state)
 			if DEBUG_SAVE and state.has("remaining"):
-				print("[SAVE] store state uid=", uid, " remaining=", int(state["remaining"]))
+				Debug.log("save", "store state uid=%s remaining=%d" % [uid, int(state["remaining"])])
 
 	if chunk_save.has(chunk_pos):
 		var ore_list = chunk_save[chunk_pos]["ores"]
@@ -661,9 +668,7 @@ func despawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
 			e.queue_free()
 	chunk_entities.erase(chunk_pos)
 	chunk_saveables.erase(chunk_pos)
-	print("[SPAWN_SUMMARY] chunk=", chunk_pos,
-		" ores=", chunk_save[chunk_pos]["ores"].size(),
-		" camps=", chunk_save[chunk_pos]["camps"].size())
+	Debug.log("chunk", "SPAWN_SUMMARY chunk=(%d,%d) ores=%d camps=%d" % [chunk_pos.x, chunk_pos.y, chunk_save[chunk_pos]["ores"].size(), chunk_save[chunk_pos]["camps"].size()])
 
 func _tile_distance_to_spawn(t: Vector2i) -> float:
 	return spawn_tile.distance_to(t)
@@ -756,7 +761,7 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i) -> void:
 	var door_cell: Vector2i = Vector2i(door_x, y1)
 
 	generate_tavern_furniture_simple(chunk_pos, inner_min, inner_max, door_cell)
-	print("[TAVERN] placements=", chunk_save[chunk_pos].get("placements", []).size())
+	Debug.log("chunk", "TAVERN chunk=(%d,%d) placements=%d" % [chunk_pos.x, chunk_pos.y, chunk_save[chunk_pos].get("placements", []).size()])
 
 func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var w: int = 12

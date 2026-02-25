@@ -17,6 +17,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+Seed="*res://scripts/systems/Seed.gd"
 GameManager="*res://scripts/systems/game_manager.gd"
 ItemDB="*res://scripts/items/ItemDB.gd"
 LootSystem="*res://scripts/systems/LootSystem.gd"
