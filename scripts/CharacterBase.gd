@@ -121,5 +121,8 @@ func _apply_knockback_step(delta: float) -> void:
 func _on_before_die() -> void:
 	pass
 
+func _update_animation() -> void:
+	pass
+
 func _on_after_die() -> void:
 	pass
