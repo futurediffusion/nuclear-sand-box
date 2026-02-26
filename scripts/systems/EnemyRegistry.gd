@@ -1,6 +1,8 @@
 extends Node
 
 var _enemies: Array[WeakRef] = []
+var _cleanup_timer: float = 0.0
+const CLEANUP_INTERVAL: float = 5.0
 
 
 func register_enemy(e: Node) -> void:
@@ -43,3 +45,10 @@ func get_live_enemies() -> Array[Node2D]:
 
 func count() -> int:
 	return get_live_enemies().size()
+
+
+func _process(delta: float) -> void:
+	_cleanup_timer += delta
+	if _cleanup_timer >= CLEANUP_INTERVAL:
+		_cleanup_timer = 0.0
+		get_live_enemies()  # fuerza limpieza de refs muertas
