@@ -80,6 +80,7 @@ func _resolve_tilemap() -> void:
 		Debug.log("wall", "[WALL_TOGGLE] OK tilemap=%s" % tilemap.get_path())
 
 func _update_occlusion() -> void:
+	return  # DESACTIVADO: oclusión manejada por OcclusionController + shader
 	var still_open: Dictionary = {}
 
 	var base_tile: Vector2i = _probe_tile()

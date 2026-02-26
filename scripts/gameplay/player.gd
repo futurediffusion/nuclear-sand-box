@@ -158,6 +158,7 @@ func _setup_components() -> void:
 		push_warning("[Player] Missing BlockComponent")
 	if wall_occlusion_component != null:
 		wall_occlusion_component.setup(self)
+		wall_occlusion_component.set_enabled(false)  # shader se encarga
 		if Debug.safe_mode and Debug.disable_wall_occlusion:
 			wall_occlusion_component.set_enabled(false)
 	else:
