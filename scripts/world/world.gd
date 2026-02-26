@@ -1,6 +1,7 @@
 extends Node2D
 
 @onready var tilemap: TileMap = $WorldTileMap
+@onready var walls_tilemap: TileMap = $StructureWallsMap   # <-- paredes van aquí
 @onready var prop_spawner := PropSpawner.new()
 @onready var chunk_generator := ChunkGenerator.new()
 @onready var _collision_builder := CollisionBuilder.new()
@@ -9,17 +10,15 @@ var _tile_painter := TilePainter.new()
 @export var width: int = 256
 @export var height: int = 256
 @export var chunk_size: int = 32
-@export var active_radius: int = 1  # chunks activos alrededor del player
+@export var active_radius: int = 1
 @export var copper_ore_scene: PackedScene
 @export var chunk_check_interval: float = 0.3
 
-# Noise para bioma dominante
 var biome_noise := FastNoiseLite.new()
-# Noise para variación dentro del bioma
 var detail_noise := FastNoiseLite.new()
 
-var player: Node2D  # asigna tu player
-var loaded_chunks: Dictionary = {}  # {Vector2i chunk_pos -> bool}
+var player: Node2D
+var loaded_chunks: Dictionary = {}
 var current_player_chunk := Vector2i(-999, -999)
 
 var spawn_tile: Vector2i
@@ -29,36 +28,30 @@ var _pick_rng := RandomNumberGenerator.new()
 
 @export var bandit_camp_scene: PackedScene
 @export var bandit_scene: PackedScene
-var generated_chunks: Dictionary = {}   # {Vector2i: true} — tiles ya pintados Y entidades ya spawneadas
-var generating_chunks: Dictionary = {}  # {Vector2i: true} — generación de tiles en curso (async)
-var entities_spawned_chunks: Dictionary = {}  # {Vector2i: true} — spawn_entities ya corrió para este chunk
-var chunk_save: Dictionary = {}         # {Vector2i: { "ores":[], "camps":[], "placed_tiles":[], "placements":[] } }
+var generated_chunks: Dictionary = {}
+var generating_chunks: Dictionary = {}
+var entities_spawned_chunks: Dictionary = {}
+var chunk_save: Dictionary = {}
 
-#tabern keeper
 @export var tavern_keeper_scene: PackedScene
 
-
-# Layers
 const LAYER_GROUND: int = 0
 const LAYER_FLOOR: int = 1
-const LAYER_WALLS: int = 2
+const LAYER_WALLS: int = 2        # layer dentro de WorldTileMap (ya no se usa para paredes)
 const WALL_TERRAIN_SET: int = 0
 const WALL_TERRAIN: int = 0
 
-# Sources
+# StructureWallsMap usa siempre layer 0
+const WALLS_MAP_LAYER: int = 0
+
 const SRC_FLOOR: int = 1
 const SRC_WALLS: int = 2
 
-# Floor
 const FLOOR_WOOD: Vector2i = Vector2i(0, 0)
-
-# --- ROOF (fila superior y=0)
 const ROOF_VERTICAL: Vector2i = Vector2i(0, 0)
 const ROOF_CONT_LEFT: Vector2i = Vector2i(1, 0)
 const ROOF_CONT_RIGHT: Vector2i = Vector2i(2, 0)
 const ROOF_BOTH: Vector2i = Vector2i(3, 0)
-
-# --- WALL (fila inferior y=1)
 const WALL_SINGLE: Vector2i = Vector2i(0, 1)
 const WALL_END_RIGHT: Vector2i = Vector2i(1, 1)
 const WALL_END_LEFT: Vector2i = Vector2i(2, 1)
@@ -87,7 +80,6 @@ func _ready() -> void:
 	biome_noise.seed = randi()
 	biome_noise.frequency = 0.015
 	biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-
 	detail_noise.seed = randi()
 	detail_noise.frequency = 0.08
 	detail_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -113,7 +105,6 @@ func _process(delta: float) -> void:
 	if _chunk_timer < chunk_check_interval:
 		return
 	_chunk_timer = 0.0
-
 	if not player:
 		return
 	var pchunk := world_to_chunk(player.global_position)
@@ -121,18 +112,11 @@ func _process(delta: float) -> void:
 		current_player_chunk = pchunk
 		update_chunks(pchunk)
 
-# ─── Chunk logic ────────────────────────────────────────────────
-
 func world_to_chunk(pos: Vector2) -> Vector2i:
-	var tile_pos: Vector2i = _world_to_tile(pos)
-	return _tile_to_chunk(tile_pos)
+	return _tile_to_chunk(_world_to_tile(pos))
 
 func _is_chunk_in_active_window(chunk_pos: Vector2i, center: Vector2i) -> bool:
-	if abs(chunk_pos.x - center.x) > active_radius:
-		return false
-	if abs(chunk_pos.y - center.y) > active_radius:
-		return false
-	return true
+	return abs(chunk_pos.x - center.x) <= active_radius and abs(chunk_pos.y - center.y) <= active_radius
 
 func update_chunks(center: Vector2i) -> void:
 	Debug.log("boot", "ChunkManager load begin center=%s" % center)
@@ -142,26 +126,20 @@ func update_chunks(center: Vector2i) -> void:
 		_debug_check_player_chunk(player.global_position)
 
 	var needed: Dictionary = {}
-	var min_chunk_x: int = 0
-	var min_chunk_y: int = 0
 	var max_chunk_x: int = int(floor(float(width - 1) / float(chunk_size)))
 	var max_chunk_y: int = int(floor(float(height - 1) / float(chunk_size)))
 
 	for cy in range(center.y - active_radius, center.y + active_radius + 1):
 		for cx in range(center.x - active_radius, center.x + active_radius + 1):
-			if cx < min_chunk_x or cx > max_chunk_x or cy < min_chunk_y or cy > max_chunk_y:
+			if cx < 0 or cx > max_chunk_x or cy < 0 or cy > max_chunk_y:
 				continue
-
 			var cpos := Vector2i(cx, cy)
 			needed[cpos] = true
-
 			if not generated_chunks.has(cpos) and not generating_chunks.has(cpos):
 				generating_chunks[cpos] = true
 				generate_chunk(cpos)
-
 			if generating_chunks.has(cpos):
 				continue
-
 			if not loaded_chunks.has(cpos):
 				load_chunk_entities(cpos)
 				loaded_chunks[cpos] = true
@@ -175,42 +153,33 @@ func update_chunks(center: Vector2i) -> void:
 
 func generate_chunk(chunk_pos: Vector2i) -> void:
 	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
-	# Spawn de entidades PRIMERO (síncrono, antes del await)
 	prop_spawner.generate_chunk_spawns(chunk_pos, _make_spawn_ctx())
 	await chunk_generator.apply_ground(chunk_pos, _make_ground_ctx())
-
 	generated_chunks[chunk_pos] = true
 	generating_chunks.erase(chunk_pos)
-
 	if _is_chunk_in_active_window(chunk_pos, current_player_chunk):
 		if not loaded_chunks.has(chunk_pos):
 			load_chunk_entities(chunk_pos)
 			loaded_chunks[chunk_pos] = true
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
-	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR, LAYER_WALLS])
-
-# ─── Tile picking ────────────────────────────────────────────────
+	# Borrar suelo del WorldTileMap
+	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR])
+	# Borrar paredes del StructureWallsMap
+	_tile_painter.erase_chunk_region(walls_tilemap, chunk_pos, chunk_size, [WALLS_MAP_LAYER])
 
 func get_biome(x: int, y: int) -> int:
 	var v := (biome_noise.get_noise_2d(x, y) + 1.0) * 0.5
-	if v < 0.38:
-		return 0
-	elif v > 0.62:
-		return 2
-	else:
-		return 1
+	if v < 0.38: return 0
+	elif v > 0.62: return 2
+	else: return 1
 
 func pick_tile(x: int, y: int) -> Vector2i:
 	var biome := get_biome(x, y)
 	var tiles: Array = BIOME_TILES[biome]
-
 	var total_weight: int = 0
-	for t in tiles:
-		total_weight += int(t["w"])
-
+	for t in tiles: total_weight += int(t["w"])
 	_pick_rng.seed = hash(Vector2i(x, y))
-
 	var roll: int = _pick_rng.randi_range(0, total_weight - 1)
 	var acc: int = 0
 	var winner: Dictionary = {}
@@ -219,34 +188,28 @@ func pick_tile(x: int, y: int) -> Vector2i:
 		if roll < acc:
 			winner = t
 			break
-
 	var col: int = _pick_rng.randi_range(int(winner["col_range"][0]), int(winner["col_range"][1]))
 	var rows: Array = winner["rows"]
 	var row: int = rows[_pick_rng.randi_range(0, rows.size() - 1)]
 	return Vector2i(col, row)
 
-# ─── Spawner ────────────────────────────────────────────────────
-
 var chunk_entities: Dictionary = {}
 var chunk_saveables: Dictionary = {}
 var chunk_occupied_tiles: Dictionary = {}
-var chunk_wall_body: Dictionary = {} # Vector2i -> StaticBody2D
+var chunk_wall_body: Dictionary = {}
 
 const DEBUG_SPAWN: bool = true
 const DEBUG_SAVE: bool = true
 
 func _debug_spawn_report(chunk_key: Vector2i, player_tile: Vector2i, chosen_tile: Vector2i, reason: String) -> void:
-	if not DEBUG_SPAWN:
-		return
+	if not DEBUG_SPAWN: return
 	Debug.log("spawn", "chunk=%s player_tile=%s chosen=%s -> %s" % [str(chunk_key), str(player_tile), str(chosen_tile), reason])
 
 func _debug_check_tile_alignment(player_global: Vector2) -> void:
-	if not DEBUG_SPAWN:
-		return
+	if not DEBUG_SPAWN: return
 	var local_pos: Vector2 = tilemap.to_local(player_global)
 	var tile_pos: Vector2i = tilemap.local_to_map(local_pos)
 	Debug.log("spawn", "ALIGN player_global=%s local=%s tile=%s" % [str(player_global), str(local_pos), str(tile_pos)])
-
 
 func _make_spawn_ctx() -> Dictionary:
 	var player_tile: Vector2i = spawn_tile
@@ -305,14 +268,11 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		ore.position = tilemap.map_to_local(tpos)
 		tilemap.add_child(ore)
 		chunk_entities[chunk_pos].append(ore)
-
 		var ore_uid: String = UID.make_uid("ore_copper", "", tpos)
 		ore.entity_uid = ore_uid
 		var ore_state = WorldSave.get_entity_state(cx, cy, ore_uid)
 		if ore_state != null:
 			ore.apply_save_state(ore_state)
-			if DEBUG_SAVE:
-				Debug.log("save", "apply state uid=%s remaining=%d" % [ore_uid, int(ore.get("remaining"))])
 		elif d.has("remaining") and d["remaining"] != -1:
 			ore.set("remaining", int(d["remaining"]))
 			WorldSave.set_entity_state(cx, cy, ore_uid, ore.get_save_state())
@@ -320,13 +280,15 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 			WorldSave.set_entity_state(cx, cy, ore_uid, ore.get_save_state())
 		chunk_saveables[chunk_pos].append(ore)
 
-	# 2) TILES PERSISTENTES (taberna piso/paredes)
+	# 2) TILES PERSISTENTES — suelo en WorldTileMap, paredes en StructureWallsMap
 	var floor_cells: Array[Vector2i] = []
 	var wall_terrain_cells: Array[Vector2i] = []
 	var manual_tiles: Array[Dictionary] = []
+
 	for t in chunk_save[chunk_pos]["placed_tiles"]:
 		var source_id: int = int(t.get("source", 0))
 		if source_id == -1:
+			# Paredes via terrain connect → van a StructureWallsMap layer 0
 			wall_terrain_cells.append(t["tile"])
 		elif int(t.get("layer", -1)) == LAYER_FLOOR and source_id == SRC_FLOOR and t.get("atlas", Vector2i(-1, -1)) == FLOOR_WOOD:
 			floor_cells.append(t["tile"])
@@ -340,18 +302,23 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		_tile_painter.apply_manual_tiles(tilemap, manual_tiles)
 
 	if wall_terrain_cells.size() > 0:
-		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
-		_tile_painter.apply_walls_terrain_connect(tilemap, LAYER_WALLS, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
+		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d -> StructureWallsMap" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
+		# *** CLAVE: pintar paredes en StructureWallsMap (layer 0), no en WorldTileMap ***
+		_tile_painter.apply_walls_terrain_connect(walls_tilemap, WALLS_MAP_LAYER, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
 
+	# Colisiones — el CollisionBuilder lee del tilemap correcto
 	if chunk_wall_body.has(chunk_pos):
 		var old_body: StaticBody2D = chunk_wall_body[chunk_pos]
 		if is_instance_valid(old_body):
 			old_body.queue_free()
 		chunk_wall_body.erase(chunk_pos)
 
-	var body: StaticBody2D = _collision_builder.build_chunk_walls(tilemap, chunk_pos, chunk_size, LAYER_WALLS, SRC_WALLS)
+	# Pasar walls_tilemap al builder para que lea las celdas correctas
+	var body: StaticBody2D = _collision_builder.build_chunk_walls(
+		walls_tilemap, chunk_pos, chunk_size, WALLS_MAP_LAYER, SRC_WALLS
+	)
 	if body != null:
-		tilemap.add_child(body)
+		walls_tilemap.add_child(body)
 		chunk_wall_body[chunk_pos] = body
 
 	# 3) CAMPS
@@ -377,13 +344,9 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 			if kind == "prop":
 				var prop_id: String = String(d.get("prop_id", ""))
 				var path: String = PropDB.scene_path(prop_id)
-				if path == "":
-					Debug.log("chunk", "PROPS unknown prop_id=%s" % prop_id)
-					continue
+				if path == "": continue
 				var ps: PackedScene = load(path) as PackedScene
-				if ps == null:
-					Debug.log("chunk", "PROPS failed load path=%s" % path)
-					continue
+				if ps == null: continue
 				var inst: Node2D = ps.instantiate() as Node2D
 				var ccell: Array = d.get("cell", [0, 0])
 				var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
@@ -394,33 +357,23 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 				spawned_count += 1
 
 			elif kind == "npc_keeper":
-				if tavern_keeper_scene == null:
-					Debug.log("chunk", "NPC tavern_keeper_scene missing in inspector")
-					continue
-
+				if tavern_keeper_scene == null: continue
 				var site_id: String = String(d.get("site_id", ""))
 				var keeper_uid: String = UID.make_uid("npc_keeper", site_id)
-				if spawned_keeper_uids.has(keeper_uid):
-					continue
+				if spawned_keeper_uids.has(keeper_uid): continue
 				spawned_keeper_uids[keeper_uid] = true
-
 				var keeper_state = WorldSave.get_entity_state(cx, cy, keeper_uid)
 				if keeper_state == null:
 					WorldSave.set_entity_state(cx, cy, keeper_uid, {"spawned": true})
-					if DEBUG_SAVE:
-						Debug.log("save", "seed keeper uid=%s" % keeper_uid)
-
 				var keeper := tavern_keeper_scene.instantiate() as TavernKeeper
 				var ccell: Array = d.get("cell", [0, 0])
 				var counter_cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
 				var imin: Array = d.get("inner_min", [0, 0])
 				var imax: Array = d.get("inner_max", [0, 0])
-				var inner_min: Vector2i = Vector2i(int(imin[0]), int(imin[1]))
-				var inner_max: Vector2i = Vector2i(int(imax[0]), int(imax[1]))
 				keeper.entity_uid = keeper_uid
 				keeper.set("_tilemap", tilemap)
-				keeper.set("tavern_inner_min", inner_min)
-				keeper.set("tavern_inner_max", inner_max)
+				keeper.set("tavern_inner_min", Vector2i(int(imin[0]), int(imin[1])))
+				keeper.set("tavern_inner_max", Vector2i(int(imax[0]), int(imax[1])))
 				keeper.set("counter_tile", counter_cell)
 				if keeper_state != null:
 					keeper.apply_save_state(keeper_state)
@@ -431,7 +384,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 				spawned_npc_count += 1
 				spawned_count += 1
 
-	Debug.log("chunk", "SPAWNED chunk=(%d,%d) props=%d npcs=%d ores=%d camps=%d saveables=%d" % [chunk_pos.x, chunk_pos.y, spawned_count - spawned_npc_count, spawned_npc_count, chunk_save[chunk_pos]["ores"].size(), chunk_save[chunk_pos]["camps"].size(), chunk_saveables[chunk_pos].size()])
+	Debug.log("chunk", "SPAWNED chunk=(%d,%d) props=%d npcs=%d ores=%d camps=%d" % [chunk_pos.x, chunk_pos.y, spawned_count - spawned_npc_count, spawned_npc_count, ores_count, camps_count])
 
 func _world_to_tile(world_pos: Vector2) -> Vector2i:
 	return tilemap.local_to_map(tilemap.to_local(world_pos))
@@ -440,13 +393,10 @@ func _tile_to_world(tile_pos: Vector2i) -> Vector2:
 	return tilemap.to_global(tilemap.map_to_local(tile_pos))
 
 func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
-	var cx: int = int(floor(float(tile_pos.x) / float(chunk_size)))
-	var cy: int = int(floor(float(tile_pos.y) / float(chunk_size)))
-	return Vector2i(cx, cy)
+	return Vector2i(int(floor(float(tile_pos.x) / float(chunk_size))), int(floor(float(tile_pos.y) / float(chunk_size))))
 
 func _debug_check_player_chunk(player_global: Vector2) -> void:
-	if not DEBUG_SPAWN:
-		return
+	if not DEBUG_SPAWN: return
 	var player_tile: Vector2i = _world_to_tile(player_global)
 	var chunk_key: Vector2i = _tile_to_chunk(player_tile)
 	Debug.log("spawn", "CHUNK_CHECK player_tile=%s player_chunk=%s" % [str(player_tile), str(chunk_key)])
@@ -454,35 +404,23 @@ func _debug_check_player_chunk(player_global: Vector2) -> void:
 func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 	if chunk_wall_body.has(chunk_pos):
 		var body: StaticBody2D = chunk_wall_body[chunk_pos]
-		if is_instance_valid(body):
-			body.queue_free()
+		if is_instance_valid(body): body.queue_free()
 		chunk_wall_body.erase(chunk_pos)
 
 	if not chunk_entities.has(chunk_pos):
 		return
 
-	var saveables_count: int = chunk_saveables.get(chunk_pos, []).size()
-	var entities_count: int = chunk_entities.get(chunk_pos, []).size()
-	Debug.log("chunk", "UNLOAD chunk=(%d,%d) entities=%d saveables=%d" % [chunk_pos.x, chunk_pos.y, entities_count, saveables_count])
-
 	var cx: int = chunk_pos.x
 	var cy: int = chunk_pos.y
 	if chunk_saveables.has(chunk_pos):
 		for entity in chunk_saveables[chunk_pos]:
-			if not is_instance_valid(entity):
-				continue
-			if not entity.has_method("get_save_state"):
-				continue
+			if not is_instance_valid(entity): continue
+			if not entity.has_method("get_save_state"): continue
 			var uid_value = entity.get("entity_uid")
-			if uid_value == null:
-				continue
+			if uid_value == null: continue
 			var uid: String = String(uid_value)
-			if uid == "":
-				continue
-			var state: Dictionary = entity.get_save_state()
-			WorldSave.set_entity_state(cx, cy, uid, state)
-			if DEBUG_SAVE and state.has("remaining"):
-				Debug.log("save", "store state uid=%s remaining=%d" % [uid, int(state["remaining"])])
+			if uid == "": continue
+			WorldSave.set_entity_state(cx, cy, uid, entity.get_save_state())
 
 	if chunk_save.has(chunk_pos):
 		var ore_list = chunk_save[chunk_pos]["ores"]
@@ -495,24 +433,11 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 						break
 
 	for e in chunk_entities[chunk_pos]:
-		if is_instance_valid(e):
-			e.queue_free()
+		if is_instance_valid(e): e.queue_free()
 	chunk_entities.erase(chunk_pos)
 	chunk_saveables.erase(chunk_pos)
-
-func despawn_entities_in_chunk(chunk_pos: Vector2i) -> void:
-	if not chunk_entities.has(chunk_pos):
-		return
-	for e in chunk_entities[chunk_pos]:
-		if is_instance_valid(e):
-			e.queue_free()
-	chunk_entities.erase(chunk_pos)
-	chunk_saveables.erase(chunk_pos)
-	Debug.log("chunk", "SPAWN_SUMMARY chunk=(%d,%d) ores=%d camps=%d" % [chunk_pos.x, chunk_pos.y, chunk_save[chunk_pos]["ores"].size(), chunk_save[chunk_pos]["camps"].size()])
 
 func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
-	var w: int = 12
-	var h: int = 8
 	var x0: int = chunk_pos.x * chunk_size + 4
 	var y0: int = chunk_pos.y * chunk_size + 3
-	return Vector2i(x0 + (w / 2), y0 + (h / 2))
+	return Vector2i(x0 + 6, y0 + 4)
