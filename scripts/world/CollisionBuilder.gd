@@ -210,26 +210,37 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 
 			var north_free: bool = not wall_lookup.has(cell + Vector2i(0, -1))
 			var is_top_corner: bool = _is_top_left_corner(wall_lookup, cell) or _is_top_right_corner(wall_lookup, cell)
+			if is_top_corner:
+				upper_corner_south_bands.append(cell)
+				continue
+
 			if not wall_lookup.has(cell + Vector2i(-1, 0)):
-				if north_free and not is_top_corner:
+				if north_free:
 					top_side_tiles.append({"face": "W", "cell": cell})
 				elif not north_free:
 					_append_raw_side(raw_side_columns, "W", x, y)
 			if not wall_lookup.has(cell + Vector2i(1, 0)):
-				if north_free and not is_top_corner:
+				if north_free:
 					top_side_tiles.append({"face": "E", "cell": cell})
 				elif not north_free:
 					_append_raw_side(raw_side_columns, "E", x, y)
-
-			if is_top_corner:
-				upper_corner_south_bands.append(cell)
 
 	for face in ["W", "E"]:
 		var face_columns: Dictionary = raw_side_columns[face]
 		var sorted_columns: Array = face_columns.keys()
 		sorted_columns.sort()
 		for col_x in sorted_columns:
-			var ys: Array = face_columns[col_x]
+			var ys: Array = []
+			for raw_y in face_columns[col_x]:
+				var raw_cell := Vector2i(col_x, raw_y)
+				var is_top_corner: bool = _is_top_left_corner(wall_lookup, raw_cell) or _is_top_right_corner(wall_lookup, raw_cell)
+				if is_top_corner:
+					continue
+				ys.append(raw_y)
+
+			if ys.is_empty():
+				continue
+
 			ys.sort()
 			var run_y0: int = ys[0]
 			var prev_y: int = ys[0]
