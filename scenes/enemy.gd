@@ -1,5 +1,5 @@
 class_name EnemyAI
-extends CharacterBase
+extends "res://scripts/CharacterBase.gd"
 
 const AIComponentScript = preload("res://scripts/components/AIComponent.gd")
 const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")

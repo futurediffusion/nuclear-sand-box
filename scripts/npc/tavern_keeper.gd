@@ -1,5 +1,5 @@
 class_name TavernKeeper
-extends CharacterBase
+extends "res://scripts/CharacterBase.gd"
 
 # =============================================================================
 # TAVERN KEEPER NPC
