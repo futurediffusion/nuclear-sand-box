@@ -9,7 +9,7 @@
 [ext_resource type="Texture2D" uid="uid://daocjvvucs4qg" path="res://art/sprites/palo.png" id="4_5uy6h"]
 [ext_resource type="Texture2D" uid="uid://csi1e66pf1k75" path="res://art/sprites/GOBLIN1-death.png" id="6_nenq2"]
 [ext_resource type="Script" uid="uid://fs8idwdgvpd3" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
-[ext_resource type="Script" path="res://scripts/components/AIComponent.gd" id="8_ai"]
+[ext_resource type="Script" uid="uid://dp25cru3why2a" path="res://scripts/components/AIComponent.gd" id="8_ai"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_ipns3"]
 atlas = ExtResource("6_nenq2")
@@ -151,7 +151,6 @@ blood_scene = ExtResource("3_md484")
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("7_healthc")
-
 
 [node name="AIComponent" type="Node" parent="."]
 script = ExtResource("8_ai")
