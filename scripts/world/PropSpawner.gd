@@ -285,61 +285,68 @@ func _place_tile_persistent(chunk_pos: Vector2i, layer: int, tile_pos: Vector2i,
 	})
 
 func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
+	_ensure_chunk_save_key(chunk_pos, ctx)
 	var chunk_save: Dictionary = ctx["chunk_save"]
-	if not chunk_save.has(chunk_pos):
-		return
 	if not chunk_save[chunk_pos].has("placed_tiles"):
 		chunk_save[chunk_pos]["placed_tiles"] = []
+	if not chunk_save[chunk_pos].has("placements"):
+		chunk_save[chunk_pos]["placements"] = []
 
-	var chunk_size: int = ctx["chunk_size"]
-	var w: int = 12
-	var h: int = 8
-	var x0: int = chunk_pos.x * chunk_size + 4
-	var y0: int = chunk_pos.y * chunk_size + 3
-	var x1: int = x0 + w - 1
-	var y1: int = y0 + h - 1
-	var door_x: int = x0 + w / 2
+	var data := _structure_gen.generate_tavern(chunk_pos, int(ctx["chunk_size"]))
+	var bounds: Rect2i = data.bounds
+	var x0: int = bounds.position.x
+	var y0: int = bounds.position.y
+	var x1: int = x0 + bounds.size.x - 1
+	var y1: int = y0 + bounds.size.y - 1
+	var door_x: int = x0 + bounds.size.x / 2
 
-	for x in range(x0 + 1, x1):
-		for y in range(y0 + 1, y1):
-			_place_tile_persistent(chunk_pos, LAYER_FLOOR, Vector2i(x, y), SRC_FLOOR, FLOOR_WOOD, ctx)
+	for cell in data.floor_cells:
+		_place_tile_persistent(chunk_pos, LAYER_FLOOR, cell, SRC_FLOOR, FLOOR_WOOD, ctx)
 
-	_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x0, y0 + 1), SRC_WALLS, ROOF_CONT_RIGHT, ctx)
-	_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x1, y0 + 1), SRC_WALLS, ROOF_CONT_LEFT, ctx)
-	for x in range(x0 + 1, x1):
-		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x, y0 + 1), SRC_WALLS, WALL_MID, ctx)
+	for cell in data.wall_cells:
+		var atlas: Vector2i = WALL_MID
+		if cell.y == y0 + 1:
+			if cell.x == x0:
+				atlas = ROOF_CONT_RIGHT
+			elif cell.x == x1:
+				atlas = ROOF_CONT_LEFT
+			else:
+				atlas = WALL_MID
+		elif cell.y == y1:
+			if cell.x == x0:
+				atlas = WALL_END_LEFT
+			elif cell.x == x1:
+				atlas = WALL_END_RIGHT
+			elif cell.x == door_x - 1:
+				atlas = WALL_END_RIGHT
+			elif cell.x == door_x + 1:
+				atlas = WALL_END_LEFT
+			else:
+				atlas = WALL_MID
+		else:
+			atlas = ROOF_VERTICAL
+		_place_tile_persistent(chunk_pos, LAYER_WALLS, cell, SRC_WALLS, atlas, ctx)
 
-	for x in range(x0, x1 + 1):
-		if x == door_x:
-			continue
-		var atlas_b: Vector2i
-		if x == x0: atlas_b = WALL_END_LEFT
-		elif x == x1: atlas_b = WALL_END_RIGHT
-		elif x == door_x - 1: atlas_b = WALL_END_RIGHT
-		elif x == door_x + 1: atlas_b = WALL_END_LEFT
-		else: atlas_b = WALL_MID
-		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x, y1), SRC_WALLS, atlas_b, ctx)
-
-	for y in range(y0 + 2, y1):
-		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x0, y), SRC_WALLS, ROOF_VERTICAL, ctx)
-		_place_tile_persistent(chunk_pos, LAYER_WALLS, Vector2i(x1, y), SRC_WALLS, ROOF_VERTICAL, ctx)
+	for p in data.placements:
+		var exists := false
+		var site_id := String(p.get("site_id", ""))
+		if site_id != "":
+			for existing in chunk_save[chunk_pos]["placements"]:
+				if typeof(existing) == TYPE_DICTIONARY and String((existing as Dictionary).get("site_id", "")) == site_id:
+					exists = true
+					break
+		if not exists:
+			chunk_save[chunk_pos]["placements"].append(p)
 
 	for y in range(y0 - TAVERN_SAFE_MARGIN_TILES, y1 + TAVERN_SAFE_MARGIN_TILES + 1):
 		for x in range(x0 - TAVERN_SAFE_MARGIN_TILES, x1 + TAVERN_SAFE_MARGIN_TILES + 1):
 			_mark_tile_occupied(chunk_pos, Vector2i(x, y), ctx)
 
-	var inner_min: Vector2i = Vector2i(x0 + 1, y0 + 1)
-	var inner_max: Vector2i = Vector2i(x1 - 1, y1 - 1)
-	var door_cell: Vector2i = Vector2i(door_x, y1)
-
-	generate_tavern_furniture_simple(chunk_pos, inner_min, inner_max, door_cell, ctx)
-	Debug.log("chunk", "TAVERN chunk=(%d,%d) placements=%d" % [chunk_pos.x, chunk_pos.y, chunk_save[chunk_pos].get("placements", []).size()])
-
-	var data := _structure_gen.generate_tavern(chunk_pos, chunk_size)
-	Debug.log("chunk", "STRUCT (compare) floor=%d walls=%d doors=%d placements=%d" % [
+	Debug.log("chunk", "TAVERN generated (StructureGen) chunk=(%d,%d) floor=%d walls=%d placements=%d" % [
+		chunk_pos.x,
+		chunk_pos.y,
 		data.floor_cells.size(),
 		data.wall_cells.size(),
-		data.door_cells.size(),
 		data.placements.size()
 	])
 
