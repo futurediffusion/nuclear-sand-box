@@ -117,36 +117,6 @@ func _play_hit_feedback() -> void:
 	_flash_t = hit_flash_time
 	sprite.modulate = Color(1, 0.5, 0.5, 1) # rojito tipo “hurt”
 
-func _give_to_player(by: Node) -> void:
-	# 1) Si quien golpeó tiene InventoryComponent directo
-	if by != null and by.has_method("get_node_or_null"):
-		var inv := by.get_node_or_null("InventoryComponent")
-		if inv != null and inv.has_method("add_item"):
-			inv.add_item(give_item_id, give_amount)
-			return
-
-	# 2) Fallback: buscar al player por grupo
-	var players := get_tree().get_nodes_in_group("player")
-	if players.size() > 0:
-		var p := players[0]
-		var inv2 := p.get_node_or_null("InventoryComponent")
-		if inv2 != null and inv2.has_method("add_item"):
-			inv2.add_item(give_item_id, give_amount)
-func _give_to_player_amount(by: Node, amount: int) -> int:
-	if by != null and by.has_method("get_node_or_null"):
-		var inv := by.get_node_or_null("InventoryComponent")
-		if inv != null and inv.has_method("add_item"):
-			return int(inv.add_item(give_item_id, amount))
-
-	var players := get_tree().get_nodes_in_group("player")
-	if players.size() > 0:
-		var p := players[0]
-		var inv2 := p.get_node_or_null("InventoryComponent")
-		if inv2 != null and inv2.has_method("add_item"):
-			return int(inv2.add_item(give_item_id, amount))
-
-	return 0
-	
 func _try_give_to_player(by: Node, amount: int) -> int:
 	# 1) directo en el que pegó
 	if by != null and by.has_method("get_node_or_null"):
