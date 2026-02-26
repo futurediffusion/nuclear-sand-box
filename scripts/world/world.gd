@@ -94,6 +94,12 @@ func _ready() -> void:
 
 	player = get_node_or_null("../Player")
 
+	var occ_ctrl := OcclusionController.new()
+	occ_ctrl.name = "OcclusionController"
+	occ_ctrl.tilemap = tilemap
+	occ_ctrl.walls_layer = LAYER_WALLS
+	add_child(occ_ctrl)
+
 	tavern_chunk = _tile_to_chunk(Vector2i(width / 2, height / 2))
 	spawn_tile = get_tavern_center_tile(tavern_chunk)
 
