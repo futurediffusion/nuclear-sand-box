@@ -329,6 +329,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 			tilemap.set_cell(int(t["layer"]), t["tile"], source_id, t["atlas"])
 
 	if wall_cells_to_paint.size() > 0:
+		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d" % [chunk_pos.x, chunk_pos.y, wall_cells_to_paint.size()])
 		tilemap.set_cells_terrain_connect(LAYER_WALLS, wall_cells_to_paint, WALL_TERRAIN_SET, WALL_TERRAIN, true)
 
 	# 3) CAMPS
