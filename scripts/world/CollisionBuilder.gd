@@ -16,6 +16,7 @@ func _add_side_strip_run(body: StaticBody2D, tilemap: TileMap, face: String, col
 
 	var shape := CollisionShape2D.new()
 	shape.name = "SideStrip_%s_%d_%d" % [face, col_x, y0]
+	shape.set_meta("aaa", {"kind": "side", "face": face, "north_free": false})
 	var rect := RectangleShape2D.new()
 	rect.size = Vector2(side_width, float(len_tiles) * tile_size.y)
 	shape.shape = rect
@@ -30,6 +31,52 @@ func _add_side_strip_run(body: StaticBody2D, tilemap: TileMap, face: String, col
 	shape.position = Vector2(side_x, (top_center.y + bottom_center.y) * 0.5)
 
 	body.add_child(shape)
+
+func _add_side_strip_top_tile(body: StaticBody2D, tilemap: TileMap, face: String, cell: Vector2i, tile_size: Vector2, side_width: float, band_height: float) -> void:
+	var shape := CollisionShape2D.new()
+	shape.name = "SideStripTop_%s_%d_%d" % [face, cell.x, cell.y]
+	shape.set_meta("aaa", {"kind": "side", "face": face, "north_free": true})
+	var rect := RectangleShape2D.new()
+	rect.size = Vector2(side_width, band_height)
+	shape.shape = rect
+
+	var center: Vector2 = tilemap.map_to_local(cell)
+	var side_x: float = center.x
+	if face == "W":
+		side_x += -tile_size.x * 0.5 + side_width * 0.5
+	else:
+		side_x += tile_size.x * 0.5 - side_width * 0.5
+	var center_y: float = center.y + tile_size.y * 0.5 - band_height * 0.5
+	shape.position = Vector2(side_x, center_y)
+
+	body.add_child(shape)
+
+func _add_top_cap(body: StaticBody2D, tilemap: TileMap, cell: Vector2i, tile_size: Vector2, cap_height: float) -> void:
+	var shape := CollisionShape2D.new()
+	shape.name = "TopCap_%d_%d" % [cell.x, cell.y]
+	shape.set_meta("aaa", {"kind": "top_cap"})
+	var rect := RectangleShape2D.new()
+	rect.size = Vector2(tile_size.x, cap_height)
+	shape.shape = rect
+
+	var center: Vector2 = tilemap.map_to_local(cell)
+	shape.position = Vector2(center.x, center.y - tile_size.y * 0.5 + cap_height * 0.5)
+	body.add_child(shape)
+
+func _should_add_corner_blocker(wall_lookup: Dictionary, x: int, y: int, side: int) -> bool:
+	var edge_cell := Vector2i(x, y)
+	if not wall_lookup.has(edge_cell):
+		return false
+	if wall_lookup.has(edge_cell + Vector2i(0, 1)):
+		return false
+
+	var side_neighbor := Vector2i(x + side, y)
+	if not wall_lookup.has(side_neighbor):
+		return false
+
+	var north_wall: bool = wall_lookup.has(edge_cell + Vector2i(0, -1))
+	var inward_wall: bool = wall_lookup.has(side_neighbor)
+	return north_wall or inward_wall
 
 func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, walls_layer: int, walls_source_id: int) -> StaticBody2D:
 	if tilemap == null:
@@ -67,6 +114,8 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 	var shape_count: int = 0
 	var south_runs: Array[Dictionary] = []
 	var raw_side_columns: Dictionary = {"W": {}, "E": {}}
+	var top_side_tiles: Array[Dictionary] = []
+	var top_caps: Array[Vector2i] = []
 	for y in range(start_y, end_y + 1):
 		var run_start_x: int = start_x
 		var in_run: bool = false
@@ -115,10 +164,20 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			if not wall_lookup.has(cell):
 				continue
 
+			var north_free: bool = not wall_lookup.has(cell + Vector2i(0, -1))
 			if not wall_lookup.has(cell + Vector2i(-1, 0)):
-				_append_raw_side(raw_side_columns, "W", x, y)
+				if north_free:
+					top_side_tiles.append({"face": "W", "cell": cell})
+				else:
+					_append_raw_side(raw_side_columns, "W", x, y)
 			if not wall_lookup.has(cell + Vector2i(1, 0)):
-				_append_raw_side(raw_side_columns, "E", x, y)
+				if north_free:
+					top_side_tiles.append({"face": "E", "cell": cell})
+				else:
+					_append_raw_side(raw_side_columns, "E", x, y)
+
+			if north_free and wall_lookup.has(cell + Vector2i(0, 1)):
+				top_caps.append(cell)
 
 	for face in ["W", "E"]:
 		var face_columns: Dictionary = raw_side_columns[face]
@@ -143,39 +202,52 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			_add_side_strip_run(body, tilemap, face, col_x, run_y0, prev_y, tile_size, side_width)
 			shape_count += 1
 
+	for side_tile in top_side_tiles:
+		_add_side_strip_top_tile(body, tilemap, side_tile["face"], side_tile["cell"], tile_size, side_width, band_height)
+		shape_count += 1
+
+	var cap_height: float = side_width
+	for cap_cell in top_caps:
+		_add_top_cap(body, tilemap, cap_cell, tile_size, cap_height)
+		shape_count += 1
+
 	var corner_width: float = side_width
 	for run in south_runs:
 		var x0: int = run["x0"]
 		var x1: int = run["x1"]
 		var y: int = run["y"]
 
-		var left_center: Vector2 = tilemap.map_to_local(Vector2i(x0, y))
-		var left_blocker := CollisionShape2D.new()
-		left_blocker.name = "CornerBlocker_%d_%d_left" % [x0, y]
-		left_blocker.set_meta("is_corner_blocker", true)
-		var left_rect := RectangleShape2D.new()
-		left_rect.size = Vector2(corner_width, corner_height)
-		left_blocker.shape = left_rect
-		left_blocker.position = Vector2(
-			left_center.x - tile_size.x * 0.5 + corner_width * 0.5,
-			left_center.y + tile_size.y * 0.5 - band_height - corner_height * 0.5 + 2.0
-		)
-		body.add_child(left_blocker)
-		shape_count += 1
+		if _should_add_corner_blocker(wall_lookup, x0, y, -1):
+			var left_center: Vector2 = tilemap.map_to_local(Vector2i(x0, y))
+			var left_blocker := CollisionShape2D.new()
+			left_blocker.name = "CornerBlocker_%d_%d_left" % [x0, y]
+			left_blocker.set_meta("is_corner_blocker", true)
+			left_blocker.set_meta("aaa", {"kind": "corner_blocker", "side": -1})
+			var left_rect := RectangleShape2D.new()
+			left_rect.size = Vector2(corner_width, corner_height)
+			left_blocker.shape = left_rect
+			left_blocker.position = Vector2(
+				left_center.x - tile_size.x * 0.5 + corner_width * 0.5,
+				left_center.y + tile_size.y * 0.5 - band_height - corner_height * 0.5 + 2.0
+			)
+			body.add_child(left_blocker)
+			shape_count += 1
 
-		var right_center: Vector2 = tilemap.map_to_local(Vector2i(x1, y))
-		var right_blocker := CollisionShape2D.new()
-		right_blocker.name = "CornerBlocker_%d_%d_right" % [x1, y]
-		right_blocker.set_meta("is_corner_blocker", true)
-		var right_rect := RectangleShape2D.new()
-		right_rect.size = Vector2(corner_width, corner_height)
-		right_blocker.shape = right_rect
-		right_blocker.position = Vector2(
-			right_center.x + tile_size.x * 0.5 - corner_width * 0.5,
-			right_center.y + tile_size.y * 0.5 - band_height - corner_height * 0.5 + 2.0
-		)
-		body.add_child(right_blocker)
-		shape_count += 1
+		if _should_add_corner_blocker(wall_lookup, x1, y, 1):
+			var right_center: Vector2 = tilemap.map_to_local(Vector2i(x1, y))
+			var right_blocker := CollisionShape2D.new()
+			right_blocker.name = "CornerBlocker_%d_%d_right" % [x1, y]
+			right_blocker.set_meta("is_corner_blocker", true)
+			right_blocker.set_meta("aaa", {"kind": "corner_blocker", "side": 1})
+			var right_rect := RectangleShape2D.new()
+			right_rect.size = Vector2(corner_width, corner_height)
+			right_blocker.shape = right_rect
+			right_blocker.position = Vector2(
+				right_center.x + tile_size.x * 0.5 - corner_width * 0.5,
+				right_center.y + tile_size.y * 0.5 - band_height - corner_height * 0.5 + 2.0
+			)
+			body.add_child(right_blocker)
+			shape_count += 1
 
 	if shape_count == 0:
 		body.queue_free()
