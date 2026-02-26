@@ -1,5 +1,5 @@
 extends Node
-class_name Debug
+class_name DebugSystem
 
 const BOOT_TRACE := true
 
@@ -22,11 +22,11 @@ const BOOT_TRACE := true
 	"loot": false,
 }
 
-static func _get_singleton() -> Debug:
+static func _get_singleton() -> DebugSystem:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null:
 		return null
-	return tree.root.get_node_or_null("Debug") as Debug
+	return tree.root.get_node_or_null("Debug") as DebugSystem
 
 static func is_enabled(cat: String) -> bool:
 	var singleton := _get_singleton()
