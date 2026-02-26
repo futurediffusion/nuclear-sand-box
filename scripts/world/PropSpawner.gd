@@ -22,6 +22,8 @@ const WALL_END_RIGHT: Vector2i = Vector2i(1, 1)
 const WALL_END_LEFT: Vector2i = Vector2i(2, 1)
 const WALL_MID: Vector2i = Vector2i(3, 1)
 
+var _structure_gen := StructureGenerator.new()
+
 func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var entities_spawned_chunks: Dictionary = ctx["entities_spawned_chunks"]
 	if entities_spawned_chunks.has(chunk_pos):
@@ -332,6 +334,14 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 	generate_tavern_furniture_simple(chunk_pos, inner_min, inner_max, door_cell, ctx)
 	Debug.log("chunk", "TAVERN chunk=(%d,%d) placements=%d" % [chunk_pos.x, chunk_pos.y, chunk_save[chunk_pos].get("placements", []).size()])
+
+	var data := _structure_gen.generate_tavern(chunk_pos, chunk_size)
+	Debug.log("chunk", "STRUCT (compare) floor=%d walls=%d doors=%d placements=%d" % [
+		data.floor_cells.size(),
+		data.wall_cells.size(),
+		data.door_cells.size(),
+		data.placements.size()
+	])
 
 func _is_free(occupied: Dictionary, cell: Vector2i) -> bool:
 	return not occupied.has(cell)
