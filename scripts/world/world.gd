@@ -3,6 +3,7 @@ extends Node2D
 @onready var tilemap: TileMap = $WorldTileMap
 @onready var prop_spawner := PropSpawner.new()
 @onready var chunk_generator := ChunkGenerator.new()
+var _tile_painter := TilePainter.new()
 
 @export var width: int = 256
 @export var height: int = 256
@@ -182,13 +183,7 @@ func generate_chunk(chunk_pos: Vector2i) -> void:
 			loaded_chunks[chunk_pos] = true
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
-	var start_x := chunk_pos.x * chunk_size
-	var start_y := chunk_pos.y * chunk_size
-	for y in range(start_y, start_y + chunk_size):
-		for x in range(start_x, start_x + chunk_size):
-			tilemap.erase_cell(LAYER_GROUND, Vector2i(x, y))
-			tilemap.erase_cell(LAYER_FLOOR, Vector2i(x, y))
-			tilemap.erase_cell(LAYER_WALLS, Vector2i(x, y))
+	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR, LAYER_WALLS])
 
 # ─── Tile picking ────────────────────────────────────────────────
 
@@ -320,17 +315,27 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		chunk_saveables[chunk_pos].append(ore)
 
 	# 2) TILES PERSISTENTES (taberna piso/paredes)
-	var wall_cells_to_paint: Array[Vector2i] = []
+	var floor_cells: Array[Vector2i] = []
+	var wall_terrain_cells: Array[Vector2i] = []
+	var manual_tiles: Array[Dictionary] = []
 	for t in chunk_save[chunk_pos]["placed_tiles"]:
 		var source_id: int = int(t.get("source", 0))
 		if source_id == -1:
-			wall_cells_to_paint.append(t["tile"])
+			wall_terrain_cells.append(t["tile"])
+		elif int(t.get("layer", -1)) == LAYER_FLOOR and source_id == SRC_FLOOR and t.get("atlas", Vector2i(-1, -1)) == FLOOR_WOOD:
+			floor_cells.append(t["tile"])
 		else:
-			tilemap.set_cell(int(t["layer"]), t["tile"], source_id, t["atlas"])
+			manual_tiles.append(t)
 
-	if wall_cells_to_paint.size() > 0:
-		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d" % [chunk_pos.x, chunk_pos.y, wall_cells_to_paint.size()])
-		tilemap.set_cells_terrain_connect(LAYER_WALLS, wall_cells_to_paint, WALL_TERRAIN_SET, WALL_TERRAIN, true)
+	if floor_cells.size() > 0:
+		_tile_painter.apply_floor(tilemap, LAYER_FLOOR, SRC_FLOOR, FLOOR_WOOD, floor_cells)
+
+	if manual_tiles.size() > 0:
+		_tile_painter.apply_manual_tiles(tilemap, manual_tiles)
+
+	if wall_terrain_cells.size() > 0:
+		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
+		_tile_painter.apply_walls_terrain_connect(tilemap, LAYER_WALLS, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
 
 	# 3) CAMPS
 	for c in chunk_save[chunk_pos]["camps"]:
