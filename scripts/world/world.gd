@@ -40,6 +40,8 @@ var chunk_save: Dictionary = {}         # {Vector2i: { "ores":[], "camps":[], "p
 const LAYER_GROUND: int = 0
 const LAYER_FLOOR: int = 1
 const LAYER_WALLS: int = 2
+const WALL_TERRAIN_SET: int = 0
+const WALL_TERRAIN: int = 0
 
 # Sources
 const SRC_FLOOR: int = 1
@@ -318,8 +320,16 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		chunk_saveables[chunk_pos].append(ore)
 
 	# 2) TILES PERSISTENTES (taberna piso/paredes)
+	var wall_cells_to_paint: Array[Vector2i] = []
 	for t in chunk_save[chunk_pos]["placed_tiles"]:
-		tilemap.set_cell(t["layer"], t["tile"], t["source"], t["atlas"])
+		var source_id: int = int(t.get("source", 0))
+		if source_id == -1:
+			wall_cells_to_paint.append(t["tile"])
+		else:
+			tilemap.set_cell(int(t["layer"]), t["tile"], source_id, t["atlas"])
+
+	if wall_cells_to_paint.size() > 0:
+		tilemap.set_cells_terrain_connect(LAYER_WALLS, wall_cells_to_paint, WALL_TERRAIN_SET, WALL_TERRAIN, true)
 
 	# 3) CAMPS
 	for c in chunk_save[chunk_pos]["camps"]:
