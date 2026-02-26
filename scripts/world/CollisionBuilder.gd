@@ -51,17 +51,17 @@ func _add_side_strip_top_tile(body: StaticBody2D, tilemap: TileMap, face: String
 
 	body.add_child(shape)
 
-func _add_top_cap(body: StaticBody2D, tilemap: TileMap, cell: Vector2i, tile_size: Vector2, cap_height: float) -> void:
+func _add_upper_corner_south_band(body: StaticBody2D, tilemap: TileMap, cell: Vector2i, tile_size: Vector2, band_height: float, inset: float) -> void:
 	var shape := CollisionShape2D.new()
-	shape.name = "TopCornerCap_%d_%d" % [cell.x, cell.y]
-	shape.set_meta("kind", "top_corner_cap")
-	shape.set_meta("aaa", {"kind": "top_corner_cap"})
+	shape.name = "UpperCornerSouthBand_%d_%d" % [cell.x, cell.y]
+	shape.set_meta("kind", "upper_corner_south_band")
+	shape.set_meta("aaa", {"kind": "upper_corner_south_band"})
 	var rect := RectangleShape2D.new()
-	rect.size = Vector2(tile_size.x, cap_height)
+	rect.size = Vector2(max(tile_size.x - inset * 2.0, 0.001), band_height)
 	shape.shape = rect
 
 	var center: Vector2 = tilemap.map_to_local(cell)
-	shape.position = Vector2(center.x, center.y - tile_size.y * 0.5 + cap_height * 0.5)
+	shape.position = Vector2(center.x, center.y + tile_size.y * 0.5 - band_height * 0.5)
 	body.add_child(shape)
 
 func _is_top_left_corner(wall_lookup: Dictionary, cell: Vector2i) -> bool:
@@ -131,6 +131,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 	if band_height <= 0.0:
 		return null
 	var side_width: float = tile_size.x * 0.25
+	var inset: float = 0.0
 	var corner_height: float = tile_size.y * 0.70
 	var plug_width: float = side_width
 	var plug_height: float = tile_size.y * 0.70
@@ -158,7 +159,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 	var south_runs: Array[Dictionary] = []
 	var raw_side_columns: Dictionary = {"W": {}, "E": {}}
 	var top_side_tiles: Array[Dictionary] = []
-	var top_caps: Array[Vector2i] = []
+	var upper_corner_south_bands: Array[Vector2i] = []
 	for y in range(start_y, end_y + 1):
 		var run_start_x: int = start_x
 		var in_run: bool = false
@@ -221,7 +222,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 					_append_raw_side(raw_side_columns, "E", x, y)
 
 			if is_top_corner:
-				top_caps.append(cell)
+				upper_corner_south_bands.append(cell)
 
 	for face in ["W", "E"]:
 		var face_columns: Dictionary = raw_side_columns[face]
@@ -250,9 +251,8 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 		_add_side_strip_top_tile(body, tilemap, side_tile["face"], side_tile["cell"], tile_size, side_width, band_height)
 		shape_count += 1
 
-	var cap_height: float = band_height
-	for cap_cell in top_caps:
-		_add_top_cap(body, tilemap, cap_cell, tile_size, cap_height)
+	for cap_cell in upper_corner_south_bands:
+		_add_upper_corner_south_band(body, tilemap, cap_cell, tile_size, band_height, inset)
 		shape_count += 1
 
 	var corner_width: float = side_width
