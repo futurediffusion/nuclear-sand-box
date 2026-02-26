@@ -78,6 +78,26 @@ func _should_add_corner_blocker(wall_lookup: Dictionary, x: int, y: int, side: i
 	var inward_wall: bool = wall_lookup.has(side_neighbor)
 	return north_wall or inward_wall
 
+func _is_bottom_left_inner_corner(wall_lookup: Dictionary, cell: Vector2i) -> bool:
+	if not wall_lookup.has(cell):
+		return false
+
+	var south_free: bool = not wall_lookup.has(cell + Vector2i(0, 1))
+	var east_wall: bool = wall_lookup.has(cell + Vector2i(1, 0))
+	var west_free: bool = not wall_lookup.has(cell + Vector2i(-1, 0))
+	var north_wall: bool = wall_lookup.has(cell + Vector2i(0, -1)) or wall_lookup.has(cell + Vector2i(1, -1))
+	return south_free and east_wall and west_free and north_wall
+
+func _is_bottom_right_inner_corner(wall_lookup: Dictionary, cell: Vector2i) -> bool:
+	if not wall_lookup.has(cell):
+		return false
+
+	var south_free: bool = not wall_lookup.has(cell + Vector2i(0, 1))
+	var west_wall: bool = wall_lookup.has(cell + Vector2i(-1, 0))
+	var east_free: bool = not wall_lookup.has(cell + Vector2i(1, 0))
+	var north_wall: bool = wall_lookup.has(cell + Vector2i(0, -1)) or wall_lookup.has(cell + Vector2i(-1, -1))
+	return south_free and west_wall and east_free and north_wall
+
 func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, walls_layer: int, walls_source_id: int) -> StaticBody2D:
 	if tilemap == null:
 		return null
@@ -91,6 +111,8 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 		return null
 	var side_width: float = tile_size.x * 0.25
 	var corner_height: float = tile_size.y * 0.70
+	var plug_width: float = side_width
+	var plug_height: float = tile_size.y * 0.70
 
 	var start_x: int = chunk_pos.x * chunk_size
 	var start_y: int = chunk_pos.y * chunk_size
@@ -248,6 +270,44 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			)
 			body.add_child(right_blocker)
 			shape_count += 1
+
+	for y in range(start_y, end_y + 1):
+		for x in range(start_x, end_x + 1):
+			var cell := Vector2i(x, y)
+			var center: Vector2 = tilemap.map_to_local(cell)
+			var plug_center_y: float = center.y + tile_size.y * 0.5 - band_height - plug_height * 0.5 + 2.0
+
+			if _is_bottom_left_inner_corner(wall_lookup, cell):
+				var left_plug := CollisionShape2D.new()
+				left_plug.name = "InnerCornerPlug_%d_%d_E" % [x, y]
+				left_plug.set_meta("kind", "inner_corner_plug")
+				left_plug.set_meta("side", "E")
+				left_plug.set_meta("aaa", {"kind": "inner_corner_plug", "side": "E"})
+				var left_plug_rect := RectangleShape2D.new()
+				left_plug_rect.size = Vector2(plug_width, plug_height)
+				left_plug.shape = left_plug_rect
+				left_plug.position = Vector2(
+					center.x + tile_size.x * 0.5 - plug_width * 0.5,
+					plug_center_y
+				)
+				body.add_child(left_plug)
+				shape_count += 1
+
+			if _is_bottom_right_inner_corner(wall_lookup, cell):
+				var right_plug := CollisionShape2D.new()
+				right_plug.name = "InnerCornerPlug_%d_%d_W" % [x, y]
+				right_plug.set_meta("kind", "inner_corner_plug")
+				right_plug.set_meta("side", "W")
+				right_plug.set_meta("aaa", {"kind": "inner_corner_plug", "side": "W"})
+				var right_plug_rect := RectangleShape2D.new()
+				right_plug_rect.size = Vector2(plug_width, plug_height)
+				right_plug.shape = right_plug_rect
+				right_plug.position = Vector2(
+					center.x - tile_size.x * 0.5 + plug_width * 0.5,
+					plug_center_y
+				)
+				body.add_child(right_plug)
+				shape_count += 1
 
 	if shape_count == 0:
 		body.queue_free()
