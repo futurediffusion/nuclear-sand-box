@@ -25,6 +25,11 @@ func setup(team: StringName, owner: Node) -> void:
 	owner_team = team
 	owner_node = owner
 
+func _get_combat_hitbox() -> Hitbox:
+	if hitbox is Hitbox:
+		return hitbox as Hitbox
+	return null
+
 func _ready() -> void:
 	# SFX arma
 	if sfx and sfx.stream:
@@ -33,16 +38,23 @@ func _ready() -> void:
 	
 	_configure_mask()
 	
-	# Conectar hitbox
-	hitbox.body_entered.connect(_on_body_entered)
-	hitbox.area_entered.connect(_on_area_entered)
-	
-	# Encender hitbox SOLO al inicio
-	_set_hitbox_enabled(true)
-	
+	var combat_hitbox := _get_combat_hitbox()
+	if combat_hitbox != null:
+		combat_hitbox.damage = damage
+		combat_hitbox.knockback_force = knockback_strength
+		combat_hitbox.activate()
+	else:
+		# Fallback legado
+		hitbox.body_entered.connect(_on_body_entered)
+		hitbox.area_entered.connect(_on_area_entered)
+		_set_hitbox_enabled(true)
+
 	# Apagar hitbox rápido
 	get_tree().create_timer(hitbox_active_time).timeout.connect(func():
-		_set_hitbox_enabled(false)
+		if combat_hitbox != null:
+			combat_hitbox.deactivate()
+		else:
+			_set_hitbox_enabled(false)
 	)
 	
 	# Animación y borrado final visual
