@@ -145,6 +145,15 @@ radius = 57.3149
 collision_layer = 4
 collision_mask = 21
 script = ExtResource("1_sxn48")
+tavern_inner_min = null
+tavern_inner_max = null
+counter_tile = null
+move_speed = null
+wander_interval_min = null
+wander_interval_max = null
+arrival_threshold = null
+interact_range_px = null
+max_health = null
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_2hr7f")

@@ -55,8 +55,6 @@ const InventoryComponentScript = preload("res://scripts/components/InventoryComp
 @onready var inventory: Node = get_node_or_null("InventoryComponent")
 
 @export_group("FX")
-@export var blood_hit_amount: int = 12
-@export var blood_death_amount: int = 40
 @export var droplet_scene: PackedScene
 @export var splat_scene: PackedScene
 @export var splat_lifetime: float = 60.0

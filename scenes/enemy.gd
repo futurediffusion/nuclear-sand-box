@@ -207,4 +207,3 @@ func _play_death_sound() -> void:
 			death_audio.queue_free()
 	)
 	death_audio.play()
-
