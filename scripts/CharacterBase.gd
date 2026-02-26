@@ -3,6 +3,9 @@ extends CharacterBody2D
 
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
 
+@export_group("Health")
+@export var max_hp: int = 3
+
 @export_group("Knockback")
 @export var knockback_friction: float = 2200.0
 
@@ -16,7 +19,7 @@ const HealthComponentScript = preload("res://scripts/components/HealthComponent.
 
 @onready var health_component: Node = get_node_or_null("HealthComponent")
 
-var hp: int
+var hp: int = 0
 var dying: bool = false
 var knock_vel: Vector2 = Vector2.ZERO
 var hurt_t: float = 0.0
