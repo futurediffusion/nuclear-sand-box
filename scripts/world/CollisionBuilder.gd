@@ -53,8 +53,9 @@ func _add_side_strip_top_tile(body: StaticBody2D, tilemap: TileMap, face: String
 
 func _add_top_cap(body: StaticBody2D, tilemap: TileMap, cell: Vector2i, tile_size: Vector2, cap_height: float) -> void:
 	var shape := CollisionShape2D.new()
-	shape.name = "TopCap_%d_%d" % [cell.x, cell.y]
-	shape.set_meta("aaa", {"kind": "top_cap"})
+	shape.name = "TopCornerCap_%d_%d" % [cell.x, cell.y]
+	shape.set_meta("kind", "top_corner_cap")
+	shape.set_meta("aaa", {"kind": "top_corner_cap"})
 	var rect := RectangleShape2D.new()
 	rect.size = Vector2(tile_size.x, cap_height)
 	shape.shape = rect
@@ -62,6 +63,26 @@ func _add_top_cap(body: StaticBody2D, tilemap: TileMap, cell: Vector2i, tile_siz
 	var center: Vector2 = tilemap.map_to_local(cell)
 	shape.position = Vector2(center.x, center.y - tile_size.y * 0.5 + cap_height * 0.5)
 	body.add_child(shape)
+
+func _is_top_left_corner(wall_lookup: Dictionary, cell: Vector2i) -> bool:
+	if not wall_lookup.has(cell):
+		return false
+
+	var north_free: bool = not wall_lookup.has(cell + Vector2i(0, -1))
+	var south_wall: bool = wall_lookup.has(cell + Vector2i(0, 1))
+	var east_wall: bool = wall_lookup.has(cell + Vector2i(1, 0))
+	var west_wall: bool = wall_lookup.has(cell + Vector2i(-1, 0))
+	return north_free and south_wall and east_wall and not west_wall
+
+func _is_top_right_corner(wall_lookup: Dictionary, cell: Vector2i) -> bool:
+	if not wall_lookup.has(cell):
+		return false
+
+	var north_free: bool = not wall_lookup.has(cell + Vector2i(0, -1))
+	var south_wall: bool = wall_lookup.has(cell + Vector2i(0, 1))
+	var west_wall: bool = wall_lookup.has(cell + Vector2i(-1, 0))
+	var east_wall: bool = wall_lookup.has(cell + Vector2i(1, 0))
+	return north_free and south_wall and west_wall and not east_wall
 
 func _should_add_corner_blocker(wall_lookup: Dictionary, x: int, y: int, side: int) -> bool:
 	var edge_cell := Vector2i(x, y)
@@ -187,18 +208,19 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 				continue
 
 			var north_free: bool = not wall_lookup.has(cell + Vector2i(0, -1))
+			var is_top_corner: bool = _is_top_left_corner(wall_lookup, cell) or _is_top_right_corner(wall_lookup, cell)
 			if not wall_lookup.has(cell + Vector2i(-1, 0)):
-				if north_free:
+				if north_free and not is_top_corner:
 					top_side_tiles.append({"face": "W", "cell": cell})
-				else:
+				elif not north_free:
 					_append_raw_side(raw_side_columns, "W", x, y)
 			if not wall_lookup.has(cell + Vector2i(1, 0)):
-				if north_free:
+				if north_free and not is_top_corner:
 					top_side_tiles.append({"face": "E", "cell": cell})
-				else:
+				elif not north_free:
 					_append_raw_side(raw_side_columns, "E", x, y)
 
-			if north_free and wall_lookup.has(cell + Vector2i(0, 1)):
+			if is_top_corner:
 				top_caps.append(cell)
 
 	for face in ["W", "E"]:
@@ -228,7 +250,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 		_add_side_strip_top_tile(body, tilemap, side_tile["face"], side_tile["cell"], tile_size, side_width, band_height)
 		shape_count += 1
 
-	var cap_height: float = side_width
+	var cap_height: float = band_height
 	for cap_cell in top_caps:
 		_add_top_cap(body, tilemap, cap_cell, tile_size, cap_height)
 		shape_count += 1
