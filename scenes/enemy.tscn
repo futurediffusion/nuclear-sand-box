@@ -1,4 +1,4 @@
-[gd_scene load_steps=27 format=3 uid="uid://b61xj3scmxra2"]
+[gd_scene load_steps=28 format=3 uid="uid://b61xj3scmxra2"]
 
 [ext_resource type="Script" uid="uid://cwpdxeh23xi6u" path="res://scenes/enemy.gd" id="1_4ra3w"]
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="1_md0e3"]
@@ -9,6 +9,7 @@
 [ext_resource type="Texture2D" uid="uid://daocjvvucs4qg" path="res://art/sprites/palo.png" id="4_5uy6h"]
 [ext_resource type="Texture2D" uid="uid://csi1e66pf1k75" path="res://art/sprites/GOBLIN1-death.png" id="6_nenq2"]
 [ext_resource type="Script" uid="uid://fs8idwdgvpd3" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
+[ext_resource type="Script" path="res://scripts/components/AIComponent.gd" id="8_ai"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_ipns3"]
 atlas = ExtResource("6_nenq2")
@@ -150,6 +151,10 @@ blood_scene = ExtResource("3_md484")
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("7_healthc")
+
+
+[node name="AIComponent" type="Node" parent="."]
+script = ExtResource("8_ai")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_5uy6h")
