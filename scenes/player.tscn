@@ -150,6 +150,7 @@ animations = [{
 size = Vector2(9, 15)
 
 [node name="Player" type="CharacterBody2D" groups=["player"]]
+collision_mask = 15
 script = ExtResource("1_qhqgy")
 slash_scene = ExtResource("2_qlg0r")
 blood_scene = ExtResource("3_ur7pv")

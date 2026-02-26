@@ -173,7 +173,7 @@ func _configure_collision_mode() -> void:
 	if Debug.use_legacy_wall_collision:
 		collision_mask = 1
 	else:
-		collision_mask = 2
+		collision_mask = 2 | 16
 
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
