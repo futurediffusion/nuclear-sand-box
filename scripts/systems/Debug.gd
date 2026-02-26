@@ -1,4 +1,5 @@
 extends Node
+class_name Debug
 
 const BOOT_TRACE := true
 
@@ -17,11 +18,27 @@ const BOOT_TRACE := true
 	"chunk": true,
 	"spawn": false,
 	"save": false,
+	"copper": false,
+	"loot": false,
 }
 
-func log(cat: String, msg: String) -> void:
-	if not enabled:
-		return
-	if categories.has(cat) and not categories[cat]:
+static func _get_singleton() -> Debug:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null("Debug") as Debug
+
+static func is_enabled(cat: String) -> bool:
+	var singleton := _get_singleton()
+	if singleton == null:
+		return false
+	if not singleton.enabled:
+		return false
+	if singleton.categories.has(cat) and not singleton.categories[cat]:
+		return false
+	return true
+
+static func log(cat: String, msg: String) -> void:
+	if not is_enabled(cat):
 		return
 	print("[", cat.to_upper(), "] ", msg)
