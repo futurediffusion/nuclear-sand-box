@@ -1,6 +1,7 @@
 extends Node2D
 
 @onready var tilemap: TileMap = $WorldTileMap
+@onready var structure_walls_map: TileMap = $StructureWallsMap
 @onready var prop_spawner := PropSpawner.new()
 @onready var chunk_generator := ChunkGenerator.new()
 @onready var _collision_builder := CollisionBuilder.new()
@@ -93,6 +94,10 @@ func _ready() -> void:
 	detail_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 
 	player = get_node_or_null("../Player")
+	if structure_walls_map == null:
+		push_error("[World] StructureWallsMap no encontrado")
+	elif not structure_walls_map.material is ShaderMaterial:
+		push_warning("[World] StructureWallsMap sin ShaderMaterial")
 
 	tavern_chunk = _tile_to_chunk(Vector2i(width / 2, height / 2))
 	spawn_tile = get_tavern_center_tile(tavern_chunk)
@@ -116,6 +121,11 @@ func _process(delta: float) -> void:
 	if pchunk != current_player_chunk:
 		current_player_chunk = pchunk
 		update_chunks(pchunk)
+
+	if _strips_inside > 0 and player != null:
+		var mat := structure_walls_map.material as ShaderMaterial
+		if mat:
+			mat.set_shader_parameter("player_pos", player.global_position)
 
 # ─── Chunk logic ────────────────────────────────────────────────
 
@@ -185,6 +195,7 @@ func generate_chunk(chunk_pos: Vector2i) -> void:
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
 	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR, LAYER_WALLS])
+	_tile_painter.erase_chunk_region(structure_walls_map, chunk_pos, chunk_size, [0])
 
 # ─── Tile picking ────────────────────────────────────────────────
 
@@ -227,6 +238,9 @@ var chunk_entities: Dictionary = {}
 var chunk_saveables: Dictionary = {}
 var chunk_occupied_tiles: Dictionary = {}
 var chunk_wall_body: Dictionary = {} # Vector2i -> StaticBody2D
+var _occlusion_builder := OcclusionStripBuilder.new()
+var chunk_occlusion: Dictionary = {}
+var _strips_inside: int = 0
 
 const DEBUG_SPAWN: bool = true
 const DEBUG_SAVE: bool = true
@@ -337,7 +351,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 
 	if wall_terrain_cells.size() > 0:
 		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
-		_tile_painter.apply_walls_terrain_connect(tilemap, LAYER_WALLS, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
+		_tile_painter.apply_walls_terrain_connect(structure_walls_map, 0, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
 
 	if chunk_wall_body.has(chunk_pos):
 		var old_body: StaticBody2D = chunk_wall_body[chunk_pos]
@@ -345,10 +359,15 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 			old_body.queue_free()
 		chunk_wall_body.erase(chunk_pos)
 
-	var body: StaticBody2D = _collision_builder.build_chunk_walls(tilemap, chunk_pos, chunk_size, LAYER_WALLS, SRC_WALLS)
+	var body: StaticBody2D = _collision_builder.build_chunk_walls(structure_walls_map, chunk_pos, chunk_size, 0, SRC_WALLS)
 	if body != null:
 		tilemap.add_child(body)
 		chunk_wall_body[chunk_pos] = body
+	var strips := _occlusion_builder.build_strips(structure_walls_map, chunk_pos, chunk_size, 0, SRC_WALLS)
+	if strips != null:
+		structure_walls_map.add_child(strips)
+		chunk_occlusion[chunk_pos] = strips
+		_connect_occlusion_strips(strips)
 
 	# 3) CAMPS
 	for c in chunk_save[chunk_pos]["camps"]:
@@ -454,6 +473,12 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 			body.queue_free()
 		chunk_wall_body.erase(chunk_pos)
 
+	if chunk_occlusion.has(chunk_pos):
+		var s: Node = chunk_occlusion[chunk_pos]
+		if is_instance_valid(s):
+			s.queue_free()
+		chunk_occlusion.erase(chunk_pos)
+
 	if not chunk_entities.has(chunk_pos):
 		return
 
@@ -512,3 +537,28 @@ func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var x0: int = chunk_pos.x * chunk_size + 4
 	var y0: int = chunk_pos.y * chunk_size + 3
 	return Vector2i(x0 + (w / 2), y0 + (h / 2))
+
+func _connect_occlusion_strips(container: Node2D) -> void:
+	for child in container.get_children():
+		if child is Area2D:
+			child.body_entered.connect(_on_strip_entered)
+			child.body_exited.connect(_on_strip_exited)
+
+func _on_strip_entered(body: Node) -> void:
+	if not body.is_in_group("player"):
+		return
+	_strips_inside += 1
+	if _strips_inside == 1:
+		var mat := structure_walls_map.material as ShaderMaterial
+		if mat:
+			mat.set_shader_parameter("player_pos", body.global_position)
+			mat.set_shader_parameter("is_behind", true)
+
+func _on_strip_exited(body: Node) -> void:
+	if not body.is_in_group("player"):
+		return
+	_strips_inside = max(_strips_inside - 1, 0)
+	if _strips_inside == 0:
+		var mat := structure_walls_map.material as ShaderMaterial
+		if mat:
+			mat.set_shader_parameter("is_behind", false)

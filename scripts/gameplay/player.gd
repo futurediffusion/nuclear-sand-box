@@ -156,12 +156,12 @@ func _setup_components() -> void:
 		block_component.setup(self)
 	else:
 		push_warning("[Player] Missing BlockComponent")
-	if wall_occlusion_component != null:
-		wall_occlusion_component.setup(self)
-		if Debug.safe_mode and Debug.disable_wall_occlusion:
-			wall_occlusion_component.set_enabled(false)
-	else:
-		push_warning("[Player] Missing WallOcclusionComponent")
+	# if wall_occlusion_component != null:
+	# 	wall_occlusion_component.setup(self)
+	# 	if Debug.safe_mode and Debug.disable_wall_occlusion:
+	# 		wall_occlusion_component.set_enabled(false)
+	# else:
+	# 	push_warning("[Player] Missing WallOcclusionComponent")
 	if vfx_component != null:
 		if Debug.safe_mode and Debug.disable_vfx_pooling:
 			vfx_component.use_pooling = false
@@ -310,10 +310,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 func _update_wall(delta: float) -> void:
-	if use_wall_component and wall_occlusion_component != null:
-		wall_occlusion_component.physics_tick(delta)
-	else:
-		_legacy_wall_toggle_update()
+	pass  # Oclusión manejada por OcclusionStripBuilder en world.gd
 
 func _legacy_movement_physics(delta: float) -> void:
 	var input_dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
