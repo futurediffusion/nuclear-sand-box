@@ -5,14 +5,25 @@ var scene: PackedScene = null
 var _available: Array[Node] = []
 var _holder: Node = null
 var _pending_prewarm: int = 0
+const SYNC_PREWARM_THRESHOLD: int = 16
 
 func configure(p_scene: PackedScene, holder: Node, prewarm_count: int = 0) -> void:
 	scene = p_scene
 	_holder = holder
 	if scene == null or _holder == null:
 		return
-	_pending_prewarm = maxi(prewarm_count, 0)
-	if _pending_prewarm > 0:
+	var count := maxi(prewarm_count, 0)
+	if count == 0:
+		return
+	if count <= SYNC_PREWARM_THRESHOLD:
+		# Prewarm síncrono — sin frames de delay
+		for _i in range(count):
+			var node := _create_instance()
+			if node != null:
+				release(node)
+	else:
+		# Prewarm async para counts grandes
+		_pending_prewarm = count
 		call_deferred("_prewarm_step")
 
 func _prewarm_step() -> void:
