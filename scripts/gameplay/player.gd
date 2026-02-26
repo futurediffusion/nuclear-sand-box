@@ -1,5 +1,5 @@
 class_name Player
-extends "res://scripts/CharacterBase.gd"
+extends CharacterBase
 
 var DEBUG_PLAYER := OS.is_debug_build()
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")

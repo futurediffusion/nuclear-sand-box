@@ -55,45 +55,11 @@ format = 2
 
 [node name="Player" parent="." instance=ExtResource("1_o5qli")]
 position = Vector2(126.8, 77.2)
-use_movement_component = true
-use_combat_component = true
-use_block_component = true
-use_wall_component = true
-use_vfx_component = true
-max_speed = 300.0
-acceleration = 1200.0
-friction = 1800.0
-turn_speed = 2000.0
-max_hp = 3
 attack_push_speed = 90.0
 attack_push_time = 0.05
-attack_push_deadzone = 15.0
-weapon_follow_speed = 25.0
-attack_snap_speed = 50.0
-attack_duration = 0.3
-facing_deadzone_px = 2.0
-angle_offset_left = -150.0
-angle_offset_right = 150.0
-slash_visual_offset_deg = 0.0
-block_guard_margin_deg = 10.0
 splat_scene = ExtResource("9_dp3eg")
-splat_lifetime = 60.0
-droplet_count_hit = 6
-droplet_count_death = 14
-droplet_speed_min = 80.0
-droplet_speed_max = 140.0
-droplet_spread_deg = 70.0
-tilemap_path = NodePath("")
-walls_layer = 2
-walls_source_id = 2
-wall_alt_full = 0
-wall_alt_small = 2
-wall_probe_px = 14.0
-probe_tile_offset = Vector2i(0, 1)
-block_stamina_drain = 12.0
-block_hit_stamina_cost = 0.1
-block_wiggle_deg = 60.0
-block_wiggle_hz = 6.0
+droplet_speed_min = null
+droplet_speed_max = null
 
 [node name="MouseCursor" parent="." instance=ExtResource("2_0wfyh")]
 scale = Vector2(1.5, 1.5)

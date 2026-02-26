@@ -153,7 +153,6 @@ wander_interval_min = null
 wander_interval_max = null
 arrival_threshold = null
 interact_range_px = null
-max_health = null
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_2hr7f")

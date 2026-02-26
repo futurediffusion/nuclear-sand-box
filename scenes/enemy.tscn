@@ -1,10 +1,9 @@
-[gd_scene load_steps=28 format=3 uid="uid://b61xj3scmxra2"]
+[gd_scene load_steps=27 format=3 uid="uid://b61xj3scmxra2"]
 
 [ext_resource type="Script" uid="uid://cwpdxeh23xi6u" path="res://scenes/enemy.gd" id="1_4ra3w"]
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="1_md0e3"]
 [ext_resource type="Texture2D" uid="uid://vje5af61y85f" path="res://art/sprites/GOBLIN1-Shee-walkt.png" id="2_4ra3w"]
 [ext_resource type="PackedScene" uid="uid://bo7s8ewd7s0wy" path="res://scenes/slash.tscn" id="2_c4w8v"]
-[ext_resource type="PackedScene" uid="uid://blxq40l48edsl" path="res://scenes/blood_burst.tscn" id="3_md484"]
 [ext_resource type="Texture2D" uid="uid://cy2jbrjibs00h" path="res://art/sprites/goblinhurt.png" id="3_xwavj"]
 [ext_resource type="Texture2D" uid="uid://daocjvvucs4qg" path="res://art/sprites/palo.png" id="4_5uy6h"]
 [ext_resource type="Texture2D" uid="uid://csi1e66pf1k75" path="res://art/sprites/GOBLIN1-death.png" id="6_nenq2"]
@@ -155,15 +154,10 @@ acceleration = null
 friction = null
 detection_range = null
 slash_scene = ExtResource("2_c4w8v")
-hurt_time = null
-blood_scene = ExtResource("3_md484")
-blood_hit_amount = null
-blood_death_amount = null
 death_shake_duration = null
 death_shake_magnitude = null
 death_sound_pitch_scale = null
 death_sound_volume_db = null
-knockback_friction = null
 separation_radius = null
 separation_strength = null
 
