@@ -9,6 +9,7 @@ const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
 const COPPER_MIN_DIST_TILES := 10
 const DEBUG_SPAWN: bool = true
+const USE_WALL_TERRAIN: bool = true
 
 const LAYER_FLOOR: int = 1
 const LAYER_WALLS: int = 2
@@ -304,28 +305,36 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		_place_tile_persistent(chunk_pos, LAYER_FLOOR, cell, SRC_FLOOR, FLOOR_WOOD, ctx)
 
 	for cell in data.wall_cells:
-		var atlas: Vector2i = WALL_MID
-		if cell.y == y0 + 1:
-			if cell.x == x0:
-				atlas = ROOF_CONT_RIGHT
-			elif cell.x == x1:
-				atlas = ROOF_CONT_LEFT
-			else:
-				atlas = WALL_MID
-		elif cell.y == y1:
-			if cell.x == x0:
-				atlas = WALL_END_LEFT
-			elif cell.x == x1:
-				atlas = WALL_END_RIGHT
-			elif cell.x == door_x - 1:
-				atlas = WALL_END_RIGHT
-			elif cell.x == door_x + 1:
-				atlas = WALL_END_LEFT
-			else:
-				atlas = WALL_MID
+		if USE_WALL_TERRAIN:
+			chunk_save[chunk_pos]["placed_tiles"].append({
+				"layer": LAYER_WALLS,
+				"tile": cell,
+				"source": -1,
+				"atlas": Vector2i(-1, -1)
+			})
 		else:
-			atlas = ROOF_VERTICAL
-		_place_tile_persistent(chunk_pos, LAYER_WALLS, cell, SRC_WALLS, atlas, ctx)
+			var atlas: Vector2i = WALL_MID
+			if cell.y == y0 + 1:
+				if cell.x == x0:
+					atlas = ROOF_CONT_RIGHT
+				elif cell.x == x1:
+					atlas = ROOF_CONT_LEFT
+				else:
+					atlas = WALL_MID
+			elif cell.y == y1:
+				if cell.x == x0:
+					atlas = WALL_END_LEFT
+				elif cell.x == x1:
+					atlas = WALL_END_RIGHT
+				elif cell.x == door_x - 1:
+					atlas = WALL_END_RIGHT
+				elif cell.x == door_x + 1:
+					atlas = WALL_END_LEFT
+				else:
+					atlas = WALL_MID
+			else:
+				atlas = ROOF_VERTICAL
+			_place_tile_persistent(chunk_pos, LAYER_WALLS, cell, SRC_WALLS, atlas, ctx)
 
 	for p in data.placements:
 		var exists := false
