@@ -3,6 +3,7 @@ extends Node2D
 @onready var tilemap: TileMap = $WorldTileMap
 @onready var prop_spawner := PropSpawner.new()
 @onready var chunk_generator := ChunkGenerator.new()
+@onready var _collision_builder := CollisionBuilder.new()
 var _tile_painter := TilePainter.new()
 
 @export var width: int = 256
@@ -225,6 +226,7 @@ func pick_tile(x: int, y: int) -> Vector2i:
 var chunk_entities: Dictionary = {}
 var chunk_saveables: Dictionary = {}
 var chunk_occupied_tiles: Dictionary = {}
+var chunk_wall_body: Dictionary = {} # Vector2i -> StaticBody2D
 
 const DEBUG_SPAWN: bool = true
 const DEBUG_SAVE: bool = true
@@ -337,6 +339,17 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
 		_tile_painter.apply_walls_terrain_connect(tilemap, LAYER_WALLS, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
 
+	if chunk_wall_body.has(chunk_pos):
+		var old_body: StaticBody2D = chunk_wall_body[chunk_pos]
+		if is_instance_valid(old_body):
+			old_body.queue_free()
+		chunk_wall_body.erase(chunk_pos)
+
+	var body: StaticBody2D = _collision_builder.build_chunk_walls(tilemap, chunk_pos, chunk_size, LAYER_WALLS, SRC_WALLS)
+	if body != null:
+		tilemap.add_child(body)
+		chunk_wall_body[chunk_pos] = body
+
 	# 3) CAMPS
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
@@ -435,6 +448,12 @@ func _debug_check_player_chunk(player_global: Vector2) -> void:
 	Debug.log("spawn", "CHUNK_CHECK player_tile=%s player_chunk=%s" % [str(player_tile), str(chunk_key)])
 
 func unload_chunk_entities(chunk_pos: Vector2i) -> void:
+	if chunk_wall_body.has(chunk_pos):
+		var body: StaticBody2D = chunk_wall_body[chunk_pos]
+		if is_instance_valid(body):
+			body.queue_free()
+		chunk_wall_body.erase(chunk_pos)
+
 	if not chunk_entities.has(chunk_pos):
 		return
 
