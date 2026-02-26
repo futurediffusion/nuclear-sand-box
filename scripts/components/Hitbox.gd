@@ -7,7 +7,7 @@ class_name Hitbox
 
 var _hit_bodies: Array = []
 
-signal hit_landed(hurtbox: Hurtbox)
+signal hit_landed(CharacterHurtbox: CharacterHurtbox)
 
 func _ready() -> void:
 	area_entered.connect(_on_area_entered)
@@ -21,13 +21,13 @@ func deactivate() -> void:
 	monitoring = false
 
 func _on_area_entered(area: Area2D) -> void:
-	if not (area is Hurtbox):
+	if not (area is CharacterHurtbox):
 		return
 
-	var hurtbox := area as Hurtbox
-	if hit_once and _hit_bodies.has(hurtbox):
+	var CharacterHurtbox := area as CharacterHurtbox
+	if hit_once and _hit_bodies.has(CharacterHurtbox):
 		return
 
-	_hit_bodies.append(hurtbox)
-	hit_landed.emit(hurtbox)
-	hurtbox.receive_hit(damage, knockback_force, global_position)
+	_hit_bodies.append(CharacterHurtbox)
+	hit_landed.emit(CharacterHurtbox)
+	CharacterHurtbox.receive_hit(damage, knockback_force, global_position)

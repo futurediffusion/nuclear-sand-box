@@ -1,4 +1,4 @@
-[gd_scene load_steps=34 format=3 uid="uid://38k36ggowmkb"]
+[gd_scene load_steps=36 format=3 uid="uid://38k36ggowmkb"]
 
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="1_3vyb7"]
 [ext_resource type="Script" uid="uid://ckcw5d4tk1kyo" path="res://scripts/gameplay/player.gd" id="1_qhqgy"]
@@ -16,6 +16,7 @@
 [ext_resource type="Script" uid="uid://bflvrglg1anxj" path="res://scripts/components/BlockComponent.gd" id="11_block"]
 [ext_resource type="Script" uid="uid://ctgv8fsqlh1dp" path="res://scripts/components/WallOcclusionComponent.gd" id="12_wall"]
 [ext_resource type="Script" uid="uid://mhndtbtfl4hv" path="res://scripts/components/VFXComponent.gd" id="13_vfx"]
+[ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="17_qfm1y"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_smehm")
@@ -148,6 +149,10 @@ animations = [{
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_3v2ag"]
 size = Vector2(9, 15)
 
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_fulsm"]
+radius = 4.0
+height = 16.0
+
 [node name="Player" type="CharacterBody2D" groups=["player"]]
 collision_mask = 15
 script = ExtResource("1_qhqgy")
@@ -200,3 +205,9 @@ position = Vector2(20, 0)
 position_smoothing_enabled = true
 position_smoothing_speed = 6.0
 script = ExtResource("6_tuyoq")
+
+[node name="Hurtbox" type="Area2D" parent="."]
+script = ExtResource("17_qfm1y")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+shape = SubResource("CapsuleShape2D_fulsm")

@@ -10,7 +10,7 @@ const InventoryComponentScript = preload("res://scripts/components/InventoryComp
 @onready var block_component: BlockComponent = get_node_or_null("BlockComponent") as BlockComponent
 @onready var wall_occlusion_component: WallOcclusionComponent = get_node_or_null("WallOcclusionComponent") as WallOcclusionComponent
 @onready var vfx_component: VFXComponent = get_node_or_null("VFXComponent") as VFXComponent
-@onready var hurtbox: Hurtbox = get_node_or_null("Hurtbox") as Hurtbox
+@onready var CharacterHurtbox: CharacterHurtbox = get_node_or_null("CharacterHurtbox") as CharacterHurtbox
 
 @export_group("Component Toggles")
 @export var use_movement_component := true
@@ -26,7 +26,6 @@ const InventoryComponentScript = preload("res://scripts/components/InventoryComp
 @export var turn_speed: float = 2000.0
 
 @export_group("Health")
-@export var max_hp: int = 3
 @export var hearts_ui: Node
 
 @export_group("Attack Push")
@@ -183,8 +182,8 @@ func _setup_health_component() -> void:
 	super._setup_health_component()
 	if health_component != null and health_component.has_signal("damaged") and not health_component.damaged.is_connected(_on_health_damaged):
 		health_component.damaged.connect(_on_health_damaged)
-	if hurtbox != null and not hurtbox.damaged.is_connected(_on_hurtbox_damaged):
-		hurtbox.damaged.connect(_on_hurtbox_damaged)
+	if CharacterHurtbox != null and not CharacterHurtbox.damaged.is_connected(_on_CharacterHurtbox_damaged):
+		CharacterHurtbox.damaged.connect(_on_CharacterHurtbox_damaged)
 
 func _setup_stamina_component() -> void:
 	if stamina_component == null:
@@ -422,7 +421,7 @@ func _on_health_damaged(_amount: int) -> void:
 	hp = health_component.hp if health_component != null else hp
 	_update_hearts_ui()
 
-func _on_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
+func _on_CharacterHurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
 	take_damage(dmg, from_pos)
 
 func _update_hearts_ui() -> void:

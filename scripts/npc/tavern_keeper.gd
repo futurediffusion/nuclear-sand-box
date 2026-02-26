@@ -41,7 +41,6 @@ var _player_ref: Node    = null
 var _tilemap: TileMap = null
 
 # --- Salud ---
-@export var max_hp: int = 5
 
 var entity_uid: String = ""
 

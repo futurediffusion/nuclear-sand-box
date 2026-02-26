@@ -5,7 +5,6 @@ const AIComponentScript = preload("res://scripts/components/AIComponent.gd")
 const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 
 @export_group("Combat")
-@export var max_hp: int = 3
 @export var attack_damage: int = 1
 @export var attack_cooldown: float = 0.8
 @export var attack_range: float = 60.0

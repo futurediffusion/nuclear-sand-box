@@ -145,21 +145,7 @@ size = Vector2(14, 15)
 collision_layer = 4
 collision_mask = 5
 script = ExtResource("1_4ra3w")
-max_hp = null
-attack_damage = null
-attack_cooldown = null
-attack_range = null
-max_speed = null
-acceleration = null
-friction = null
-detection_range = null
 slash_scene = ExtResource("2_c4w8v")
-death_shake_duration = null
-death_shake_magnitude = null
-death_sound_pitch_scale = null
-death_sound_volume_db = null
-separation_radius = null
-separation_strength = null
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("7_healthc")

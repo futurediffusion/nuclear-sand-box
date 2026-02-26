@@ -1,5 +1,5 @@
 extends Area2D
-class_name Hurtbox
+class_name CharacterHurtbox
 
 @export var invincible: bool = false
 @export var iframe_duration: float = 0.5
