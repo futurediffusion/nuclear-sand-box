@@ -54,9 +54,9 @@ func _ready() -> void:
 	if drop_item == null and give_item_id == "":
 		push_warning("[COPPER] Define drop_item o give_item_id")
 	elif drop_item != null:
-		print("[COPPER] drop_item id=", drop_item.id)
+		Debug.log("copper", "drop_item id=%s" % drop_item.id)
 	else:
-		print("[COPPER] using legacy give_item_id=", give_item_id)
+		Debug.log("copper", "using legacy give_item_id=%s" % give_item_id)
 
 func _physics_process(delta: float) -> void:
 	# --- Temblor ---
@@ -78,7 +78,7 @@ func hit(by: Node) -> void:
 	_play_hit_feedback()
 
 	if remaining <= 0:
-		print("[COPPER] agotado")
+		Debug.log("copper", "agotado")
 		return
 
 	var amount := int(round(yield_per_hit * yield_multiplier))
@@ -101,7 +101,7 @@ func hit(by: Node) -> void:
 	else:
 		_spawn_drop_legacy(amount)
 
-	print("[COPPER] dropped=", amount, " remaining=", remaining)
+	Debug.log("copper", "dropped=%s remaining=%s" % [str(amount), str(remaining)])
 
 	if remaining <= 0:
 		ore_depleted.emit(origin)
@@ -184,7 +184,7 @@ func _spawn_drop(amount_to_drop: int) -> void:
 		push_warning("[COPPER] LootSystem no pudo crear drop")
 
 func _spawn_drop_legacy(amount_to_drop: int) -> void:
-	print("[COPPER] spawn_drop amount=", amount_to_drop, " drop_scene=", drop_scene)
+	Debug.log("loot", "spawn_drop amount=%s drop_scene=%s" % [str(amount_to_drop), str(drop_scene)])
 	if drop_scene == null:
 		push_warning("[COPPER] drop_scene no asignado")
 		return
