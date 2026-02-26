@@ -88,6 +88,8 @@ func _should_add_corner_blocker(wall_lookup: Dictionary, x: int, y: int, side: i
 	var edge_cell := Vector2i(x, y)
 	if not wall_lookup.has(edge_cell):
 		return false
+	if _is_top_left_corner(wall_lookup, edge_cell) or _is_top_right_corner(wall_lookup, edge_cell):
+		return false
 	if wall_lookup.has(edge_cell + Vector2i(0, 1)):
 		return false
 
