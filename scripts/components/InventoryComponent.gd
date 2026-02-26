@@ -141,6 +141,49 @@ func has_space_for(item_id: String, amount: int) -> bool:
 func debug_print() -> void:
 	print("[INV] gold=", gold, " slots=", slots)
 
+
+func sell_all(item_id: String, unit_price: int) -> int:
+	if unit_price < 0:
+		push_warning("[INV] sell_all recibió unit_price negativo")
+		return 0
+
+	var total := get_total(item_id)
+	if total <= 0:
+		return 0
+
+	var removed := remove_item(item_id, total)
+	if removed <= 0:
+		return 0
+
+	gold += removed * unit_price
+	inventory_changed.emit()
+	return removed
+
+
+func buy_item(item_id: String, amount: int, unit_price: int) -> int:
+	if amount <= 0:
+		return 0
+	if unit_price < 0:
+		push_warning("[INV] buy_item recibió unit_price negativo")
+		return 0
+
+	if unit_price == 0:
+		var free_added := add_item(item_id, amount)
+		return free_added
+
+	var affordable := gold / unit_price
+	var to_buy := mini(amount, affordable)
+	if to_buy <= 0:
+		return 0
+
+	var added := add_item(item_id, to_buy)
+	if added <= 0:
+		return 0
+
+	gold -= added * unit_price
+	inventory_changed.emit()
+	return added
+
 func _get_stack_limit(item_id: String) -> int:
 	var item_db := get_node_or_null("/root/ItemDB")
 	if item_db != null and item_db.has_method("get_max_stack"):
