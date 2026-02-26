@@ -127,6 +127,7 @@ func _ready() -> void:
 	weapon_sprite.z_index = 2
 
 	_setup_components()
+	_configure_collision_mode()
 	_resolve_hearts_ui()
 	_setup_health_component()
 	_setup_stamina_component()
@@ -167,6 +168,12 @@ func _setup_components() -> void:
 		vfx_component.setup(self)
 	else:
 		push_warning("[Player] Missing VFXComponent")
+
+func _configure_collision_mode() -> void:
+	if Debug.use_legacy_wall_collision:
+		collision_mask = 1
+	else:
+		collision_mask = 2
 
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:

@@ -29,7 +29,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 
 	var body := StaticBody2D.new()
 	body.name = "WallCollisionBody_%d_%d" % [chunk_pos.x, chunk_pos.y]
-	body.collision_layer = 1
+	body.collision_layer = 2
 	body.collision_mask = 0
 
 	var shape_count: int = 0

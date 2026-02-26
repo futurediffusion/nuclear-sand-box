@@ -8,6 +8,7 @@ const BOOT_TRACE := true
 @export var disable_vfx_pooling := false
 @export var disable_wall_occlusion := false
 @export var disable_enemy_cache := false
+@export var use_legacy_wall_collision: bool = false
 @export var categories := {
 	"boot": BOOT_TRACE,
 	"audio": false,
