@@ -23,6 +23,7 @@ func tick(_delta: float) -> void:
 	pass
 
 func physics_tick(delta: float) -> void:
+	return  # DESHABILITADO — reemplazado por OcclusionStripBuilder + shader GPU
 	if player == null:
 		push_warning("[WallOcclusion] Player missing in physics_tick")
 		return
