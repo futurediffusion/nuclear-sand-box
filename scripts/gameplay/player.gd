@@ -378,7 +378,8 @@ func _spawn_slash(angle: float) -> void:
 	get_tree().current_scene.add_child(s)
 	s.global_position = slash_spawn.global_position
 	s.global_rotation = angle + deg_to_rad(slash_visual_offset_deg)
-	_legacy_play_attack_vfx()
+	if vfx_component != null and use_vfx_component:
+		vfx_component.play_attack_vfx()
 
 func _legacy_play_attack_vfx() -> void:
 	push_error("LEGACY DESACTIVADO: usa el componente correspondiente")
