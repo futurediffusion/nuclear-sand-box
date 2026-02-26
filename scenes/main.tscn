@@ -22,17 +22,19 @@
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_gqmmt"]
 shader = ExtResource("8_0ld40")
-shader_parameter/player_pos = Vector2(0, 0)
-shader_parameter/fade_radius = 96.0
-shader_parameter/alpha_hidden = 0.35
-shader_parameter/is_behind = false
+shader_parameter/player_screen_pos = Vector2(960, 540)
+shader_parameter/fade_radius = 120.0
+shader_parameter/alpha_hidden = 0.4
+shader_parameter/is_behind = true
+shader_parameter/screen_size = Vector2(1920, 1080)
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0ld40"]
 shader = ExtResource("8_0ld40")
-shader_parameter/player_pos = Vector2(0, 0)
+shader_parameter/player_screen_pos = Vector2(960, 540)
 shader_parameter/fade_radius = 96.0
 shader_parameter/alpha_hidden = 0.35
 shader_parameter/is_behind = false
+shader_parameter/screen_size = Vector2(1920, 1080)
 
 [node name="Main" type="Node2D"]
 scale = Vector2(2.5, 2.5)
