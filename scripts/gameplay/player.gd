@@ -1,8 +1,7 @@
 class_name Player
-extends CharacterBody2D
+extends CharacterBase
 
 var DEBUG_PLAYER := OS.is_debug_build()
-const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 
 @onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
@@ -28,18 +27,11 @@ const InventoryComponentScript = preload("res://scripts/components/InventoryComp
 @export_group("Health")
 @export var max_hp: int = 3
 @export var hearts_ui: Node
-var hp: int
 
 @export_group("Attack Push")
 @export var attack_push_speed: float = 220.0
 @export var attack_push_time: float = 0.08
 @export var attack_push_deadzone: float = 15.0
-
-@export_group("Knockback")
-@export var knockback_friction: float = 2200.0
-
-@export_group("Juice")
-@export var hurt_time: float = 0.15
 
 @export_group("Weapon")
 @export var weapon_follow_speed: float = 25.0
@@ -60,11 +52,9 @@ var hp: int
 @onready var weapon_pivot: Node2D = $WeaponPivot
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
-@onready var health_component: Node = get_node_or_null("HealthComponent")
 @onready var inventory: Node = get_node_or_null("InventoryComponent")
 
 @export_group("FX")
-@export var blood_scene: PackedScene
 @export var blood_hit_amount: int = 12
 @export var blood_death_amount: int = 40
 @export var droplet_scene: PackedScene
@@ -94,10 +84,6 @@ var use_left_offset: bool = false
 var target_attack_angle: float = 0.0
 var attack_push_vel: Vector2 = Vector2.ZERO
 var attack_push_t: float = 0.0
-var knock_vel: Vector2 = Vector2.ZERO
-var hurt_t: float = 0.0
-var dying: bool = false
-
 var blocking: bool = false
 var block_angle: float = 0.0
 @export var block_stamina_drain: float = 12.0
@@ -195,20 +181,9 @@ func _find_hearts_ui_node(node: Node) -> Node:
 	return null
 
 func _setup_health_component() -> void:
-	if health_component == null:
-		health_component = HealthComponentScript.new()
-		health_component.name = "HealthComponent"
-		add_child(health_component)
-	if health_component != null:
-		health_component.max_hp = max_hp
-		health_component.hp = max_hp
-		if health_component.has_signal("damaged") and not health_component.damaged.is_connected(_on_health_damaged):
-			health_component.damaged.connect(_on_health_damaged)
-		if not health_component.died.is_connected(die):
-			health_component.died.connect(die)
-		hp = health_component.hp
-	else:
-		hp = max_hp
+	super._setup_health_component()
+	if health_component != null and health_component.has_signal("damaged") and not health_component.damaged.is_connected(_on_health_damaged):
+		health_component.damaged.connect(_on_health_damaged)
 
 func _setup_stamina_component() -> void:
 	if stamina_component == null:
@@ -305,8 +280,7 @@ func _physics_process(delta: float) -> void:
 		attack_push_t -= delta
 		velocity += attack_push_vel
 
-	velocity += knock_vel
-	knock_vel = knock_vel.move_toward(Vector2.ZERO, knockback_friction * delta)
+	_apply_knockback_step(delta)
 	_update_wall(delta)
 	move_and_slide()
 
@@ -426,53 +400,22 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 			vfx_component.play_block_vfx()
 		return
 
-	if health_component != null and health_component.has_method("take_damage"):
-		health_component.take_damage(dmg)
-		hp = health_component.hp
-	else:
-		hp -= dmg
-
+	super.take_damage(dmg, from_pos)
 	emit_signal("took_damage", dmg)
 	_update_hearts_ui()
+
+	if hp <= 0:
+		return
 
 	var hit_dir := Vector2.RIGHT.rotated(randf_range(0.0, TAU))
 	if from_pos != Vector2.INF:
 		hit_dir = (global_position - from_pos).normalized()
 
 	if use_vfx_component and vfx_component != null:
-		vfx_component.play_hit_vfx(hit_dir, hp <= 0)
-	else:
-		_spawn_blood(blood_hit_amount)
-		_spawn_droplets(droplet_count_hit, hit_dir)
-		if hp <= 0:
-			_spawn_blood(blood_death_amount)
-			_spawn_droplets(droplet_count_death, hit_dir)
-
-	if hp <= 0:
-		if health_component == null:
-			die()
-		return
-
-	play_hurt()
-	if use_vfx_component and vfx_component != null:
+		vfx_component.play_hit_vfx(hit_dir, false)
 		vfx_component.play_hit_flash()
 	else:
-		sprite.modulate = Color(1, 0.5, 0.5, 1)
-		get_tree().create_timer(0.06).timeout.connect(func():
-			if is_instance_valid(self):
-				sprite.modulate = Color(1, 1, 1, 1)
-		)
-
-func play_hurt() -> void:
-	hurt_t = hurt_time
-	sprite.play("hurt")
-	get_tree().create_timer(hurt_time).timeout.connect(func():
-		if is_instance_valid(self) and hp > 0:
-			_update_animation()
-	)
-
-func apply_knockback(force: Vector2) -> void:
-	knock_vel += force
+		_spawn_droplets(droplet_count_hit, hit_dir)
 
 func _on_health_damaged(_amount: int) -> void:
 	hp = health_component.hp if health_component != null else hp
@@ -483,34 +426,17 @@ func _update_hearts_ui() -> void:
 		hearts_ui.set("max_hearts", max_hp)
 		hearts_ui.call("set_hearts", hp)
 
-func die() -> void:
-	if dying:
-		return
-	dying = true
+func _on_before_die() -> void:
 	weapon_sprite.visible = false
 	hurt_t = 0.0
 	attacking = false
 	attack_push_t = 0.0
 	knock_vel = Vector2.ZERO
 	velocity = Vector2.ZERO
-	sprite.play("death")
-	await sprite.animation_finished
+
+func _on_after_die() -> void:
 	GameManager.player_died.emit()
 	queue_free()
-
-func _spawn_blood(amount: int) -> void:
-	if blood_scene == null:
-		return
-	var p := blood_scene.instantiate() as GPUParticles2D
-	get_tree().current_scene.add_child(p)
-	p.global_position = global_position
-	p.amount = amount
-	p.one_shot = true
-	p.emitting = true
-	get_tree().create_timer(p.lifetime + 0.1).timeout.connect(func():
-		if is_instance_valid(p):
-			p.queue_free()
-	)
 
 func _spawn_droplets(count: int, base_dir: Vector2) -> void:
 	if droplet_scene == null:

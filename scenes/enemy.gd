@@ -1,7 +1,6 @@
 class_name EnemyAI
-extends CharacterBody2D
+extends CharacterBase
 
-const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
 const AIComponentScript = preload("res://scripts/components/AIComponent.gd")
 const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 
@@ -22,22 +21,11 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 @export_group("References")
 @export var slash_scene: PackedScene
 
-@export_group("Juice")
-@export var hurt_time: float = 0.15
-
-@export_group("FX")
-@export var blood_scene: PackedScene
-@export var blood_hit_amount: int = 10
-@export var blood_death_amount: int = 30
-
 @export_group("Death Feedback")
 @export var death_shake_duration: float = 0.28
 @export var death_shake_magnitude: float = 18.0
 @export var death_sound_pitch_scale: float = 0.68
 @export var death_sound_volume_db: float = 2.0
-
-@export_group("Knockback")
-@export var knockback_friction: float = 2200.0
 
 @export_group("Ally Separation")
 @export var separation_radius: float = 40.0
@@ -47,13 +35,7 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 @onready var weapon_pivot: Node2D = $WeaponPivot
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
-@onready var health_component: Node = get_node_or_null("HealthComponent")
 @onready var ai_component: AIComponent = get_node_or_null("AIComponent") as AIComponent
-
-var hp: int
-var hurt_t: float = 0.0
-var knock_vel: Vector2 = Vector2.ZERO
-var dying: bool = false
 
 var weapon_follow_speed: float = 25.0
 var attack_snap_speed: float = 50.0
@@ -90,20 +72,6 @@ func _setup_components() -> void:
 	else:
 		push_warning("[Enemy] Missing AIComponent")
 
-func _setup_health_component() -> void:
-	if health_component == null:
-		health_component = HealthComponentScript.new()
-		health_component.name = "HealthComponent"
-		add_child(health_component)
-	if health_component != null:
-		health_component.max_hp = max_hp
-		health_component.hp = max_hp
-		if not health_component.died.is_connected(die):
-			health_component.died.connect(die)
-		hp = health_component.hp
-	else:
-		hp = max_hp
-
 func _physics_process(delta: float) -> void:
 	if hp <= 0:
 		return
@@ -118,8 +86,7 @@ func _physics_process(delta: float) -> void:
 	_update_animation()
 	_apply_separation_force(delta)
 
-	velocity += knock_vel
-	knock_vel = knock_vel.move_toward(Vector2.ZERO, knockback_friction * delta)
+	_apply_knockback_step(delta)
 	move_and_slide()
 
 func perform_attack(target_position: Vector2) -> void:
@@ -194,59 +161,24 @@ func _apply_separation_force(dt: float) -> void:
 		velocity += push_dir * separation_strength * t * dt
 
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
-	if dying:
-		return
-	if health_component != null and health_component.has_method("take_damage"):
-		health_component.take_damage(dmg)
-		hp = health_component.hp
-	else:
-		hp -= dmg
+	super.take_damage(dmg, from_pos)
 
-	Debug.log("ai", "ENEMY HP: %s" % hp)
-	_spawn_blood(blood_hit_amount)
-
-	if hp <= 0:
-		_spawn_blood(blood_death_amount)
-		if health_component == null:
-			die()
-		return
-
-	play_hurt()
-	sprite.modulate = Color(1, 0.5, 0.5, 1)
-	get_tree().create_timer(0.06).timeout.connect(func():
-		if is_instance_valid(self):
-			sprite.modulate = Color(1, 1, 1, 1)
-	)
-
-func play_hurt() -> void:
-	hurt_t = hurt_time
-	if ai_component != null:
-		ai_component.set_hurt()
-	sprite.play("hurt")
-	get_tree().create_timer(hurt_time).timeout.connect(func():
-		if is_instance_valid(self) and hp > 0:
-			_update_animation()
-	)
-
-func apply_knockback(force: Vector2) -> void:
-	knock_vel += force
-
-func die() -> void:
-	if dying:
-		return
-	dying = true
-	if ai_component != null:
-		ai_component.set_dead()
+func _on_before_die() -> void:
+	EnemyRegistry.unregister_enemy(self)
 	if GameEvents != null and GameEvents.has_method("emit_entity_died"):
 		GameEvents.emit_entity_died("", "enemy", global_position, null)
 	_play_death_sound()
 	_trigger_death_shake()
-	EnemyRegistry.unregister_enemy(self)
+	if ai_component != null:
+		ai_component.can_attack = false
+	attacking = false
+	set_physics_process(false)
 	velocity = Vector2.ZERO
 	knock_vel = Vector2.ZERO
-	set_physics_process(false)
-	sprite.play("death")
-	await sprite.animation_finished
+	if ai_component != null:
+		ai_component.set_dead()
+
+func _on_after_die() -> void:
 	queue_free()
 
 func _trigger_death_shake() -> void:
@@ -276,16 +208,3 @@ func _play_death_sound() -> void:
 	)
 	death_audio.play()
 
-func _spawn_blood(amount: int) -> void:
-	if blood_scene == null:
-		return
-	var p := blood_scene.instantiate() as GPUParticles2D
-	get_tree().current_scene.add_child(p)
-	p.global_position = global_position
-	p.amount = amount
-	p.one_shot = true
-	p.emitting = true
-	get_tree().create_timer(p.lifetime + 0.1).timeout.connect(func():
-		if is_instance_valid(p):
-			p.queue_free()
-	)

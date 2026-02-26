@@ -1,5 +1,5 @@
 class_name TavernKeeper
-extends CharacterBody2D
+extends CharacterBase
 
 # =============================================================================
 # TAVERN KEEPER NPC
@@ -41,16 +41,13 @@ var _player_ref: Node    = null
 var _tilemap: TileMap = null
 
 # --- Salud ---
-@export var max_health: int = 5
-var _health: int = max_health
-var _is_dead: bool = false
-var _is_hurt: bool = false
+@export var max_hp: int = 5
 
 var entity_uid: String = ""
 
 # =============================================================================
 func _ready() -> void:
-	_health = max_health
+	_setup_health_component()
 	add_to_group("npc")
 	add_to_group("tavern_keeper")
 
@@ -70,7 +67,9 @@ func _ready() -> void:
 # FÍSICA
 # =============================================================================
 func _physics_process(delta: float) -> void:
-	if _is_dead or _is_hurt:
+	if hurt_t > 0.0:
+		hurt_t -= delta
+	if dying or hurt_t > 0.0:
 		move_and_slide()
 		return
 	_update_state(delta)
@@ -169,7 +168,7 @@ func _on_body_exited(body: Node) -> void:
 # =============================================================================
 func _update_interact_prompt() -> void:
 	# ✅ Mostrar icono SOLO si el player está dentro del área
-	interact_icon.visible = _player_nearby and (not _is_dead)
+	interact_icon.visible = _player_nearby and (not dying)
 
 	# Girar sprite hacia el player cuando está cerca
 	if _player_nearby and _player_ref != null:
@@ -201,46 +200,28 @@ func _update_animation() -> void:
 # DAÑO Y MUERTE
 # =============================================================================
 func take_damage(amount: int, from_pos: Vector2 = Vector2.ZERO) -> void:
-	if _is_dead or _is_hurt:
-		return
-
-	_health -= amount
-
-	# (Opcional) mirar hacia donde vino el golpe
 	if from_pos != Vector2.ZERO:
 		sprite.flip_h = from_pos.x > global_position.x
+	super.take_damage(amount, Vector2.INF if from_pos == Vector2.ZERO else from_pos)
 
-	if _health <= 0:
-		die()
-		return
-
-	# Reproducir hurt y volver a idle al terminar
-	_is_hurt = true
+func play_hurt() -> void:
+	hurt_t = hurt_time
 	velocity = Vector2.ZERO
 	interact_icon.visible = false
-
 	sprite.play("hurt")
 	await sprite.animation_finished
+	hurt_t = 0.0
 
-	_is_hurt = false
-
-func die() -> void:
-	if _is_dead:
-		return
-	_is_dead = true
-
+func _on_before_die() -> void:
 	velocity = Vector2.ZERO
 	interact_icon.visible = false
-
-	# Deshabilitar colisiones para que no bloquee al player
 	set_collision_layer_value(1, false)
 	set_collision_mask_value(1, false)
 	if detection_area:
 		detection_area.monitoring  = false
 		detection_area.monitorable = false
 
-	sprite.play("death")
-	await sprite.animation_finished
+func _on_after_die() -> void:
 	queue_free()
 
 
