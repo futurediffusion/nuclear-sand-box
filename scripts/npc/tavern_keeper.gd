@@ -1,6 +1,8 @@
 class_name TavernKeeper
 extends "res://scripts/CharacterBase.gd"
 
+const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
+
 # =============================================================================
 # TAVERN KEEPER NPC
 # Deambula dentro de la taberna, detecta al player y muestra prompt de interacción.
@@ -37,6 +39,7 @@ var _wander_timer: float = 0.0
 var _wander_wait: float  = 0.0
 var _player_nearby: bool = false
 var _player_ref: Node    = null
+var _shop_inv: InventoryComponent = null
 
 # Referencia al tilemap para convertir tiles → world (se asigna desde world.gd)
 var _tilemap: TileMap = null
@@ -62,6 +65,15 @@ func _ready() -> void:
 	if detection_area:
 		detection_area.body_entered.connect(_on_body_entered)
 		detection_area.body_exited.connect(_on_body_exited)
+
+	# inventario del vendedor (demo)
+	if _shop_inv == null:
+		_shop_inv = InventoryComponentScript.new()
+		_shop_inv.name = "ShopInventory"
+		add_child(_shop_inv)
+
+		# stock demo
+		_shop_inv.add_item("copper", shop_copper_stock)
 
 # =============================================================================
 # FÍSICA
@@ -185,15 +197,27 @@ func _open_shop() -> void:
 		push_warning("[SHOP] No encuentro UI/KeeperMenuUi")
 		return
 
-	# UN SOLO LLAMADO. Nada de abrir después.
-	if ui.has_method("toggle_with_copper"):
-		ui.call("toggle_with_copper", shop_copper_stock)
-	elif ui.has_method("open_with_copper"):
-		# fallback si no existe toggle
-		if ui.visible:
-			ui.call("close")
-		else:
-			ui.call("open_with_copper", shop_copper_stock)
+	if _player_ref == null:
+		return
+
+	# inventario del player (Player crea InventoryComponent en runtime)
+	var player_inv: InventoryComponent = _player_ref.get_node_or_null("InventoryComponent") as InventoryComponent
+	if player_inv == null and _player_ref.has_method("get_inventory"):
+		player_inv = _player_ref.call("get_inventory") as InventoryComponent
+
+	if player_inv == null:
+		push_warning("[SHOP] No encuentro InventoryComponent en el Player")
+		return
+
+	if _shop_inv == null:
+		push_warning("[SHOP] Shop inventory no inicializado")
+		return
+
+	# ESTE es el llamado correcto en dev
+	if ui.has_method("toggle"):
+		ui.call("toggle", player_inv, _shop_inv)
+	else:
+		push_warning("[SHOP] KeeperMenuUi no tiene método toggle(player_inv, shop_inv)")
 
 
 
