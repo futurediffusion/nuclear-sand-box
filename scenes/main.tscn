@@ -63,6 +63,7 @@ droplet_speed_min = 80.0
 droplet_speed_max = 140.0
 
 [node name="MouseCursor" parent="." instance=ExtResource("2_0wfyh")]
+z_index = 10
 scale = Vector2(1.5, 1.5)
 
 [node name="UI" type="CanvasLayer" parent="."]

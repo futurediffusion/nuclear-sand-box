@@ -30,6 +30,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="ContentArea" type="Control" parent="Root/Panel"]
+z_index = 3
 clip_contents = true
 anchors_preset = 0
 offset_left = 49.0
@@ -38,10 +39,13 @@ offset_right = 466.0
 offset_bottom = 210.0
 
 [node name="ShopGrid" type="GridContainer" parent="Root/Panel/ContentArea"]
+z_index = 3
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_right = 292.0
+offset_bottom = 154.0
 grow_horizontal = 2
 grow_vertical = 2
 columns = 10
