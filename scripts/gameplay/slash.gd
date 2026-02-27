@@ -51,6 +51,9 @@ func _ready() -> void:
 		combat_CharacterHitbox.damage = damage
 		combat_CharacterHitbox.knockback_force = knockback_strength
 		combat_CharacterHitbox.activate()
+		combat_CharacterHitbox.hit_landed.connect(func(hurtbox):
+			_try_damage(hurtbox.get_parent())
+		)
 	else:
 		# Fallback legado
 		hitbox.body_entered.connect(_on_body_entered)
