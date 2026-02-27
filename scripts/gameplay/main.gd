@@ -6,7 +6,7 @@ extends Node2D
 
 @onready var game_over_panel: Control = $UI/GameOverPanel
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
-@onready var inv_ui: InventoryUI = $UI/InventoryUI
+@onready var inv_ui = $UI/InventoryUI
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
 	_ensure_world_data()

@@ -14,7 +14,7 @@ var _slots: Array[InventorySlot] = []
 var inventory_ref: InventoryComponent = null
 var owner_actor: Node = null
 @onready var _events := get_node_or_null("/root/GameEvents")
-
+@onready var panel: InventoryPanel = $Root/InventoryPanel
 func _ready() -> void:
 	Debug.log("boot", "InventoryUI ready begin")
 	print("[InventoryUI] _ready() OK. node=", name)

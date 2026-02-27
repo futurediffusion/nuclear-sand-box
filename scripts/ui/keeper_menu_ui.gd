@@ -1,49 +1,86 @@
 extends CanvasLayer
 
-@export var slot_scene: PackedScene
-@export var copper_icon: Texture2D
-@export var columns: int = 10
-@export var rows: int = 3
+@onready var player_panel: InventoryPanel = $Root/Panel/PlayerPanel
+@onready var shop_panel: InventoryPanel = $Root/Panel/ShopPanel
 
-@onready var shop_grid: GridContainer = $Root/Panel/ContentArea/ShopGrid
+var _player_inv: InventoryComponent = null
+var _shop_inv: InventoryComponent = null
+
+# Para test rápido: cantidad a mover por click (1 unidad)
+@export var transfer_amount: int = 1
 
 func _ready() -> void:
 	visible = false
 
-	shop_grid.columns = columns
-	shop_grid.add_theme_constant_override("h_separation", 0)
-	shop_grid.add_theme_constant_override("v_separation", 0)
-
-func open_with_copper(stock: int) -> void:
+func open(player_inv: InventoryComponent, shop_inv: InventoryComponent) -> void:
+	_player_inv = player_inv
+	_shop_inv = shop_inv
 	visible = true
-	_fill_with_copper(stock)
+
+	# Conecta inventarios a panels
+	player_panel.set_inventory(_player_inv)
+	shop_panel.set_inventory(_shop_inv)
+
+	# Conecta clicks una sola vez
+	if not player_panel.slot_clicked.is_connected(_on_player_slot_clicked):
+		player_panel.slot_clicked.connect(_on_player_slot_clicked)
+
+	if not shop_panel.slot_clicked.is_connected(_on_shop_slot_clicked):
+		shop_panel.slot_clicked.connect(_on_shop_slot_clicked)
 
 func close() -> void:
 	visible = false
 
-func toggle_with_copper(stock: int) -> void:
+func toggle(player_inv: InventoryComponent, shop_inv: InventoryComponent) -> void:
 	if visible:
 		close()
 	else:
-		open_with_copper(stock)
+		open(player_inv, shop_inv)
 
-func _fill_with_copper(stock: int) -> void:
-	for c in shop_grid.get_children():
-		c.queue_free()
+# -------------------------
+# Click handlers (ESTO es lo que te faltaba)
+# -------------------------
+func _on_player_slot_clicked(slot_index: int, button: int) -> void:
+	# VENDER: player -> shop con click izquierdo
+	if button != MOUSE_BUTTON_LEFT:
+		return
+	_transfer_from_to(_player_inv, _shop_inv, slot_index, transfer_amount)
 
-	var total_slots: int = columns * rows
-	var fill_count: int = mini(stock, total_slots)
+func _on_shop_slot_clicked(slot_index: int, button: int) -> void:
+	# COMPRAR: shop -> player con click izquierdo
+	if button != MOUSE_BUTTON_LEFT:
+		return
+	_transfer_from_to(_shop_inv, _player_inv, slot_index, transfer_amount)
 
-	for i in range(total_slots):
-		var slot = slot_scene.instantiate()
-		shop_grid.add_child(slot)
+# -------------------------
+# Transfer core (usa tu API real)
+# -------------------------
+func _transfer_from_to(from_inv: InventoryComponent, to_inv: InventoryComponent, from_slot_index: int, amount: int) -> void:
+	if from_inv == null or to_inv == null:
+		return
 
-		if slot is Control:
-			(slot as Control).custom_minimum_size = Vector2(32, 32)
+	# slot data: null o {"id": String, "count": int}
+	if from_slot_index < 0 or from_slot_index >= from_inv.max_slots:
+		return
 
-		if i < fill_count:
-			if slot.has_method("set_item"):
-				slot.call("set_item", 1, copper_icon)
-		else:
-			if slot.has_method("set_empty"):
-				slot.call("set_empty")
+	var s = from_inv.slots[from_slot_index]
+	if s == null:
+		return
+
+	var item_id: String = String(s["id"])
+	if item_id == "":
+		return
+
+	var have: int = int(s["count"])
+	if have <= 0:
+		return
+
+	var to_move: int = mini(amount, have)
+
+	# 1) intenta meter en destino
+	var inserted: int = to_inv.add_item(item_id, to_move)
+	if inserted <= 0:
+		return
+
+	# 2) quita del origen lo que realmente se insertó
+	from_inv.remove_item(item_id, inserted)

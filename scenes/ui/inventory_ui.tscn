@@ -1,13 +1,13 @@
-[gd_scene load_steps=5 format=3 uid="uid://bnjqx3y8aanh"]
+[gd_scene load_steps=6 format=3 uid="uid://bnjqx3y8aanh"]
 
 [ext_resource type="Script" uid="uid://rdirvgrfektm" path="res://scripts/ui/inventory_ui.gd" id="1_4ycse"]
 [ext_resource type="Texture2D" uid="uid://b84mi2eyoo4ie" path="res://art/ui/inventory.png" id="1_7nagc"]
 [ext_resource type="PackedScene" uid="uid://cq80ijwn6016r" path="res://scenes/ui/inventory_slot.tscn" id="2_nuief"]
 [ext_resource type="Texture2D" uid="uid://dkklhq7rc6nvq" path="res://art/props/copper/copperore.png" id="3_bsps8"]
+[ext_resource type="PackedScene" uid="uid://narh24whivs7" path="res://scenes/ui/inventory_panel.tscn" id="5_bsps8"]
 
 [node name="InventoryUI" type="CanvasLayer" groups=["inventory_ui"]]
 script = ExtResource("1_4ycse")
-grid_path = NodePath("Root/Grid")
 slot_scene = ExtResource("2_nuief")
 copper_icon = ExtResource("3_bsps8")
 
@@ -27,11 +27,4 @@ offset_right = 1749.0
 offset_bottom = 1051.0
 texture = ExtResource("1_7nagc")
 
-[node name="Grid" type="GridContainer" parent="Root"]
-layout_mode = 1
-offset_left = 523.81
-offset_top = 292.36
-offset_right = 1390.15
-offset_bottom = 745.705
-scale = Vector2(1.3, 1.18)
-columns = 5
+[node name="InventoryUI" parent="Root" instance=ExtResource("5_bsps8")]

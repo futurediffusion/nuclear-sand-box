@@ -1,0 +1,28 @@
+[gd_scene load_steps=3 format=3 uid="uid://narh24whivs7"]
+
+[ext_resource type="Script" uid="uid://y81ejj45tppj" path="res://scripts/ui/inventory_panel.gd" id="1_17uwj"]
+[ext_resource type="PackedScene" uid="uid://bvhu6jov16yyb" path="res://scenes/ui/shop_slot.tscn" id="2_17uwj"]
+
+[node name="InventoryUI" type="Control" groups=["inventory_ui"]]
+layout_mode = 3
+anchors_preset = 0
+script = ExtResource("1_17uwj")
+grid_path = NodePath("Root/Grid")
+slot_scene = ExtResource("2_17uwj")
+
+[node name="Root" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Grid" type="GridContainer" parent="Root"]
+layout_mode = 1
+offset_left = 523.81
+offset_top = 292.36
+offset_right = 1390.15
+offset_bottom = 745.705
+scale = Vector2(1.3, 1.18)
+columns = 5
