@@ -2,14 +2,14 @@ extends Node
 class_name CombatComponent
 
 var player: Player = null
-@onready var hitbox: Hitbox = get_node_or_null("Hitbox") as Hitbox
+@onready var CharacterHitbox: CharacterHitbox = get_node_or_null("CharacterHitbox") as CharacterHitbox
 
 func setup(p_player: Player) -> void:
 	player = p_player
-	if hitbox == null and player != null:
-		hitbox = player.get_node_or_null("Hitbox") as Hitbox
-	if hitbox != null:
-		hitbox.deactivate()
+	if CharacterHitbox == null and player != null:
+		CharacterHitbox = player.get_node_or_null("CharacterHitbox") as CharacterHitbox
+	if CharacterHitbox != null:
+		CharacterHitbox.deactivate()
 
 func tick(delta: float) -> void:
 	if player == null:
@@ -26,15 +26,15 @@ func tick(delta: float) -> void:
 		_try_attack_push()
 		player.attacking = true
 		player.attack_t = 0.0
-		if hitbox != null:
-			hitbox.activate()
+		if CharacterHitbox != null:
+			CharacterHitbox.activate()
 
 	if player.attacking:
 		player.attack_t += delta
 		if player.attack_t >= player.attack_duration:
 			player.attacking = false
-			if hitbox != null:
-				hitbox.deactivate()
+			if CharacterHitbox != null:
+				CharacterHitbox.deactivate()
 
 func request_attack() -> void:
 	if player == null:

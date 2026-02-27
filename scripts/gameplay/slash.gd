@@ -2,10 +2,10 @@ extends Node2D
 
 @export var knockback_strength: float = 120.0
 @export var damage: int = 1
-@export var hitbox_active_time: float = 0.10
+@export var CharacterHitbox_active_time: float = 0.10
 
 @onready var anim: AnimatedSprite2D = $Anim
-@onready var hitbox: Area2D = $Hitbox
+@onready var CharacterHitbox: Area2D = $CharacterHitbox
 @onready var sfx: AudioStreamPlayer2D = $Sfx
 @onready var impact_sound: AudioStreamPlayer2D = $ImpactSound
 
@@ -25,9 +25,9 @@ func setup(team: StringName, owner: Node) -> void:
 	owner_team = team
 	owner_node = owner
 
-func _get_combat_hitbox() -> Hitbox:
-	if hitbox is Hitbox:
-		return hitbox as Hitbox
+func _get_combat_CharacterHitbox() -> CharacterHitbox:
+	if CharacterHitbox is CharacterHitbox:
+		return CharacterHitbox as CharacterHitbox
 	return null
 
 func _ready() -> void:
@@ -38,43 +38,43 @@ func _ready() -> void:
 	
 	_configure_mask()
 	
-	var combat_hitbox := _get_combat_hitbox()
-	if combat_hitbox != null:
-		combat_hitbox.damage = damage
-		combat_hitbox.knockback_force = knockback_strength
-		combat_hitbox.activate()
+	var combat_CharacterHitbox := _get_combat_CharacterHitbox()
+	if combat_CharacterHitbox != null:
+		combat_CharacterHitbox.damage = damage
+		combat_CharacterHitbox.knockback_force = knockback_strength
+		combat_CharacterHitbox.activate()
 	else:
 		# Fallback legado
-		hitbox.body_entered.connect(_on_body_entered)
-		hitbox.area_entered.connect(_on_area_entered)
-		_set_hitbox_enabled(true)
+		CharacterHitbox.body_entered.connect(_on_body_entered)
+		CharacterHitbox.area_entered.connect(_on_area_entered)
+		_set_CharacterHitbox_enabled(true)
 
-	# Apagar hitbox rápido
-	get_tree().create_timer(hitbox_active_time).timeout.connect(func():
-		if combat_hitbox != null:
-			combat_hitbox.deactivate()
+	# Apagar CharacterHitbox rápido
+	get_tree().create_timer(CharacterHitbox_active_time).timeout.connect(func():
+		if combat_CharacterHitbox != null:
+			combat_CharacterHitbox.deactivate()
 		else:
-			_set_hitbox_enabled(false)
+			_set_CharacterHitbox_enabled(false)
 	)
 	
 	# Animación y borrado final visual
 	anim.play("slash")
 	anim.animation_finished.connect(_on_anim_finished)
 
-func _set_hitbox_enabled(enabled: bool) -> void:
-	hitbox.monitoring = enabled
-	hitbox.monitorable = enabled
-	var shape := hitbox.get_node_or_null("CollisionShape2D") as CollisionShape2D
+func _set_CharacterHitbox_enabled(enabled: bool) -> void:
+	CharacterHitbox.monitoring = enabled
+	CharacterHitbox.monitorable = enabled
+	var shape := CharacterHitbox.get_node_or_null("CollisionShape2D") as CollisionShape2D
 	if shape:
 		shape.disabled = not enabled
 
 func _configure_mask() -> void:
 	if owner_team == &"player":
 		# Enemy (3) + Resources (4)
-		hitbox.collision_mask = (1 << (3 - 1)) | (1 << (4 - 1))
+		CharacterHitbox.collision_mask = (1 << (3 - 1)) | (1 << (4 - 1))
 	else:
 		# Player (1)
-		hitbox.collision_mask = 1 << (1 - 1)
+		CharacterHitbox.collision_mask = 1 << (1 - 1)
 
 func _on_anim_finished() -> void:
 	queue_free()
