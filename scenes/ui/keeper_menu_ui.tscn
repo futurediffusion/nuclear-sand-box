@@ -4,7 +4,7 @@
 [ext_resource type="Texture2D" uid="uid://dislcsu0gwbgq" path="res://art/ui/shopkeeper.png" id="1_yf6ja"]
 [ext_resource type="PackedScene" uid="uid://cq80ijwn6016r" path="res://scenes/ui/inventory_slot.tscn" id="2_csclr"]
 [ext_resource type="PackedScene" uid="uid://narh24whivs7" path="res://scenes/ui/inventory_panel.tscn" id="4_3f82k"]
-[ext_resource type="PackedScene" uid="uid://bvhu6jov16yyb" path="res://scenes/ui/shop_slot.tscn" id="4_plncm"]
+[ext_resource type="Texture2D" uid="uid://b84mi2eyoo4ie" path="res://art/ui/inventory.png" id="4_plncm"]
 
 [node name="KeeperMenuUi" type="CanvasLayer"]
 script = ExtResource("1_7r67s")
@@ -32,28 +32,33 @@ grow_vertical = 2
 z_index = 3
 clip_contents = true
 anchors_preset = 0
-offset_left = 49.0
-offset_top = 42.0
-offset_right = 466.0
-offset_bottom = 210.0
+offset_left = -66.0
+offset_top = -10.0
+offset_right = 649.0
+offset_bottom = 284.0
 
 [node name="Layout" type="HBoxContainer" parent="Root/Panel/ContentArea"]
 layout_mode = 0
-offset_right = 40.0
-offset_bottom = 40.0
+offset_right = 519.0
+offset_bottom = 256.0
 
-[node name="Playerboc" type="Control" parent="Root/Panel/ContentArea/Layout"]
+[node name="Playerbox" type="Control" parent="Root/Panel/ContentArea/Layout"]
 layout_mode = 2
 
-[node name="PlayerInventoryPanel" parent="Root/Panel/ContentArea/Layout/Playerboc" instance=ExtResource("4_3f82k")]
+[node name="PlayerInventoryPanel" parent="Root/Panel/ContentArea/Layout/Playerbox" instance=ExtResource("4_3f82k")]
 layout_mode = 2
 slot_scene = ExtResource("2_csclr")
 columns = 10
 
-[node name="PlayerFrame" type="TextureRect" parent="Root/Panel/ContentArea/Layout/Playerboc"]
+[node name="PlayerFrame" type="TextureRect" parent="Root/Panel/ContentArea/Layout/Playerbox"]
 layout_mode = 0
-offset_right = 40.0
-offset_bottom = 40.0
+offset_left = -72.31
+offset_top = -2.095
+offset_right = 249.525
+offset_bottom = 212.18
+scale = Vector2(1.375, 1.375)
+texture = ExtResource("4_plncm")
+expand_mode = 2
 
 [node name="KeeperBox" type="Control" parent="Root/Panel/ContentArea/Layout"]
 custom_minimum_size = Vector2(515.93, 256)
@@ -61,19 +66,19 @@ layout_mode = 2
 
 [node name="KeeperInventoryPanel" parent="Root/Panel/ContentArea/Layout/KeeperBox" instance=ExtResource("4_3f82k")]
 layout_mode = 2
-slot_scene = ExtResource("4_plncm")
 
 [node name="KeeperFrame" type="TextureRect" parent="Root/Panel/ContentArea/Layout/KeeperBox"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 49.197
-offset_top = -4.3864
-offset_right = 49.197
-offset_bottom = -4.3864
+offset_left = 293.695
+offset_top = 40.865
+offset_right = -104.235
+offset_bottom = -143.135
 grow_horizontal = 2
 grow_vertical = 2
+scale = Vector2(2.9, 2.9)
 mouse_filter = 2
 texture = ExtResource("1_yf6ja")
-stretch_mode = 2
+expand_mode = 1

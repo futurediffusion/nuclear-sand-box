@@ -1,10 +1,13 @@
 extends CanvasLayer
 
-@onready var player_panel: InventoryPanel = $Root/Panel/ContentArea/Layout/Playerboc/PlayerInventoryPanel
-@onready var shop_panel: InventoryPanel = $Root/Panel/ContentArea/Layout/KeeperBox/KeeperInventoryPanel
+@export var player_panel_path: NodePath
+@export var shop_panel_path: NodePath
 
-var _player_inv: InventoryComponent = null
-var _shop_inv: InventoryComponent = null
+@onready var player_panel: InventoryPanel = get_node(player_panel_path) as InventoryPanel
+@onready var shop_panel: InventoryPanel = get_node(shop_panel_path) as InventoryPanel
+var _player_inv: InventoryComponent
+var _shop_inv: InventoryComponent
+
 
 # Para test rápido: cantidad a mover por click (1 unidad)
 @export var transfer_amount: int = 1
@@ -17,14 +20,15 @@ func open(player_inv: InventoryComponent, shop_inv: InventoryComponent) -> void:
 	_shop_inv = shop_inv
 	visible = true
 
-	# Conecta inventarios a panels
+	if player_panel == null or shop_panel == null:
+		push_error("[KeeperMenuUi] player_panel/shop_panel es null. Revisa los NodePath exportados.")
+		return
+
 	player_panel.set_inventory(_player_inv)
 	shop_panel.set_inventory(_shop_inv)
 
-	# Conecta clicks una sola vez
 	if not player_panel.slot_clicked.is_connected(_on_player_slot_clicked):
 		player_panel.slot_clicked.connect(_on_player_slot_clicked)
-
 	if not shop_panel.slot_clicked.is_connected(_on_shop_slot_clicked):
 		shop_panel.slot_clicked.connect(_on_shop_slot_clicked)
 
