@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=22 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
@@ -19,6 +19,7 @@
 [ext_resource type="PackedScene" uid="uid://x4mnfcrurq20" path="res://scenes/copper_ore.tscn" id="13_trceg"]
 [ext_resource type="TileSet" uid="uid://cw5iyp3lgbpre" path="res://art/tiles/terrain.tres" id="14_a8y0u"]
 [ext_resource type="PackedScene" uid="uid://bnjqx3y8aanh" path="res://scenes/ui/inventory_ui.tscn" id="17_muem4"]
+[ext_resource type="PackedScene" uid="uid://bvbn22t6ckpau" path="res://scenes/ui/keeper_menu_ui.tscn" id="20_gqmmt"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0ld40"]
 shader = ExtResource("8_0ld40")
@@ -157,3 +158,6 @@ scale = Vector2(0.435, 0.435)
 transform = Transform2D(0.435, 0, 0, 0.435, -103.985, -26.945)
 owner_actor_path = NodePath("../../Player")
 inventory_path = NodePath("../../Player/InventoryComponent")
+
+[node name="KeeperMenuUi" parent="UI" instance=ExtResource("20_gqmmt")]
+visible = false

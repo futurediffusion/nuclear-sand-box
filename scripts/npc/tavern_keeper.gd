@@ -24,6 +24,7 @@ extends "res://scripts/CharacterBase.gd"
 @onready var sprite: AnimatedSprite2D        = $AnimatedSprite2D
 @onready var interact_icon: Sprite2D = $InteractIcon
 @onready var detection_area: Area2D          = $DetectionArea
+@export var shop_copper_stock: int = 30
 
 # =============================================================================
 # ESTADO INTERNO
@@ -179,8 +180,21 @@ func _update_interact_prompt() -> void:
 		_open_shop()
 
 func _open_shop() -> void:
-	# TODO: abrir UI de compra/venta
-	print("[SHOP] Keeper: abriendo tienda (pendiente UI)")
+	var ui := get_tree().current_scene.get_node_or_null("UI/KeeperMenuUi")
+	if ui == null:
+		push_warning("[SHOP] No encuentro UI/KeeperMenuUi")
+		return
+
+	# UN SOLO LLAMADO. Nada de abrir después.
+	if ui.has_method("toggle_with_copper"):
+		ui.call("toggle_with_copper", shop_copper_stock)
+	elif ui.has_method("open_with_copper"):
+		# fallback si no existe toggle
+		if ui.visible:
+			ui.call("close")
+		else:
+			ui.call("open_with_copper", shop_copper_stock)
+
 
 
 # =============================================================================
