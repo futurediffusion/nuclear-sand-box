@@ -62,10 +62,6 @@ splat_scene = ExtResource("9_dp3eg")
 droplet_speed_min = 80.0
 droplet_speed_max = 140.0
 
-[node name="MouseCursor" parent="." instance=ExtResource("2_0wfyh")]
-z_index = 10
-scale = Vector2(1.5, 1.5)
-
 [node name="UI" type="CanvasLayer" parent="."]
 process_mode = 2
 offset = Vector2(300, 100)
@@ -162,3 +158,10 @@ inventory_path = NodePath("../../Player/InventoryComponent")
 
 [node name="KeeperMenuUi" parent="UI" instance=ExtResource("20_gqmmt")]
 visible = false
+
+[node name="CursorLayer" type="CanvasLayer" parent="."]
+layer = 100
+
+[node name="MouseCursor" parent="CursorLayer" instance=ExtResource("2_0wfyh")]
+z_index = 50
+scale = Vector2(3.75, 3.75)
