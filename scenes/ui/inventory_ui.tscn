@@ -24,3 +24,15 @@ offset_bottom = 1051.0
 texture = ExtResource("1_7nagc")
 
 [node name="InventoryUI" parent="Root" instance=ExtResource("5_bsps8")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 528.0
+offset_top = 236.0
+offset_right = -852.0
+offset_bottom = -557.0
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(1.53, 1.53)
+pivot_offset = Vector2(-74.6, -120.18)

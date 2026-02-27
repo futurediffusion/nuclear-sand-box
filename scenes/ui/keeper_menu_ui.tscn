@@ -1,8 +1,7 @@
-[gd_scene load_steps=6 format=3 uid="uid://bvbn22t6ckpau"]
+[gd_scene load_steps=5 format=3 uid="uid://bvbn22t6ckpau"]
 
 [ext_resource type="Script" uid="uid://dotu2xiewtfpl" path="res://scripts/ui/keeper_menu_ui.gd" id="1_7r67s"]
 [ext_resource type="Texture2D" uid="uid://dislcsu0gwbgq" path="res://art/ui/shopkeeper.png" id="1_yf6ja"]
-[ext_resource type="PackedScene" uid="uid://cq80ijwn6016r" path="res://scenes/ui/inventory_slot.tscn" id="2_csclr"]
 [ext_resource type="PackedScene" uid="uid://narh24whivs7" path="res://scenes/ui/inventory_panel.tscn" id="4_3f82k"]
 [ext_resource type="Texture2D" uid="uid://b84mi2eyoo4ie" path="res://art/ui/inventory.png" id="4_plncm"]
 
@@ -47,7 +46,6 @@ layout_mode = 2
 
 [node name="PlayerInventoryPanel" parent="Root/Panel/ContentArea/Layout/Playerbox" instance=ExtResource("4_3f82k")]
 layout_mode = 2
-slot_scene = ExtResource("2_csclr")
 columns = 10
 
 [node name="PlayerFrame" type="TextureRect" parent="Root/Panel/ContentArea/Layout/Playerbox"]
