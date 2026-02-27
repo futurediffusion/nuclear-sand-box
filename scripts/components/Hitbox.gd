@@ -24,10 +24,10 @@ func _on_area_entered(area: Area2D) -> void:
 	if not (area is CharacterHurtbox):
 		return
 
-	var CharacterHurtbox := area as CharacterHurtbox
-	if hit_once and _hit_bodies.has(CharacterHurtbox):
+	var hurtbox := area as CharacterHurtbox
+	if hit_once and _hit_bodies.has(hurtbox):
 		return
 
-	_hit_bodies.append(CharacterHurtbox)
-	hit_landed.emit(CharacterHurtbox)
-	CharacterHurtbox.receive_hit(damage, knockback_force, global_position)
+	_hit_bodies.append(hurtbox)
+	hit_landed.emit(hurtbox)
+	hurtbox.receive_hit(damage, knockback_force, global_position)
