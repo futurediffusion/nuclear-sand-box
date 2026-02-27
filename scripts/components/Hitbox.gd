@@ -1,5 +1,5 @@
 extends Area2D
-class_name Hitbox
+class_name CharacterHitbox
 
 @export var damage: int = 1
 @export var knockback_force: float = 300.0

@@ -35,7 +35,7 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
 @onready var ai_component: AIComponent = get_node_or_null("AIComponent") as AIComponent
-@onready var hurtbox: Hurtbox = get_node_or_null("Hurtbox") as Hurtbox
+@onready var hurtbox: CharacterHurtbox = get_node_or_null("Hurtbox") as CharacterHurtbox
 
 var weapon_follow_speed: float = 25.0
 var attack_snap_speed: float = 50.0
