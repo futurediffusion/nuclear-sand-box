@@ -5,7 +5,7 @@ extends Node2D
 @export var CharacterHitbox_active_time: float = 0.10
 
 @onready var anim: AnimatedSprite2D = $Anim
-@onready var hitbox: Area2D = $CharacterHitbox
+var hitbox: CharacterHitbox = null
 @onready var sfx: AudioStreamPlayer2D = $Sfx
 @onready var impact_sound: AudioStreamPlayer2D = $ImpactSound
 
@@ -31,6 +31,14 @@ func _get_combat_CharacterHitbox() -> CharacterHitbox:
 	return null
 
 func _ready() -> void:
+	hitbox = get_node_or_null("Hitbox") as CharacterHitbox
+	if hitbox == null:
+		push_warning("Slash: no Hitbox node found")
+		return
+
+	if hitbox.has_method("setup"):
+		hitbox.setup(owner_team, owner_node)
+
 	# SFX arma
 	if sfx and sfx.stream:
 		sfx.pitch_scale = randf_range(pitch_min, pitch_max)
@@ -69,6 +77,9 @@ func _set_CharacterHitbox_enabled(enabled: bool) -> void:
 		shape.disabled = not enabled
 
 func _configure_mask() -> void:
+	if hitbox == null:
+		return
+
 	if owner_team == &"player":
 		# Enemy (3) + Resources (4)
 		hitbox.collision_mask = (1 << (3 - 1)) | (1 << (4 - 1))
