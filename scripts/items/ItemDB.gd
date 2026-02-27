@@ -42,6 +42,30 @@ func get_max_stack(id: String, fallback: int) -> int:
 		return fallback
 	return maxi(1, data.max_stack)
 
+func get_icon(id: String) -> Texture2D:
+	var data := get_item(id)
+	if data == null:
+		return null
+	return data.icon
+
+func get_buy_price(id: String, fallback: int = 0) -> int:
+	var data := get_item(id)
+	if data == null:
+		return fallback
+	return data.buy_price
+
+func get_sell_price(id: String, fallback: int = 0) -> int:
+	var data := get_item(id)
+	if data == null:
+		return fallback
+	return data.sell_price
+
+func get_display_name(id: String, fallback: String = "") -> String:
+	var data := get_item(id)
+	if data == null:
+		return fallback
+	return data.display_name
+
 func _auto_register_from_folder(path: String) -> void:
 	var dir := DirAccess.open(path)
 	if dir == null:
