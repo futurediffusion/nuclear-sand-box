@@ -12,8 +12,6 @@ signal slot_clicked(slot_index: int, button: int)
 # tamaño visual del tile
 @export var tile_size: Vector2 = Vector2(32, 32)
 
-# PARCHE RÁPIDO: icono para cobre (así vuelve a salir en Inspector)
-@export var copper_icon: Texture2D
 
 @onready var _grid: GridContainer = get_node(grid_path) as GridContainer
 
@@ -116,8 +114,12 @@ func _refresh() -> void:
 			_set_slot_empty(ui_slot)
 			continue
 
-		var tex: Texture2D = _resolve_icon(item_id)
-		_set_slot_item(ui_slot, tex, count)
+		var item_db := get_node_or_null("/root/ItemDB")
+		var icon: Texture2D = null
+		if item_db != null and item_db.has_method("get_icon"):
+			icon = item_db.call("get_icon", item_id) as Texture2D
+
+		_set_slot_item(ui_slot, icon, count)
 
 func _set_all_empty() -> void:
 	for s in _slots_nodes:
@@ -160,22 +162,3 @@ func _set_slot_item(slot: Node, icon: Texture2D, count: int) -> void:
 	if label_node is Label:
 		(label_node as Label).text = str(count) if count > 1 else ""
 		(label_node as Label).visible = count > 1
-
-func _resolve_icon(item_id: String) -> Texture2D:
-	# parche rápido: cobre por export (esto es lo que querías)
-	if item_id == "copper":
-		return copper_icon
-
-	# si tienes ItemDB con iconos, úsalo
-	var item_db := get_node_or_null("/root/ItemDB")
-	if item_db != null:
-		if item_db.has_method("get_icon"):
-			return item_db.call("get_icon", item_id)
-		if item_db.has_method("get_item_icon"):
-			return item_db.call("get_item_icon", item_id)
-		if item_db.has_method("get_texture"):
-			return item_db.call("get_texture", item_id)
-		if item_db.has_method("get_item_texture"):
-			return item_db.call("get_item_texture", item_id)
-
-	return null
