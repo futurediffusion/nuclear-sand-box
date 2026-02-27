@@ -90,6 +90,7 @@ var block_angle: float = 0.0
 @export var block_wiggle_hz: float = 6.0
 var block_wiggle_t: float = 0.0
 
+
 signal stamina_changed(stamina: float, max_stamina: float)
 signal request_attack
 signal took_damage(amount: int)
@@ -109,7 +110,7 @@ func _ready() -> void:
 	sprite.z_index = 2
 	weapon_pivot.z_index = 2
 	weapon_sprite.z_index = 2
-
+	
 	_setup_components()
 	_configure_collision_mode()
 	_resolve_hearts_ui()
@@ -125,7 +126,10 @@ func _ready() -> void:
 	if inventory != null and DEBUG_PLAYER:
 		inventory.debug_print()
 	Debug.log("boot", "Player ready end")
-
+	var db := get_node("/root/ItemDB")
+	print("ItemDB=", db)
+	print("Copper item=", db.get_item("copper"))
+	print("Copper icon=", db.get_icon("copper"))
 
 func _setup_components() -> void:
 	if movement_component != null:
