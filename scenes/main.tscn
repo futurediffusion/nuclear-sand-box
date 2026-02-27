@@ -64,8 +64,6 @@ droplet_speed_max = 140.0
 
 [node name="UI" type="CanvasLayer" parent="."]
 process_mode = 2
-offset = Vector2(300, 100)
-transform = Transform2D(1, 0, 0, 1, 300, 100)
 
 [node name="HUD" type="Control" parent="UI"]
 layout_mode = 3

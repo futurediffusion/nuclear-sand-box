@@ -1,7 +1,7 @@
 extends CanvasLayer
 
-@onready var player_panel: InventoryPanel = $Root/Panel/PlayerPanel
-@onready var shop_panel: InventoryPanel = $Root/Panel/ShopPanel
+@onready var player_panel: InventoryPanel = $Root/Panel/ContentArea/Layout/Playerboc/PlayerInventoryPanel
+@onready var shop_panel: InventoryPanel = $Root/Panel/ContentArea/Layout/KeeperBox/KeeperInventoryPanel
 
 var _player_inv: InventoryComponent = null
 var _shop_inv: InventoryComponent = null
