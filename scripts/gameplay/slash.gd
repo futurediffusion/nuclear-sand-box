@@ -5,7 +5,7 @@ extends Node2D
 @export var CharacterHitbox_active_time: float = 0.10
 
 @onready var anim: AnimatedSprite2D = $Anim
-@onready var CharacterHitbox: Area2D = $CharacterHitbox
+@onready var hitbox: Area2D = $CharacterHitbox
 @onready var sfx: AudioStreamPlayer2D = $Sfx
 @onready var impact_sound: AudioStreamPlayer2D = $ImpactSound
 
@@ -26,8 +26,8 @@ func setup(team: StringName, owner: Node) -> void:
 	owner_node = owner
 
 func _get_combat_CharacterHitbox() -> CharacterHitbox:
-	if CharacterHitbox is CharacterHitbox:
-		return CharacterHitbox as CharacterHitbox
+	if hitbox is CharacterHitbox:
+		return hitbox as CharacterHitbox
 	return null
 
 func _ready() -> void:
@@ -45,8 +45,8 @@ func _ready() -> void:
 		combat_CharacterHitbox.activate()
 	else:
 		# Fallback legado
-		CharacterHitbox.body_entered.connect(_on_body_entered)
-		CharacterHitbox.area_entered.connect(_on_area_entered)
+		hitbox.body_entered.connect(_on_body_entered)
+		hitbox.area_entered.connect(_on_area_entered)
 		_set_CharacterHitbox_enabled(true)
 
 	# Apagar CharacterHitbox rápido
@@ -62,19 +62,19 @@ func _ready() -> void:
 	anim.animation_finished.connect(_on_anim_finished)
 
 func _set_CharacterHitbox_enabled(enabled: bool) -> void:
-	CharacterHitbox.monitoring = enabled
-	CharacterHitbox.monitorable = enabled
-	var shape := CharacterHitbox.get_node_or_null("CollisionShape2D") as CollisionShape2D
+	hitbox.monitoring = enabled
+	hitbox.monitorable = enabled
+	var shape := hitbox.get_node_or_null("CollisionShape2D") as CollisionShape2D
 	if shape:
 		shape.disabled = not enabled
 
 func _configure_mask() -> void:
 	if owner_team == &"player":
 		# Enemy (3) + Resources (4)
-		CharacterHitbox.collision_mask = (1 << (3 - 1)) | (1 << (4 - 1))
+		hitbox.collision_mask = (1 << (3 - 1)) | (1 << (4 - 1))
 	else:
 		# Player (1)
-		CharacterHitbox.collision_mask = 1 << (1 - 1)
+		hitbox.collision_mask = 1 << (1 - 1)
 
 func _on_anim_finished() -> void:
 	queue_free()
