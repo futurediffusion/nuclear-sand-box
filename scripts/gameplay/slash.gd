@@ -5,7 +5,7 @@ extends Node2D
 @export var CharacterHitbox_active_time: float = 0.10
 
 @onready var anim: AnimatedSprite2D = $Anim
-var hitbox: CharacterHitbox = null
+var hitbox: Area2D = null
 @onready var sfx: AudioStreamPlayer2D = $Sfx
 @onready var impact_sound: AudioStreamPlayer2D = $ImpactSound
 
@@ -13,7 +13,7 @@ var hitbox: CharacterHitbox = null
 @export var pitch_max: float = 1.2
 @export var can_mine: bool = true
 
-	
+
 var already_hit := {}
 var owner_team: StringName = &"player"
 var owner_node: Node = null
@@ -25,54 +25,27 @@ func setup(team: StringName, owner: Node) -> void:
 	owner_team = team
 	owner_node = owner
 
-func _get_combat_CharacterHitbox() -> CharacterHitbox:
-	if hitbox is CharacterHitbox:
-		return hitbox as CharacterHitbox
-	return null
-
 func _ready() -> void:
-	hitbox = get_node_or_null("Hitbox") as CharacterHitbox
-	if hitbox == null:
-		push_warning("Slash: no Hitbox node found")
-		return
+	hitbox = get_node_or_null("Hitbox")
 
-	if hitbox.has_method("setup"):
-		hitbox.setup(owner_team, owner_node)
-
-	# SFX arma
 	if sfx and sfx.stream:
 		sfx.pitch_scale = randf_range(pitch_min, pitch_max)
 		sfx.play()
-	
-	_configure_mask()
-	
-	var combat_CharacterHitbox := _get_combat_CharacterHitbox()
-	if combat_CharacterHitbox != null:
-		combat_CharacterHitbox.damage = damage
-		combat_CharacterHitbox.knockback_force = knockback_strength
-		combat_CharacterHitbox.activate()
-		combat_CharacterHitbox.hit_landed.connect(func(hurtbox):
-			_try_damage(hurtbox.get_parent())
-		)
-	else:
-		# Fallback legado
-		hitbox.body_entered.connect(_on_body_entered)
-		hitbox.area_entered.connect(_on_area_entered)
-		_set_CharacterHitbox_enabled(true)
 
-	# Apagar CharacterHitbox rápido
+	_configure_mask()
+	_set_hitbox_enabled(true)
+	hitbox.body_entered.connect(_on_body_entered)
+	hitbox.area_entered.connect(_on_area_entered)
+
 	get_tree().create_timer(CharacterHitbox_active_time).timeout.connect(func():
-		if combat_CharacterHitbox != null:
-			combat_CharacterHitbox.deactivate()
-		else:
-			_set_CharacterHitbox_enabled(false)
+		if is_instance_valid(self):
+			_set_hitbox_enabled(false)
 	)
-	
-	# Animación y borrado final visual
+
 	anim.play("slash")
 	anim.animation_finished.connect(_on_anim_finished)
 
-func _set_CharacterHitbox_enabled(enabled: bool) -> void:
+func _set_hitbox_enabled(enabled: bool) -> void:
 	hitbox.monitoring = enabled
 	hitbox.monitorable = enabled
 	var shape := hitbox.get_node_or_null("CollisionShape2D") as CollisionShape2D
@@ -84,11 +57,9 @@ func _configure_mask() -> void:
 		return
 
 	if owner_team == &"player":
-		# Enemy (3) + Resources (4)
-		hitbox.collision_mask = (1 << (3 - 1)) | (1 << (4 - 1))
+		hitbox.collision_mask = (1 << 2) | (1 << 3)  # EnemyNCP + Resources
 	else:
-		# Player (1)
-		hitbox.collision_mask = 1 << (1 - 1)
+		hitbox.collision_mask = 1 << 0  # Player
 
 func _on_anim_finished() -> void:
 	queue_free()
@@ -96,15 +67,15 @@ func _on_anim_finished() -> void:
 func _try_damage(target: Node) -> void:
 	if target == null:
 		return
-	
+
 	# Nunca pegarle al dueño
 	if owner_node != null and target == owner_node:
 		return
-	
+
 	var id := target.get_instance_id()
 	if already_hit.has(id):
 		return
-	
+
 	already_hit[id] = true
 
 	# 1) Si es un recurso (cobre, etc) y tiene método hit()

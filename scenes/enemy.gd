@@ -35,7 +35,6 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
 @onready var ai_component: AIComponent = get_node_or_null("AIComponent") as AIComponent
-@onready var hurtbox: CharacterHurtbox = get_node_or_null("Hurtbox") as CharacterHurtbox
 
 var weapon_follow_speed: float = 25.0
 var attack_snap_speed: float = 50.0
@@ -72,11 +71,6 @@ func _setup_components() -> void:
 	else:
 		push_warning("[Enemy] Missing AIComponent")
 
-
-func _setup_health_component() -> void:
-	super._setup_health_component()
-	if hurtbox != null and not hurtbox.damaged.is_connected(_on_hurtbox_damaged):
-		hurtbox.damaged.connect(_on_hurtbox_damaged)
 
 func _physics_process(delta: float) -> void:
 	if hp <= 0:
@@ -170,8 +164,6 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	super.take_damage(dmg, from_pos)
 
 
-func _on_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
-	take_damage(dmg, from_pos)
 
 func _on_before_die() -> void:
 	EnemyRegistry.unregister_enemy(self)
