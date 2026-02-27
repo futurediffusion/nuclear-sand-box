@@ -7,9 +7,6 @@
 [ext_resource type="PackedScene" uid="uid://bvhu6jov16yyb" path="res://scenes/ui/shop_slot.tscn" id="4_plncm"]
 
 [node name="KeeperMenuUi" type="CanvasLayer"]
-offset = Vector2(251.91, 75.255)
-scale = Vector2(0.66, 0.66)
-transform = Transform2D(0.66, 0, 0, 0.66, 251.91, 75.255)
 script = ExtResource("1_7r67s")
 
 [node name="Root" type="Control" parent="."]
@@ -50,9 +47,6 @@ layout_mode = 2
 
 [node name="PlayerInventoryPanel" parent="Root/Panel/ContentArea/Layout/Playerboc" instance=ExtResource("4_3f82k")]
 layout_mode = 2
-offset_left = -127.0
-offset_right = -8.0
-offset_bottom = 68.0
 slot_scene = ExtResource("2_csclr")
 columns = 10
 
@@ -67,9 +61,6 @@ layout_mode = 2
 
 [node name="KeeperInventoryPanel" parent="Root/Panel/ContentArea/Layout/KeeperBox" instance=ExtResource("4_3f82k")]
 layout_mode = 2
-offset_left = -8.0
-offset_right = -8.0
-offset_bottom = 40.0
 slot_scene = ExtResource("4_plncm")
 
 [node name="KeeperFrame" type="TextureRect" parent="Root/Panel/ContentArea/Layout/KeeperBox"]
