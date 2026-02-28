@@ -45,8 +45,13 @@ offset_bottom = 256.0
 layout_mode = 2
 
 [node name="PlayerInventoryPanel" parent="Root/Panel/ContentArea/Layout/Playerbox" instance=ExtResource("4_3f82k")]
+z_index = 10
 layout_mode = 2
-columns = 10
+offset_left = -29.47
+offset_top = 41.4
+offset_right = -29.47
+offset_bottom = 41.4
+scale = Vector2(0.28, 0.28)
 
 [node name="PlayerFrame" type="TextureRect" parent="Root/Panel/ContentArea/Layout/Playerbox"]
 layout_mode = 0
@@ -63,7 +68,13 @@ custom_minimum_size = Vector2(515.93, 256)
 layout_mode = 2
 
 [node name="KeeperInventoryPanel" parent="Root/Panel/ContentArea/Layout/KeeperBox" instance=ExtResource("4_3f82k")]
+z_index = 10
 layout_mode = 2
+offset_left = 250.0
+offset_top = 25.0
+offset_right = 250.0
+offset_bottom = 25.0
+scale = Vector2(0.415, 0.415)
 
 [node name="KeeperFrame" type="TextureRect" parent="Root/Panel/ContentArea/Layout/KeeperBox"]
 layout_mode = 1
