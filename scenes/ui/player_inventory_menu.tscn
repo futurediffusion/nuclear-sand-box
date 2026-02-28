@@ -23,6 +23,7 @@ offset_left = 6.825
 offset_top = -76.0
 offset_right = 1542.82
 offset_bottom = 948.0
+mouse_filter = 2
 texture = ExtResource("3_jdsjd")
 
 [node name="InventoryPanel" parent="Root" instance=ExtResource("1_jp2kn")]
