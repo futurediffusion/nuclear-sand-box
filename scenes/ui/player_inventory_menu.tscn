@@ -41,3 +41,6 @@ grow_horizontal = 2
 grow_vertical = 2
 scale = Vector2(0.99, 1.01)
 pivot_offset = Vector2(82.04, 0)
+
+[connection signal="gui_input" from="Root" to="." method="_on_root_gui_input"]
+[connection signal="gui_input" from="Root/TextureRect" to="." method="_on_texture_rect_gui_input"]
