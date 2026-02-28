@@ -36,7 +36,6 @@ func _ensure_world_data() -> void:
 	world_data.setup(world_map_size, default_tavern_position)
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("inventory"):
-		print("[Main] inventory pressed. inv_menu=", inv_menu)
 		inv_menu.toggle()
 
 

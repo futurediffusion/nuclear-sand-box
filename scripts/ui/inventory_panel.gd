@@ -21,7 +21,7 @@ var _visible_slots: int = 0
 
 func _ready() -> void:
 	if _grid == null:
-		push_error("[InventoryPanel] No existe nodo $Grid (GridContainer). Revisa inventory_panel.tscn.")
+		push_error("[InventoryPanel] No existe nodo requerido $Grid (GridContainer). Revisa inventory_panel.tscn.")
 		return
 
 	_grid.columns = columns
