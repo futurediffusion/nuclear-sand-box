@@ -37,11 +37,13 @@ func _refresh_binds() -> void:
 		keeper_panel.set_inventory(_keeper_inv)
 
 
-func _on_player_slot_clicked(slot_index: int, _button: int) -> void:
+func _on_player_slot_clicked(slot_index: int, button: int) -> void:
+	_ = button
 	_transfer_one(_player_inv, _keeper_inv, slot_index)
 
 
-func _on_keeper_slot_clicked(slot_index: int, _button: int) -> void:
+func _on_keeper_slot_clicked(slot_index: int, button: int) -> void:
+	_ = button
 	_transfer_one(_keeper_inv, _player_inv, slot_index)
 
 
@@ -66,11 +68,11 @@ func _transfer_one(from_inv: InventoryComponent, to_inv: InventoryComponent, slo
 		print("[KeeperMenuUi] InventoryComponent no tiene add_item(item_id, amount).")
 		return
 
-	var removed: int = int(from_inv.call("remove_item", item_id, 1))
+	var removed: int = from_inv.remove_item(item_id, 1)
 	if removed <= 0:
 		return
 
-	var added: int = int(to_inv.call("add_item", item_id, 1))
+	var added: int = to_inv.add_item(item_id, 1)
 	if added <= 0:
 		# rollback por seguridad si destino no pudo recibir
-		from_inv.call("add_item", item_id, removed)
+		from_inv.add_item(item_id, removed)
