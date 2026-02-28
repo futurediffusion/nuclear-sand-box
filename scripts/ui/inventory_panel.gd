@@ -76,13 +76,25 @@ func _rebuild_grid() -> void:
 			# estos flags evitan que el container te lo estire raro
 			cslot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			cslot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			cslot.mouse_filter = Control.MOUSE_FILTER_STOP
 
 			# click hook (compra/venta)
 			var idx := i # IMPORTANTÍSIMO: evita bug de captura del loop
+			print("[InventoryPanel] slot=", idx, " mouse_filter=", cslot.mouse_filter)
 			cslot.gui_input.connect(func(ev: InputEvent) -> void:
-				if ev is InputEventMouseButton and ev.pressed:
-					print("[InventoryPanel] click slot=", idx, " button=", ev.button_index)
-					slot_clicked.emit(idx, ev.button_index)
+				if ev is InputEventMouseButton:
+					var mouse_ev := ev as InputEventMouseButton
+					print(
+						"[InventoryPanel] slot=", idx,
+						" button=", mouse_ev.button_index,
+						" pressed=", mouse_ev.pressed,
+						" event_pos=", mouse_ev.position,
+						" global_mouse=", get_global_mouse_position(),
+						" slot_global_rect=", cslot.get_global_rect()
+					)
+					if mouse_ev.pressed:
+						print("[InventoryPanel] click slot=", idx, " button=", mouse_ev.button_index)
+						slot_clicked.emit(idx, mouse_ev.button_index)
 			)
 
 func _refresh() -> void:

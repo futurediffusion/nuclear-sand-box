@@ -34,10 +34,17 @@ func _ensure_world_data() -> void:
 		world_data = WorldData.new()
 
 	world_data.setup(world_map_size, default_tavern_position)
-func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("inventory"):
-		inv_menu.toggle()
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		print("[INPUT][_input] ev=", event, " mode=", Input.get_mouse_mode(), " pos=", get_viewport().get_mouse_position())
 
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		print("[INPUT][_unhandled_input] ev=", event, " mode=", Input.get_mouse_mode(), " pos=", get_viewport().get_mouse_position())
+	if event.is_action_pressed("inventory"):
+		print("[INPUT] inventory toggle requested mode_before=", Input.get_mouse_mode(), " pos=", get_viewport().get_mouse_position())
+		inv_menu.toggle()
+		print("[INPUT] inventory toggled mode_after=", Input.get_mouse_mode(), " menu_visible=", inv_menu.visible)
 
 func _boot_frame_ping() -> void:
 	Debug.log("boot", "First frame reached")

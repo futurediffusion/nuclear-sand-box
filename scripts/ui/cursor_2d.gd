@@ -1,7 +1,7 @@
 extends Node2D
 
 func _ready() -> void:
-	Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
+	print("[MOUSE][Cursor2D] _ready mode=", Input.get_mouse_mode(), " visible=", visible)
 
 func _process(_delta: float) -> void:
 	global_position = get_global_mouse_position()
