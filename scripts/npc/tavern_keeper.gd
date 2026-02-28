@@ -192,9 +192,12 @@ func _update_interact_prompt() -> void:
 		_open_shop()
 
 func _open_shop() -> void:
-	var ui := get_tree().current_scene.get_node_or_null("UI/KeeperMenuUi")
-	if ui == null:
-		push_warning("[SHOP] No encuentro UI/KeeperMenuUi")
+	var keeper_menu_ui := get_node_or_null("/root/Main/UI/KeeperMenuUi")
+	if keeper_menu_ui == null:
+		keeper_menu_ui = get_tree().current_scene.get_node_or_null("UI/KeeperMenuUi")
+
+	if keeper_menu_ui == null:
+		push_warning("[SHOP] No encuentro KeeperMenuUi en /root/Main/UI/KeeperMenuUi ni en UI/KeeperMenuUi")
 		return
 
 	if _player_ref == null:
@@ -213,11 +216,14 @@ func _open_shop() -> void:
 		push_warning("[SHOP] Shop inventory no inicializado")
 		return
 
+	keeper_menu_ui.set_player_inventory(player_inv)
+	keeper_menu_ui.set_keeper_inventory(_shop_inv)
+
 	# ESTE es el llamado correcto en dev
-	if ui.has_method("toggle"):
-		ui.call("toggle", player_inv, _shop_inv)
+	if keeper_menu_ui.has_method("toggle"):
+		keeper_menu_ui.call("toggle")
 	else:
-		push_warning("[SHOP] KeeperMenuUi no tiene método toggle(player_inv, shop_inv)")
+		push_warning("[SHOP] KeeperMenuUi no tiene método toggle()")
 
 
 
