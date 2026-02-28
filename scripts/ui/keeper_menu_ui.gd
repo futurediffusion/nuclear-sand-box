@@ -37,13 +37,11 @@ func _refresh_binds() -> void:
 		keeper_panel.set_inventory(_keeper_inv)
 
 
-func _on_player_slot_clicked(slot_index: int, button: int) -> void:
-	_ = button
+func _on_player_slot_clicked(slot_index: int, _button: int) -> void:
 	_transfer_one(_player_inv, _keeper_inv, slot_index)
 
 
-func _on_keeper_slot_clicked(slot_index: int, button: int) -> void:
-	_ = button
+func _on_keeper_slot_clicked(slot_index: int, _button: int) -> void:
 	_transfer_one(_keeper_inv, _player_inv, slot_index)
 
 
