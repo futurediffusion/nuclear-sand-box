@@ -10,7 +10,6 @@ func toggle() -> void:
 	visible = not visible
 	if visible:
 		_bind_player_inventory()
-	print("[PIM] toggle visible=", visible)
 
 func _bind_player_inventory() -> void:
 	var player := get_tree().current_scene.get_node_or_null("Player")
@@ -20,13 +19,10 @@ func _bind_player_inventory() -> void:
 			player = arr[0]
 
 	if player == null:
-		print("[PIM] no player found")
 		return
 
 	var inv := player.get_node_or_null("InventoryComponent") as InventoryComponent
 	if inv == null:
-		print("[PIM] player has no InventoryComponent")
 		return
 
 	panel.set_inventory(inv)
-	print("[PIM] bound inventory OK")
