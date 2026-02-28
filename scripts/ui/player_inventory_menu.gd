@@ -9,13 +9,13 @@ func _ready() -> void:
 func toggle() -> void:
 	visible = not visible
 	print("[MENU] toggle visible=", visible)
-	var cursor2d := get_tree().current_scene.get_node_or_null("Cursor2D")
+	var cursor2d := get_tree().current_scene.get_node_or_null("CursorLayer/MouseCursor")
 	if visible:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		if cursor2d != null:
 			cursor2d.visible = false
 	else:
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
 		if cursor2d != null:
 			cursor2d.visible = true
 	print("[MOUSE] after toggle mode=", Input.get_mouse_mode(), " cursor2d_visible=", cursor2d.visible if cursor2d != null else "<missing>")

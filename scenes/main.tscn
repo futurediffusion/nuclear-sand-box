@@ -63,7 +63,6 @@ droplet_speed_min = 80.0
 droplet_speed_max = 140.0
 
 [node name="UI" type="CanvasLayer" parent="."]
-process_mode = 2
 layer = 10
 
 [node name="HUD" type="Control" parent="UI"]
