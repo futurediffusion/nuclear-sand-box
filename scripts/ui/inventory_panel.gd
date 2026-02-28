@@ -3,7 +3,7 @@ class_name InventoryPanel
 
 signal slot_clicked(slot_index: int, button: int)
 
-@export var grid_path: NodePath
+
 @export var slot_scene: PackedScene
 
 @export var columns: int = 5
@@ -13,7 +13,7 @@ signal slot_clicked(slot_index: int, button: int)
 @export var tile_size: Vector2 = Vector2(32, 32)
 
 
-@onready var _grid: GridContainer = get_node(grid_path) as GridContainer
+@onready var _grid: GridContainer = $Grid
 
 var _inv: InventoryComponent = null
 var _slots_nodes: Array[Node] = []
@@ -21,7 +21,7 @@ var _visible_slots: int = 0
 
 func _ready() -> void:
 	if _grid == null:
-		push_error("[InventoryPanel] grid_path no apunta a un GridContainer. Revisa 'grid_path' en el Inspector.")
+		push_error("[InventoryPanel] No existe nodo $Grid (GridContainer). Revisa inventory_panel.tscn.")
 		return
 
 	_grid.columns = columns
@@ -116,8 +116,11 @@ func _refresh() -> void:
 
 		var item_db := get_node_or_null("/root/ItemDB")
 		var icon: Texture2D = null
-		if item_db != null and item_db.has_method("get_icon"):
-			icon = item_db.call("get_icon", item_id) as Texture2D
+
+		if item_db != null:
+			var item_data: ItemData = item_db.get_item(item_id)
+			if item_data != null and item_data.icon != null:
+				icon = item_data.icon
 
 		_set_slot_item(ui_slot, icon, count)
 
