@@ -19,7 +19,14 @@ func _bind_player_inventory() -> void:
 		if arr.size() > 0:
 			player = arr[0]
 
-	if player != null:
-		var inv := player.get_node_or_null("InventoryComponent") as InventoryComponent
-		if inv != null:
-			panel.set_inventory(inv)
+	if player == null:
+		print("[PIM] no player found")
+		return
+
+	var inv := player.get_node_or_null("InventoryComponent") as InventoryComponent
+	if inv == null:
+		print("[PIM] player has no InventoryComponent")
+		return
+
+	panel.set_inventory(inv)
+	print("[PIM] bound inventory OK")

@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://c8m2xt6bh61m"]
+[gd_scene load_steps=4 format=3 uid="uid://c8m2xt6bh61m"]
 
 [ext_resource type="Script" uid="uid://k63olnsv21nn" path="res://scripts/ui/player_inventory_menu.gd" id="1_bcy85"]
 [ext_resource type="PackedScene" uid="uid://narh24whivs7" path="res://scenes/ui/inventory_panel.tscn" id="1_jp2kn"]
+[ext_resource type="Texture2D" uid="uid://b84mi2eyoo4ie" path="res://art/ui/inventory.png" id="3_jdsjd"]
 
 [node name="PlayerInventoryMenu" type="CanvasLayer"]
 layer = 10
@@ -14,17 +15,28 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+scale = Vector2(0.415, 0.415)
+
+[node name="TextureRect" type="TextureRect" parent="Root"]
+layout_mode = 0
+offset_left = 6.825
+offset_top = -76.0
+offset_right = 1542.82
+offset_bottom = 948.0
+texture = ExtResource("3_jdsjd")
 
 [node name="InventoryPanel" parent="Root" instance=ExtResource("1_jp2kn")]
 layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -867.0
-offset_top = -484.0
-offset_right = 917.0
-offset_bottom = 489.0
+anchors_preset = -1
+anchor_left = 0.629
+anchor_top = 0.588
+anchor_right = 0.629
+anchor_bottom = 0.588
+offset_left = -260.692
+offset_top = -145.883
+offset_right = 590.308
+offset_bottom = 343.117
 grow_horizontal = 2
 grow_vertical = 2
+scale = Vector2(0.99, 1.01)
+pivot_offset = Vector2(82.04, 0)
