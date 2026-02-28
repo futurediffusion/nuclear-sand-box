@@ -8,8 +8,11 @@ func _ready() -> void:
 
 func toggle() -> void:
 	visible = not visible
+	print("[MENU] toggle visible=", visible)
 	if visible:
-		_bind_player_inventory()
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	else:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 func _bind_player_inventory() -> void:
 	var player := get_tree().current_scene.get_node_or_null("Player")

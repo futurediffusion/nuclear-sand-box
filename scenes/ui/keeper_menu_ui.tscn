@@ -43,6 +43,7 @@ offset_bottom = 256.0
 
 [node name="Playerbox" type="Control" parent="Root/Panel/ContentArea/Layout"]
 layout_mode = 2
+mouse_filter = 2
 
 [node name="PlayerInventoryPanel" parent="Root/Panel/ContentArea/Layout/Playerbox" instance=ExtResource("4_3f82k")]
 z_index = 10
@@ -66,6 +67,7 @@ expand_mode = 2
 [node name="KeeperBox" type="Control" parent="Root/Panel/ContentArea/Layout"]
 custom_minimum_size = Vector2(515.93, 256)
 layout_mode = 2
+mouse_filter = 2
 
 [node name="KeeperInventoryPanel" parent="Root/Panel/ContentArea/Layout/KeeperBox" instance=ExtResource("4_3f82k")]
 z_index = 10

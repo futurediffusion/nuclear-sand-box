@@ -16,8 +16,11 @@ func _ready() -> void:
 
 func toggle() -> void:
 	visible = not visible
+	print("[MENU] toggle visible=", visible)
 	if visible:
-		_refresh_binds()
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	else:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 
 func set_player_inventory(inv: InventoryComponent) -> void:

@@ -81,6 +81,7 @@ func _rebuild_grid() -> void:
 			var idx := i # IMPORTANTÍSIMO: evita bug de captura del loop
 			cslot.gui_input.connect(func(ev: InputEvent) -> void:
 				if ev is InputEventMouseButton and ev.pressed:
+					print("[InventoryPanel] click slot=", idx, " button=", ev.button_index)
 					slot_clicked.emit(idx, ev.button_index)
 			)
 
