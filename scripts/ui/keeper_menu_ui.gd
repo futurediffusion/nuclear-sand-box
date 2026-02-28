@@ -1,90 +1,76 @@
 extends CanvasLayer
+class_name KeeperMenuUi
 
-@export var player_panel_path: NodePath
-@export var shop_panel_path: NodePath
+@onready var player_panel: InventoryPanel = $Root/Panel/ContentArea/Layout/Playerbox/PlayerInventoryPanel
+@onready var keeper_panel: InventoryPanel = $Root/Panel/ContentArea/Layout/KeeperBox/KeeperInventoryPanel
 
-@onready var player_panel: InventoryPanel = get_node(player_panel_path) as InventoryPanel
-@onready var shop_panel: InventoryPanel = get_node(shop_panel_path) as InventoryPanel
-var _player_inv: InventoryComponent
-var _shop_inv: InventoryComponent
+var _player_inv: InventoryComponent = null
+var _keeper_inv: InventoryComponent = null
 
-
-# Para test rápido: cantidad a mover por click (1 unidad)
-@export var transfer_amount: int = 1
 
 func _ready() -> void:
 	visible = false
+	player_panel.slot_clicked.connect(_on_player_slot_clicked)
+	keeper_panel.slot_clicked.connect(_on_keeper_slot_clicked)
 
-func open(player_inv: InventoryComponent, shop_inv: InventoryComponent) -> void:
-	_player_inv = player_inv
-	_shop_inv = shop_inv
-	visible = true
 
-	if player_panel == null or shop_panel == null:
-		push_error("[KeeperMenuUi] player_panel/shop_panel es null. Revisa los NodePath exportados.")
-		return
-
-	player_panel.set_inventory(_player_inv)
-	shop_panel.set_inventory(_shop_inv)
-
-	if not player_panel.slot_clicked.is_connected(_on_player_slot_clicked):
-		player_panel.slot_clicked.connect(_on_player_slot_clicked)
-	if not shop_panel.slot_clicked.is_connected(_on_shop_slot_clicked):
-		shop_panel.slot_clicked.connect(_on_shop_slot_clicked)
-
-func close() -> void:
-	visible = false
-
-func toggle(player_inv: InventoryComponent, shop_inv: InventoryComponent) -> void:
+func toggle() -> void:
+	visible = not visible
 	if visible:
-		close()
-	else:
-		open(player_inv, shop_inv)
+		_refresh_binds()
 
-# -------------------------
-# Click handlers (ESTO es lo que te faltaba)
-# -------------------------
-func _on_player_slot_clicked(slot_index: int, button: int) -> void:
-	# VENDER: player -> shop con click izquierdo
-	if button != MOUSE_BUTTON_LEFT:
-		return
-	_transfer_from_to(_player_inv, _shop_inv, slot_index, transfer_amount)
 
-func _on_shop_slot_clicked(slot_index: int, button: int) -> void:
-	# COMPRAR: shop -> player con click izquierdo
-	if button != MOUSE_BUTTON_LEFT:
-		return
-	_transfer_from_to(_shop_inv, _player_inv, slot_index, transfer_amount)
+func set_player_inventory(inv: InventoryComponent) -> void:
+	_player_inv = inv
+	player_panel.set_inventory(inv)
 
-# -------------------------
-# Transfer core (usa tu API real)
-# -------------------------
-func _transfer_from_to(from_inv: InventoryComponent, to_inv: InventoryComponent, from_slot_index: int, amount: int) -> void:
+
+func set_keeper_inventory(inv: InventoryComponent) -> void:
+	_keeper_inv = inv
+	keeper_panel.set_inventory(inv)
+
+
+func _refresh_binds() -> void:
+	if _player_inv != null:
+		player_panel.set_inventory(_player_inv)
+	if _keeper_inv != null:
+		keeper_panel.set_inventory(_keeper_inv)
+
+
+func _on_player_slot_clicked(slot_index: int, _button: int) -> void:
+	_transfer_one(_player_inv, _keeper_inv, slot_index)
+
+
+func _on_keeper_slot_clicked(slot_index: int, _button: int) -> void:
+	_transfer_one(_keeper_inv, _player_inv, slot_index)
+
+
+func _transfer_one(from_inv: InventoryComponent, to_inv: InventoryComponent, slot_index: int) -> void:
 	if from_inv == null or to_inv == null:
 		return
-
-	# slot data: null o {"id": String, "count": int}
-	if from_slot_index < 0 or from_slot_index >= from_inv.max_slots:
+	if slot_index < 0 or slot_index >= from_inv.max_slots:
 		return
 
-	var s = from_inv.slots[from_slot_index]
-	if s == null:
+	var data = from_inv.slots[slot_index]
+	if data == null:
 		return
 
-	var item_id: String = String(s["id"])
+	var item_id := String(data.get("id", ""))
 	if item_id == "":
 		return
 
-	var have: int = int(s["count"])
-	if have <= 0:
+	if not from_inv.has_method("remove_item"):
+		print("[KeeperMenuUi] InventoryComponent no tiene remove_item(item_id, amount).")
+		return
+	if not to_inv.has_method("add_item"):
+		print("[KeeperMenuUi] InventoryComponent no tiene add_item(item_id, amount).")
 		return
 
-	var to_move: int = mini(amount, have)
-
-	# 1) intenta meter en destino
-	var inserted: int = to_inv.add_item(item_id, to_move)
-	if inserted <= 0:
+	var removed: int = int(from_inv.call("remove_item", item_id, 1))
+	if removed <= 0:
 		return
 
-	# 2) quita del origen lo que realmente se insertó
-	from_inv.remove_item(item_id, inserted)
+	var added: int = int(to_inv.call("add_item", item_id, 1))
+	if added <= 0:
+		# rollback por seguridad si destino no pudo recibir
+		from_inv.call("add_item", item_id, removed)
