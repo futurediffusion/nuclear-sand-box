@@ -9,17 +9,26 @@ func _ready() -> void:
 func toggle() -> void:
 	visible = not visible
 	print("[MENU] toggle visible=", visible)
+
+	# En tu escena el cursor es CursorLayer/MouseCursor (no "Cursor2D")
 	var cursor2d := get_tree().current_scene.get_node_or_null("CursorLayer/MouseCursor")
+
 	if visible:
+		# UI abierta: mouse visible, cursor 2D OFF
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		if cursor2d != null:
 			cursor2d.visible = false
+
+		# BIND cuando abres (deferred para evitar timing)
+		call_deferred("_bind_player_inventory")
 	else:
+		# Gameplay: mouse hidden, cursor 2D ON
 		Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
 		if cursor2d != null:
 			cursor2d.visible = true
-	print("[MOUSE] after toggle mode=", Input.get_mouse_mode(), " cursor2d_visible=", cursor2d.visible if cursor2d != null else "<missing>")
-	print("[UI][PlayerInventoryMenu] visible=", visible, " mode=", Input.get_mouse_mode(), " cursor2d_exists=", cursor2d != null, " cursor2d_visible=", cursor2d.visible if cursor2d != null else "<missing>")
+
+	print("[MOUSE] after toggle mode=", Input.get_mouse_mode(),
+		" cursor2d_visible=", cursor2d.visible if cursor2d != null else "<missing>")
 
 func _on_root_gui_input(ev: InputEvent) -> void:
 	print("[UI][Root] ", ev)
