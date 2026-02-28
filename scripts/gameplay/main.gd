@@ -6,7 +6,7 @@ extends Node2D
 
 @onready var game_over_panel: Control = $UI/GameOverPanel
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
-@onready var inv_ui = $UI/InventoryUI
+@onready var inv_menu = $UI/PlayerInventoryMenu
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
 	_ensure_world_data()
@@ -36,7 +36,8 @@ func _ensure_world_data() -> void:
 	world_data.setup(world_map_size, default_tavern_position)
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("inventory"):
-		inv_ui.toggle()
+		print("[Main] inventory pressed. inv_menu=", inv_menu)
+		inv_menu.toggle()
 
 
 func _boot_frame_ping() -> void:

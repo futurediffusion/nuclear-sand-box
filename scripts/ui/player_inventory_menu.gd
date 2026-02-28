@@ -10,6 +10,7 @@ func toggle() -> void:
 	visible = not visible
 	if visible:
 		_bind_player_inventory()
+	print("[PIM] toggle visible=", visible)
 
 func _bind_player_inventory() -> void:
 	var player := get_tree().current_scene.get_node_or_null("Player")
