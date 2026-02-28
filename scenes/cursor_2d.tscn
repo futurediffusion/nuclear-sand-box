@@ -4,7 +4,7 @@
 [ext_resource type="Texture2D" uid="uid://bctencbm3dlw1" path="res://art/sprites/mouse-cursor.png" id="1_uf72c"]
 
 [node name="MouseCursor" type="Node2D"]
+script = ExtResource("1_plvei")
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 texture = ExtResource("1_uf72c")
-script = ExtResource("1_plvei")
