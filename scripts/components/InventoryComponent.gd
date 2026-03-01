@@ -42,41 +42,55 @@ func add_item(item_id: String, amount: int) -> int:
 		return 0
 
 	var stack_limit := _get_stack_limit(item_id)
-	print("[INV] add_item id=", item_id, " amount=", amount, " stack_limit=", stack_limit)
+	print("[INV] add_item id=%s amount=%d stack_limit=%d" % [item_id, amount, stack_limit])
 	var remaining := amount
 	var touched := {}
 
+	for i in range(max_slots):
+		if _normalize_slot_if_needed(i):
+			touched[i] = true
+
 	# 1) llenar stacks existentes del mismo item
+	print("[INV] add_item scan_merge start=0 slots=%d" % max_slots)
 	for i in range(max_slots):
 		if remaining <= 0:
 			break
 		var s = slots[i]
-		if s == null:
-			continue
-		if String(s["id"]) != item_id:
+		if _is_empty_slot(s):
 			continue
 
-		var can_put := stack_limit - int(s["count"])
+		var slot_id := String(s.get("id", ""))
+		if slot_id != item_id:
+			continue
+
+		var slot_count := int(s.get("count", 0))
+		if slot_count <= 0:
+			continue
+
+		var can_put := stack_limit - slot_count
 		if can_put <= 0:
 			continue
 
-		var put: int = mini(can_put, remaining)
-		s["count"] = int(s["count"]) + put
+		var moved: int = mini(can_put, remaining)
+		s["count"] = slot_count + moved
 		slots[i] = s
 		touched[i] = true
-		remaining -= put
+		remaining -= moved
+		print("[INV] add_item MERGE slot=%d moved=%d new_dst=%d remaining=%d" % [i, moved, int(s["count"]), remaining])
 
 	# 2) crear nuevos stacks en slots vacíos
+	print("[INV] add_item scan_empty start=0")
 	for i in range(max_slots):
 		if remaining <= 0:
 			break
-		if slots[i] != null:
+		if not _is_empty_slot(slots[i]):
 			continue
 
-		var put: int = mini(stack_limit, remaining)
-		slots[i] = {"id": item_id, "count": put}
+		var inserted: int = mini(stack_limit, remaining)
+		slots[i] = {"id": item_id, "count": inserted}
 		touched[i] = true
-		remaining -= put
+		remaining -= inserted
+		print("[INV] add_item INSERT slot=%d inserted=%d remaining=%d" % [i, inserted, remaining])
 
 	var inserted := amount - remaining
 	if inserted > 0:
@@ -85,7 +99,7 @@ func add_item(item_id: String, amount: int) -> int:
 		_emit_changed("add_item")
 
 	if remaining > 0:
-		print("[INV] FULL. couldn't add ", remaining, " of ", item_id)
+		print("[INV] add_item INCOMPLETE remaining=%d" % remaining)
 
 	return inserted
 
@@ -175,14 +189,14 @@ func has_space_for(item_id: String, amount: int) -> bool:
 	# hueco en stacks existentes
 	for i in range(max_slots):
 		var s = slots[i]
-		if s == null:
+		if _is_empty_slot(s):
 			continue
-		if String(s["id"]) == item_id:
-			capacity += (stack_limit - int(s["count"]))
+		if String(s.get("id", "")) == item_id:
+			capacity += (stack_limit - int(s.get("count", 0)))
 
 	# hueco en slots vacíos
 	for i in range(max_slots):
-		if slots[i] == null:
+		if _is_empty_slot(slots[i]):
 			capacity += stack_limit
 
 	return capacity >= amount
@@ -565,3 +579,43 @@ func _remove_from_slot(slot_index: int, amount: int) -> int:
 		_emit_changed("use_item")
 
 	return removed
+
+
+func _is_empty_slot(slot: Variant) -> bool:
+	if slot == null:
+		return true
+	if not (slot is Dictionary):
+		return false
+	return String(slot.get("id", "")) == "" and int(slot.get("count", 0)) == 0
+
+
+func _normalize_slot_if_needed(slot_index: int) -> bool:
+	if slot_index < 0 or slot_index >= max_slots:
+		return false
+
+	var slot = slots[slot_index]
+	if slot == null:
+		return false
+	if not (slot is Dictionary):
+		return false
+
+	var slot_id := String(slot.get("id", ""))
+	var slot_count := int(slot.get("count", 0))
+	var normalized_id := slot_id
+	var normalized_count := slot_count
+	var changed := false
+
+	if normalized_count <= 0:
+		normalized_count = 0
+		normalized_id = ""
+		changed = true
+	elif normalized_id == "":
+		normalized_count = 0
+		changed = true
+
+	if not changed and normalized_id == slot_id and normalized_count == slot_count:
+		return false
+
+	print("[INV][WARN] inconsistent slot=%d id='%s' count=%d (fixing)" % [slot_index, slot_id, slot_count])
+	slots[slot_index] = {"id": normalized_id, "count": normalized_count}
+	return true
