@@ -29,6 +29,7 @@ var drag_amount: int = 0
 var drag_from_count_snapshot: int = 0
 var drag_ghost: Control = null
 var drag_offset: Vector2 = Vector2(16, 16)
+var _default_drop_scene: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 
 
 func _process(_delta: float) -> void:
@@ -413,10 +414,73 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 	var target := _get_slot_at_global_pos(mouse)
 	print("[InventoryPanel] end_drag TARGET from=%d target=%d mouse=%s" % [from_slot, target, str(mouse)])
 
+	if target == -1:
+		if _is_shop_click_context():
+			_clear_drag_visual()
+			return
+
+		if _inv == null:
+			_clear_drag_visual()
+			return
+
+		var data := _inv.extract_amount_for_drop(from_slot, amount)
+		if data.is_empty():
+			_clear_drag_visual()
+			return
+
+		var item_id := String(data.get("id", ""))
+		var drop_amount := int(data.get("amount", 0))
+		if item_id != "" and drop_amount > 0:
+			var world_pos := _resolve_world_drop_position()
+			var item_data: ItemData = null
+			var item_db := get_node_or_null("/root/ItemDB")
+			if item_db != null and item_db.has_method("get_item"):
+				item_data = item_db.get_item(item_id)
+
+			var overrides := {
+				"drop_scene": _default_drop_scene,
+			}
+			LootSystem.spawn_drop(item_data, item_id, drop_amount, world_pos, _resolve_world_drop_parent(), overrides)
+			print("[InventoryPanel] drop OUTSIDE from=%d id=%s amount=%d world_pos=%s" % [from_slot, item_id, drop_amount, str(world_pos)])
+
+		_clear_drag_visual()
+		return
+
 	if _inv != null and target != -1 and target != from_slot:
 		_inv.drag_transfer_amount(from_slot, target, amount)
 
 	_clear_drag_visual()
+
+
+func _resolve_world_drop_position() -> Vector2:
+	var player := _find_player_node()
+	if player != null:
+		return player.global_position + Vector2(0, 16)
+
+	if get_tree() != null and get_tree().current_scene != null:
+		var scene := get_tree().current_scene
+		if scene is Node2D:
+			return (scene as Node2D).global_position
+
+	return Vector2.ZERO
+
+
+func _resolve_world_drop_parent() -> Node:
+	var current_scene := get_tree().current_scene
+	if current_scene != null:
+		return current_scene
+	return get_tree().root
+
+
+func _find_player_node() -> Node2D:
+	if get_tree() == null:
+		return null
+
+	var players := get_tree().get_nodes_in_group("player")
+	if players.size() > 0 and players[0] is Node2D:
+		return players[0] as Node2D
+
+	return null
 
 
 func _get_slot_at_global_pos(mouse_global: Vector2) -> int:
