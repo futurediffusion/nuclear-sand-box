@@ -32,6 +32,8 @@ shader_parameter/screen_size = Vector2(1920, 1080)
 [node name="Main" type="Node2D"]
 scale = Vector2(2.5, 2.5)
 script = ExtResource("1_sugp2")
+world_map_size = null
+default_tavern_position = null
 
 [node name="World" type="Node2D" parent="."]
 script = ExtResource("2_jkv2x")
