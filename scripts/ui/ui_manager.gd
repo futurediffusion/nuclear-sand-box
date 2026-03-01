@@ -6,6 +6,7 @@ var _cursor: CanvasItem = null
 
 func _ready() -> void:
 	get_tree().node_added.connect(_on_tree_node_added)
+	set_process_input(true)
 	_resolve_cursor(true)
 	_apply_mode()
 
@@ -87,3 +88,31 @@ func _on_tree_node_added(_node: Node) -> void:
 	if _cursor == null or not is_instance_valid(_cursor):
 		_resolve_cursor()
 		_apply_mode()
+
+
+func _input(event: InputEvent) -> void:
+	if not event.is_action_pressed("interact"):
+		return
+	var keeper_menu_ui := _get_keeper_menu_ui()
+	if keeper_menu_ui == null:
+		return
+	if not keeper_menu_ui.is_shop_open():
+		return
+	print("[SHOP][INPUT][UIMANAGER] closing shop by global intercept event=", event.as_text(), " ui_manager=", get_instance_id(), " keeper_menu_ui=", keeper_menu_ui.get_instance_id())
+	keeper_menu_ui.close_shop()
+	get_viewport().set_input_as_handled()
+
+
+func _get_keeper_menu_ui() -> KeeperMenuUi:
+	var scene := get_tree().current_scene
+	if scene != null:
+		var by_path := scene.get_node_or_null("UI/KeeperMenuUi") as KeeperMenuUi
+		if by_path != null:
+			return by_path
+	var by_root := get_node_or_null("/root/Main/UI/KeeperMenuUi") as KeeperMenuUi
+	if by_root != null:
+		return by_root
+	for node in get_tree().get_nodes_in_group("keeper_menu_ui"):
+		if node is KeeperMenuUi:
+			return node as KeeperMenuUi
+	return null
