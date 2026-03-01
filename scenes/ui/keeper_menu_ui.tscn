@@ -9,7 +9,7 @@
 script = ExtResource("1_7r67s")
 
 [node name="Root" type="Control" parent="."]
-mouse_filter = 2
+mouse_filter = 0
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -97,3 +97,5 @@ offset_top = 39.835
 offset_right = 283.865
 offset_bottom = 39.835
 scale = Vector2(0.29, 0.29)
+
+[connection signal="gui_input" from="Root" to="." method="_on_root_gui_input"]

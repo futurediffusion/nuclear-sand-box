@@ -251,6 +251,15 @@ func _resolve_click_amount() -> int:
 	return 5 if Input.is_key_pressed(KEY_SHIFT) else 1
 
 
+
+func _on_root_gui_input(ev: InputEvent) -> void:
+	if not visible:
+		return
+	if ev is InputEventMouseButton:
+		var mouse_ev := ev as InputEventMouseButton
+		if mouse_ev.pressed:
+			get_viewport().set_input_as_handled()
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not visible:
 		return
