@@ -47,6 +47,15 @@ func _ready() -> void:
 	_rebuild_grid()
 	_refresh()
 
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED:
+		if not is_visible_in_tree() and dragging:
+			cancel_drag()
+	elif what == NOTIFICATION_EXIT_TREE:
+		if dragging:
+			cancel_drag()
+
 func configure_view(new_cols: int, new_rows: int) -> void:
 	columns = new_cols
 	rows = new_rows
@@ -323,6 +332,12 @@ func end_drag(slot_index: int, mouse_position: Vector2) -> void:
 
 	_clear_drag_visual()
 	print("[InventoryPanel] end_drag VISUAL slot=%d" % slot_index)
+
+
+func cancel_drag() -> void:
+	if not dragging:
+		return
+	_clear_drag_visual()
 
 
 func _clear_drag_visual() -> void:
