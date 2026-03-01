@@ -49,6 +49,14 @@ func can_buy(vendor: VendorComponent, buyer_inv: InventoryComponent, item_id: St
 		return {"ok": false, "reason": "NO_STOCK", "cost": cost}
 	return {"ok": true, "reason": "OK", "cost": cost}
 
+func can_buy_from_meta(vendor: VendorComponent, buyer_inv: InventoryComponent, slot_meta: Dictionary, amount: int) -> Dictionary:
+	var item_id := String(slot_meta.get("item_id", ""))
+	if item_id == "":
+		return {"ok": false, "reason": "INVALID", "cost": 0}
+	if not _is_buyable_slot_meta(vendor, slot_meta, item_id):
+		return {"ok": false, "reason": "NO_OFFER", "cost": 0}
+	return can_buy(vendor, buyer_inv, item_id, amount)
+
 func buy(vendor: VendorComponent, buyer_inv: InventoryComponent, item_id: String, amount: int) -> Dictionary:
 	var check := can_buy(vendor, buyer_inv, item_id, amount)
 	var offer_mode := "NONE"
@@ -115,6 +123,14 @@ func buy(vendor: VendorComponent, buyer_inv: InventoryComponent, item_id: String
 	print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", cost, " ok=", result.ok, " reason=", result.reason, " offer_mode=", offer_mode, " stock_src=", stock_src, " stock_before=", stock_before, " stock_after=", vendor.get_stock(item_id), " buyer_gold_before=", buyer_gold_before, " buyer_gold_after=", buyer_inv.gold)
 	return result
 
+func buy_from_meta(vendor: VendorComponent, buyer_inv: InventoryComponent, slot_meta: Dictionary, amount: int) -> Dictionary:
+	var item_id := String(slot_meta.get("item_id", ""))
+	if item_id == "":
+		return _result(false, "INVALID", 0, item_id, amount)
+	if not _is_buyable_slot_meta(vendor, slot_meta, item_id):
+		return _result(false, "NO_OFFER", 0, item_id, amount)
+	return buy(vendor, buyer_inv, item_id, amount)
+
 func can_sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: String, amount: int) -> Dictionary:
 	if vendor == null or seller_inv == null or amount <= 0:
 		return {"ok": false, "reason": "INVALID", "payout": 0}
@@ -176,3 +192,19 @@ func _result(ok: bool, reason: String, cost_or_payout: int, item_id: String, amo
 		"item_id": item_id,
 		"amount": amount,
 	}
+
+func _is_buyable_slot_meta(vendor: VendorComponent, slot_meta: Dictionary, item_id: String) -> bool:
+	if vendor == null:
+		return false
+	var source := String(slot_meta.get("source", ""))
+	match source:
+		"INV":
+			return vendor.get_stock(item_id) > 0
+		"OFFER":
+			if slot_meta.has("offer_index"):
+				var offer_idx := int(slot_meta.get("offer_index", -1))
+				var offer := vendor.find_offer_by_index(offer_idx)
+				return offer != null and String(offer.item_id) == item_id
+			return vendor.has_offer(item_id)
+		_:
+			return vendor.has_offer(item_id)
