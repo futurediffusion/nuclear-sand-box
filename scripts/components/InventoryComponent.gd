@@ -330,6 +330,103 @@ func drag_move_or_merge(from_slot: int, to_slot: int) -> bool:
 	return true
 
 
+func drag_transfer_amount(from_slot: int, to_slot: int, amount: int) -> bool:
+	if from_slot < 0 or from_slot >= max_slots:
+		return false
+	if to_slot < 0 or to_slot >= max_slots:
+		return false
+	if from_slot == to_slot:
+		return false
+	if amount <= 0:
+		return false
+
+	var from_stack = slots[from_slot]
+	if from_stack == null:
+		return false
+
+	var from_id := String(from_stack.get("id", ""))
+	var from_count := int(from_stack.get("count", 0))
+	if from_id == "" or from_count <= 0:
+		return false
+
+	var requested_amount := mini(amount, from_count)
+	if requested_amount <= 0:
+		return false
+
+	var to_stack = slots[to_slot]
+	var action := "noop"
+	var moved_amount := 0
+
+	if to_stack == null:
+		action = "move_full" if requested_amount == from_count else "move_partial"
+		slots[to_slot] = {"id": from_id, "count": requested_amount}
+		from_count -= requested_amount
+		moved_amount = requested_amount
+
+		if from_count <= 0:
+			slots[from_slot] = null
+		else:
+			from_stack["count"] = from_count
+			slots[from_slot] = from_stack
+
+		_emit_slot_changed(from_slot)
+		_emit_slot_changed(to_slot)
+		print("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=%s ok=true" % [from_slot, to_slot, from_id, moved_amount, action])
+		return true
+
+	var to_id := String(to_stack.get("id", ""))
+	var to_count := int(to_stack.get("count", 0))
+	if to_id == "" or to_count <= 0:
+		action = "move_full" if requested_amount == from_count else "move_partial"
+		slots[to_slot] = {"id": from_id, "count": requested_amount}
+		from_count -= requested_amount
+		moved_amount = requested_amount
+
+		if from_count <= 0:
+			slots[from_slot] = null
+		else:
+			from_stack["count"] = from_count
+			slots[from_slot] = from_stack
+
+		_emit_slot_changed(from_slot)
+		_emit_slot_changed(to_slot)
+		print("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=%s ok=true" % [from_slot, to_slot, from_id, moved_amount, action])
+		return true
+
+	if to_id == from_id:
+		var stack_limit := _get_stack_limit(from_id)
+		var space := stack_limit - to_count
+		var moved := mini(space, requested_amount)
+		if moved <= 0:
+			return false
+
+		to_stack["count"] = to_count + moved
+		slots[to_slot] = to_stack
+		from_count -= moved
+		moved_amount = moved
+
+		if from_count <= 0:
+			slots[from_slot] = null
+		else:
+			from_stack["count"] = from_count
+			slots[from_slot] = from_stack
+
+		_emit_slot_changed(from_slot)
+		_emit_slot_changed(to_slot)
+		print("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=merge ok=true" % [from_slot, to_slot, from_id, moved_amount])
+		return true
+
+	if requested_amount < from_count:
+		return false
+
+	slots[from_slot] = to_stack.duplicate(true)
+	slots[to_slot] = from_stack.duplicate(true)
+	_emit_slot_changed(from_slot)
+	_emit_slot_changed(to_slot)
+	print("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=swap ok=true" % [from_slot, to_slot, from_id, requested_amount])
+	return true
+
+
 func begin_batch() -> void:
 	_batch_depth += 1
 

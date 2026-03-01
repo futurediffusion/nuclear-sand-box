@@ -404,6 +404,7 @@ func begin_drag(slot_index: int, mouse_position: Vector2, button_index: int, shi
 
 func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 	var from_slot := drag_from_slot
+	var amount := drag_amount
 	if not dragging or from_slot < 0:
 		_clear_drag_visual()
 		return
@@ -411,6 +412,9 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 	var mouse := get_viewport().get_mouse_position()
 	var target := _get_slot_at_global_pos(mouse)
 	print("[InventoryPanel] end_drag TARGET from=%d target=%d mouse=%s" % [from_slot, target, str(mouse)])
+
+	if _inv != null and target != -1 and target != from_slot:
+		_inv.drag_transfer_amount(from_slot, target, amount)
 
 	_clear_drag_visual()
 
