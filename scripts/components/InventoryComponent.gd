@@ -3,7 +3,6 @@ class_name InventoryComponent
 
 signal inventory_changed
 signal slot_changed(slot_index: int)
-signal request_use_item(slot_index: int)
 
 @export var max_slots: int = 15
 @export var max_stack: int = 10
@@ -32,8 +31,6 @@ func _ready() -> void:
 	slots.resize(max_slots)
 	for i in range(max_slots):
 		slots[i] = null
-	if not request_use_item.is_connected(_on_request_use_item):
-		request_use_item.connect(_on_request_use_item)
 
 
 # ==========================
@@ -333,10 +330,6 @@ func _use_heal_item(slot_index: int, heal_amount: int) -> bool:
 
 	_remove_from_slot(slot_index, 1)
 	return true
-
-
-func _on_request_use_item(slot_index: int) -> void:
-	use_slot(slot_index)
 
 
 func _remove_from_slot(slot_index: int, amount: int) -> int:
