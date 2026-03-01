@@ -43,6 +43,9 @@ var _player_nearby: bool = false
 var _player_ref: Node    = null
 var _shop_inv: InventoryComponent = null
 var _vendor: VendorComponent = null
+var _keeper_menu_ui: KeeperMenuUi = null
+var _movement_locked_by_shop: bool = false
+var _state_before_shop: State = State.AT_COUNTER
 
 # Referencia al tilemap para convertir tiles → world (se asigna desde world.gd)
 var _tilemap: TileMap = null
@@ -61,6 +64,9 @@ func _ready() -> void:
 	interact_icon.visible = false
 
 	_go_to_counter()
+	_cache_keeper_menu_ui()
+	_connect_keeper_menu_signals()
+
 	_reset_wander_timer()
 	sprite.play("idle")
 
@@ -90,7 +96,10 @@ func _physics_process(delta: float) -> void:
 	if dying or hurt_t > 0.0:
 		move_and_slide()
 		return
-	_update_state(delta)
+	if _movement_locked_by_shop:
+		velocity = Vector2.ZERO
+	else:
+		_update_state(delta)
 	_update_animation()
 	_update_interact_prompt()
 	move_and_slide()
@@ -180,6 +189,8 @@ func _on_body_exited(body: Node) -> void:
 		_player_nearby = false
 		if _player_ref == body:
 			_player_ref = null
+		if _keeper_menu_ui != null and _keeper_menu_ui.is_owner(self):
+			_keeper_menu_ui.close_shop()
 
 # =============================================================================
 # PROMPT DE INTERACCIÓN
@@ -195,15 +206,21 @@ func _update_interact_prompt() -> void:
 
 	# Tecla E → placeholder (solo imprime)
 	if _player_nearby and Input.is_action_just_pressed("interact"):
-		_open_shop()
+		if _keeper_menu_ui != null and _keeper_menu_ui.is_owner(self):
+			_keeper_menu_ui.close_shop()
+		else:
+			_open_shop()
 
 func _open_shop() -> void:
-	var keeper_menu_ui := get_node_or_null("/root/Main/UI/KeeperMenuUi")
-	if keeper_menu_ui == null:
-		keeper_menu_ui = get_tree().current_scene.get_node_or_null("UI/KeeperMenuUi")
+	if _keeper_menu_ui == null:
+		_cache_keeper_menu_ui()
+		_connect_keeper_menu_signals()
 
-	if keeper_menu_ui == null:
+	if _keeper_menu_ui == null:
 		push_warning("[SHOP] No encuentro KeeperMenuUi en /root/Main/UI/KeeperMenuUi ni en UI/KeeperMenuUi")
+		return
+
+	if _keeper_menu_ui.is_shop_open() and not _keeper_menu_ui.is_owner(self):
 		return
 
 	if _player_ref == null:
@@ -222,16 +239,50 @@ func _open_shop() -> void:
 		push_warning("[SHOP] VendorComponent no inicializado")
 		return
 
-	keeper_menu_ui.set_player_inventory(player_inv)
-	keeper_menu_ui.set_keeper_inventory(_shop_inv)
-	keeper_menu_ui.set_vendor(_vendor)
+	_keeper_menu_ui.set_player_inventory(player_inv)
+	_keeper_menu_ui.set_keeper_inventory(_shop_inv)
+	_keeper_menu_ui.set_vendor(_vendor)
+	_keeper_menu_ui.open_shop(self)
 
-	# ESTE es el llamado correcto en dev
-	if keeper_menu_ui.has_method("toggle"):
-		keeper_menu_ui.call("toggle")
-	else:
-		push_warning("[SHOP] KeeperMenuUi no tiene método toggle()")
 
+
+func _cache_keeper_menu_ui() -> void:
+	if _keeper_menu_ui != null:
+		return
+	var keeper_menu_ui := get_node_or_null("/root/Main/UI/KeeperMenuUi")
+	if keeper_menu_ui == null:
+		keeper_menu_ui = get_tree().current_scene.get_node_or_null("UI/KeeperMenuUi")
+	_keeper_menu_ui = keeper_menu_ui as KeeperMenuUi
+
+
+func _connect_keeper_menu_signals() -> void:
+	if _keeper_menu_ui == null:
+		return
+	if not _keeper_menu_ui.shop_opened.is_connected(_on_shop_opened):
+		_keeper_menu_ui.shop_opened.connect(_on_shop_opened)
+	if not _keeper_menu_ui.shop_closed.is_connected(_on_shop_closed):
+		_keeper_menu_ui.shop_closed.connect(_on_shop_closed)
+
+
+func _on_shop_opened(owner: Node) -> void:
+	if owner != self:
+		return
+	if _movement_locked_by_shop:
+		return
+	_movement_locked_by_shop = true
+	_state_before_shop = _state
+	velocity = Vector2.ZERO
+	_state = State.AT_COUNTER
+
+
+func _on_shop_closed(owner: Node) -> void:
+	if owner != self:
+		return
+	if not _movement_locked_by_shop:
+		return
+	_movement_locked_by_shop = false
+	_state = _state_before_shop
+	_reset_wander_timer()
 
 
 # =============================================================================

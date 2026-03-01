@@ -1,6 +1,9 @@
 extends CanvasLayer
 class_name KeeperMenuUi
 
+signal shop_opened(owner: Node)
+signal shop_closed(owner: Node)
+
 @onready var player_panel: InventoryPanel = $Root/Panel/ContentArea/Layout/Playerbox/PlayerInventoryPanel
 @onready var keeper_panel: InventoryPanel = $Root/Panel/ContentArea/Layout/KeeperBox/KeeperInventoryPanel
 
@@ -8,6 +11,7 @@ var _player_inv: InventoryComponent = null
 var _vendor: VendorComponent = null
 var _keeper_inv: InventoryComponent = null
 var _refresh_queued: bool = false
+var _current_owner: Node = null
 
 
 func _ready() -> void:
@@ -17,12 +21,40 @@ func _ready() -> void:
 
 
 func toggle() -> void:
-	visible = not visible
-	print("[MENU] toggle visible=", visible)
 	if visible:
-		UiManager.open_ui("shop")
+		close_shop()
 	else:
-		UiManager.close_ui("shop")
+		open_shop(_current_owner)
+
+
+func open_shop(owner: Node) -> void:
+	if visible and _current_owner == owner:
+		return
+	if visible and _current_owner != owner:
+		close_shop()
+
+	visible = true
+	_current_owner = owner
+	UiManager.open_ui("shop")
+	shop_opened.emit(_current_owner)
+
+
+func close_shop() -> void:
+	if not visible:
+		return
+	var closed_owner := _current_owner
+	visible = false
+	_current_owner = null
+	UiManager.close_ui("shop")
+	shop_closed.emit(closed_owner)
+
+
+func is_shop_open() -> bool:
+	return visible
+
+
+func is_owner(owner: Node) -> bool:
+	return visible and _current_owner == owner
 
 
 func set_player_inventory(inv: InventoryComponent) -> void:
@@ -205,3 +237,12 @@ func _on_inventory_changed() -> void:
 
 func _resolve_click_amount() -> int:
 	return 5 if Input.is_key_pressed(KEY_SHIFT) else 1
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not visible:
+		return
+
+	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact"):
+		close_shop()
+		get_viewport().set_input_as_handled()
