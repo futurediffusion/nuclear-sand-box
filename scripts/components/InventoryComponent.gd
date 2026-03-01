@@ -2,6 +2,7 @@ extends Node
 class_name InventoryComponent
 
 signal inventory_changed
+signal request_use_item(slot_index: int)
 
 @export var max_slots: int = 15
 @export var max_stack: int = 10
@@ -134,6 +135,30 @@ func count_item(item_id: String) -> int:
 	return get_total(item_id)
 
 
+func use_slot(slot_index: int) -> bool:
+	if slot_index < 0 or slot_index >= max_slots:
+		return false
+
+	request_use_item.emit(slot_index)
+
+	var stack = slots[slot_index]
+	if stack == null:
+		return false
+
+	var item_id := String(stack.get("id", ""))
+	if item_id == "":
+		return false
+
+	var item_data := _get_item_data(item_id)
+	if item_data == null:
+		return false
+
+	if item_data.consumable and item_data.heal_hp > 0:
+		return _use_heal_item(slot_index, item_data.heal_hp)
+
+	return false
+
+
 func has_space_for(item_id: String, amount: int) -> bool:
 	# Simulación rápida: cuánto “hueco” hay para ese item
 	var stack_limit := _get_stack_limit(item_id)
@@ -258,3 +283,71 @@ func _get_stack_limit(item_id: String) -> int:
 	if item_db != null and item_db.has_method("get_max_stack"):
 		return int(item_db.get_max_stack(item_id, max_stack))
 	return max_stack
+
+
+func _get_item_data(item_id: String) -> ItemData:
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db == null or not item_db.has_method("get_item"):
+		return null
+	return item_db.get_item(item_id) as ItemData
+
+
+func _use_heal_item(slot_index: int, heal_amount: int) -> bool:
+	if heal_amount <= 0:
+		return false
+
+	var owner_node := get_parent()
+	if owner_node == null:
+		return false
+
+	var health := owner_node.get_node_or_null("HealthComponent")
+	if health == null:
+		return false
+
+	var before := int(health.hp)
+	var max_hp_value := int(health.max_hp)
+	if before >= max_hp_value:
+		return false
+
+	health.heal(heal_amount)
+	var after := int(health.hp)
+	if after <= before:
+		return false
+
+	if "hp" in owner_node:
+		owner_node.hp = after
+	if owner_node.has_method("_update_hearts_ui"):
+		owner_node.call("_update_hearts_ui")
+
+	_remove_from_slot(slot_index, 1)
+	return true
+
+
+func _remove_from_slot(slot_index: int, amount: int) -> int:
+	if amount <= 0:
+		return 0
+	if slot_index < 0 or slot_index >= max_slots:
+		return 0
+
+	var stack = slots[slot_index]
+	if stack == null:
+		return 0
+
+	var current := int(stack.get("count", 0))
+	if current <= 0:
+		slots[slot_index] = null
+		return 0
+
+	var removed := mini(amount, current)
+	current -= removed
+
+	if current <= 0:
+		slots[slot_index] = null
+	else:
+		stack["count"] = current
+		slots[slot_index] = stack
+
+	if removed > 0:
+		_emit_changed("use_item")
+
+	return removed
