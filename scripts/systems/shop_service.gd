@@ -52,43 +52,58 @@ func can_buy(vendor: VendorComponent, buyer_inv: InventoryComponent, item_id: St
 func buy(vendor: VendorComponent, buyer_inv: InventoryComponent, item_id: String, amount: int) -> Dictionary:
 	var check := can_buy(vendor, buyer_inv, item_id, amount)
 	var offer_mode := "NONE"
+	var stock_src := "DICT"
 	if vendor != null:
 		var offer := vendor.find_offer(item_id)
 		if offer != null:
 			offer_mode = "INFINITE" if offer.mode == VendorOfferScript.OfferMode.INFINITE else "STOCKED"
+		stock_src = "INV" if vendor.inv != null else "DICT"
 	if not check.ok:
-		print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", check.cost, " ok=false reason=", check.reason, " offer_mode=", offer_mode)
+		print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", check.cost, " ok=false reason=", check.reason, " offer_mode=", offer_mode, " stock_src=", stock_src)
 		return _result(false, String(check.reason), int(check.cost), item_id, amount)
 
 	var cost := int(check.cost)
-	var removed_stock := 0
 	var offer := vendor.find_offer(item_id)
+	var stock_before := vendor.get_stock(item_id)
+	var removed_stock := 0
+	var buyer_gold_before := buyer_inv.gold
+	var buyer_begin_batch := buyer_inv.has_method("begin_batch")
+	if buyer_begin_batch:
+		buyer_inv.begin_batch()
 	if offer.mode == VendorOfferScript.OfferMode.STOCKED:
 		removed_stock = vendor.remove_stock(item_id, amount)
 		if removed_stock < amount:
 			if removed_stock > 0:
 				vendor.add_stock(item_id, removed_stock)
-			print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", cost, " ok=false reason=NO_STOCK offer_mode=STOCKED")
+			if buyer_begin_batch:
+				buyer_inv.end_batch()
+			print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", cost, " ok=false reason=NO_STOCK offer_mode=STOCKED stock_src=", stock_src, " stock_before=", stock_before, " stock_after=", vendor.get_stock(item_id), " buyer_gold_before=", buyer_gold_before, " buyer_gold_after=", buyer_inv.gold)
 			return _result(false, "NO_STOCK", cost, item_id, amount)
 
 	var inserted := buyer_inv.add_item(item_id, amount)
 	if inserted < amount:
 		if offer.mode == VendorOfferScript.OfferMode.STOCKED:
 			vendor.add_stock(item_id, removed_stock)
-		print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", cost, " ok=false reason=NO_SPACE offer_mode=", offer_mode)
+		if buyer_begin_batch:
+			buyer_inv.end_batch()
+		print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", cost, " ok=false reason=NO_SPACE offer_mode=", offer_mode, " stock_src=", stock_src, " stock_before=", stock_before, " stock_after=", vendor.get_stock(item_id), " buyer_gold_before=", buyer_gold_before, " buyer_gold_after=", buyer_inv.gold)
 		return _result(false, "NO_SPACE", cost, item_id, amount)
 
 	if not buyer_inv.spend_gold(cost):
 		buyer_inv.remove_item(item_id, amount)
 		if offer.mode == VendorOfferScript.OfferMode.STOCKED:
 			vendor.add_stock(item_id, removed_stock)
-		print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", cost, " ok=false reason=NO_GOLD offer_mode=", offer_mode)
+		if buyer_begin_batch:
+			buyer_inv.end_batch()
+		print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", cost, " ok=false reason=NO_GOLD offer_mode=", offer_mode, " stock_src=", stock_src, " stock_before=", stock_before, " stock_after=", vendor.get_stock(item_id), " buyer_gold_before=", buyer_gold_before, " buyer_gold_after=", buyer_inv.gold)
 		return _result(false, "NO_GOLD", cost, item_id, amount)
 
 	if vendor.use_vendor_gold and vendor.inv != null:
 		vendor.inv.add_gold(cost)
 
-	print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", cost, " ok=true reason=OK offer_mode=", offer_mode)
+	if buyer_begin_batch:
+		buyer_inv.end_batch()
+	print("[SHOP][BUY] item=", item_id, " amt=", amount, " cost=", cost, " ok=true reason=OK offer_mode=", offer_mode, " stock_src=", stock_src, " stock_before=", stock_before, " stock_after=", vendor.get_stock(item_id), " buyer_gold_before=", buyer_gold_before, " buyer_gold_after=", buyer_inv.gold)
 	return _result(true, "OK", cost, item_id, amount)
 
 func can_sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: String, amount: int) -> Dictionary:
@@ -105,15 +120,24 @@ func can_sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: 
 func sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: String, amount: int) -> Dictionary:
 	var check := can_sell(vendor, seller_inv, item_id, amount)
 	var buyback_mode := "NONE"
+	var stock_src := "DICT"
 	if vendor != null:
 		buyback_mode = "STOCKED_TO_INVENTORY" if vendor.buyback_mode == VendorComponent.BuybackMode.STOCKED_TO_INVENTORY else "DISCARD"
+		stock_src = "INV" if vendor.inv != null else "DICT"
 	if not check.ok:
-		print("[SHOP][SELL] item=", item_id, " amt=", amount, " payout=", check.payout, " ok=false reason=", check.reason, " buyback_mode=", buyback_mode)
+		print("[SHOP][SELL] item=", item_id, " amt=", amount, " payout=", check.payout, " ok=false reason=", check.reason, " buyback_mode=", buyback_mode, " stock_src=", stock_src)
 		return _result(false, String(check.reason), int(check.payout), item_id, amount)
 
+	var seller_gold_before := seller_inv.gold
+	var stock_before := vendor.get_stock(item_id)
+	var seller_begin_batch := seller_inv.has_method("begin_batch")
+	if seller_begin_batch:
+		seller_inv.begin_batch()
 	var removed := seller_inv.remove_item(item_id, amount)
 	if removed < amount:
-		print("[SHOP][SELL] item=", item_id, " amt=", amount, " payout=", check.payout, " ok=false reason=NO_ITEM buyback_mode=", buyback_mode)
+		if seller_begin_batch:
+			seller_inv.end_batch()
+		print("[SHOP][SELL] item=", item_id, " amt=", amount, " payout=", check.payout, " ok=false reason=NO_ITEM buyback_mode=", buyback_mode, " stock_src=", stock_src, " stock_before=", stock_before, " stock_after=", vendor.get_stock(item_id), " seller_gold_before=", seller_gold_before, " seller_gold_after=", seller_inv.gold)
 		return _result(false, "NO_ITEM", int(check.payout), item_id, amount)
 
 	var payout := int(check.payout)
@@ -125,7 +149,9 @@ func sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: Stri
 		if vendor.buyback_mode == VendorComponent.BuybackMode.STOCKED_TO_INVENTORY:
 			vendor.add_stock(item_id, amount)
 
-	print("[SHOP][SELL] item=", item_id, " amt=", amount, " payout=", payout, " ok=true reason=OK buyback_mode=", buyback_mode)
+	if seller_begin_batch:
+		seller_inv.end_batch()
+	print("[SHOP][SELL] item=", item_id, " amt=", amount, " payout=", payout, " ok=true reason=OK buyback_mode=", buyback_mode, " stock_src=", stock_src, " stock_before=", stock_before, " stock_after=", vendor.get_stock(item_id), " seller_gold_before=", seller_gold_before, " seller_gold_after=", seller_inv.gold)
 	return _result(true, "OK", payout, item_id, amount)
 
 func _result(ok: bool, reason: String, cost_or_payout: int, item_id: String, amount: int) -> Dictionary:
