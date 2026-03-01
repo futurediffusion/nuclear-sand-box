@@ -222,6 +222,9 @@ func _open_shop() -> void:
 		push_warning("[SHOP] No encuentro KeeperMenuUi en /root/Main/UI/KeeperMenuUi ni en UI/KeeperMenuUi")
 		return
 
+	if UiManager.is_interact_blocked():
+		return
+
 	if _keeper_menu_ui.is_shop_open() and not _keeper_menu_ui.is_owner(self):
 		return
 

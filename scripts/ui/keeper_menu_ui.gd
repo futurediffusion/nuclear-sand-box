@@ -292,6 +292,7 @@ func _input(event: InputEvent) -> void:
 	if interact_pressed or cancel_pressed or fallback_key_e:
 		print("[SHOP][INPUT] keeper_menu_ui closing shop by input instance=", get_instance_id())
 		close_shop()
+		UiManager.block_interact_for(150)
 		get_viewport().set_input_as_handled()
 
 
