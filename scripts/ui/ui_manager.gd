@@ -1,5 +1,4 @@
 extends Node
-class_name UiManager
 
 var _open_reasons: Dictionary = {}
 var _cursor: CanvasItem = null
