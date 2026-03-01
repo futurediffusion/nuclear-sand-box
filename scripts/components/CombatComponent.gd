@@ -15,6 +15,9 @@ func tick(delta: float) -> void:
 	if player == null:
 		return
 
+	if UiManager.is_gameplay_input_blocked():
+		return
+
 	if Input.is_action_just_pressed("attack") and not player.attacking:
 		if player.stamina_component == null or not player.stamina_component.has_method("spend_attack_cost"):
 			return

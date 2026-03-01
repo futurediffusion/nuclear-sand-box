@@ -39,6 +39,12 @@ func is_ui_open() -> bool:
 	return _open_reasons.size() > 0
 
 
+func is_gameplay_input_blocked() -> bool:
+	return _open_reasons.has("shop") \
+		or _open_reasons.has("inventory") \
+		or _open_reasons.has("game_over")
+
+
 func _apply_mode() -> void:
 	var ui_open := is_ui_open()
 	if ui_open:

@@ -4,6 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://cq80ijwn6016r" path="res://scenes/ui/inventory_slot.tscn" id="2_17uwj"]
 
 [node name="InventoryPanel" type="Control" groups=["inventory_ui"]]
+mouse_filter = 2
 layout_mode = 3
 anchors_preset = 0
 script = ExtResource("1_17uwj")

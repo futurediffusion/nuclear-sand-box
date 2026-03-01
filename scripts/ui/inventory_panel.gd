@@ -112,6 +112,7 @@ func _rebuild_grid() -> void:
 					if mouse_ev.pressed:
 						print("[InventoryPanel] click slot=", idx, " button=", mouse_ev.button_index)
 						slot_clicked.emit(idx, mouse_ev.button_index)
+						accept_event()
 			)
 
 func _refresh() -> void:

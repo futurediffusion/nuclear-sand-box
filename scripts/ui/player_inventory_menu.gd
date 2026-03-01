@@ -17,10 +17,16 @@ func toggle() -> void:
 		UiManager.close_ui("inventory")
 
 func _on_root_gui_input(ev: InputEvent) -> void:
-	print("[UI][Root] ", ev)
+	if ev is InputEventMouseButton:
+		var mouse_ev := ev as InputEventMouseButton
+		if mouse_ev.pressed:
+			accept_event()
 
 func _on_texture_rect_gui_input(ev: InputEvent) -> void:
-	print("[UI][BG] ", ev)
+	if ev is InputEventMouseButton:
+		var mouse_ev := ev as InputEventMouseButton
+		if mouse_ev.pressed:
+			accept_event()
 
 func _bind_player_inventory() -> void:
 	var player := get_tree().current_scene.get_node_or_null("Player")
