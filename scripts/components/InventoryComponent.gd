@@ -427,6 +427,41 @@ func drag_transfer_amount(from_slot: int, to_slot: int, amount: int) -> bool:
 	return true
 
 
+func extract_amount_for_drop(slot_index: int, amount: int) -> Dictionary:
+	if slot_index < 0 or slot_index >= max_slots:
+		print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, "", amount])
+		return {}
+
+	var slot = slots[slot_index]
+	if slot == null:
+		print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, "", amount])
+		return {}
+
+	var item_id := String(slot.get("id", ""))
+	var slot_count := int(slot.get("count", 0))
+	if item_id == "" or slot_count <= 0:
+		print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, item_id, amount])
+		return {}
+
+	var clamped_amount := mini(amount, slot_count)
+	if clamped_amount <= 0:
+		print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, item_id, clamped_amount])
+		return {}
+
+	slot_count -= clamped_amount
+	if slot_count <= 0:
+		slot["id"] = ""
+		slot["count"] = 0
+	else:
+		slot["count"] = slot_count
+
+	slots[slot_index] = slot
+	_emit_slot_changed(slot_index)
+
+	print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=true" % [slot_index, item_id, clamped_amount])
+	return {"id": item_id, "amount": clamped_amount}
+
+
 func begin_batch() -> void:
 	_batch_depth += 1
 
