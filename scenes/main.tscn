@@ -105,11 +105,16 @@ texture_over = ExtResource("10_eb6dy")
 texture_progress = ExtResource("11_trceg")
 
 [node name="DogsBar" type="HBoxContainer" parent="UI/HUD"]
-layout_mode = 0
-offset_left = 556.005
-offset_top = 8.32
-offset_right = 602.005
-offset_bottom = 40.32
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -86.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = 40.0
+grow_horizontal = 0
+theme_override_constants/separation = 6
 
 [node name="DogsIcon" type="TextureRect" parent="UI/HUD/DogsBar"]
 custom_minimum_size = Vector2(32, 32)
