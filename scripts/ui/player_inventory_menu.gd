@@ -7,8 +7,6 @@ var _inv: InventoryComponent = null
 
 func _ready() -> void:
 	visible = false
-	if panel != null and not panel.slot_clicked.is_connected(_on_slot_clicked):
-		panel.slot_clicked.connect(_on_slot_clicked)
 
 func toggle() -> void:
 	visible = not visible
@@ -49,7 +47,3 @@ func _bind_player_inventory() -> void:
 	_inv = inv
 	panel.set_inventory(inv)
 
-func _on_slot_clicked(slot_index: int, _button: int) -> void:
-	if _inv == null:
-		return
-	_inv.request_use_item.emit(slot_index)

@@ -3,7 +3,6 @@ class_name InventoryPanel
 
 signal slot_clicked(slot_index: int, button: int)
 
-
 @export var slot_scene: PackedScene
 
 @export var columns: int = 5
@@ -57,6 +56,10 @@ func set_inventory(inv: InventoryComponent) -> void:
 	if _inv != null and not _inv.inventory_changed.is_connected(_refresh):
 		_inv.inventory_changed.connect(_refresh)
 
+	for slot in _slots_nodes:
+		if slot.has_method("bind_inventory_component"):
+			slot.call("bind_inventory_component", _inv)
+
 	_refresh()
 
 func set_price_resolver(resolver: Callable) -> void:
@@ -95,25 +98,14 @@ func _rebuild_grid() -> void:
 			cslot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			cslot.mouse_filter = Control.MOUSE_FILTER_STOP
 
-			# click hook (compra/venta)
-			var idx := i # IMPORTANTÍSIMO: evita bug de captura del loop
-			print("[InventoryPanel] slot=", idx, " mouse_filter=", cslot.mouse_filter)
-			cslot.gui_input.connect(func(ev: InputEvent) -> void:
-				if ev is InputEventMouseButton:
-					var mouse_ev := ev as InputEventMouseButton
-					print(
-						"[InventoryPanel] slot=", idx,
-						" button=", mouse_ev.button_index,
-						" pressed=", mouse_ev.pressed,
-						" event_pos=", mouse_ev.position,
-						" global_mouse=", get_global_mouse_position(),
-						" slot_global_rect=", cslot.get_global_rect()
-					)
-					if mouse_ev.pressed:
-						print("[InventoryPanel] click slot=", idx, " button=", mouse_ev.button_index)
-						slot_clicked.emit(idx, mouse_ev.button_index)
-						accept_event()
-			)
+			if slot.has_method("bind_inventory_component"):
+				slot.call("bind_inventory_component", _inv)
+			if slot.has_method("bind_inventory_ui"):
+				slot.call("bind_inventory_ui", self)
+			if slot is InventorySlot:
+				(slot as InventorySlot).slot_index = i
+			if slot.has_signal("slot_clicked") and not slot.slot_clicked.is_connected(_on_slot_clicked):
+				slot.slot_clicked.connect(_on_slot_clicked)
 
 func _refresh() -> void:
 	if _grid == null:
@@ -252,3 +244,15 @@ func _build_tooltip(item_id: String, count: int) -> String:
 func _set_slot_tooltip(slot: Node, tip: String) -> void:
 	if slot is Control:
 		(slot as Control).tooltip_text = tip
+
+
+func begin_drag(slot_index: int, mouse_position: Vector2) -> void:
+	print("[InventoryPanel] begin_drag slot=", slot_index, " mouse=", mouse_position)
+
+
+func end_drag(slot_index: int, mouse_position: Vector2) -> void:
+	print("[InventoryPanel] end_drag slot=", slot_index, " mouse=", mouse_position)
+
+
+func _on_slot_clicked(slot_index: int, button: int) -> void:
+	slot_clicked.emit(slot_index, button)
