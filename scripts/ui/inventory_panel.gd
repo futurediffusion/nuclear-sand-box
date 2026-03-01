@@ -459,7 +459,7 @@ func on_slot_primary_action(slot_index: int) -> bool:
 	if slot_index < 0:
 		return false
 
-	if _shop_mode == "SELL" or _shop_mode == "BUY":
+	if _is_shop_click_context():
 		slot_clicked.emit(slot_index, MOUSE_BUTTON_LEFT)
 		return true
 
@@ -469,9 +469,15 @@ func on_slot_primary_action(slot_index: int) -> bool:
 
 
 func should_show_not_usable_feedback(slot_index: int) -> bool:
-	if _shop_mode == "SELL" or _shop_mode == "BUY":
+	if _is_shop_click_context():
 		return false
 	return _slot_has_item(slot_index)
+
+
+func _is_shop_click_context() -> bool:
+	if _shop_mode == "SELL" or _shop_mode == "BUY":
+		return true
+	return _shop_vendor != null and _shop_player_inv != null
 
 
 func _slot_has_item(slot_index: int) -> bool:
