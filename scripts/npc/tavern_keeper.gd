@@ -100,7 +100,6 @@ func _physics_process(delta: float) -> void:
 		return
 	if _movement_locked_by_shop:
 		velocity = Vector2.ZERO
-		_target_pos = global_position
 	else:
 		_update_state(delta)
 	_update_animation()
@@ -274,6 +273,9 @@ func _on_shop_opened(owner: Node) -> void:
 		return
 	_movement_locked_by_shop = true
 	_state_before_shop = _state
+	# Congelar el objetivo una sola vez al abrir la tienda para no pisar
+	# sistemas externos que puedan usar _target_pos fuera de navegación.
+	_target_pos = global_position
 	velocity = Vector2.ZERO
 	_state = State.AT_COUNTER
 
