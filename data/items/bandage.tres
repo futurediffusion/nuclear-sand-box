@@ -1,6 +1,7 @@
-[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3 uid="uid://e76dgbktauhy"]
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3 uid="uid://e76dgbktauhy"]
 
 [ext_resource type="Texture2D" uid="uid://bqt7a2ai01x8" path="res://art/items/bandages.png" id="1_wgyej"]
+[ext_resource type="AudioStream" uid="uid://c5xw7gjl56i14" path="res://art/Sounds/pickup.ogg" id="2_6v7ir"]
 [ext_resource type="Script" uid="uid://dsv8bs57w8srn" path="res://scripts/items/ItemData.gd" id="2_iirta"]
 
 [resource]
@@ -13,5 +14,6 @@ buy_price = 25
 sell_price = 15
 tags = Array[String](["medical"])
 weight = 0.0
+pickup_sfx = ExtResource("2_6v7ir")
 consumable = true
 heal_hp = 1
