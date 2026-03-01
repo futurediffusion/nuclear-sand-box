@@ -2,6 +2,7 @@ extends Node
 class_name InventoryComponent
 
 signal inventory_changed
+signal slot_changed(slot_index: int)
 signal request_use_item(slot_index: int)
 
 @export var max_slots: int = 15
@@ -46,6 +47,7 @@ func add_item(item_id: String, amount: int) -> int:
 	var stack_limit := _get_stack_limit(item_id)
 	print("[INV] add_item id=", item_id, " amount=", amount, " stack_limit=", stack_limit)
 	var remaining := amount
+	var touched := {}
 
 	# 1) llenar stacks existentes del mismo item
 	for i in range(max_slots):
@@ -64,6 +66,7 @@ func add_item(item_id: String, amount: int) -> int:
 		var put: int = mini(can_put, remaining)
 		s["count"] = int(s["count"]) + put
 		slots[i] = s
+		touched[i] = true
 		remaining -= put
 
 	# 2) crear nuevos stacks en slots vacíos
@@ -75,10 +78,13 @@ func add_item(item_id: String, amount: int) -> int:
 
 		var put: int = mini(stack_limit, remaining)
 		slots[i] = {"id": item_id, "count": put}
+		touched[i] = true
 		remaining -= put
 
 	var inserted := amount - remaining
 	if inserted > 0:
+		for idx in touched.keys():
+			_emit_slot_changed(int(idx))
 		_emit_changed("add_item")
 
 	if remaining > 0:
@@ -93,6 +99,7 @@ func remove_item(item_id: String, amount: int) -> int:
 		return 0
 
 	var remaining := amount
+	var touched := {}
 
 	# Quitar empezando por el final (opcional) o por el principio.
 	# Yo lo hago por el final para “vaciar” stacks de forma limpia.
@@ -115,9 +122,12 @@ func remove_item(item_id: String, amount: int) -> int:
 		else:
 			s["count"] = have
 			slots[i] = s
+		touched[i] = true
 
 	var removed := amount - remaining
 	if removed > 0:
+		for idx in touched.keys():
+			_emit_slot_changed(int(idx))
 		_emit_changed("remove_item")
 	return removed
 
@@ -265,6 +275,13 @@ func end_batch() -> void:
 		_emit_changed_internal("batch_flush")
 
 
+
+
+func _emit_slot_changed(slot_index: int) -> void:
+	if slot_index < 0 or slot_index >= max_slots:
+		return
+	slot_changed.emit(slot_index)
+
 func _emit_changed(tag: String = "") -> void:
 	if _batch_depth > 0:
 		_pending_emit = true
@@ -347,6 +364,7 @@ func _remove_from_slot(slot_index: int, amount: int) -> int:
 		slots[slot_index] = stack
 
 	if removed > 0:
+		_emit_slot_changed(slot_index)
 		_emit_changed("use_item")
 
 	return removed
