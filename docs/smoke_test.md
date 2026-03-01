@@ -27,3 +27,27 @@
 - `UNLOAD chunk=(x,y) entities=... saveables=...`
 
 > Nota: El formato final incluye categoría según `Debug.log(cat, msg)`.
+
+## 4) Smoke test manual de ShopService (loop real)
+
+- [ ] Comprar item **INFINITE** (ej. `medkit`) con oro suficiente:
+  - baja `gold` del player.
+  - item entra al inventario del player.
+  - stock del vendor no baja.
+- [ ] Comprar item **STOCKED** (ej. `copper`) con stock:
+  - baja `gold` del player.
+  - item entra al inventario del player.
+  - stock del vendor baja.
+  - al llegar a 0, siguiente compra bloquea con `NO_STOCK`.
+- [ ] Vender `copper` al vendor:
+  - sale item del player.
+  - sube `gold` del player.
+  - si `buyback_mode=STOCKED_TO_INVENTORY`, el vendor recibe stock.
+- [ ] Bloqueos:
+  - sin oro => `NO_GOLD`.
+  - sin espacio => `NO_SPACE`.
+  - vender sin item => `NO_ITEM`.
+
+Logs esperados:
+- `[SHOP][BUY] item=... amt=... cost=... ok=... reason=... offer_mode=...`
+- `[SHOP][SELL] item=... amt=... payout=... ok=... reason=... buyback_mode=...`
