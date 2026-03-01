@@ -31,6 +31,8 @@ func _ready() -> void:
 	slots.resize(max_slots)
 	for i in range(max_slots):
 		slots[i] = null
+	if not request_use_item.is_connected(_on_request_use_item):
+		request_use_item.connect(_on_request_use_item)
 
 
 # ==========================
@@ -138,8 +140,6 @@ func count_item(item_id: String) -> int:
 func use_slot(slot_index: int) -> bool:
 	if slot_index < 0 or slot_index >= max_slots:
 		return false
-
-	request_use_item.emit(slot_index)
 
 	var stack = slots[slot_index]
 	if stack == null:
@@ -314,13 +314,12 @@ func _use_heal_item(slot_index: int, heal_amount: int) -> bool:
 	if after <= before:
 		return false
 
-	if "hp" in owner_node:
-		owner_node.hp = after
-	if owner_node.has_method("_update_hearts_ui"):
-		owner_node.call("_update_hearts_ui")
-
 	_remove_from_slot(slot_index, 1)
 	return true
+
+
+func _on_request_use_item(slot_index: int) -> void:
+	use_slot(slot_index)
 
 
 func _remove_from_slot(slot_index: int, amount: int) -> int:

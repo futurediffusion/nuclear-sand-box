@@ -52,4 +52,4 @@ func _bind_player_inventory() -> void:
 func _on_slot_clicked(slot_index: int, _button: int) -> void:
 	if _inv == null:
 		return
-	_inv.use_slot(slot_index)
+	_inv.request_use_item.emit(slot_index)
