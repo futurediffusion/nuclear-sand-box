@@ -2,6 +2,7 @@ extends Node
 
 var _open_reasons: Dictionary = {}
 var _cursor: CanvasItem = null
+var _block_interact_until_msec: int = 0
 
 
 func _ready() -> void:
@@ -44,6 +45,14 @@ func is_gameplay_input_blocked() -> bool:
 	return _open_reasons.has("shop") \
 		or _open_reasons.has("inventory") \
 		or _open_reasons.has("game_over")
+
+
+func block_interact_for(ms: int) -> void:
+	_block_interact_until_msec = Time.get_ticks_msec() + max(ms, 0)
+
+
+func is_interact_blocked() -> bool:
+	return Time.get_ticks_msec() < _block_interact_until_msec
 
 
 func _apply_mode() -> void:
@@ -100,6 +109,7 @@ func _input(event: InputEvent) -> void:
 		return
 	print("[SHOP][INPUT][UIMANAGER] closing shop by global intercept event=", event.as_text(), " ui_manager=", get_instance_id(), " keeper_menu_ui=", keeper_menu_ui.get_instance_id())
 	keeper_menu_ui.close_shop()
+	block_interact_for(150)
 	get_viewport().set_input_as_handled()
 
 
