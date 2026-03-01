@@ -386,30 +386,21 @@ func begin_drag(slot_index: int, mouse_position: Vector2) -> void:
 	print("[InventoryPanel] begin_drag VISUAL slot=%d id=%s count=%d" % [slot_index, item_id, count])
 
 
-func end_drag(slot_index: int, _mouse_position: Vector2) -> void:
-	if not dragging:
-		return
-
+func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 	var from_slot := drag_from_slot
-	if from_slot == -1:
-		from_slot = slot_index
+	if not dragging or from_slot < 0:
+		_clear_drag_visual()
+		return
 
 	var mouse := get_viewport().get_mouse_position()
 	var target := _get_slot_at_global_pos(mouse)
 	print("[InventoryPanel] end_drag TARGET from=%d target=%d mouse=%s" % [from_slot, target, str(mouse)])
 
-	if target == -1:
-		_clear_drag_visual()
-		return
-
-	if target == from_slot:
-		_clear_drag_visual()
-		return
-
-	var ok := false
-	if _inv != null:
-		ok = _inv.drag_move_or_merge(from_slot, target)
-	print("[InventoryPanel] drop from=%d target=%d ok=%s" % [from_slot, target, str(ok)])
+	if target != -1 and target != from_slot:
+		var ok := false
+		if _inv != null:
+			ok = _inv.drag_move_or_merge(from_slot, target)
+		print("[InventoryPanel] drop from=%d target=%d ok=%s" % [from_slot, target, str(ok)])
 
 	_clear_drag_visual()
 
