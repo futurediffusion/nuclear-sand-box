@@ -17,6 +17,10 @@ var _closing_shop: bool = false
 
 func _ready() -> void:
 	visible = false
+	set_process_unhandled_input(true)
+	var root := get_node_or_null("Root") as Control
+	if root != null:
+		root.focus_mode = Control.FOCUS_ALL
 	if not player_panel.slot_clicked.is_connected(_on_player_slot_clicked):
 		player_panel.slot_clicked.connect(_on_player_slot_clicked)
 	if not keeper_panel.slot_clicked.is_connected(_on_keeper_slot_clicked):
@@ -46,6 +50,9 @@ func open_shop(owner: Node) -> void:
 	visible = true
 	_current_owner = owner
 	UiManager.open_ui("shop")
+	var root := get_node_or_null("Root") as Control
+	if root != null:
+		root.grab_focus()
 	shop_opened.emit(_current_owner)
 
 
