@@ -70,12 +70,16 @@ func set_inventory(inv: InventoryComponent) -> void:
 	# desconecta anterior
 	if _inv != null and _inv.inventory_changed.is_connected(_refresh):
 		_inv.inventory_changed.disconnect(_refresh)
+	if _inv != null and _inv.slot_changed.is_connected(_on_inventory_slot_changed):
+		_inv.slot_changed.disconnect(_on_inventory_slot_changed)
 
 	_inv = inv
 
 	# conecta nuevo
 	if _inv != null and not _inv.inventory_changed.is_connected(_refresh):
 		_inv.inventory_changed.connect(_refresh)
+	if _inv != null and not _inv.slot_changed.is_connected(_on_inventory_slot_changed):
+		_inv.slot_changed.connect(_on_inventory_slot_changed)
 
 	for slot in _slots_nodes:
 		if slot.has_method("bind_inventory_component"):
@@ -179,6 +183,62 @@ func _refresh() -> void:
 		_set_slot_item(ui_slot, icon, count)
 		_set_slot_blocked(ui_slot, _is_slot_blocked(i, item_id))
 		_set_slot_tooltip(ui_slot, _build_tooltip(item_id, count))
+
+
+
+func _on_inventory_slot_changed(slot_index: int) -> void:
+	_refresh_slot(slot_index)
+
+
+func _refresh_slot(slot_index: int) -> void:
+	if _grid == null:
+		return
+	if slot_index < 0 or slot_index >= _visible_slots:
+		return
+
+	var ui_slot: Node = _slots_nodes[slot_index]
+	if _inv == null:
+		_set_slot_empty(ui_slot)
+		_set_slot_blocked(ui_slot, false)
+		_set_slot_tooltip(ui_slot, "")
+		return
+
+	var inv_slots_count: int = _inv.max_slots
+	if slot_index >= inv_slots_count:
+		_set_slot_empty(ui_slot)
+		_set_slot_blocked(ui_slot, false)
+		_set_slot_tooltip(ui_slot, "")
+		return
+
+	var data = _inv.slots[slot_index]
+	if data == null:
+		_set_slot_empty(ui_slot)
+		_set_slot_blocked(ui_slot, false)
+		_set_slot_tooltip(ui_slot, "")
+		set_slot_meta(slot_index, {})
+		return
+
+	var item_id: String = String(data.get("id", ""))
+	var count: int = int(data.get("count", 0))
+	if item_id == "" or count <= 0:
+		_set_slot_empty(ui_slot)
+		_set_slot_blocked(ui_slot, false)
+		_set_slot_tooltip(ui_slot, "")
+		set_slot_meta(slot_index, {})
+		return
+
+	set_slot_meta(slot_index, {"item_id": item_id, "source": "INV"})
+
+	var item_db := get_node_or_null("/root/ItemDB")
+	var icon: Texture2D = null
+	if item_db != null:
+		var item_data: ItemData = item_db.get_item(item_id)
+		if item_data != null and item_data.icon != null:
+			icon = item_data.icon
+
+	_set_slot_item(ui_slot, icon, count)
+	_set_slot_blocked(ui_slot, _is_slot_blocked(slot_index, item_id))
+	_set_slot_tooltip(ui_slot, _build_tooltip(item_id, count))
 
 func _is_slot_blocked(slot_index: int, item_id: String) -> bool:
 	if _shop_vendor == null or _shop_player_inv == null:
@@ -330,9 +390,26 @@ func end_drag(slot_index: int, _mouse_position: Vector2) -> void:
 	if not dragging:
 		return
 
+	var from_slot := drag_from_slot
+	if from_slot == -1:
+		from_slot = slot_index
+
 	var mouse := get_viewport().get_mouse_position()
 	var target := _get_slot_at_global_pos(mouse)
-	print("[InventoryPanel] end_drag TARGET from=%d target=%d mouse=%s" % [slot_index, target, str(mouse)])
+	print("[InventoryPanel] end_drag TARGET from=%d target=%d mouse=%s" % [from_slot, target, str(mouse)])
+
+	if target == -1:
+		_clear_drag_visual()
+		return
+
+	if target == from_slot:
+		_clear_drag_visual()
+		return
+
+	var ok := false
+	if _inv != null:
+		ok = _inv.drag_move_or_merge(from_slot, target)
+	print("[InventoryPanel] drop from=%d target=%d ok=%s" % [from_slot, target, str(ok)])
 
 	_clear_drag_visual()
 
