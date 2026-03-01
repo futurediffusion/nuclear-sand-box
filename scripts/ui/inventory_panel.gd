@@ -453,5 +453,40 @@ func can_drag_slot(slot_index: int) -> bool:
 	return item_id != "" and amount > 0
 
 
+
+
+func on_slot_primary_action(slot_index: int) -> bool:
+	if slot_index < 0:
+		return false
+
+	if _shop_mode == "SELL" or _shop_mode == "BUY":
+		slot_clicked.emit(slot_index, MOUSE_BUTTON_LEFT)
+		return true
+
+	if _inv == null:
+		return false
+	return _inv.use_slot(slot_index)
+
+
+func should_show_not_usable_feedback(slot_index: int) -> bool:
+	if _shop_mode == "SELL" or _shop_mode == "BUY":
+		return false
+	return _slot_has_item(slot_index)
+
+
+func _slot_has_item(slot_index: int) -> bool:
+	if _inv == null:
+		return false
+	if slot_index < 0 or slot_index >= _inv.max_slots:
+		return false
+
+	var data = _inv.slots[slot_index]
+	if data == null:
+		return false
+
+	var item_id := String(data.get("id", ""))
+	var amount := int(data.get("count", 0))
+	return item_id != "" and amount > 0
+
 func _on_slot_clicked(slot_index: int, button: int) -> void:
 	slot_clicked.emit(slot_index, button)

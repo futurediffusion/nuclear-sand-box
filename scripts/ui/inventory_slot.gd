@@ -69,7 +69,7 @@ func _gui_input(event: InputEvent) -> void:
 				if dragging:
 					_finish_drag()
 				else:
-					_click_use()
+					_click_action()
 				accept_event()
 	elif event is InputEventMouseMotion:
 		if pressed and not dragging:
@@ -80,14 +80,15 @@ func _gui_input(event: InputEvent) -> void:
 					accept_event()
 
 
-func _click_use() -> void:
+func _click_action() -> void:
 	if slot_index < 0:
 		return
-	var inv := _find_inventory_component()
-	if inv != null:
-		var used := inv.use_slot(slot_index)
-		if not used:
-			_show_not_usable_feedback(inv)
+	if _inventory_ui != null and is_instance_valid(_inventory_ui) and _inventory_ui.has_method("on_slot_primary_action"):
+		var handled := bool(_inventory_ui.call("on_slot_primary_action", slot_index))
+		if not handled and _inventory_ui.has_method("should_show_not_usable_feedback"):
+			var show_feedback := bool(_inventory_ui.call("should_show_not_usable_feedback", slot_index))
+			if show_feedback:
+				_show_not_usable_feedback(_find_inventory_component())
 		return
 	slot_clicked.emit(slot_index, MOUSE_BUTTON_LEFT)
 
