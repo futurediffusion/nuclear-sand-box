@@ -146,6 +146,11 @@ func _refresh() -> void:
 		return
 
 	var inv_slots_count: int = _inv.max_slots
+	var existing_meta: Array[Dictionary] = []
+	if _is_shop_buy_mode():
+		existing_meta = _slot_meta.duplicate(true)
+		if OS.is_debug_build():
+			print("[SHOP] mapped_slots=%d" % existing_meta.size())
 	clear_slot_meta()
 
 	for i in range(_visible_slots):
@@ -159,6 +164,11 @@ func _refresh() -> void:
 			continue
 
 		var data = _inv.slots[i] # null o {"id","count"}
+		if _is_shop_buy_mode() and i < existing_meta.size() and not existing_meta[i].is_empty():
+			var mapped_item_id := String(existing_meta[i].get("item_id", ""))
+			if mapped_item_id != "":
+				data = {"id": mapped_item_id, "count": 1}
+				set_slot_meta(i, existing_meta[i])
 		if data == null:
 			_set_slot_empty(ui_slot)
 			_set_slot_blocked(ui_slot, false)
@@ -181,10 +191,17 @@ func _refresh() -> void:
 
 		if item_db != null:
 			var item_data: ItemData = item_db.get_item(item_id)
+			if OS.is_debug_build() and _is_shop_buy_mode():
+				print("[SHOP] resolve id=%s data=%s icon=%s" % [item_id, str(item_data != null), item_data.icon if item_data else null])
 			if item_data != null and item_data.icon != null:
 				icon = item_data.icon
 
+		if OS.is_debug_build() and _is_shop_buy_mode():
+			var icon_path: String = icon.resource_path if icon != null else "null"
+			print("[SHOP] paint slot=%d offer_index=%s id=%s icon_path=%s" % [i, str(get_slot_meta(i).get("offer_index", -1)), item_id, icon_path])
 		_set_slot_item(ui_slot, icon, count)
+		if OS.is_debug_build() and _is_shop_buy_mode():
+			print("[SHOP] paint slot=%d id=%s count=%s" % [i, item_id, str(count)])
 		_set_slot_blocked(ui_slot, _is_slot_blocked(i, item_id))
 		_set_slot_tooltip(ui_slot, _build_tooltip(item_id, count))
 
@@ -215,6 +232,10 @@ func _refresh_slot(slot_index: int) -> void:
 		return
 
 	var data = _inv.slots[slot_index]
+	if _is_shop_buy_mode() and slot_index < _slot_meta.size() and not _slot_meta[slot_index].is_empty():
+		var mapped_item_id := String(_slot_meta[slot_index].get("item_id", ""))
+		if mapped_item_id != "":
+			data = {"id": mapped_item_id, "count": 1}
 	if data == null:
 		_set_slot_empty(ui_slot)
 		_set_slot_blocked(ui_slot, false)
@@ -237,10 +258,17 @@ func _refresh_slot(slot_index: int) -> void:
 	var icon: Texture2D = null
 	if item_db != null:
 		var item_data: ItemData = item_db.get_item(item_id)
+		if OS.is_debug_build() and _is_shop_buy_mode():
+			print("[SHOP] resolve id=%s data=%s icon=%s" % [item_id, str(item_data != null), item_data.icon if item_data else null])
 		if item_data != null and item_data.icon != null:
 			icon = item_data.icon
 
+	if OS.is_debug_build() and _is_shop_buy_mode():
+		var icon_path: String = icon.resource_path if icon != null else "null"
+		print("[SHOP] paint slot=%d offer_index=%s id=%s icon_path=%s" % [slot_index, str(get_slot_meta(slot_index).get("offer_index", -1)), item_id, icon_path])
 	_set_slot_item(ui_slot, icon, count)
+	if OS.is_debug_build() and _is_shop_buy_mode():
+		print("[SHOP] paint slot=%d id=%s count=%s" % [slot_index, item_id, str(count)])
 	_set_slot_blocked(ui_slot, _is_slot_blocked(slot_index, item_id))
 	_set_slot_tooltip(ui_slot, _build_tooltip(item_id, count))
 
@@ -528,6 +556,8 @@ func _button_to_log(button_index: int) -> String:
 
 
 func can_drag_slot(slot_index: int) -> bool:
+	if _is_shop_buy_mode():
+		return false
 	if _inv == null:
 		return false
 	if slot_index < 0 or slot_index >= _inv.max_slots:
@@ -540,6 +570,10 @@ func can_drag_slot(slot_index: int) -> bool:
 	var item_id := String(data.get("id", ""))
 	var amount := int(data.get("count", 0))
 	return item_id != "" and amount > 0
+
+
+func _is_shop_buy_mode() -> bool:
+	return _shop_mode == "BUY"
 
 
 

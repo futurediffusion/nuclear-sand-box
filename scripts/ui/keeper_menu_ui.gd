@@ -1,6 +1,8 @@
 extends CanvasLayer
 class_name KeeperMenuUi
 
+const VendorOfferScript = preload("res://scripts/shop/vendor_offer.gd")
+
 signal shop_opened(owner: Node)
 signal shop_closed(owner: Node)
 
@@ -184,6 +186,16 @@ func _refresh_keeper_slot_meta() -> void:
 	if _vendor == null:
 		keeper_panel.call_deferred("_refresh")
 		return
+
+	if OS.is_debug_build():
+		print("[SHOP] offers_count=%d" % _vendor.offers.size())
+		for i in range(_vendor.offers.size()):
+			var dbg_offer: VendorOffer = _vendor.offers[i]
+			if dbg_offer == null:
+				print("[SHOP] offer[%d] id=<null> mode=<null>" % i)
+				continue
+			var dbg_mode := "INFINITE" if dbg_offer.mode == VendorOfferScript.OfferMode.INFINITE else "STOCKED"
+			print("[SHOP] offer[%d] id=%s mode=%s" % [i, dbg_offer.item_id, dbg_mode])
 
 	var used_item_ids: Dictionary = {}
 	var cursor := 0
