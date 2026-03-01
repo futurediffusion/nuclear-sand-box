@@ -326,12 +326,33 @@ func begin_drag(slot_index: int, mouse_position: Vector2) -> void:
 	print("[InventoryPanel] begin_drag VISUAL slot=%d id=%s count=%d" % [slot_index, item_id, count])
 
 
-func end_drag(slot_index: int, mouse_position: Vector2) -> void:
+func end_drag(slot_index: int, _mouse_position: Vector2) -> void:
 	if not dragging:
 		return
 
+	var mouse := get_viewport().get_mouse_position()
+	var target := _get_slot_at_global_pos(mouse)
+	print("[InventoryPanel] end_drag TARGET from=%d target=%d mouse=%s" % [slot_index, target, str(mouse)])
+
 	_clear_drag_visual()
-	print("[InventoryPanel] end_drag VISUAL slot=%d" % slot_index)
+
+
+func _get_slot_at_global_pos(mouse_global: Vector2) -> int:
+	for slot in _slots_nodes:
+		if slot == null:
+			continue
+		if not is_instance_valid(slot):
+			continue
+		if not (slot is InventorySlot):
+			continue
+
+		var inventory_slot := slot as InventorySlot
+		if not inventory_slot.is_visible_in_tree():
+			continue
+		if inventory_slot.get_global_rect().has_point(mouse_global):
+			return inventory_slot.slot_index
+
+	return -1
 
 
 func cancel_drag() -> void:
