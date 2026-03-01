@@ -274,7 +274,10 @@ func _input(event: InputEvent) -> void:
 
 	var interact_pressed := event.is_action_pressed("interact")
 	var cancel_pressed := event.is_action_pressed("ui_cancel")
-	var fallback_key_e := event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E
+	var fallback_key_e: bool = false
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		fallback_key_e = key_event.pressed and not key_event.echo and key_event.keycode == KEY_E
 
 	print(
 		"[SHOP][INPUT] keeper_menu_ui _input instance=", get_instance_id(),
