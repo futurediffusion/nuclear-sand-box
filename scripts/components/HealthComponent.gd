@@ -18,10 +18,14 @@ func take_damage(amount: int) -> void:
 	if is_dead():
 		return
 
+	var prev_visible_hp := maxi(hp, 0)
 	var final_damage: int = maxi(1, amount - armor)
 	hp -= final_damage
 	damaged.emit(final_damage)
-	hp_changed.emit(maxi(hp, 0), max_hp)
+
+	var current_visible_hp := maxi(hp, 0)
+	if current_visible_hp != prev_visible_hp:
+		hp_changed.emit(current_visible_hp, max_hp)
 
 	if hp <= 0 and not _dead_emitted:
 		_dead_emitted = true
