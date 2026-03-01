@@ -52,11 +52,7 @@ func _on_player_slot_clicked(slot_index: int, _button: int) -> void:
 	var item_id := _get_item_from_slot(_player_inv, slot_index)
 	if item_id == "":
 		return
-	var check := ShopService.can_sell(_vendor, _player_inv, item_id, 1)
-	if not bool(check.get("ok", false)):
-		print("[SHOP][UI] sell blocked reason=", check.get("reason", "UNKNOWN"))
-		return
-	ShopService.sell(_vendor, _player_inv, item_id, 1)
+	_try_sell_item(item_id, 1)
 
 
 func _on_keeper_slot_clicked(slot_index: int, _button: int) -> void:
@@ -68,11 +64,27 @@ func _on_keeper_slot_clicked(slot_index: int, _button: int) -> void:
 	var item_id := _get_item_from_slot(keeper_inv, slot_index)
 	if item_id == "":
 		return
-	var check := ShopService.can_buy(_vendor, _player_inv, item_id, 1)
+	_try_buy_item(item_id, 1)
+
+
+func _try_sell_item(item_id: String, amount: int) -> void:
+	# KeeperMenuUi no muta inventario ni oro directamente.
+	# ShopService es la única autoridad de transacciones.
+	var check := ShopService.can_sell(_vendor, _player_inv, item_id, amount)
+	if not bool(check.get("ok", false)):
+		print("[SHOP][UI] sell blocked reason=", check.get("reason", "UNKNOWN"))
+		return
+	ShopService.sell(_vendor, _player_inv, item_id, amount)
+
+
+func _try_buy_item(item_id: String, amount: int) -> void:
+	# KeeperMenuUi no muta inventario ni oro directamente.
+	# ShopService es la única autoridad de transacciones.
+	var check := ShopService.can_buy(_vendor, _player_inv, item_id, amount)
 	if not bool(check.get("ok", false)):
 		print("[SHOP][UI] buy blocked reason=", check.get("reason", "UNKNOWN"))
 		return
-	ShopService.buy(_vendor, _player_inv, item_id, 1)
+	ShopService.buy(_vendor, _player_inv, item_id, amount)
 
 func _get_item_from_slot(inv: InventoryComponent, slot_index: int) -> String:
 	if inv == null:
