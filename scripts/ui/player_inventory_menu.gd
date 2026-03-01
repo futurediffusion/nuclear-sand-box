@@ -9,7 +9,11 @@ func _ready() -> void:
 	visible = false
 
 func toggle() -> void:
-	visible = not visible
+	var next_visible := not visible
+	if not next_visible and panel != null:
+		panel.cancel_drag()
+
+	visible = next_visible
 	print("[MENU] toggle visible=", visible)
 
 	if visible:
