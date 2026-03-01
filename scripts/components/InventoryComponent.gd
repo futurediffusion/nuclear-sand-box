@@ -7,14 +7,20 @@ signal inventory_changed
 @export var max_stack: int = 10
 
 var _gold: int = 0
+var _batch_depth: int = 0
+var _pending_emit: bool = false
+var _dbg_emit_count: int = 0
+@export var debug_emit_logs: bool = false
+
 var gold: int:
 	get:
 		return _gold
 	set(value):
-		if _gold == value:
+		var clamped := maxi(0, value)
+		if _gold == clamped:
 			return
-		_gold = maxi(0, value)
-		inventory_changed.emit()
+		_gold = clamped
+		_emit_changed("gold")
 
 # Cada slot: null o Dictionary {"id": String, "count": int}
 var slots: Array = []
@@ -70,7 +76,7 @@ func add_item(item_id: String, amount: int) -> int:
 
 	var inserted := amount - remaining
 	if inserted > 0:
-		inventory_changed.emit()
+		_emit_changed("add_item")
 
 	if remaining > 0:
 		print("[INV] FULL. couldn't add ", remaining, " of ", item_id)
@@ -109,7 +115,7 @@ func remove_item(item_id: String, amount: int) -> int:
 
 	var removed := amount - remaining
 	if removed > 0:
-		inventory_changed.emit()
+		_emit_changed("remove_item")
 	return removed
 
 
@@ -182,12 +188,14 @@ func sell_all(item_id: String, unit_price: int) -> int:
 	if total <= 0:
 		return 0
 
+	begin_batch()
 	var removed := remove_item(item_id, total)
 	if removed <= 0:
+		end_batch()
 		return 0
 
 	gold += removed * unit_price
-	inventory_changed.emit()
+	end_batch()
 	return removed
 
 
@@ -207,13 +215,42 @@ func buy_item(item_id: String, amount: int, unit_price: int) -> int:
 	if to_buy <= 0:
 		return 0
 
+	begin_batch()
 	var added := add_item(item_id, to_buy)
 	if added <= 0:
+		end_batch()
 		return 0
 
 	gold -= added * unit_price
-	inventory_changed.emit()
+	end_batch()
 	return added
+
+
+func begin_batch() -> void:
+	_batch_depth += 1
+
+
+func end_batch() -> void:
+	if _batch_depth <= 0:
+		return
+	_batch_depth -= 1
+	if _batch_depth == 0 and _pending_emit:
+		_pending_emit = false
+		_emit_changed_internal("batch_flush")
+
+
+func _emit_changed(tag: String = "") -> void:
+	if _batch_depth > 0:
+		_pending_emit = true
+		return
+	_emit_changed_internal(tag)
+
+
+func _emit_changed_internal(tag: String = "") -> void:
+	_dbg_emit_count += 1
+	if debug_emit_logs:
+		print("[INV][emit#", _dbg_emit_count, "] tag=", tag, " gold=", gold)
+	inventory_changed.emit()
 
 func _get_stack_limit(item_id: String) -> int:
 	var item_db := get_node_or_null("/root/ItemDB")
