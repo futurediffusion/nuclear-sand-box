@@ -24,6 +24,9 @@ var _shop_player_inv: InventoryComponent = null
 var _shop_mode: String = ""
 var dragging: bool = false
 var drag_from_slot: int = -1
+var drag_item_id: String = ""
+var drag_amount: int = 0
+var drag_from_count_snapshot: int = 0
 var drag_ghost: Control = null
 var drag_offset: Vector2 = Vector2(16, 16)
 
@@ -327,7 +330,7 @@ func _set_slot_tooltip(slot: Node, tip: String) -> void:
 		(slot as Control).tooltip_text = tip
 
 
-func begin_drag(slot_index: int, mouse_position: Vector2) -> void:
+func begin_drag(slot_index: int, mouse_position: Vector2, button_index: int, shift: bool) -> void:
 	if not can_drag_slot(slot_index):
 		return
 
@@ -339,6 +342,16 @@ func begin_drag(slot_index: int, mouse_position: Vector2) -> void:
 	var count := int(stack.get("count", 0))
 	if item_id == "" or count <= 0:
 		return
+
+	var amount := count
+	if button_index == MOUSE_BUTTON_RIGHT:
+		if shift:
+			amount = int(floor(count / 2.0))
+			amount = max(amount, 1)
+		else:
+			amount = 1
+	else:
+		amount = count
 
 	var icon: Texture2D = null
 	var item_db := get_node_or_null("/root/ItemDB")
@@ -365,10 +378,10 @@ func begin_drag(slot_index: int, mouse_position: Vector2) -> void:
 	ghost_icon.modulate = Color(1, 1, 1, 0.9)
 	ghost.add_child(ghost_icon)
 
-	if count > 1:
+	if amount > 1:
 		var ghost_count := Label.new()
 		ghost_count.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		ghost_count.text = str(count)
+		ghost_count.text = str(amount)
 		ghost_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		ghost_count.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 		ghost_count.add_theme_color_override("font_color", Color(1, 1, 1, 1))
@@ -381,9 +394,12 @@ func begin_drag(slot_index: int, mouse_position: Vector2) -> void:
 	drag_ghost = ghost
 	dragging = true
 	drag_from_slot = slot_index
+	drag_item_id = item_id
+	drag_amount = amount
+	drag_from_count_snapshot = count
 	drag_ghost.global_position = mouse_position - drag_offset
 
-	print("[InventoryPanel] begin_drag VISUAL slot=%d id=%s count=%d" % [slot_index, item_id, count])
+	print("[InventoryPanel] begin_drag VISUAL slot=%d id=%s amount=%d (from_count=%d) btn=%s shift=%s" % [slot_index, item_id, amount, count, _button_to_log(button_index), str(shift)])
 
 
 func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
@@ -395,12 +411,6 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 	var mouse := get_viewport().get_mouse_position()
 	var target := _get_slot_at_global_pos(mouse)
 	print("[InventoryPanel] end_drag TARGET from=%d target=%d mouse=%s" % [from_slot, target, str(mouse)])
-
-	if target != -1 and target != from_slot:
-		var ok := false
-		if _inv != null:
-			ok = _inv.drag_move_or_merge(from_slot, target)
-		print("[InventoryPanel] drop from=%d target=%d ok=%s" % [from_slot, target, str(ok)])
 
 	_clear_drag_visual()
 
@@ -436,6 +446,15 @@ func _clear_drag_visual() -> void:
 	drag_ghost = null
 	dragging = false
 	drag_from_slot = -1
+	drag_item_id = ""
+	drag_amount = 0
+	drag_from_count_snapshot = 0
+
+
+func _button_to_log(button_index: int) -> String:
+	if button_index == MOUSE_BUTTON_RIGHT:
+		return "R"
+	return "L"
 
 
 func can_drag_slot(slot_index: int) -> bool:

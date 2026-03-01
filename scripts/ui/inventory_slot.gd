@@ -15,6 +15,8 @@ const DRAG_THRESHOLD := 8.0
 var pressed: bool = false
 var dragging: bool = false
 var press_pos: Vector2 = Vector2.ZERO
+var press_button_index: int = MOUSE_BUTTON_LEFT
+var press_shift: bool = false
 var _inventory_component: InventoryComponent = null
 var _inventory_ui: Node = null
 var _feedback_label: Label = null
@@ -58,17 +60,19 @@ func bind_inventory_ui(inventory_ui: Node) -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+	if event is InputEventMouseButton and (event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT):
 		if event.pressed:
 			pressed = true
 			dragging = false
 			press_pos = event.position
+			press_button_index = event.button_index
+			press_shift = event.shift_pressed
 		else:
 			if pressed:
 				pressed = false
 				if dragging:
 					_finish_drag()
-				else:
+				elif press_button_index == MOUSE_BUTTON_LEFT:
 					_click_action()
 				accept_event()
 	elif event is InputEventMouseMotion:
@@ -156,7 +160,7 @@ func _start_drag() -> void:
 	var mouse_position := get_global_mouse_position()
 	var menu := _find_inventory_menu()
 	if menu != null and menu.has_method("begin_drag"):
-		menu.begin_drag(slot_index, mouse_position)
+		menu.begin_drag(slot_index, mouse_position, press_button_index, press_shift)
 	drag_started.emit(slot_index, mouse_position)
 
 
