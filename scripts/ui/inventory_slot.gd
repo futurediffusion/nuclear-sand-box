@@ -60,7 +60,6 @@ func _gui_input(event: InputEvent) -> void:
 			pressed = true
 			dragging = false
 			press_pos = event.position
-			accept_event()
 		else:
 			if pressed:
 				pressed = false
@@ -72,9 +71,10 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		if pressed and not dragging:
 			if press_pos.distance_to(event.position) >= DRAG_THRESHOLD:
-				dragging = true
-				_start_drag()
-				accept_event()
+				if _can_drag_current_slot():
+					dragging = true
+					_start_drag()
+					accept_event()
 
 
 func _click_use() -> void:
@@ -88,7 +88,7 @@ func _click_use() -> void:
 
 
 func _start_drag() -> void:
-	if slot_index < 0:
+	if slot_index < 0 or not _can_drag_current_slot():
 		return
 	var mouse_position := get_global_mouse_position()
 	var menu := _find_inventory_menu()
@@ -98,7 +98,7 @@ func _start_drag() -> void:
 
 
 func _finish_drag() -> void:
-	if slot_index < 0:
+	if slot_index < 0 or not _can_drag_current_slot():
 		return
 	var mouse_position := get_global_mouse_position()
 	var menu := _find_inventory_menu()
@@ -108,6 +108,8 @@ func _finish_drag() -> void:
 
 
 func _find_inventory_component() -> InventoryComponent:
+	if _inventory_component != null and not is_instance_valid(_inventory_component):
+		_inventory_component = null
 	if _inventory_component != null:
 		return _inventory_component
 	var players := get_tree().get_nodes_in_group("player")
@@ -117,9 +119,34 @@ func _find_inventory_component() -> InventoryComponent:
 
 
 func _find_inventory_menu() -> Node:
+	if _inventory_ui != null and not is_instance_valid(_inventory_ui):
+		_inventory_ui = null
 	if _inventory_ui != null:
 		return _inventory_ui
 	var nodes := get_tree().get_nodes_in_group("inventory_ui")
 	if nodes.size() > 0:
 		return nodes[0]
 	return null
+
+
+func _can_drag_current_slot() -> bool:
+	if slot_index < 0:
+		return false
+
+	var menu := _find_inventory_menu()
+	if menu != null and menu.has_method("can_drag_slot"):
+		return bool(menu.call("can_drag_slot", slot_index))
+
+	var inv := _find_inventory_component()
+	if inv == null:
+		return false
+	if slot_index >= inv.max_slots:
+		return false
+
+	var data = inv.slots[slot_index]
+	if data == null:
+		return false
+
+	var item_id := String(data.get("id", ""))
+	var amount := int(data.get("count", 0))
+	return item_id != "" and amount > 0
