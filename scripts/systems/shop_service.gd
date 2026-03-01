@@ -146,6 +146,8 @@ func can_sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: 
 
 func sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: String, amount: int) -> Dictionary:
 	var check := can_sell(vendor, seller_inv, item_id, amount)
+	var is_infinite_offer := _is_infinite_offer(vendor, item_id)
+	print("[SHOP][SELL] check_infinite_offer item=%s infinite=%s" % [item_id, str(is_infinite_offer)])
 	var buyback_mode := "NONE"
 	var stock_src := "DICT"
 	if vendor != null:
@@ -175,7 +177,9 @@ func sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: Stri
 		seller_inv.add_gold(payout)
 		if vendor.use_vendor_gold and vendor_inv != null:
 			vendor_inv.spend_gold(payout)
-		if vendor.allow_buyback and vendor.buyback_mode == VendorComponent.BuybackMode.STOCKED_TO_INVENTORY:
+		if is_infinite_offer:
+			buyback_mode = "SINK_INFINITE_OFFER"
+		elif vendor.allow_buyback and vendor.buyback_mode == VendorComponent.BuybackMode.STOCKED_TO_INVENTORY:
 			vendor.add_stock(item_id, amount)
 		result = _result(true, "OK", payout, item_id, amount)
 
@@ -185,6 +189,14 @@ func sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: Stri
 		seller_inv.end_batch()
 	print("[SHOP][SELL] item=", item_id, " amt=", amount, " payout=", payout, " ok=", result.ok, " reason=", result.reason, " buyback_mode=", buyback_mode, " stock_src=", stock_src, " stock_before=", stock_before, " stock_after=", vendor.get_stock(item_id), " seller_gold_before=", seller_gold_before, " seller_gold_after=", seller_inv.gold)
 	return result
+
+func _is_infinite_offer(vendor: VendorComponent, item_id: String) -> bool:
+	if vendor == null:
+		return false
+	var offer := vendor.find_offer(item_id)
+	if offer == null:
+		return false
+	return offer.mode == VendorOfferScript.OfferMode.INFINITE
 
 func _result(ok: bool, reason: String, cost_or_payout: int, item_id: String, amount: int) -> Dictionary:
 	return {
