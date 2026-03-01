@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3 uid="uid://e76dgbktauhy"]
+
+[ext_resource type="Texture2D" uid="uid://bqt7a2ai01x8" path="res://art/items/bandages.png" id="1_wgyej"]
+[ext_resource type="Script" uid="uid://dsv8bs57w8srn" path="res://scripts/items/ItemData.gd" id="2_iirta"]
+
+[resource]
+script = ExtResource("2_iirta")
+id = "bandage"
+display_name = "Bandage (Placeholder)"
+icon = ExtResource("1_wgyej")
+max_stack = 20
+buy_price = 25
+sell_price = 15
+tags = Array[String](["medical"])
+weight = 0.0

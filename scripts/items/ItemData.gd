@@ -10,3 +10,8 @@ class_name ItemData
 @export var tags: Array[String] = []
 @export var weight: float = 0.0
 @export var pickup_sfx: AudioStream
+
+# --- NUEVO: uso/consumibles ---
+@export_group("Use")
+@export var consumable: bool = false
+@export var heal_hp: int = 0  # 1 = cura 1 corazón
