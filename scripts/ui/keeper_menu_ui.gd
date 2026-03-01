@@ -188,6 +188,17 @@ func _refresh_keeper_slot_meta() -> void:
 	var used_item_ids: Dictionary = {}
 	var cursor := 0
 
+	var bandage_offer_idx := _choose_offer_index_for_item("bandage")
+	if bandage_offer_idx >= 0:
+		keeper_panel.set_slot_meta(cursor, {
+			"item_id": "bandage",
+			"source": "OFFER",
+			"offer_index": bandage_offer_idx,
+		})
+		used_item_ids["bandage"] = true
+		print("[SHOP] slot 0 id=bandage infinite=true")
+		cursor += 1
+
 	var keeper_inv := _vendor.inv
 	if keeper_inv != null:
 		for slot_index in range(keeper_inv.max_slots):

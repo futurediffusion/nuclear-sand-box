@@ -546,6 +546,8 @@ func _use_heal_item(slot_index: int, heal_amount: int) -> bool:
 	if after <= before:
 		return false
 
+	print("[INV] used bandage heal_hp=%d slot=%d" % [heal_amount, slot_index])
+
 	_remove_from_slot(slot_index, 1)
 	return true
 

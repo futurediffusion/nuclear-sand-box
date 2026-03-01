@@ -115,6 +115,8 @@ func buy(vendor: VendorComponent, buyer_inv: InventoryComponent, item_id: String
 			if vendor.use_vendor_gold and vendor_inv != null:
 				vendor_inv.add_gold(cost)
 			result = _result(true, "OK", cost, item_id, amount)
+			if item_id == "bandage":
+				print("[SHOP] bought bandage infinite=true")
 
 	if vendor_begin_batch:
 		vendor_inv.end_batch()
