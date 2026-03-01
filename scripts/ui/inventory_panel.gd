@@ -20,6 +20,9 @@ var _slots_nodes: Array[Node] = []
 var _visible_slots: int = 0
 var _price_resolver: Callable = Callable()
 var _slot_meta: Array[Dictionary] = []
+var _shop_vendor: VendorComponent = null
+var _shop_player_inv: InventoryComponent = null
+var _shop_mode: String = ""
 
 func _ready() -> void:
 	if _grid == null:
@@ -58,6 +61,12 @@ func set_inventory(inv: InventoryComponent) -> void:
 
 func set_price_resolver(resolver: Callable) -> void:
 	_price_resolver = resolver
+	_refresh()
+
+func set_shop_context(vendor: VendorComponent, player_inv: InventoryComponent, mode: String) -> void:
+	_shop_vendor = vendor
+	_shop_player_inv = player_inv
+	_shop_mode = mode
 	_refresh()
 
 func _rebuild_grid() -> void:
@@ -123,12 +132,14 @@ func _refresh() -> void:
 		# si el panel muestra más que el inventario real, lo dejas vacío
 		if i >= inv_slots_count:
 			_set_slot_empty(ui_slot)
+			_set_slot_blocked(ui_slot, false)
 			_set_slot_tooltip(ui_slot, "")
 			continue
 
 		var data = _inv.slots[i] # null o {"id","count"}
 		if data == null:
 			_set_slot_empty(ui_slot)
+			_set_slot_blocked(ui_slot, false)
 			_set_slot_tooltip(ui_slot, "")
 			continue
 
@@ -137,6 +148,7 @@ func _refresh() -> void:
 
 		if item_id == "" or count <= 0:
 			_set_slot_empty(ui_slot)
+			_set_slot_blocked(ui_slot, false)
 			_set_slot_tooltip(ui_slot, "")
 			continue
 
@@ -151,7 +163,23 @@ func _refresh() -> void:
 				icon = item_data.icon
 
 		_set_slot_item(ui_slot, icon, count)
+		_set_slot_blocked(ui_slot, _is_slot_blocked(i, item_id))
 		_set_slot_tooltip(ui_slot, _build_tooltip(item_id, count))
+
+func _is_slot_blocked(slot_index: int, item_id: String) -> bool:
+	if _shop_vendor == null or _shop_player_inv == null:
+		return false
+
+	var slot_meta := get_slot_meta(slot_index)
+	match _shop_mode:
+		"BUY":
+			var buy_check := ShopService.can_buy_from_meta(_shop_vendor, _shop_player_inv, slot_meta, 1)
+			return not bool(buy_check.get("ok", false))
+		"SELL":
+			var sell_check := ShopService.can_sell(_shop_vendor, _shop_player_inv, item_id, 1)
+			return not bool(sell_check.get("ok", false))
+		_:
+			return false
 
 func clear_slot_meta() -> void:
 	for i in range(_slot_meta.size()):
@@ -191,6 +219,10 @@ func _set_slot_empty(slot: Node) -> void:
 	if label_node is Label:
 		(label_node as Label).text = ""
 		(label_node as Label).visible = false
+
+func _set_slot_blocked(slot: Node, is_blocked: bool) -> void:
+	if slot.has_method("set_blocked"):
+		slot.call("set_blocked", is_blocked)
 
 func _set_slot_item(slot: Node, icon: Texture2D, count: int) -> void:
 	if slot.has_method("set_item"):

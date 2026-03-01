@@ -32,6 +32,7 @@ func set_player_inventory(inv: InventoryComponent) -> void:
 	if _player_inv != null and not _player_inv.inventory_changed.is_connected(_on_inventory_changed):
 		_player_inv.inventory_changed.connect(_on_inventory_changed)
 	player_panel.set_inventory(inv)
+	player_panel.set_shop_context(_vendor, _player_inv, "SELL")
 
 
 func set_keeper_inventory(inv: InventoryComponent) -> void:
@@ -41,6 +42,7 @@ func set_keeper_inventory(inv: InventoryComponent) -> void:
 	if _keeper_inv != null and not _keeper_inv.inventory_changed.is_connected(_on_inventory_changed):
 		_keeper_inv.inventory_changed.connect(_on_inventory_changed)
 	keeper_panel.set_inventory(inv)
+	keeper_panel.set_shop_context(_vendor, _player_inv, "BUY")
 	_queue_refresh_keeper_slot_meta()
 
 
@@ -51,6 +53,8 @@ func set_vendor(vendor: VendorComponent) -> void:
 	if _vendor != null and _vendor.inv != null and not _vendor.inv.inventory_changed.is_connected(_on_inventory_changed):
 		_vendor.inv.inventory_changed.connect(_on_inventory_changed)
 	_queue_refresh_keeper_slot_meta()
+	keeper_panel.set_shop_context(_vendor, _player_inv, "BUY")
+	player_panel.set_shop_context(_vendor, _player_inv, "SELL")
 	if vendor != null:
 		keeper_panel.set_price_resolver(func(item_id: String) -> int:
 			return ShopService.get_buy_price(vendor, item_id)
@@ -126,6 +130,7 @@ func _refresh_keeper_slot_meta() -> void:
 	_refresh_queued = false
 	keeper_panel.clear_slot_meta()
 	if _vendor == null:
+		keeper_panel.call_deferred("_refresh")
 		return
 
 	var used_item_ids: Dictionary = {}
@@ -163,6 +168,8 @@ func _refresh_keeper_slot_meta() -> void:
 		})
 		used_item_ids[item_id] = true
 		cursor += 1
+
+	keeper_panel.call_deferred("_refresh")
 
 
 func _choose_offer_index_for_item(item_id: String) -> int:
