@@ -261,7 +261,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_PAUSED and visible:
+	if what == NOTIFICATION_PAUSED and visible and get_tree().paused:
 		close_shop()
 
 
