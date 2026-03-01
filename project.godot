@@ -26,6 +26,7 @@ AudioSystem="*res://scripts/systems/AudioSystem.gd"
 Debug="*res://scripts/systems/Debug.gd"
 EnemyRegistry="*res://scripts/systems/EnemyRegistry.gd"
 WorldSave="*res://scripts/systems/WorldSave.gd"
+UiManager="*res://scripts/ui/ui_manager.gd"
 
 [display]
 

@@ -19,13 +19,14 @@ func _ready() -> void:
 func _on_player_died_from_manager() -> void:
 	game_over_panel.visible = true
 	get_tree().paused = true  # congela todo (enemigos, spawner, etc.)
-	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	UiManager.open_ui("game_over")
 
 # Compatibilidad temporal para llamadas legacy.
 func on_player_died() -> void:
 	_on_player_died_from_manager()
 
 func _on_retry_pressed() -> void:
+	UiManager.close_ui("game_over")
 	get_tree().paused = false
 	get_tree().reload_current_scene()
 
