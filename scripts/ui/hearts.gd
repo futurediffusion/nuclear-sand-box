@@ -57,7 +57,9 @@ func _find_and_connect_player() -> void:
 	if health_comp == null:
 		return
 
-	if not health_comp.damaged.is_connected(_on_player_damaged):
+	if health_comp.has_signal("hp_changed") and not health_comp.hp_changed.is_connected(_on_hp_changed):
+		health_comp.hp_changed.connect(_on_hp_changed)
+	elif not health_comp.damaged.is_connected(_on_player_damaged):
 		health_comp.damaged.connect(_on_player_damaged)
 
 	if not health_comp.died.is_connected(_on_player_died):
@@ -66,6 +68,9 @@ func _find_and_connect_player() -> void:
 	max_hearts = health_comp.max_hp
 	_build()
 	set_hp(health_comp.hp)
+
+func _on_hp_changed(current: int, _max: int) -> void:
+	set_hp(current)
 
 func _on_player_damaged(_amount: int) -> void:
 	if _player == null:
