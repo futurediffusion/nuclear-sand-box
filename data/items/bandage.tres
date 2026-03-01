@@ -13,3 +13,5 @@ buy_price = 25
 sell_price = 15
 tags = Array[String](["medical"])
 weight = 0.0
+consumable = true
+heal_hp = 1
