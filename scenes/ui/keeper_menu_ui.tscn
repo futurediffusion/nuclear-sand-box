@@ -9,7 +9,6 @@
 script = ExtResource("1_7r67s")
 
 [node name="Root" type="Control" parent="."]
-mouse_filter = 0
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -18,7 +17,6 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="Panel" type="Control" parent="Root"]
-mouse_filter = 2
 custom_minimum_size = Vector2(512, 256)
 layout_mode = 1
 anchors_preset = 8
@@ -28,9 +26,9 @@ anchor_right = 0.5
 anchor_bottom = 0.5
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
 
 [node name="ContentArea" type="Control" parent="Root/Panel"]
-mouse_filter = 2
 z_index = 3
 clip_contents = true
 anchors_preset = 0
@@ -38,6 +36,7 @@ offset_left = -66.0
 offset_top = -10.0
 offset_right = 649.0
 offset_bottom = 284.0
+mouse_filter = 2
 
 [node name="Layout" type="HBoxContainer" parent="Root/Panel/ContentArea"]
 layout_mode = 0

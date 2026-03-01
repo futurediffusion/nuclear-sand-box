@@ -76,6 +76,7 @@ script = ExtResource("5_hud")
 
 [node name="Control" type="Control" parent="UI/HUD"]
 layout_mode = 1
+anchors_preset = 0
 offset_left = -290.0
 offset_top = -100.0
 offset_right = -290.0
