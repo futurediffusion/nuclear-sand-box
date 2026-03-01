@@ -72,8 +72,10 @@ func _ready() -> void:
 
 	# ✅ Conectar área de detección
 	if detection_area:
-		detection_area.body_entered.connect(_on_body_entered)
-		detection_area.body_exited.connect(_on_body_exited)
+		if not detection_area.body_entered.is_connected(_on_body_entered):
+			detection_area.body_entered.connect(_on_body_entered)
+		if not detection_area.body_exited.is_connected(_on_body_exited):
+			detection_area.body_exited.connect(_on_body_exited)
 
 	# inventario del vendedor (demo)
 	if _shop_inv == null:
@@ -98,6 +100,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if _movement_locked_by_shop:
 		velocity = Vector2.ZERO
+		_target_pos = global_position
 	else:
 		_update_state(delta)
 	_update_animation()
@@ -314,6 +317,8 @@ func play_hurt() -> void:
 	hurt_t = 0.0
 
 func _on_before_die() -> void:
+	if _keeper_menu_ui != null and _keeper_menu_ui.is_owner(self):
+		_keeper_menu_ui.close_shop()
 	velocity = Vector2.ZERO
 	interact_icon.visible = false
 	set_collision_layer_value(1, false)
@@ -321,6 +326,23 @@ func _on_before_die() -> void:
 	if detection_area:
 		detection_area.monitoring  = false
 		detection_area.monitorable = false
+		if detection_area.body_entered.is_connected(_on_body_entered):
+			detection_area.body_entered.disconnect(_on_body_entered)
+		if detection_area.body_exited.is_connected(_on_body_exited):
+			detection_area.body_exited.disconnect(_on_body_exited)
+
+
+func _exit_tree() -> void:
+	if _keeper_menu_ui != null:
+		if _keeper_menu_ui.shop_opened.is_connected(_on_shop_opened):
+			_keeper_menu_ui.shop_opened.disconnect(_on_shop_opened)
+		if _keeper_menu_ui.shop_closed.is_connected(_on_shop_closed):
+			_keeper_menu_ui.shop_closed.disconnect(_on_shop_closed)
+	if detection_area:
+		if detection_area.body_entered.is_connected(_on_body_entered):
+			detection_area.body_entered.disconnect(_on_body_entered)
+		if detection_area.body_exited.is_connected(_on_body_exited):
+			detection_area.body_exited.disconnect(_on_body_exited)
 
 func _on_after_die() -> void:
 	queue_free()
