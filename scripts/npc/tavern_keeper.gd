@@ -374,6 +374,10 @@ func apply_save_state(_state: Dictionary) -> void:
 
 
 func _build_default_offers() -> Array[VendorOffer]:
+	var bandage_offer := VendorOfferScript.new()
+	bandage_offer.item_id = "bandage"
+	bandage_offer.mode = VendorOfferScript.OfferMode.INFINITE
+
 	var copper_offer := VendorOfferScript.new()
 	copper_offer.item_id = "copper"
 	copper_offer.mode = VendorOfferScript.OfferMode.STOCKED
@@ -383,4 +387,4 @@ func _build_default_offers() -> Array[VendorOffer]:
 	medkit_offer.item_id = "medkit"
 	medkit_offer.mode = VendorOfferScript.OfferMode.INFINITE
 
-	return [copper_offer, medkit_offer]
+	return [bandage_offer, copper_offer, medkit_offer]
