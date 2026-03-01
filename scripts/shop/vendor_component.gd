@@ -28,6 +28,11 @@ func find_offer(item_id: String) -> VendorOffer:
 			return offer
 	return null
 
+func find_offer_by_index(offer_index: int) -> VendorOffer:
+	if offer_index < 0 or offer_index >= offers.size():
+		return null
+	return offers[offer_index]
+
 func has_offer(item_id: String) -> bool:
 	return find_offer(item_id) != null
 
