@@ -50,4 +50,3 @@ func _bind_player_inventory() -> void:
 
 	_inv = inv
 	panel.set_inventory(inv)
-
