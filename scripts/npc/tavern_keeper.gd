@@ -2,6 +2,8 @@ class_name TavernKeeper
 extends "res://scripts/CharacterBase.gd"
 
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
+const VendorComponentScript = preload("res://scripts/shop/vendor_component.gd")
+const VendorOfferScript = preload("res://scripts/shop/vendor_offer.gd")
 
 # =============================================================================
 # TAVERN KEEPER NPC
@@ -40,6 +42,7 @@ var _wander_wait: float  = 0.0
 var _player_nearby: bool = false
 var _player_ref: Node    = null
 var _shop_inv: InventoryComponent = null
+var _vendor: VendorComponent = null
 
 # Referencia al tilemap para convertir tiles → world (se asigna desde world.gd)
 var _tilemap: TileMap = null
@@ -69,11 +72,14 @@ func _ready() -> void:
 	# inventario del vendedor (demo)
 	if _shop_inv == null:
 		_shop_inv = InventoryComponentScript.new()
-		_shop_inv.name = "ShopInventory"
+		_shop_inv.name = "InventoryComponent"
 		add_child(_shop_inv)
 
-		# stock demo
-		_shop_inv.add_item("copper", shop_copper_stock)
+	if _vendor == null:
+		_vendor = VendorComponentScript.new()
+		_vendor.name = "VendorComponent"
+		add_child(_vendor)
+		_vendor.offers = _build_default_offers()
 
 # =============================================================================
 # FÍSICA
@@ -212,12 +218,13 @@ func _open_shop() -> void:
 		push_warning("[SHOP] No encuentro InventoryComponent en el Player")
 		return
 
-	if _shop_inv == null:
-		push_warning("[SHOP] Shop inventory no inicializado")
+	if _vendor == null:
+		push_warning("[SHOP] VendorComponent no inicializado")
 		return
 
 	keeper_menu_ui.set_player_inventory(player_inv)
 	keeper_menu_ui.set_keeper_inventory(_shop_inv)
+	keeper_menu_ui.set_vendor(_vendor)
 
 	# ESTE es el llamado correcto en dev
 	if keeper_menu_ui.has_method("toggle"):
@@ -286,3 +293,16 @@ func get_save_state() -> Dictionary:
 func apply_save_state(_state: Dictionary) -> void:
 	# Future: status/inventory/faction hooks (alive/ko/dead, etc.)
 	pass
+
+
+func _build_default_offers() -> Array[VendorOffer]:
+	var copper_offer := VendorOfferScript.new()
+	copper_offer.item_id = "copper"
+	copper_offer.mode = VendorOfferScript.OfferMode.STOCKED
+	copper_offer.base_stock = shop_copper_stock
+
+	var medkit_offer := VendorOfferScript.new()
+	medkit_offer.item_id = "medkit"
+	medkit_offer.mode = VendorOfferScript.OfferMode.INFINITE
+
+	return [copper_offer, medkit_offer]

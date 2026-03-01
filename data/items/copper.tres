@@ -10,5 +10,6 @@ id = "copper"
 display_name = "Copper Ore"
 icon = ExtResource("2_1")
 max_stack = 10
+buy_price = 12
 sell_price = 5
 pickup_sfx = ExtResource("3_1")

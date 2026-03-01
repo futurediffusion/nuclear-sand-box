@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/ItemData.gd" id="1_1"]
+[ext_resource type="Texture2D" path="res://art/ui/inventory.png" id="2_1"]
+
+[resource]
+script = ExtResource("1_1")
+id = "medkit"
+display_name = "MedKit (Placeholder)"
+icon = ExtResource("2_1")
+max_stack = 5
+buy_price = 25
+sell_price = 12
+tags = Array[String](["medical"])

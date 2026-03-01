@@ -6,7 +6,15 @@ signal inventory_changed
 @export var max_slots: int = 15
 @export var max_stack: int = 10
 
-var gold: int = 0
+var _gold: int = 0
+var gold: int:
+	get:
+		return _gold
+	set(value):
+		if _gold == value:
+			return
+		_gold = maxi(0, value)
+		inventory_changed.emit()
 
 # Cada slot: null o Dictionary {"id": String, "count": int}
 var slots: Array = []
@@ -116,6 +124,10 @@ func get_total(item_id: String) -> int:
 	return total
 
 
+func count_item(item_id: String) -> int:
+	return get_total(item_id)
+
+
 func has_space_for(item_id: String, amount: int) -> bool:
 	# Simulación rápida: cuánto “hueco” hay para ese item
 	var stack_limit := _get_stack_limit(item_id)
@@ -136,6 +148,25 @@ func has_space_for(item_id: String, amount: int) -> bool:
 			capacity += stack_limit
 
 	return capacity >= amount
+
+
+func can_add(item_id: String, amount: int) -> bool:
+	return has_space_for(item_id, amount)
+
+
+func spend_gold(amount: int) -> bool:
+	if amount <= 0:
+		return true
+	if gold < amount:
+		return false
+	gold -= amount
+	return true
+
+
+func add_gold(amount: int) -> void:
+	if amount <= 0:
+		return
+	gold += amount
 
 
 func debug_print() -> void:

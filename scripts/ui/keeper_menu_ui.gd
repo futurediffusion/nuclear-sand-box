@@ -5,7 +5,7 @@ class_name KeeperMenuUi
 @onready var keeper_panel: InventoryPanel = $Root/Panel/ContentArea/Layout/KeeperBox/KeeperInventoryPanel
 
 var _player_inv: InventoryComponent = null
-var _keeper_inv: InventoryComponent = null
+var _vendor: VendorComponent = null
 
 
 func _ready() -> void:
@@ -29,51 +29,57 @@ func set_player_inventory(inv: InventoryComponent) -> void:
 
 
 func set_keeper_inventory(inv: InventoryComponent) -> void:
-	_keeper_inv = inv
 	keeper_panel.set_inventory(inv)
 
+func set_vendor(vendor: VendorComponent) -> void:
+	_vendor = vendor
+	if vendor != null:
+		keeper_panel.set_price_resolver(func(item_id: String) -> int:
+			return ShopService.get_buy_price(vendor, item_id)
+		)
+		player_panel.set_price_resolver(func(item_id: String) -> int:
+			return ShopService.get_sell_price(vendor, item_id)
+		)
+	else:
+		keeper_panel.set_price_resolver(Callable())
+		player_panel.set_price_resolver(Callable())
 
-func _refresh_binds() -> void:
-	if _player_inv != null:
-		player_panel.set_inventory(_player_inv)
-	if _keeper_inv != null:
-		keeper_panel.set_inventory(_keeper_inv)
 
 
 func _on_player_slot_clicked(slot_index: int, _button: int) -> void:
-	_transfer_one(_player_inv, _keeper_inv, slot_index)
+	if _player_inv == null or _vendor == null:
+		return
+	var item_id := _get_item_from_slot(_player_inv, slot_index)
+	if item_id == "":
+		return
+	var check := ShopService.can_sell(_vendor, _player_inv, item_id, 1)
+	if not bool(check.get("ok", false)):
+		print("[SHOP][UI] sell blocked reason=", check.get("reason", "UNKNOWN"))
+		return
+	ShopService.sell(_vendor, _player_inv, item_id, 1)
 
 
 func _on_keeper_slot_clicked(slot_index: int, _button: int) -> void:
-	_transfer_one(_keeper_inv, _player_inv, slot_index)
-
-
-func _transfer_one(from_inv: InventoryComponent, to_inv: InventoryComponent, slot_index: int) -> void:
-	if from_inv == null or to_inv == null:
+	if _player_inv == null or _vendor == null:
 		return
-	if slot_index < 0 or slot_index >= from_inv.max_slots:
+	var keeper_inv := _vendor.inv
+	if keeper_inv == null:
 		return
-
-	var data = from_inv.slots[slot_index]
-	if data == null:
-		return
-
-	var item_id := String(data.get("id", ""))
+	var item_id := _get_item_from_slot(keeper_inv, slot_index)
 	if item_id == "":
 		return
-
-	if not from_inv.has_method("remove_item"):
-		print("[KeeperMenuUi] InventoryComponent no tiene remove_item(item_id, amount).")
+	var check := ShopService.can_buy(_vendor, _player_inv, item_id, 1)
+	if not bool(check.get("ok", false)):
+		print("[SHOP][UI] buy blocked reason=", check.get("reason", "UNKNOWN"))
 		return
-	if not to_inv.has_method("add_item"):
-		print("[KeeperMenuUi] InventoryComponent no tiene add_item(item_id, amount).")
-		return
+	ShopService.buy(_vendor, _player_inv, item_id, 1)
 
-	var removed: int = from_inv.remove_item(item_id, 1)
-	if removed <= 0:
-		return
-
-	var added: int = to_inv.add_item(item_id, 1)
-	if added <= 0:
-		# rollback por seguridad si destino no pudo recibir
-		from_inv.add_item(item_id, removed)
+func _get_item_from_slot(inv: InventoryComponent, slot_index: int) -> String:
+	if inv == null:
+		return ""
+	if slot_index < 0 or slot_index >= inv.max_slots:
+		return ""
+	var data = inv.slots[slot_index]
+	if data == null:
+		return ""
+	return String(data.get("id", ""))

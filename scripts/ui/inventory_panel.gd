@@ -18,6 +18,7 @@ signal slot_clicked(slot_index: int, button: int)
 var _inv: InventoryComponent = null
 var _slots_nodes: Array[Node] = []
 var _visible_slots: int = 0
+var _price_resolver: Callable = Callable()
 
 func _ready() -> void:
 	if _grid == null:
@@ -52,6 +53,10 @@ func set_inventory(inv: InventoryComponent) -> void:
 	if _inv != null and not _inv.inventory_changed.is_connected(_refresh):
 		_inv.inventory_changed.connect(_refresh)
 
+	_refresh()
+
+func set_price_resolver(resolver: Callable) -> void:
+	_price_resolver = resolver
 	_refresh()
 
 func _rebuild_grid() -> void:
@@ -113,11 +118,13 @@ func _refresh() -> void:
 		# si el panel muestra más que el inventario real, lo dejas vacío
 		if i >= inv_slots_count:
 			_set_slot_empty(ui_slot)
+			_set_slot_tooltip(ui_slot, "")
 			continue
 
 		var data = _inv.slots[i] # null o {"id","count"}
 		if data == null:
 			_set_slot_empty(ui_slot)
+			_set_slot_tooltip(ui_slot, "")
 			continue
 
 		var item_id: String = String(data.get("id", ""))
@@ -125,6 +132,7 @@ func _refresh() -> void:
 
 		if item_id == "" or count <= 0:
 			_set_slot_empty(ui_slot)
+			_set_slot_tooltip(ui_slot, "")
 			continue
 
 		var item_db := get_node_or_null("/root/ItemDB")
@@ -136,6 +144,7 @@ func _refresh() -> void:
 				icon = item_data.icon
 
 		_set_slot_item(ui_slot, icon, count)
+		_set_slot_tooltip(ui_slot, _build_tooltip(item_id, count))
 
 func _set_all_empty() -> void:
 	for s in _slots_nodes:
@@ -178,3 +187,14 @@ func _set_slot_item(slot: Node, icon: Texture2D, count: int) -> void:
 	if label_node is Label:
 		(label_node as Label).text = str(count) if count > 1 else ""
 		(label_node as Label).visible = count > 1
+
+func _build_tooltip(item_id: String, count: int) -> String:
+	var txt := "%s x%d" % [item_id, count]
+	if _price_resolver.is_valid():
+		var price := int(_price_resolver.call(item_id))
+		txt += "\nPrice: %d" % price
+	return txt
+
+func _set_slot_tooltip(slot: Node, tip: String) -> void:
+	if slot is Control:
+		(slot as Control).tooltip_text = tip

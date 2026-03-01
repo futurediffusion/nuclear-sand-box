@@ -7,5 +7,6 @@ class_name ItemData
 @export var max_stack: int = 10
 @export var buy_price: int = 0
 @export var sell_price: int = 0
+@export var tags: Array[String] = []
 @export var weight: float = 0.0
 @export var pickup_sfx: AudioStream

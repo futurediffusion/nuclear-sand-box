@@ -16,6 +16,7 @@ config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
+ShopService="*res://scripts/systems/shop_service.gd"
 
 Seed="*res://scripts/systems/Seed.gd"
 GameManager="*res://scripts/systems/game_manager.gd"
