@@ -232,6 +232,7 @@ func begin_batch() -> void:
 
 func end_batch() -> void:
 	if _batch_depth <= 0:
+		push_warning("[INV] end_batch() llamado con _batch_depth <= 0")
 		return
 	_batch_depth -= 1
 	if _batch_depth == 0 and _pending_emit:
