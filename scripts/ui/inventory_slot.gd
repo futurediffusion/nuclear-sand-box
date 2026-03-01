@@ -102,6 +102,11 @@ func _show_not_usable_feedback(inv: InventoryComponent) -> void:
 	if stack == null:
 		return
 
+	var item_id := String(stack.get("id", ""))
+	var amount := int(stack.get("count", 0))
+	if item_id == "" or amount <= 0:
+		return
+
 	_ensure_feedback_label()
 	if _feedback_label == null:
 		return
