@@ -19,6 +19,7 @@ var _inv: InventoryComponent = null
 var _slots_nodes: Array[Node] = []
 var _visible_slots: int = 0
 var _price_resolver: Callable = Callable()
+var _slot_meta: Array[Dictionary] = []
 
 func _ready() -> void:
 	if _grid == null:
@@ -67,12 +68,14 @@ func _rebuild_grid() -> void:
 		c.queue_free()
 
 	_slots_nodes.clear()
+	_slot_meta.clear()
 	_visible_slots = columns * rows
 
 	for i in range(_visible_slots):
 		var slot = slot_scene.instantiate()
 		_grid.add_child(slot)
 		_slots_nodes.append(slot)
+		_slot_meta.append({})
 
 		# fuerza tamaño visual
 		if slot is Control:
@@ -107,10 +110,12 @@ func _refresh() -> void:
 		return
 
 	if _inv == null:
+		clear_slot_meta()
 		_set_all_empty()
 		return
 
 	var inv_slots_count: int = _inv.max_slots
+	clear_slot_meta()
 
 	for i in range(_visible_slots):
 		var ui_slot: Node = _slots_nodes[i]
@@ -135,6 +140,8 @@ func _refresh() -> void:
 			_set_slot_tooltip(ui_slot, "")
 			continue
 
+		set_slot_meta(i, {"item_id": item_id, "source": "INV"})
+
 		var item_db := get_node_or_null("/root/ItemDB")
 		var icon: Texture2D = null
 
@@ -145,6 +152,20 @@ func _refresh() -> void:
 
 		_set_slot_item(ui_slot, icon, count)
 		_set_slot_tooltip(ui_slot, _build_tooltip(item_id, count))
+
+func clear_slot_meta() -> void:
+	for i in range(_slot_meta.size()):
+		_slot_meta[i] = {}
+
+func set_slot_meta(slot_index: int, meta: Dictionary) -> void:
+	if slot_index < 0 or slot_index >= _slot_meta.size():
+		return
+	_slot_meta[slot_index] = meta.duplicate(true)
+
+func get_slot_meta(slot_index: int) -> Dictionary:
+	if slot_index < 0 or slot_index >= _slot_meta.size():
+		return {}
+	return _slot_meta[slot_index]
 
 func _set_all_empty() -> void:
 	for s in _slots_nodes:

@@ -6,7 +6,6 @@ class_name KeeperMenuUi
 
 var _player_inv: InventoryComponent = null
 var _vendor: VendorComponent = null
-var _keeper_offer_item_ids: Array[String] = []
 
 
 func _ready() -> void:
@@ -31,10 +30,12 @@ func set_player_inventory(inv: InventoryComponent) -> void:
 
 func set_keeper_inventory(inv: InventoryComponent) -> void:
 	keeper_panel.set_inventory(inv)
+	_refresh_keeper_slot_meta()
+
 
 func set_vendor(vendor: VendorComponent) -> void:
 	_vendor = vendor
-	_rebuild_keeper_offer_cache()
+	_refresh_keeper_slot_meta()
 	if vendor != null:
 		keeper_panel.set_price_resolver(func(item_id: String) -> int:
 			return ShopService.get_buy_price(vendor, item_id)
@@ -45,7 +46,6 @@ func set_vendor(vendor: VendorComponent) -> void:
 	else:
 		keeper_panel.set_price_resolver(Callable())
 		player_panel.set_price_resolver(Callable())
-
 
 
 func _on_player_slot_clicked(slot_index: int, _button: int) -> void:
@@ -60,7 +60,7 @@ func _on_player_slot_clicked(slot_index: int, _button: int) -> void:
 func _on_keeper_slot_clicked(slot_index: int, _button: int) -> void:
 	if _player_inv == null or _vendor == null:
 		return
-	var item_id := _get_keeper_item_from_slot(slot_index)
+	var item_id := _get_keeper_item_from_slot_meta(slot_index)
 	if item_id == "":
 		return
 	_try_buy_item(item_id, _resolve_click_amount())
@@ -76,6 +76,7 @@ func _try_sell_item(item_id: String, amount: int) -> void:
 		print("[SHOP][UI] sell blocked reason=", check.get("reason", "UNKNOWN"))
 		return
 	ShopService.sell(_vendor, _player_inv, item_id, amount)
+	_refresh_keeper_slot_meta()
 
 
 func _try_buy_item(item_id: String, amount: int) -> void:
@@ -88,6 +89,8 @@ func _try_buy_item(item_id: String, amount: int) -> void:
 		print("[SHOP][UI] buy blocked reason=", check.get("reason", "UNKNOWN"))
 		return
 	ShopService.buy(_vendor, _player_inv, item_id, amount)
+	_refresh_keeper_slot_meta()
+
 
 func _get_item_from_slot(inv: InventoryComponent, slot_index: int) -> String:
 	if inv == null:
@@ -100,36 +103,42 @@ func _get_item_from_slot(inv: InventoryComponent, slot_index: int) -> String:
 	return String(data.get("id", ""))
 
 
-func _get_keeper_item_from_slot(slot_index: int) -> String:
-	if slot_index < 0:
+func _get_keeper_item_from_slot_meta(slot_index: int) -> String:
+	var meta := keeper_panel.get_slot_meta(slot_index)
+	if meta.is_empty():
 		return ""
-
-	var keeper_inv := _vendor.inv if _vendor != null else null
-	if keeper_inv != null:
-		var stocked_item_id := _get_item_from_slot(keeper_inv, slot_index)
-		if stocked_item_id != "":
-			return stocked_item_id
-
-	if _keeper_offer_item_ids.is_empty():
-		_rebuild_keeper_offer_cache()
-
-	if slot_index >= _keeper_offer_item_ids.size():
-		return ""
-
-	return _keeper_offer_item_ids[slot_index]
+	return String(meta.get("item_id", ""))
 
 
-func _rebuild_keeper_offer_cache() -> void:
-	_keeper_offer_item_ids.clear()
+func _refresh_keeper_slot_meta() -> void:
+	keeper_panel.clear_slot_meta()
 	if _vendor == null:
 		return
+
+	var used_item_ids: Dictionary = {}
+	var cursor := 0
+
+	var keeper_inv := _vendor.inv
+	if keeper_inv != null:
+		for slot_index in range(keeper_inv.max_slots):
+			var item_id := _get_item_from_slot(keeper_inv, slot_index)
+			if item_id == "":
+				continue
+			keeper_panel.set_slot_meta(cursor, {"item_id": item_id, "source": "INV"})
+			used_item_ids[item_id] = true
+			cursor += 1
+
 	for offer in _vendor.offers:
 		if offer == null:
 			continue
 		var item_id := String(offer.item_id)
-		if item_id == "" or _keeper_offer_item_ids.has(item_id):
+		if item_id == "":
 			continue
-		_keeper_offer_item_ids.append(item_id)
+		if used_item_ids.has(item_id):
+			continue
+		keeper_panel.set_slot_meta(cursor, {"item_id": item_id, "source": "OFFER"})
+		used_item_ids[item_id] = true
+		cursor += 1
 
 
 func _resolve_click_amount() -> int:
