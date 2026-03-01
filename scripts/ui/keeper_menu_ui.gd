@@ -135,6 +135,8 @@ func _on_keeper_slot_clicked(slot_index: int, _button: int) -> void:
 		return
 	var meta := keeper_panel.get_slot_meta(slot_index)
 	var item_id := String(meta.get("item_id", ""))
+	if OS.is_debug_build():
+		print("[SHOP][UI] click BUY slot=%d item=%s offer_index=%s meta=%s" % [slot_index, item_id, str(meta.get("offer_index", -1)), str(meta)])
 	if item_id == "":
 		return
 	_try_buy_item(meta, _resolve_click_amount())
@@ -163,7 +165,7 @@ func _try_buy_item(slot_meta: Dictionary, amount: int) -> void:
 	# ShopService es la única autoridad de transacciones.
 	var check := ShopService.can_buy_from_meta(_vendor, _player_inv, slot_meta, amount)
 	if not bool(check.get("ok", false)):
-		print("[SHOP][UI] buy blocked reason=", check.get("reason", "UNKNOWN"))
+		print("[SHOP][UI] buy blocked reason=%s slot_meta=%s" % [str(check.get("reason", "UNKNOWN")), str(slot_meta)])
 		return
 	ShopService.buy_from_meta(_vendor, _player_inv, slot_meta, amount)
 	_queue_refresh_keeper_slot_meta()

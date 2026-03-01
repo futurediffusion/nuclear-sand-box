@@ -184,7 +184,10 @@ func _refresh() -> void:
 			_set_slot_tooltip(ui_slot, "")
 			continue
 
-		set_slot_meta(i, {"item_id": item_id, "source": "INV"})
+		if _is_shop_buy_mode() and i < existing_meta.size() and not existing_meta[i].is_empty():
+			set_slot_meta(i, existing_meta[i])
+		else:
+			set_slot_meta(i, {"item_id": item_id, "source": "INV"})
 
 		var item_db := get_node_or_null("/root/ItemDB")
 		var icon: Texture2D = null
@@ -252,7 +255,11 @@ func _refresh_slot(slot_index: int) -> void:
 		set_slot_meta(slot_index, {})
 		return
 
-	set_slot_meta(slot_index, {"item_id": item_id, "source": "INV"})
+	var existing_slot_meta := get_slot_meta(slot_index)
+	if _is_shop_buy_mode() and not existing_slot_meta.is_empty():
+		set_slot_meta(slot_index, existing_slot_meta)
+	else:
+		set_slot_meta(slot_index, {"item_id": item_id, "source": "INV"})
 
 	var item_db := get_node_or_null("/root/ItemDB")
 	var icon: Texture2D = null
@@ -280,6 +287,16 @@ func _is_slot_blocked(slot_index: int, item_id: String) -> bool:
 	match _shop_mode:
 		"BUY":
 			var buy_check := ShopService.can_buy_from_meta(_shop_vendor, _shop_player_inv, slot_meta, 1)
+			if OS.is_debug_build():
+				var price := int(_price_resolver.call(item_id)) if _price_resolver.is_valid() else 0
+				print("[SHOP] can_buy slot=%d id=%s price=%d money=%d has_space=%s offer_index=%s" % [
+					slot_index,
+					item_id,
+					price,
+					_shop_player_inv.gold,
+					str(_shop_player_inv.can_add(item_id, 1)),
+					str(slot_meta.get("offer_index", -1)),
+				])
 			return not bool(buy_check.get("ok", false))
 		"SELL":
 			var sell_check := ShopService.can_sell(_shop_vendor, _shop_player_inv, item_id, 1)
