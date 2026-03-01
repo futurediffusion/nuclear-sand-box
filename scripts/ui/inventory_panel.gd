@@ -455,6 +455,8 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 func _resolve_world_drop_position() -> Vector2:
 	var player := _find_player_node()
 	if player != null:
+		if player.has_method("get_world_mouse_pos"):
+			return player.call("get_world_mouse_pos") as Vector2
 		return player.global_position + Vector2(0, 16)
 
 	if get_tree() != null and get_tree().current_scene != null:

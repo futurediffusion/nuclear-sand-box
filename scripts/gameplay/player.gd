@@ -219,6 +219,9 @@ func get_max_stamina() -> float:
 		return 0.0
 	return stamina_component.get_max_stamina()
 
+func get_world_mouse_pos() -> Vector2:
+	return get_global_mouse_position()
+
 func _input(event: InputEvent) -> void:
 	if inventory == null:
 		return
