@@ -12,12 +12,22 @@ var _vendor: VendorComponent = null
 var _keeper_inv: InventoryComponent = null
 var _refresh_queued: bool = false
 var _current_owner: Node = null
+var _closing_shop: bool = false
 
 
 func _ready() -> void:
 	visible = false
-	player_panel.slot_clicked.connect(_on_player_slot_clicked)
-	keeper_panel.slot_clicked.connect(_on_keeper_slot_clicked)
+	if not player_panel.slot_clicked.is_connected(_on_player_slot_clicked):
+		player_panel.slot_clicked.connect(_on_player_slot_clicked)
+	if not keeper_panel.slot_clicked.is_connected(_on_keeper_slot_clicked):
+		keeper_panel.slot_clicked.connect(_on_keeper_slot_clicked)
+
+
+func _process(_delta: float) -> void:
+	if not visible:
+		return
+	if _current_owner == null or not is_instance_valid(_current_owner):
+		close_shop()
 
 
 func toggle() -> void:
@@ -40,13 +50,15 @@ func open_shop(owner: Node) -> void:
 
 
 func close_shop() -> void:
-	if not visible:
+	if not visible or _closing_shop:
 		return
+	_closing_shop = true
 	var closed_owner := _current_owner
 	visible = false
 	_current_owner = null
 	UiManager.close_ui("shop")
 	shop_closed.emit(closed_owner)
+	_closing_shop = false
 
 
 func is_shop_open() -> bool:
@@ -246,3 +258,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact"):
 		close_shop()
 		get_viewport().set_input_as_handled()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PAUSED and visible:
+		close_shop()
+
+
+func _exit_tree() -> void:
+	if visible:
+		close_shop()
