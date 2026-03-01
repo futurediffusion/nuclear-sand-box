@@ -17,7 +17,8 @@ var _closing_shop: bool = false
 
 func _ready() -> void:
 	visible = false
-	set_process_unhandled_input(true)
+	add_to_group("keeper_menu_ui")
+	set_process_input(true)
 	var root := get_node_or_null("Root") as Control
 	if root != null:
 		root.focus_mode = Control.FOCUS_ALL
@@ -267,11 +268,26 @@ func _on_root_gui_input(ev: InputEvent) -> void:
 		if mouse_ev.pressed:
 			get_viewport().set_input_as_handled()
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if not visible:
 		return
 
-	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact"):
+	var interact_pressed := event.is_action_pressed("interact")
+	var cancel_pressed := event.is_action_pressed("ui_cancel")
+	var fallback_key_e := event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_E
+
+	print(
+		"[SHOP][INPUT] keeper_menu_ui _input instance=", get_instance_id(),
+		" owner=", _current_owner,
+		" shop_open=", is_shop_open(),
+		" event=", event.as_text(),
+		" interact=", interact_pressed,
+		" ui_cancel=", cancel_pressed,
+		" fallback_key_e=", fallback_key_e
+	)
+
+	if interact_pressed or cancel_pressed or fallback_key_e:
+		print("[SHOP][INPUT] keeper_menu_ui closing shop by input instance=", get_instance_id())
 		close_shop()
 		get_viewport().set_input_as_handled()
 
