@@ -258,6 +258,78 @@ func buy_item(item_id: String, amount: int, unit_price: int) -> int:
 	return added
 
 
+func drag_move_or_merge(from_slot: int, to_slot: int) -> bool:
+	if from_slot < 0 or from_slot >= max_slots:
+		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		return false
+	if to_slot < 0 or to_slot >= max_slots:
+		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		return false
+	if from_slot == to_slot:
+		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		return false
+
+	var from_stack = slots[from_slot]
+	if from_stack == null:
+		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		return false
+
+	var from_id := String(from_stack.get("id", ""))
+	var from_count := int(from_stack.get("count", 0))
+	if from_id == "" or from_count <= 0:
+		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		return false
+
+	var to_stack = slots[to_slot]
+	if to_stack == null:
+		slots[to_slot] = from_stack.duplicate(true)
+		slots[from_slot] = null
+		_emit_slot_changed(from_slot)
+		_emit_slot_changed(to_slot)
+		print("[INV] drag_move_or_merge from=%d to=%d action=move" % [from_slot, to_slot])
+		return true
+
+	var to_id := String(to_stack.get("id", ""))
+	var to_count := int(to_stack.get("count", 0))
+	if to_id == "" or to_count <= 0:
+		slots[to_slot] = from_stack.duplicate(true)
+		slots[from_slot] = null
+		_emit_slot_changed(from_slot)
+		_emit_slot_changed(to_slot)
+		print("[INV] drag_move_or_merge from=%d to=%d action=move" % [from_slot, to_slot])
+		return true
+
+	if from_id == to_id:
+		var stack_limit := _get_stack_limit(from_id)
+		var space := stack_limit - to_count
+		if space <= 0:
+			print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+			return false
+
+		var moved := mini(space, from_count)
+		to_stack["count"] = to_count + moved
+		from_count -= moved
+		slots[to_slot] = to_stack
+
+		if from_count <= 0:
+			slots[from_slot] = null
+		else:
+			from_stack["count"] = from_count
+			slots[from_slot] = from_stack
+
+		_emit_slot_changed(from_slot)
+		_emit_slot_changed(to_slot)
+		print("[INV] drag_move_or_merge from=%d to=%d action=merge" % [from_slot, to_slot])
+		return true
+
+	slots[from_slot] = to_stack.duplicate(true)
+	slots[to_slot] = from_stack.duplicate(true)
+	_emit_slot_changed(from_slot)
+	_emit_slot_changed(to_slot)
+	print("[INV] drag_move_or_merge from=%d to=%d action=swap" % [from_slot, to_slot])
+	return true
+
+
 func begin_batch() -> void:
 	_batch_depth += 1
 
