@@ -254,5 +254,20 @@ func end_drag(slot_index: int, mouse_position: Vector2) -> void:
 	print("[InventoryPanel] end_drag slot=", slot_index, " mouse=", mouse_position)
 
 
+func can_drag_slot(slot_index: int) -> bool:
+	if _inv == null:
+		return false
+	if slot_index < 0 or slot_index >= _inv.max_slots:
+		return false
+
+	var data = _inv.slots[slot_index]
+	if data == null:
+		return false
+
+	var item_id := String(data.get("id", ""))
+	var amount := int(data.get("count", 0))
+	return item_id != "" and amount > 0
+
+
 func _on_slot_clicked(slot_index: int, button: int) -> void:
 	slot_clicked.emit(slot_index, button)
