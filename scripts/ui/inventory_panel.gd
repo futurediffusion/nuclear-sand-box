@@ -22,6 +22,18 @@ var _slot_meta: Array[Dictionary] = []
 var _shop_vendor: VendorComponent = null
 var _shop_player_inv: InventoryComponent = null
 var _shop_mode: String = ""
+var dragging: bool = false
+var drag_from_slot: int = -1
+var drag_ghost: Control = null
+var drag_offset: Vector2 = Vector2(16, 16)
+
+
+func _process(_delta: float) -> void:
+	if not dragging:
+		return
+	if drag_ghost == null or not is_instance_valid(drag_ghost):
+		return
+	drag_ghost.global_position = get_viewport().get_mouse_position() - drag_offset
 
 func _ready() -> void:
 	if _grid == null:
@@ -247,11 +259,79 @@ func _set_slot_tooltip(slot: Node, tip: String) -> void:
 
 
 func begin_drag(slot_index: int, mouse_position: Vector2) -> void:
-	print("[InventoryPanel] begin_drag slot=", slot_index, " mouse=", mouse_position)
+	if not can_drag_slot(slot_index):
+		return
+
+	var stack = _inv.slots[slot_index]
+	if stack == null:
+		return
+
+	var item_id := String(stack.get("id", ""))
+	var count := int(stack.get("count", 0))
+	if item_id == "" or count <= 0:
+		return
+
+	var icon: Texture2D = null
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db != null:
+		var item_data: ItemData = item_db.get_item(item_id)
+		if item_data != null:
+			icon = item_data.icon
+
+	_clear_drag_visual()
+
+	var ghost := Control.new()
+	ghost.name = "DragGhost"
+	ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ghost.z_index = 1000
+	ghost.size = tile_size
+
+	var ghost_icon := TextureRect.new()
+	ghost_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ghost_icon.texture = icon
+	ghost_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	ghost_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	ghost_icon.custom_minimum_size = tile_size
+	ghost_icon.size = tile_size
+	ghost_icon.modulate = Color(1, 1, 1, 0.9)
+	ghost.add_child(ghost_icon)
+
+	if count > 1:
+		var ghost_count := Label.new()
+		ghost_count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ghost_count.text = str(count)
+		ghost_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		ghost_count.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		ghost_count.add_theme_color_override("font_color", Color(1, 1, 1, 1))
+		ghost_count.add_theme_constant_override("outline_size", 2)
+		ghost_count.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+		ghost_count.size = tile_size
+		ghost.add_child(ghost_count)
+
+	add_child(ghost)
+	drag_ghost = ghost
+	dragging = true
+	drag_from_slot = slot_index
+	drag_ghost.global_position = mouse_position - drag_offset
+
+	print("[InventoryPanel] begin_drag VISUAL slot=%d id=%s count=%d" % [slot_index, item_id, count])
 
 
 func end_drag(slot_index: int, mouse_position: Vector2) -> void:
-	print("[InventoryPanel] end_drag slot=", slot_index, " mouse=", mouse_position)
+	if not dragging:
+		return
+
+	_clear_drag_visual()
+	print("[InventoryPanel] end_drag VISUAL slot=%d" % slot_index)
+
+
+func _clear_drag_visual() -> void:
+	if drag_ghost != null and is_instance_valid(drag_ghost):
+		drag_ghost.queue_free()
+
+	drag_ghost = null
+	dragging = false
+	drag_from_slot = -1
 
 
 func can_drag_slot(slot_index: int) -> bool:
