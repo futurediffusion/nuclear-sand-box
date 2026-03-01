@@ -17,16 +17,10 @@ func _ready() -> void:
 func toggle() -> void:
 	visible = not visible
 	print("[MENU] toggle visible=", visible)
-	var cursor2d := get_tree().current_scene.get_node_or_null("Cursor2D")
 	if visible:
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-		if cursor2d != null:
-			cursor2d.visible = false
+		UiManager.open_ui("shop")
 	else:
-		Input.set_mouse_mode(Input.MOUSE_MODE_HIDDEN)
-		if cursor2d != null:
-			cursor2d.visible = true
-	print("[MOUSE] after toggle mode=", Input.get_mouse_mode(), " cursor2d_visible=", cursor2d.visible if cursor2d != null else "<missing>")
+		UiManager.close_ui("shop")
 
 
 func set_player_inventory(inv: InventoryComponent) -> void:
