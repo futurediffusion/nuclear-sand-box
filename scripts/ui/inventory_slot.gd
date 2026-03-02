@@ -112,11 +112,15 @@ func _show_not_usable_feedback(inv: InventoryComponent) -> void:
 	if item_id == "" or amount <= 0:
 		return
 
+	var feedback_text := "No usable"
+	if _is_heal_item_at_full_hp(item_id, inv):
+		feedback_text = "Full HP"
+
 	_ensure_feedback_label()
 	if _feedback_label == null:
 		return
 
-	_feedback_label.text = "No usable"
+	_feedback_label.text = feedback_text
 	_feedback_label.modulate = Color(1.0, 0.9, 0.7, 1.0)
 	_feedback_label.position = Vector2((size.x - _feedback_label.size.x) * 0.5, -16.0)
 	_feedback_label.visible = true
@@ -135,6 +139,29 @@ func _show_not_usable_feedback(inv: InventoryComponent) -> void:
 		_feedback_label.visible = false
 		_feedback_label.modulate = Color(1.0, 0.9, 0.7, 1.0)
 	)
+
+
+func _is_heal_item_at_full_hp(item_id: String, inv: InventoryComponent) -> bool:
+	if item_id == "" or inv == null:
+		return false
+
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db == null:
+		return false
+
+	var item_data: ItemData = item_db.get_item(item_id)
+	if item_data == null or not item_data.consumable or item_data.heal_hp <= 0:
+		return false
+
+	var owner_node := inv.get_parent()
+	if owner_node == null:
+		return false
+
+	var health := owner_node.get_node_or_null("HealthComponent")
+	if health == null:
+		return false
+
+	return int(health.hp) >= int(health.max_hp)
 
 
 func _ensure_feedback_label() -> void:
