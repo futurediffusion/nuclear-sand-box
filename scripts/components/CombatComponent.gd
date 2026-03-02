@@ -30,7 +30,7 @@ func tick(delta: float) -> void:
 			return
 		player.emit_signal("request_attack")
 		player._calculate_attack_angle()
-		player._spawn_slash(player.mouse_angle)
+		player.spawn_slash(player.mouse_angle)
 		_try_attack_push()
 		player.attacking = true
 		player.attack_t = 0.0

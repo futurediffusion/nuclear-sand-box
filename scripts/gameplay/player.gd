@@ -381,6 +381,10 @@ func _calculate_attack_angle() -> void:
 	target_attack_angle = base_angle + deg_to_rad(angle_offset_left if use_left_offset else angle_offset_right)
 	use_left_offset = not use_left_offset
 
+# API pública para spawnear el slash sin acoplarse a detalles internos.
+func spawn_slash(angle: float) -> void:
+	_spawn_slash(angle)
+
 func _spawn_slash(angle: float) -> void:
 	if slash_scene == null:
 		return
