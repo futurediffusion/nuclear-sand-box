@@ -383,10 +383,6 @@ func _build_default_offers() -> Array[VendorOffer]:
 	copper_offer.mode = VendorOfferScript.OfferMode.STOCKED
 	copper_offer.base_stock = shop_copper_stock
 
-	var medkit_offer := VendorOfferScript.new()
-	medkit_offer.item_id = "medkit"
-	medkit_offer.mode = VendorOfferScript.OfferMode.INFINITE
-
 	var bow_offer := VendorOfferScript.new()
 	bow_offer.item_id = "bow"
 	bow_offer.mode = VendorOfferScript.OfferMode.INFINITE
@@ -395,4 +391,4 @@ func _build_default_offers() -> Array[VendorOffer]:
 	arrow_offer.item_id = "arrow"
 	arrow_offer.mode = VendorOfferScript.OfferMode.INFINITE
 
-	return [bandage_offer, copper_offer, medkit_offer, bow_offer, arrow_offer]
+	return [bandage_offer, copper_offer, bow_offer, arrow_offer]
