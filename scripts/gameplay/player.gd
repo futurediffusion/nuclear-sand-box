@@ -52,7 +52,8 @@ const InventoryComponentScript = preload("res://scripts/components/InventoryComp
 @onready var weapon_pivot: Node2D = $WeaponPivot
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
-@onready var inventory: Node = get_node_or_null("InventoryComponent")
+@onready var inventory_component: InventoryComponent = get_node_or_null("InventoryComponent") as InventoryComponent
+@onready var weapon_component: WeaponComponent = get_node_or_null("WeaponComponent") as WeaponComponent
 
 @export_group("FX")
 @export var droplet_scene: PackedScene
@@ -117,14 +118,15 @@ func _ready() -> void:
 	_setup_health_component()
 	_setup_stamina_component()
 	_setup_inventory_component()
+	_setup_weapon_component()
 	_update_hearts_ui()
 	var listener := AudioListener2D.new()
 	add_child(listener)
 	listener.make_current()
 	weapon_sprite.visible = true
 	weapon_sprite.show()
-	if inventory != null and DEBUG_PLAYER:
-		inventory.debug_print()
+	if inventory_component != null and DEBUG_PLAYER:
+		inventory_component.debug_print()
 	Debug.log("boot", "Player ready end")
 	var db := get_node("/root/ItemDB")
 	print("ItemDB=", db)
@@ -200,11 +202,30 @@ func _setup_stamina_component() -> void:
 		stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
 
 func _setup_inventory_component() -> void:
-	if inventory == null:
-		inventory = InventoryComponentScript.new()
-		inventory.name = "InventoryComponent"
-		add_child(inventory)
+	if inventory_component == null:
+		inventory_component = InventoryComponentScript.new()
+		inventory_component.name = "InventoryComponent"
+		add_child(inventory_component)
 		Debug.log("inv", "[INV] InventoryComponent creado en Player")
+
+func _setup_weapon_component() -> void:
+	if weapon_component == null:
+		weapon_component = WeaponComponent.new()
+		weapon_component.name = "WeaponComponent"
+		add_child(weapon_component)
+
+	if inventory_component != null:
+		weapon_component.setup_from_inventory(inventory_component)
+		inventory_component.inventory_changed.connect(func():
+			weapon_component.rebuild_weapon_list_from_inventory(inventory_component)
+		)
+	else:
+		weapon_component.setup_from_inventory(null)
+
+	weapon_component.weapon_equipped.connect(func(_weapon_id: String):
+		weapon_component.apply_visuals(self)
+	)
+	weapon_component.apply_visuals(self)
 
 func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
 	stamina_changed.emit(current_stamina, max_stamina)
@@ -223,23 +244,23 @@ func get_world_mouse_pos() -> Vector2:
 	return get_global_mouse_position()
 
 func _input(event: InputEvent) -> void:
-	if inventory == null:
+	if inventory_component == null:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key_event := event as InputEventKey
 		if key_event.keycode == KEY_1:
-			inventory.add_item("copper", 3)
-			if DEBUG_PLAYER: inventory.debug_print()
+			inventory_component.add_item("copper", 3)
+			if DEBUG_PLAYER: inventory_component.debug_print()
 		elif key_event.keycode == KEY_2:
-			inventory.sell_all("copper", 5)
-			if DEBUG_PLAYER: inventory.debug_print()
+			inventory_component.sell_all("copper", 5)
+			if DEBUG_PLAYER: inventory_component.debug_print()
 		elif key_event.keycode == KEY_3:
-			inventory.buy_item("medkit", 1, 20)
-			if DEBUG_PLAYER: inventory.debug_print()
+			inventory_component.buy_item("medkit", 1, 20)
+			if DEBUG_PLAYER: inventory_component.debug_print()
 		elif key_event.keycode == KEY_4:
-			inventory.gold += 50
-			Debug.log("inv", "[INV] cheat +50 gold. gold=%s" % inventory.gold)
-			if DEBUG_PLAYER: inventory.debug_print()
+			inventory_component.gold += 50
+			Debug.log("inv", "[INV] cheat +50 gold. gold=%s" % inventory_component.gold)
+			if DEBUG_PLAYER: inventory_component.debug_print()
 
 func _physics_process(delta: float) -> void:
 	if dying:
@@ -475,4 +496,4 @@ func _exit_tree() -> void:
 		wall_occlusion_component.close()
 
 func get_inventory() -> Node:
-	return inventory
+	return inventory_component
