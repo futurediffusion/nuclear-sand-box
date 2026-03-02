@@ -72,8 +72,11 @@ func rebuild_weapon_list_from_inventory(inventory: InventoryComponent) -> void:
 		if _has_tag(data.tags, "weapon"):
 			found[item_id] = true
 
-	weapon_ids = found.keys()
-	weapon_ids.sort() # estable (opcional)
+	var new_weapon_ids: Array[String] = []
+	for found_id in found.keys():
+		new_weapon_ids.append(String(found_id))
+	new_weapon_ids.sort() # estable (opcional)
+	weapon_ids = new_weapon_ids
 
 	if debug_logs:
 		print("[WeaponComponent] rebuild weapon_ids=", weapon_ids)
