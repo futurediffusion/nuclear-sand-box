@@ -216,15 +216,23 @@ func _setup_weapon_component() -> void:
 
 	if inventory_component != null:
 		weapon_component.setup_from_inventory(inventory_component)
-		inventory_component.inventory_changed.connect(func():
-			weapon_component.rebuild_weapon_list_from_inventory(inventory_component)
-		)
+		if not inventory_component.inventory_changed.is_connected(_on_inventory_changed_rebuild_weapons):
+			inventory_component.inventory_changed.connect(_on_inventory_changed_rebuild_weapons)
 	else:
 		weapon_component.setup_from_inventory(null)
 
-	weapon_component.weapon_equipped.connect(func(_weapon_id: String):
-		weapon_component.apply_visuals(self)
-	)
+	if not weapon_component.weapon_equipped.is_connected(_on_weapon_equipped_apply_visuals):
+		weapon_component.weapon_equipped.connect(_on_weapon_equipped_apply_visuals)
+	weapon_component.apply_visuals(self)
+
+func _on_inventory_changed_rebuild_weapons() -> void:
+	if weapon_component == null:
+		return
+	weapon_component.rebuild_weapon_list_from_inventory(inventory_component)
+
+func _on_weapon_equipped_apply_visuals(_weapon_id: String) -> void:
+	if weapon_component == null:
+		return
 	weapon_component.apply_visuals(self)
 
 func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
