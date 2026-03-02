@@ -12,6 +12,7 @@ var weapon_ids: Array[String] = []
 var current_index: int = 0
 var current_weapon_id: String = "melee"
 var current_weapon: WeaponBase = null
+var _weapon_texture_cache: Dictionary = {}
 
 # Cache del DB (autoload)
 @onready var _item_db := get_node_or_null("/root/ItemDB")
@@ -159,10 +160,18 @@ func apply_visuals(player: Node) -> void:
 	weapon_sprite.offset = sprite_offset
 	weapon_sprite.scale = sprite_scale
 	slash_spawn.position = slash_pos
-	weapon_sprite.texture = null
 
-	if sprite_path != "" and ResourceLoader.exists(sprite_path):
-		weapon_sprite.texture = load(sprite_path)
+	if sprite_path == "":
+		weapon_sprite.texture = null
+		return
+
+	var texture: Texture2D = _weapon_texture_cache.get(sprite_path)
+	if texture == null and ResourceLoader.exists(sprite_path):
+		texture = ResourceLoader.load(sprite_path) as Texture2D
+		if texture != null:
+			_weapon_texture_cache[sprite_path] = texture
+
+	weapon_sprite.texture = texture
 
 # ---- Helpers ----
 func _equip_fallback() -> void:
