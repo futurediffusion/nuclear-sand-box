@@ -11,6 +11,7 @@ var weapon_ids: Array[String] = []
 
 var current_index: int = 0
 var current_weapon_id: String = "melee"
+var current_weapon: WeaponBase = null
 
 # Cache del DB (autoload)
 @onready var _item_db := get_node_or_null("/root/ItemDB")
@@ -123,6 +124,13 @@ func equip_prev() -> void:
 		print("[WeaponComponent] equip_prev -> ", current_weapon_id)
 	weapon_equipped.emit(current_weapon_id)
 
+func equip_runtime_weapon(player: Node) -> void:
+	_equip_runtime_weapon(player)
+
+func tick(delta: float) -> void:
+	if current_weapon != null:
+		current_weapon.tick(delta)
+
 func get_current_weapon_id() -> String:
 	return current_weapon_id
 
@@ -155,6 +163,26 @@ func _equip_fallback() -> void:
 		return
 	current_weapon_id = "melee"
 	weapon_equipped.emit(current_weapon_id)
+
+func _equip_runtime_weapon(player: Node) -> void:
+	if current_weapon != null:
+		current_weapon.on_unequipped()
+		current_weapon.queue_free()
+		current_weapon = null
+
+	current_weapon = _make_weapon_node(current_weapon_id)
+	current_weapon.name = "CurrentWeapon"
+	add_child(current_weapon)
+	current_weapon.on_equipped(player)
+
+func _make_weapon_node(weapon_id: String) -> WeaponBase:
+	match weapon_id:
+		"melee":
+			return MeleePipeWeapon.new()
+		"bow":
+			return WeaponBase.new()
+		_:
+			return MeleePipeWeapon.new()
 
 func _get_item_data(item_id: String) -> ItemData:
 	if _item_db == null:

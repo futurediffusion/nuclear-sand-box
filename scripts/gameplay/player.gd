@@ -224,6 +224,7 @@ func _setup_weapon_component() -> void:
 	if not weapon_component.weapon_equipped.is_connected(_on_weapon_equipped_apply_visuals):
 		weapon_component.weapon_equipped.connect(_on_weapon_equipped_apply_visuals)
 	weapon_component.apply_visuals(self)
+	weapon_component.equip_runtime_weapon(self)
 
 func _on_inventory_changed_rebuild_weapons() -> void:
 	if weapon_component == null:
@@ -234,6 +235,7 @@ func _on_weapon_equipped_apply_visuals(_weapon_id: String) -> void:
 	if weapon_component == null:
 		return
 	weapon_component.apply_visuals(self)
+	weapon_component.equip_runtime_weapon(self)
 
 func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
 	stamina_changed.emit(current_stamina, max_stamina)
@@ -300,10 +302,8 @@ func _physics_process(delta: float) -> void:
 		_update_weapon_aim(delta)
 
 	_update_weapon_flip()
-	if use_combat_component and combat_component != null:
-		combat_component.tick(delta)
-	else:
-		_legacy_attack_tick(delta)
+	if weapon_component != null:
+		weapon_component.tick(delta)
 
 	if use_block_component and block_component != null:
 		block_component.tick(delta)
