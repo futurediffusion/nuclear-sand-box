@@ -1,6 +1,8 @@
 extends WeaponBase
 class_name BowWeapon
 
+const ARROW_SCENE := preload("res://scenes/arrow.tscn")
+
 @export var max_draw_time: float = 1.2
 @export var stamina_drain_per_sec: float = 8.0
 @export var min_release_ratio: float = 0.15
@@ -8,6 +10,11 @@ class_name BowWeapon
 # Para que exista feedback aunque no dispares todavía
 @export var auto_release_on_no_stamina: bool = true
 @export var no_stamina_release_ratio: float = 0.25
+@export var min_speed: float = 420.0
+@export var max_speed: float = 900.0
+@export var min_damage: int = 8
+@export var max_damage: int = 18
+@export var knockback: float = 220.0
 
 var is_drawing: bool = false
 var draw_time: float = 0.0
@@ -93,8 +100,7 @@ func _release(inventory) -> void:
 	# Consume 1 flecha
 	inventory.remove_item("arrow", 1)
 
-	# Disparo: placeholder hasta el paso 7 (proyectil real)
-	_fire_placeholder(ratio)
+	_fire_arrow(ratio)
 
 	# Reset draw
 	_cancel_draw()
@@ -139,13 +145,26 @@ func _update_draw_visuals(reset: bool = false) -> void:
 	var end_x := -6.0
 	arrow_sprite.position.x = lerp(start_x, end_x, ratio)
 
-func _fire_placeholder(ratio: float) -> void:
-	# Por ahora: solo debug. Paso 7 crea Arrow projectile real.
-	# Mantener el ángulo igual al apuntado del player.
-	var angle := 0.0
-	if player.has_method("get_mouse_angle"):
-		angle = player.get_mouse_angle()
-	elif player.get("mouse_angle") != null:
-		angle = float(player.get("mouse_angle"))
+func _fire_arrow(ratio: float) -> void:
+	if player == null:
+		return
 
-	print("[BowWeapon] FIRE ratio=", ratio, " angle=", angle, " TODO: spawn projectile")
+	var angle := player.get_mouse_angle()
+	var dir := Vector2.RIGHT.rotated(angle)
+
+	var speed := lerp(min_speed, max_speed, ratio)
+	var dmg := int(round(lerp(float(min_damage), float(max_damage), ratio)))
+
+	var arrow := ARROW_SCENE.instantiate() as ArrowProjectile
+	if arrow == null:
+		return
+
+	var spawn_marker: Node2D = player.get_node_or_null("WeaponPivot/SlashSpawn")
+	var spawn_pos := player.global_position
+	if spawn_marker != null:
+		spawn_pos = spawn_marker.global_position
+
+	arrow.global_position = spawn_pos
+	arrow.setup(dir * speed, dmg, knockback, player)
+
+	player.get_tree().current_scene.add_child(arrow)
