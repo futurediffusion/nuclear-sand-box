@@ -208,6 +208,8 @@ func _refresh_keeper_slot_meta() -> void:
 			var item_id := _get_item_from_slot(keeper_inv, slot_index)
 			if item_id == "":
 				continue
+			if used_item_ids.has(item_id):
+				continue
 			keeper_panel.set_slot_meta(cursor, {
 				"item_id": item_id,
 				"source": "INV",
