@@ -253,6 +253,9 @@ func get_max_stamina() -> float:
 func get_world_mouse_pos() -> Vector2:
 	return get_global_mouse_position()
 
+func get_mouse_angle() -> float:
+	return mouse_angle
+
 func _input(event: InputEvent) -> void:
 	if inventory_component == null:
 		return
