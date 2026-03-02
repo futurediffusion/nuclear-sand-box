@@ -45,10 +45,7 @@ func _legacy_block_input_and_drain(delta: float) -> void:
 			blocking = false
 			emit_signal("block_ended")
 	if blocking and stamina_component != null:
-		var drained := (block_stamina_drain * 2.0) * delta
-		stamina_component.current_stamina = maxf(stamina_component.current_stamina - drained, 0.0)
-		stamina_component.stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
-		if stamina_component.current_stamina <= 0.0:
+		if not stamina_component.spend_continuous(block_stamina_drain * 2.0, delta):
 			blocking = false
 			emit_signal("block_ended")
 
