@@ -8,6 +8,7 @@ class_name ArrowProjectile
 @export var stuck_life_time: float = 15.0
 @export var max_distance_from_player: float = 1500.0
 @export var distance_check_interval: float = 0.4
+@export var prefer_hurtbox_over_world: bool = true
 
 var velocity: Vector2 = Vector2.ZERO
 var _time_left: float = 0.0
@@ -35,8 +36,14 @@ func _physics_process(delta: float) -> void:
 		_tick_stuck_state(delta)
 		return
 
+	var prev_pos := global_position
 	velocity.y += gravity * delta
-	global_position += velocity * delta
+	var next_pos := prev_pos + velocity * delta
+
+	if _sweep_hit(prev_pos, next_pos):
+		return
+
+	global_position = next_pos
 
 	if velocity.length_squared() > 0.0001:
 		rotation = velocity.angle()
@@ -44,6 +51,70 @@ func _physics_process(delta: float) -> void:
 	_time_left -= delta
 	if _time_left <= 0.0:
 		queue_free()
+
+func _sweep_hit(from_pos: Vector2, to_pos: Vector2) -> bool:
+	if from_pos == to_pos:
+		return false
+
+	var area_hit := _raycast_between(from_pos, to_pos, true, false)
+	var body_hit := _raycast_between(from_pos, to_pos, false, true)
+
+	if prefer_hurtbox_over_world and _handle_area_hit(area_hit):
+		return true
+	if _handle_body_hit(body_hit):
+		return true
+	if _handle_area_hit(area_hit):
+		return true
+
+	return false
+
+func _raycast_between(from_pos: Vector2, to_pos: Vector2, collide_areas: bool, collide_bodies: bool) -> Dictionary:
+	var space_state := get_world_2d().direct_space_state
+	var query := PhysicsRayQueryParameters2D.create(from_pos, to_pos)
+	query.collide_with_areas = collide_areas
+	query.collide_with_bodies = collide_bodies
+	query.collision_mask = collision_mask
+	query.exclude = [self]
+	return space_state.intersect_ray(query)
+
+func _handle_area_hit(hit: Dictionary) -> bool:
+	if hit.is_empty():
+		return false
+
+	var area := hit.get("collider") as Area2D
+	if area == null:
+		return false
+	if _is_owner_related_area(area):
+		return false
+
+	var is_hurtbox := area is CharacterHurtbox
+	if not is_hurtbox and area.has_method("receive_hit"):
+		is_hurtbox = true
+	if not is_hurtbox:
+		return false
+
+	global_position = hit.get("position", global_position)
+	if area.has_method("receive_hit"):
+		area.receive_hit(damage, knockback, global_position)
+	queue_free()
+	return true
+
+func _handle_body_hit(hit: Dictionary) -> bool:
+	if hit.is_empty():
+		return false
+
+	var body := hit.get("collider") as Node
+	if body == null:
+		return false
+	if _is_owner_related_node(body):
+		return false
+
+	if body is TileMap or body is StaticBody2D:
+		global_position = hit.get("position", global_position)
+		_stick_to_world()
+		return true
+
+	return false
 
 func _on_area_entered(area: Area2D) -> void:
 	if _stuck:
@@ -62,6 +133,7 @@ func _on_area_entered(area: Area2D) -> void:
 	if not is_hurtbox:
 		return
 
+	global_position = area.global_position
 	if area.has_method("receive_hit"):
 		area.receive_hit(damage, knockback, global_position)
 
