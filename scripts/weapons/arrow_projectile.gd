@@ -62,8 +62,11 @@ func _is_owner_related_area(area: Area2D) -> bool:
 			return true
 		current = current.get_parent()
 
+	# `Node.owner` puede apuntar al owner de escena (PackedScene), que a veces es
+	# compartido por nodos no relacionados en runtime. Solo ignoramos por owner
+	# cuando hay igualdad exacta para evitar filtrar enemigos válidos.
 	var area_owner := area.owner
-	if area_owner != null and (area_owner == _owner or _owner.is_ancestor_of(area_owner)):
+	if area_owner == _owner:
 		return true
 
 	return false
