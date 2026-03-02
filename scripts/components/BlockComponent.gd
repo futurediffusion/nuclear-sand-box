@@ -25,10 +25,8 @@ func tick(delta: float) -> void:
 		player.player_debug("[BLOCK] desactivado")
 
 	if blocking and player.stamina_component != null:
-		var drained: float = (player.block_stamina_drain * 2.0) * delta
-		player.stamina_component.current_stamina = maxf(player.stamina_component.current_stamina - drained, 0.0)
-		player.stamina_component.stamina_changed.emit(player.stamina_component.current_stamina, player.stamina_component.max_stamina)
-		if player.stamina_component.current_stamina <= 0.0:
+		var can_pay_drain := player.stamina_component.spend_continuous(player.block_stamina_drain * 2.0, delta)
+		if not can_pay_drain:
 			blocking = false
 			player.emit_signal("block_ended")
 			player.player_debug("[BLOCK] roto por stamina agotada")
@@ -72,17 +70,9 @@ func on_blocked_hit() -> void:
 		return
 
 	var cost: float = player.stamina_component.max_stamina * player.block_hit_stamina_cost
+	var can_pay_hit_cost := player.stamina_component.spend(cost)
 
-	player.stamina_component.current_stamina = maxf(
-		player.stamina_component.current_stamina - cost,
-		0.0
-	)
-
-	player.stamina_component.stamina_changed.emit(
-		player.stamina_component.current_stamina
-	)
-
-	if player.stamina_component.current_stamina <= 0.0:
+	if not can_pay_hit_cost:
 		blocking = false
 		player.emit_signal("block_ended")
 		player.player_debug("[BLOCK] roto por golpe sin stamina")

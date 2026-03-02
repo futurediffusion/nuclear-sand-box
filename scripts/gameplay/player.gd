@@ -431,9 +431,7 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 			block_component.on_blocked_hit()
 		else:
 			var cost := stamina_component.max_stamina * block_hit_stamina_cost
-			stamina_component.current_stamina = maxf(stamina_component.current_stamina - cost, 0.0)
-			stamina_component.stamina_changed.emit(stamina_component.current_stamina, stamina_component.max_stamina)
-			if stamina_component.current_stamina <= 0.0:
+			if not stamina_component.spend(cost):
 				blocking = false
 		emit_signal("took_damage", 0)
 		if use_vfx_component and vfx_component != null:
