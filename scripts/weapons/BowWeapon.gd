@@ -26,6 +26,7 @@ func on_equipped(p_player: Node) -> void:
 	_cancel_draw()
 
 func on_unequipped() -> void:
+	_update_draw_visuals(true)
 	_cancel_draw()
 	super.on_unequipped()
 
