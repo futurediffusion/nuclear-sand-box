@@ -143,9 +143,9 @@ func _fire_placeholder(ratio: float) -> void:
 	# Por ahora: solo debug. Paso 7 crea Arrow projectile real.
 	# Mantener el ángulo igual al apuntado del player.
 	var angle := 0.0
-	if player.has_variable("mouse_angle"):
-		angle = player.mouse_angle
-	elif player.has_method("get_mouse_angle"):
+	if player.has_method("get_mouse_angle"):
 		angle = player.get_mouse_angle()
+	elif player.get("mouse_angle") != null:
+		angle = float(player.get("mouse_angle"))
 
 	print("[BowWeapon] FIRE ratio=", ratio, " angle=", angle, " TODO: spawn projectile")
