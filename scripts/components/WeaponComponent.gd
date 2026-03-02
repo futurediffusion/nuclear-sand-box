@@ -23,12 +23,14 @@ const VISUALS := {
 		"sprite_path": "res://art/sprites/palo.png",
 		"weapon_sprite_offset": Vector2(12, 0),
 		"slash_spawn_pos": Vector2(20, 0),
+		"scale": Vector2(1, 1),
 	},
 	"bow": {
 		# Placeholder, puedes crear el PNG después. Si no existe no crashea.
 		"sprite_path": "res://art/sprites/bow.png",
 		"weapon_sprite_offset": Vector2(12, 0),
 		"slash_spawn_pos": Vector2(20, 0),
+		"scale": Vector2(0.5, 0.5),
 	},
 }
 
@@ -152,8 +154,10 @@ func apply_visuals(player: Node) -> void:
 	var sprite_path: String = String(conf.get("sprite_path", ""))
 	var sprite_offset: Vector2 = conf.get("weapon_sprite_offset", Vector2(12, 0))
 	var slash_pos: Vector2 = conf.get("slash_spawn_pos", Vector2(20, 0))
+	var sprite_scale: Vector2 = conf.get("scale", Vector2.ONE)
 
 	weapon_sprite.offset = sprite_offset
+	weapon_sprite.scale = sprite_scale
 	slash_spawn.position = slash_pos
 
 	if sprite_path != "" and ResourceLoader.exists(sprite_path):
