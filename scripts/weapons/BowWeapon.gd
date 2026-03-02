@@ -15,6 +15,8 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 @export var min_damage: int = 8
 @export var max_damage: int = 18
 @export var knockback: float = 220.0
+@export var nock_start_pos: Vector2 = Vector2(7, 0)
+@export var nock_pulled_pos: Vector2 = Vector2(4.5, 0)
 
 var is_drawing: bool = false
 var draw_time: float = 0.0
@@ -45,6 +47,8 @@ func tick(delta: float) -> void:
 
 	# Hold draw
 	if is_drawing and Input.is_action_pressed("attack"):
+		draw_time = min(draw_time + delta, max_draw_time)
+		_update_draw_visuals()
 		_hold_draw(delta)
 
 	# Release
@@ -61,8 +65,6 @@ func _hold_draw(delta: float) -> void:
 	var stamina = player.get_node_or_null("StaminaComponent")
 	if stamina == null:
 		# Si no hay stamina component, igual puedes cargar (pero no deberías)
-		draw_time = min(draw_time + delta, max_draw_time)
-		_update_draw_visuals()
 		return
 
 	if stamina.has_method("spend_continuous"):
@@ -80,9 +82,7 @@ func _hold_draw(delta: float) -> void:
 		# Si no existe la API (no debería pasar ya), no drenar
 		pass
 
-	# acumula carga
-	draw_time = min(draw_time + delta, max_draw_time)
-	_update_draw_visuals()
+	# La carga visual/tiempo se actualiza en tick().
 
 func _release(inventory) -> void:
 	var ratio := get_draw_ratio()
@@ -101,6 +101,7 @@ func _release(inventory) -> void:
 	inventory.remove_item("arrow", 1)
 
 	_fire_arrow(ratio)
+	_update_draw_visuals(true)
 
 	# Reset draw
 	_cancel_draw()
@@ -116,7 +117,7 @@ func _force_release_due_to_no_stamina() -> void:
 func _cancel_draw() -> void:
 	is_drawing = false
 	draw_time = 0.0
-	_update_draw_visuals(reset := true)
+	_update_draw_visuals(true)
 
 func get_draw_ratio() -> float:
 	if max_draw_time <= 0.0:
@@ -124,26 +125,21 @@ func get_draw_ratio() -> float:
 	return clamp(draw_time / max_draw_time, 0.0, 1.0)
 
 func _update_draw_visuals(reset: bool = false) -> void:
-	# Animación simple: mover la flecha montada hacia atrás según ratio.
-	# Requiere que el Player tenga un Sprite2D en WeaponPivot llamado "NockedArrowSprite"
-	var arrow_sprite: Sprite2D = player.get_node_or_null("WeaponPivot/NockedArrowSprite")
+	if player == null:
+		return
+
+	var arrow_sprite := player.get_node_or_null("WeaponPivot/NockedArrowSprite")
 	if arrow_sprite == null:
 		return
 
-	if reset or not is_drawing:
+	if reset:
 		arrow_sprite.visible = false
-		arrow_sprite.position = Vector2.ZERO
+		arrow_sprite.position = nock_start_pos
 		return
 
 	arrow_sprite.visible = true
 	var ratio := get_draw_ratio()
-
-	# Ajusta estos números según tu sprite/pivot:
-	# Start pos (0) = flecha “normal”
-	# End pos (1) = flecha tirada hacia atrás
-	var start_x := 0.0
-	var end_x := -6.0
-	arrow_sprite.position.x = lerp(start_x, end_x, ratio)
+	arrow_sprite.position = nock_start_pos.lerp(nock_pulled_pos, ratio)
 
 func _fire_arrow(ratio: float) -> void:
 	if player == null:
