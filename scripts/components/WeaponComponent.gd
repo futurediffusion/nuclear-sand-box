@@ -183,7 +183,7 @@ func _make_weapon_node(weapon_id: String) -> WeaponBase:
 		"melee":
 			return MeleePipeWeapon.new()
 		"bow":
-			return WeaponBase.new()
+			return BowWeapon.new()
 		_:
 			return MeleePipeWeapon.new()
 
