@@ -38,6 +38,9 @@ func _ready() -> void:
 # ==========================
 func add_item(item_id: String, amount: int) -> int:
 	# Devuelve CUÁNTO se pudo meter (0..amount)
+	# Nota de diseño: este inventario NO usa ranuras fijas por tipo de item.
+	# La inserción es dinámica: primero completa stacks existentes y luego usa
+	# el primer slot vacío disponible según el orden actual de slots.
 	if amount <= 0:
 		return 0
 
@@ -79,6 +82,9 @@ func add_item(item_id: String, amount: int) -> int:
 		print("[INV] add_item MERGE slot=%d moved=%d new_dst=%d remaining=%d" % [i, moved, int(s["count"]), remaining])
 
 	# 2) crear nuevos stacks en slots vacíos
+	# Importante: esto mantiene un comportamiento "first-fit" (sin categorías
+	# fijas). Visualmente puede parecer que un item "salta" de posición cuando
+	# la ocupación cambia, pero es esperado para este modelo.
 	print("[INV] add_item scan_empty start=0")
 	for i in range(max_slots):
 		if remaining <= 0:
