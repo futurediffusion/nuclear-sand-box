@@ -27,6 +27,7 @@ func tick(delta: float) -> void:
 
 	if _cooldown > 0.0:
 		_cooldown -= delta
+		return
 
 	if UiManager.is_gameplay_input_blocked():
 		return
