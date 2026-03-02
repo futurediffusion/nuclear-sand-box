@@ -15,6 +15,11 @@ func tick(delta: float) -> void:
 	if player == null:
 		return
 
+	# Si el Player ya usa WeaponComponent/WeaponBase, este componente legacy
+	# no debe procesar input para evitar doble ataque.
+	if player.weapon_component != null:
+		return
+
 	if UiManager.is_gameplay_input_blocked():
 		return
 
@@ -25,7 +30,7 @@ func tick(delta: float) -> void:
 			return
 		player.emit_signal("request_attack")
 		player._calculate_attack_angle()
-		_spawn_slash(player.mouse_angle)
+		player._spawn_slash(player.mouse_angle)
 		_try_attack_push()
 		player.attacking = true
 		player.attack_t = 0.0
@@ -44,23 +49,6 @@ func request_attack() -> void:
 		return
 	if Input.is_action_just_pressed("attack"):
 		pass
-
-func _spawn_slash(angle: float) -> void:
-	if player == null:
-		return
-	if player.slash_scene == null:
-		return
-
-	var s: Node = player.slash_scene.instantiate()
-	s.setup(&"player", player)
-	player.get_tree().current_scene.add_child(s)
-	s.global_position = player.slash_spawn.global_position
-	s.global_rotation = angle + deg_to_rad(player.slash_visual_offset_deg)
-
-	if player.vfx_component != null and player.use_vfx_component:
-		player.vfx_component.play_attack_vfx()
-	else:
-		player._legacy_play_attack_vfx()
 
 func _try_attack_push() -> void:
 	if player == null:
