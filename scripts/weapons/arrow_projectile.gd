@@ -34,7 +34,7 @@ func _on_area_entered(area: Area2D) -> void:
 	if area == null:
 		return
 
-	if _owner != null and _owner.is_ancestor_of(area):
+	if _is_owner_related_area(area):
 		return
 
 	var is_hurtbox := area is CharacterHurtbox
@@ -48,3 +48,22 @@ func _on_area_entered(area: Area2D) -> void:
 		area.receive_hit(damage, knockback, global_position)
 
 	queue_free()
+
+func _is_owner_related_area(area: Area2D) -> bool:
+	if _owner == null:
+		return false
+
+	if area == _owner:
+		return true
+
+	var current: Node = area
+	while current != null:
+		if current == _owner:
+			return true
+		current = current.get_parent()
+
+	var area_owner := area.owner
+	if area_owner != null and (area_owner == _owner or _owner.is_ancestor_of(area_owner)):
+		return true
+
+	return false
