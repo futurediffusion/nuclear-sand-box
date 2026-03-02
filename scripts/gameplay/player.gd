@@ -257,6 +257,9 @@ func get_mouse_angle() -> float:
 	return mouse_angle
 
 func _input(event: InputEvent) -> void:
+	if UiManager.is_gameplay_input_blocked():
+		return
+
 	if event is InputEventMouseButton and event.pressed:
 		var mouse_event := event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
