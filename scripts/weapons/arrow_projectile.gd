@@ -4,7 +4,7 @@ class_name ArrowProjectile
 @export var damage: int = 12
 @export var knockback: float = 180.0
 @export var life_time: float = 2.5
-@export var gravity: float = 900.0
+@export var projectile_gravity: float = 900.0
 @export var stuck_life_time: float = 15.0
 @export var max_distance_from_player: float = 1500.0
 @export var distance_check_interval: float = 0.4
@@ -37,7 +37,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var prev_pos := global_position
-	velocity.y += gravity * delta
+	velocity.y += projectile_gravity * delta
 	var next_pos := prev_pos + velocity * delta
 
 	if _sweep_hit(prev_pos, next_pos):
