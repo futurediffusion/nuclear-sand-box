@@ -10,3 +10,5 @@ display_name = "Arrow"
 icon = ExtResource("2_1")
 max_stack = 50
 tags = Array[String](["ammo", "arrow"])
+
+buy_price = 5
