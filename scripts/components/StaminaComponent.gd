@@ -23,13 +23,32 @@ func _physics_process(delta: float) -> void:
 func can_attack() -> bool:
 	return current_stamina >= stamina_cost_attack
 
-func spend_attack_cost() -> bool:
-	if not can_attack():
+func can_spend(amount: float) -> bool:
+	if amount <= 0.0:
+		return true
+	return current_stamina >= amount
+
+func spend(amount: float) -> bool:
+	if amount <= 0.0:
+		return true
+	if not can_spend(amount):
 		return false
 
-	current_stamina = maxf(current_stamina - stamina_cost_attack, 0.0)
+	current_stamina -= amount
+	if current_stamina < 0.0:
+		current_stamina = 0.0
+
 	stamina_changed.emit(current_stamina, max_stamina)
 	return true
+
+func spend_continuous(rate_per_second: float, delta: float) -> bool:
+	if rate_per_second <= 0.0:
+		return true
+	var amount := rate_per_second * delta
+	return spend(amount)
+
+func spend_attack_cost() -> bool:
+	return spend(stamina_cost_attack)
 
 func get_current_stamina() -> float:
 	return current_stamina
