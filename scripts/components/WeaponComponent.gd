@@ -151,6 +151,8 @@ func apply_visuals(player: Node) -> void:
 # ---- Helpers ----
 func _equip_fallback() -> void:
 	current_index = 0
+	if current_weapon_id == "melee":
+		return
 	current_weapon_id = "melee"
 	weapon_equipped.emit(current_weapon_id)
 
@@ -163,7 +165,7 @@ func _get_item_data(item_id: String) -> ItemData:
 		return null
 	return _item_db.get_item(item_id) as ItemData
 
-func _has_tag(tags: Array[String], tag: String) -> bool:
+func _has_tag(tags: Array, tag: String) -> bool:
 	for t in tags:
 		if String(t) == tag:
 			return true
