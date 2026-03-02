@@ -28,8 +28,8 @@ const VISUALS := {
 	"bow": {
 		# Placeholder, puedes crear el PNG después. Si no existe no crashea.
 		"sprite_path": "res://art/sprites/bow.png",
-		"weapon_sprite_offset": Vector2(12, 0),
-		"slash_spawn_pos": Vector2(20, 0),
+		"weapon_sprite_offset": Vector2(9, -1),
+		"slash_spawn_pos": Vector2(18, 0),
 		"scale": Vector2(0.5, 0.5),
 	},
 }
@@ -159,6 +159,7 @@ func apply_visuals(player: Node) -> void:
 	weapon_sprite.offset = sprite_offset
 	weapon_sprite.scale = sprite_scale
 	slash_spawn.position = slash_pos
+	weapon_sprite.texture = null
 
 	if sprite_path != "" and ResourceLoader.exists(sprite_path):
 		weapon_sprite.texture = load(sprite_path)
