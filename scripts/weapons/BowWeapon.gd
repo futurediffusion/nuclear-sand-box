@@ -69,7 +69,7 @@ func _hold_draw(delta: float) -> void:
 		return
 
 	if stamina.has_method("spend_continuous"):
-		var ok := stamina.spend_continuous(stamina_drain_per_sec, delta)
+		var ok: bool = bool(stamina.spend_continuous(stamina_drain_per_sec, delta))
 		if not ok:
 			# Nos quedamos sin stamina
 			if auto_release_on_no_stamina:
@@ -85,9 +85,9 @@ func _hold_draw(delta: float) -> void:
 
 	# La carga visual/tiempo se actualiza en tick().
 
-func _release(inventory) -> void:
-	var ratio := get_draw_ratio()
-	var has_arrows := inventory.get_total("arrow") > 0
+func _release(inventory: Node) -> void:
+	var ratio: float = get_draw_ratio()
+	var has_arrows: bool = bool(inventory.get_total("arrow") > 0)
 
 	if not has_arrows:
 		_cancel_draw()
@@ -129,7 +129,7 @@ func _update_draw_visuals(reset: bool = false) -> void:
 	if player == null:
 		return
 
-	var arrow_sprite := player.get_node_or_null("WeaponPivot/NockedArrowSprite")
+	var arrow_sprite: Node2D = player.get_node_or_null("WeaponPivot/NockedArrowSprite") as Node2D
 	if arrow_sprite == null:
 		return
 
@@ -139,29 +139,33 @@ func _update_draw_visuals(reset: bool = false) -> void:
 		return
 
 	arrow_sprite.visible = true
-	var ratio := get_draw_ratio()
+	var ratio: float = get_draw_ratio()
 	arrow_sprite.position = nock_start_pos.lerp(nock_pulled_pos, ratio)
 
 func _fire_arrow(ratio: float) -> void:
 	if player == null:
 		return
 
-	var angle := player.get_mouse_angle()
+	var player_node: Node2D = player as Node2D
+	if player_node == null:
+		return
+
+	var angle: float = player_node.get_angle_to(player_node.get_global_mouse_position())
 	var dir := Vector2.RIGHT.rotated(angle)
 
-	var speed := lerp(min_speed, max_speed, ratio)
+	var speed: float = lerp(min_speed, max_speed, ratio)
 	var dmg := int(round(lerp(float(min_damage), float(max_damage), ratio)))
 
 	var arrow := ARROW_SCENE.instantiate() as ArrowProjectile
 	if arrow == null:
 		return
 
-	var spawn_marker: Node2D = player.get_node_or_null("WeaponPivot/SlashSpawn")
-	var spawn_pos := player.global_position
+	var spawn_marker: Node2D = player.get_node_or_null("WeaponPivot/SlashSpawn") as Node2D
+	var spawn_pos: Vector2 = player_node.global_position
 	if spawn_marker != null:
 		spawn_pos = spawn_marker.global_position
 
 	arrow.global_position = spawn_pos
-	arrow.setup(dir * speed, dmg, knockback, player)
+	arrow.setup(dir * speed, dmg, knockback, player_node)
 
 	player.get_tree().current_scene.add_child(arrow)
