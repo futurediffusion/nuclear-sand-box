@@ -15,9 +15,9 @@ func tick(delta: float) -> void:
 	if player == null:
 		return
 
-	# Si el Player ya usa WeaponComponent/WeaponBase, este componente legacy
-	# no debe procesar input para evitar doble ataque.
-	if player.weapon_component != null:
+	# Legacy only: si existe WeaponComponent, este componente solo puede correr
+	# cuando el arma actual sea melee. Para armas runtime (ej. bow), no procesa.
+	if player.weapon_component != null and player.weapon_component.get_current_weapon_id() != "melee":
 		return
 
 	if UiManager.is_gameplay_input_blocked():

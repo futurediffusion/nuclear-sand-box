@@ -257,6 +257,17 @@ func get_mouse_angle() -> float:
 	return mouse_angle
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		var mouse_event := event as InputEventMouseButton
+		if mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			if weapon_component != null:
+				weapon_component.equip_prev()
+			return
+		if mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			if weapon_component != null:
+				weapon_component.equip_next()
+			return
+
 	if inventory_component == null:
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -307,6 +318,8 @@ func _physics_process(delta: float) -> void:
 	_update_weapon_flip()
 	if weapon_component != null:
 		weapon_component.tick(delta)
+	if use_combat_component and combat_component != null and _should_tick_legacy_combat():
+		combat_component.tick(delta)
 
 	if use_block_component and block_component != null:
 		block_component.tick(delta)
@@ -322,6 +335,10 @@ func _physics_process(delta: float) -> void:
 	_apply_knockback_step(delta)
 	_update_wall(delta)
 	move_and_slide()
+
+func _should_tick_legacy_combat() -> bool:
+	# Legacy únicamente: cuando no existe WeaponComponent runtime.
+	return weapon_component == null
 
 func _update_wall(delta: float) -> void:
 	if use_wall_component and wall_occlusion_component != null:
