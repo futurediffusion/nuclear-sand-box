@@ -133,12 +133,14 @@ func _on_player_slot_clicked(slot_index: int, _button: int) -> void:
 func _on_keeper_slot_clicked(slot_index: int, _button: int) -> void:
 	if _player_inv == null or _vendor == null:
 		return
-	var meta := keeper_panel.get_slot_meta(slot_index)
+	var meta := keeper_panel.get_slot_meta(slot_index).duplicate(true)
 	var item_id := String(meta.get("item_id", ""))
 	if OS.is_debug_build():
 		print("[SHOP][UI] click BUY slot=%d item=%s offer_index=%s meta=%s" % [slot_index, item_id, str(meta.get("offer_index", -1)), str(meta)])
 	if item_id == "":
 		return
+	meta["ui_slot"] = slot_index
+	meta["source"] = String(meta.get("source", "ui_keeper_slot"))
 	_try_buy_item(meta, _resolve_click_amount())
 
 
@@ -151,7 +153,13 @@ func _try_sell_item(item_id: String, amount: int) -> void:
 	if not bool(check.get("ok", false)):
 		print("[SHOP][UI] sell blocked reason=", check.get("reason", "UNKNOWN"))
 		return
-	ShopService.sell(_vendor, _player_inv, item_id, amount)
+	ShopService.sell(_vendor, _player_inv, item_id, amount, {
+		"source": "ui_player_slot",
+		"ui_slot": -1,
+		"slot_index": -1,
+		"offer_index": -1,
+		"meta": {"item_id": item_id},
+	})
 	_queue_refresh_keeper_slot_meta()
 
 
