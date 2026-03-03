@@ -18,7 +18,6 @@ const LEGACY_WORLD_HEIGHT: int = 256
 @export var chunk_check_interval: float = 0.3
 
 var biome_noise := FastNoiseLite.new()
-var detail_noise := FastNoiseLite.new()
 
 var player: Node2D
 var loaded_chunks: Dictionary = {}
@@ -62,19 +61,13 @@ const WALL_MID: Vector2i = Vector2i(3, 1)
 
 const BIOME_TILES = {
 	0: [
-		{"col_range": [0,2], "rows": [1], "w": 70},
-		{"col_range": [0,2], "rows": [2], "w": 15},
-		{"col_range": [0,2], "rows": [0], "w": 15},
+		{"col_range": [0,2], "rows": [1], "w": 1},
 	],
 	1: [
-		{"col_range": [0,2], "rows": [0], "w": 70},
-		{"col_range": [0,2], "rows": [2], "w": 20},
-		{"col_range": [0,2], "rows": [1], "w": 10},
+		{"col_range": [0,2], "rows": [0], "w": 1},
 	],
 	2: [
-		{"col_range": [0,2], "rows": [2], "w": 70},
-		{"col_range": [0,2], "rows": [1], "w": 20},
-		{"col_range": [0,2], "rows": [0], "w": 10},
+		{"col_range": [0,2], "rows": [2], "w": 1},
 	],
 }
 
@@ -83,9 +76,6 @@ func _ready() -> void:
 	biome_noise.seed = randi()
 	biome_noise.frequency = 0.015
 	biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	detail_noise.seed = randi()
-	detail_noise.frequency = 0.08
-	detail_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 
 	player = get_node_or_null("../Player")
 
