@@ -118,14 +118,14 @@ func _handle_area_hit(hit: Dictionary) -> bool:
 		return false
 
 	var is_hurtbox := area is CharacterHurtbox
-	if not is_hurtbox and area.has_method("receive_hit"):
+	if not is_hurtbox and area.has_method("take_damage"):
 		is_hurtbox = true
 	if not is_hurtbox:
 		return false
 
 	global_position = hit.get("position", global_position)
-	if area.has_method("receive_hit"):
-		area.receive_hit(damage, knockback, global_position)
+	if area.has_method("take_damage"):
+		area.take_damage(damage, global_position)
 	queue_free()
 	return true
 
@@ -152,11 +152,6 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 		queue_free()
 		return true
 
-	if damage_target != null and damage_target.has_method("receive_hit"):
-		damage_target.receive_hit(damage, knockback, global_position)
-		queue_free()
-		return true
-
 	return false
 
 func _on_area_entered(area: Area2D) -> void:
@@ -170,15 +165,15 @@ func _on_area_entered(area: Area2D) -> void:
 		return
 
 	var is_hurtbox := area is CharacterHurtbox
-	if not is_hurtbox and area.has_method("receive_hit"):
+	if not is_hurtbox and area.has_method("take_damage"):
 		is_hurtbox = true
 
 	if not is_hurtbox:
 		return
 
 	global_position = area.global_position
-	if area.has_method("receive_hit"):
-		area.receive_hit(damage, knockback, global_position)
+	if area.has_method("take_damage"):
+		area.take_damage(damage, global_position)
 
 	queue_free()
 
@@ -199,7 +194,7 @@ func _on_body_entered(body: Node2D) -> void:
 func _find_damage_target(body: Node) -> Node:
 	var current := body
 	while current != null:
-		if current.has_method("take_damage") or current.has_method("receive_hit"):
+		if current.has_method("take_damage"):
 			return current
 		current = current.get_parent()
 	return null
@@ -217,7 +212,7 @@ func _dbg_area(area: Area2D) -> void:
 		" path=", str(area.get_path()),
 		" class=", area.get_class(),
 		" script=", str(area.get_script()),
-		" has_receive_hit=", area.has_method("receive_hit")
+		" has_take_damage=", area.has_method("take_damage")
 	)
 
 func _dbg_body(body: Node) -> void:
@@ -234,8 +229,7 @@ func _dbg_body(body: Node) -> void:
 		" class=", body.get_class(),
 		" script=", str(body.get_script()),
 		" owner_related=", _is_owner_related_node(body),
-		" has_take_damage=", body.has_method("take_damage"),
-		" has_receive_hit=", body.has_method("receive_hit")
+		" has_take_damage=", body.has_method("take_damage")
 	)
 
 	if body is CollisionObject2D:
