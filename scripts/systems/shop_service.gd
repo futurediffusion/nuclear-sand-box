@@ -346,7 +346,7 @@ func _serialize_inventory_short(inv: InventoryComponent) -> String:
 		return "null"
 	var parts: Array[String] = []
 	for i in range(inv.max_slots):
-		var stack := inv.slots[i]
+		var stack = inv.slots[i]
 		if stack == null:
 			continue
 		var slot_id := String(stack.get("id", ""))
