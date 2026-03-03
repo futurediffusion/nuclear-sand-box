@@ -118,13 +118,12 @@ func _ready() -> void:
 	_setup_health_component()
 	_setup_stamina_component()
 	_setup_inventory_component()
+	_grant_temporary_starting_weapon()
 	_setup_weapon_component()
 	_update_hearts_ui()
 	var listener := AudioListener2D.new()
 	add_child(listener)
 	listener.make_current()
-	weapon_sprite.visible = true
-	weapon_sprite.show()
 	if inventory_component != null and DEBUG_PLAYER:
 		inventory_component.debug_print()
 	Debug.log("boot", "Player ready end")
@@ -207,6 +206,15 @@ func _setup_inventory_component() -> void:
 		inventory_component.name = "InventoryComponent"
 		add_child(inventory_component)
 		Debug.log("inv", "[INV] InventoryComponent creado en Player")
+
+
+func _grant_temporary_starting_weapon() -> void:
+	if inventory_component == null:
+		return
+	if inventory_component.get_total("ironpipe") > 0:
+		return
+	inventory_component.add_item("ironpipe", 1)
+	Debug.log("inv", "[INV] arma temporal inicial agregada: ironpipe")
 
 func _setup_weapon_component() -> void:
 	if weapon_component == null:

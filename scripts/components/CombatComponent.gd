@@ -16,8 +16,8 @@ func tick(delta: float) -> void:
 		return
 
 	# Legacy only: si existe WeaponComponent, este componente solo puede correr
-	# cuando el arma actual sea melee. Para armas runtime (ej. bow), no procesa.
-	if player.weapon_component != null and player.weapon_component.get_current_weapon_id() != "melee":
+	# cuando el arma actual sea ironpipe. Para armas runtime (ej. bow), no procesa.
+	if player.weapon_component != null and player.weapon_component.get_current_weapon_id() != "ironpipe":
 		return
 
 	if UiManager.is_gameplay_input_blocked():
