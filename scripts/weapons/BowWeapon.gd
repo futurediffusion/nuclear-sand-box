@@ -35,6 +35,10 @@ func on_unequipped() -> void:
 func tick(delta: float) -> void:
 	if player == null:
 		return
+	if UiManager.is_combat_input_blocked():
+		if is_drawing:
+			_cancel_draw()
+		return
 
 	var inv = player.get_node_or_null("InventoryComponent")
 	if inv == null:

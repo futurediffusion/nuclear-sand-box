@@ -20,7 +20,7 @@ func tick(delta: float) -> void:
 	if player.weapon_component != null and player.weapon_component.get_current_weapon_id() != "ironpipe":
 		return
 
-	if UiManager.is_gameplay_input_blocked():
+	if UiManager.is_combat_input_blocked():
 		return
 
 	if Input.is_action_just_pressed("attack") and not player.attacking:

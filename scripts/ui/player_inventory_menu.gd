@@ -18,9 +18,11 @@ func toggle() -> void:
 
 	if visible:
 		UiManager.open_ui("inventory")
+		UiManager.push_combat_block()
 		call_deferred("_bind_player_inventory")
 	else:
 		UiManager.close_ui("inventory")
+		UiManager.pop_combat_block()
 
 func _on_root_gui_input(ev: InputEvent) -> void:
 	if ev is InputEventMouseButton:

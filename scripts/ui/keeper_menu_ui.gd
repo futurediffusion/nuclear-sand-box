@@ -53,6 +53,7 @@ func open_shop(owner: Node) -> void:
 	visible = true
 	_current_owner = owner
 	UiManager.open_ui("shop")
+	UiManager.push_combat_block()
 	var root := get_node_or_null("Root") as Control
 	if root != null:
 		root.grab_focus()
@@ -67,6 +68,7 @@ func close_shop() -> void:
 	visible = false
 	_current_owner = null
 	UiManager.close_ui("shop")
+	UiManager.pop_combat_block()
 	shop_closed.emit(closed_owner)
 	_closing_shop = false
 
