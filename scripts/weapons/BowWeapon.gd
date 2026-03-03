@@ -202,10 +202,9 @@ func _fire_arrow(ratio: float) -> void:
 	var spawn_pos := _get_arrow_spawn_position(player_node, dir)
 
 	arrow.setup(dir * speed, dmg, knockback, player_node)
+	player.get_tree().current_scene.add_child(arrow)
 	arrow.global_position = spawn_pos
 	arrow.rotation = dir.angle()
-
-	player.get_tree().current_scene.add_child(arrow)
 
 func _get_arrow_spawn_position(player_node: Node2D, dir: Vector2) -> Vector2:
 	var spawn_marker: Node2D = player.get_node_or_null("WeaponPivot/SlashSpawn") as Node2D
