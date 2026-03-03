@@ -137,9 +137,20 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 	if _is_owner_related_node(body):
 		return false
 
+	global_position = hit.get("position", global_position)
+
 	if body is TileMap or body is StaticBody2D:
-		global_position = hit.get("position", global_position)
 		_stick_to_world()
+		return true
+
+	if body.has_method("take_damage"):
+		body.take_damage(damage, global_position)
+		queue_free()
+		return true
+
+	if body.has_method("receive_hit"):
+		body.receive_hit(damage, knockback, global_position)
+		queue_free()
 		return true
 
 	return false
