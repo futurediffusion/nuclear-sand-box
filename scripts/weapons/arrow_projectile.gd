@@ -14,6 +14,7 @@ var velocity: Vector2 = Vector2.ZERO
 var _time_left: float = 0.0
 var _owner: Node = null
 var _stuck: bool = false
+var _ignore_first_frames: int = 0
 var _distance_check_left: float = 0.0
 var _player_ref: WeakRef = null
 
@@ -24,10 +25,12 @@ func setup(p_velocity: Vector2, p_damage: int, p_knockback: float, p_owner: Node
 	_owner = p_owner
 	_time_left = life_time
 	_stuck = false
+	_ignore_first_frames = 2
 	_distance_check_left = distance_check_interval
 
 func _ready() -> void:
 	_time_left = life_time
+	_ignore_first_frames = 2
 	monitoring = false
 	monitorable = false
 	area_entered.connect(_on_area_entered)
@@ -43,6 +46,19 @@ func _enable_collision() -> void:
 func _physics_process(delta: float) -> void:
 	if _stuck:
 		_tick_stuck_state(delta)
+		return
+
+	if _ignore_first_frames > 0:
+		_ignore_first_frames -= 1
+		velocity.y += projectile_gravity * delta
+		global_position += velocity * delta
+
+		if velocity.length_squared() > 0.0001:
+			rotation = velocity.angle()
+
+		_time_left -= delta
+		if _time_left <= 0.0:
+			queue_free()
 		return
 
 	var prev_pos := global_position
@@ -83,7 +99,10 @@ func _raycast_between(from_pos: Vector2, to_pos: Vector2, collide_areas: bool, c
 	query.collide_with_areas = collide_areas
 	query.collide_with_bodies = collide_bodies
 	query.collision_mask = collision_mask
-	query.exclude = [self]
+	var excluded: Array[RID] = [get_rid()]
+	if _owner is CollisionObject2D:
+		excluded.append((_owner as CollisionObject2D).get_rid())
+	query.exclude = excluded
 	return space_state.intersect_ray(query)
 
 func _handle_area_hit(hit: Dictionary) -> bool:
