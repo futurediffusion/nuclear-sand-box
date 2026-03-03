@@ -18,11 +18,15 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 @export var trajectory_points: int = 14
 @export var trajectory_step_time: float = 0.06
 @export var trajectory_gravity: float = 900.0
+@export var trajectory_update_interval: float = 0.05
+@export var trajectory_mouse_significant_delta: float = 8.0
 
 var is_drawing: bool = false
 var draw_time: float = 0.0
 var _drain_log_accum: float = 0.0
 var _aim_trajectory_line: Line2D
+var _last_trajectory_update_time: float = -INF
+var _last_trajectory_mouse_global: Vector2 = Vector2.INF
 
 func on_equipped(p_player: Node) -> void:
 	super.on_equipped(p_player)
@@ -176,29 +180,47 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 		return
 
 	if reset:
-		line.clear_points()
+		line.points = PackedVector2Array()
 		line.visible = false
+		_last_trajectory_update_time = -INF
+		_last_trajectory_mouse_global = Vector2.INF
 		return
 
 	var player_node := player as Node2D
 	if player_node == null:
-		line.clear_points()
+		line.points = PackedVector2Array()
 		line.visible = false
+		_last_trajectory_update_time = -INF
+		_last_trajectory_mouse_global = Vector2.INF
 		return
 
-	var angle: float = player_node.get_angle_to(player_node.get_global_mouse_position())
+	var mouse_global := player_node.get_global_mouse_position()
+	var now_sec := float(Time.get_ticks_msec()) * 0.001
+	var elapsed := now_sec - _last_trajectory_update_time
+	var significant_delta_sq := trajectory_mouse_significant_delta * trajectory_mouse_significant_delta
+	var mouse_changed_significantly := _last_trajectory_mouse_global == Vector2.INF \
+		or _last_trajectory_mouse_global.distance_squared_to(mouse_global) >= significant_delta_sq
+	if elapsed < maxf(trajectory_update_interval, 0.0) and not mouse_changed_significantly:
+		return
+
+	var angle: float = player_node.get_angle_to(mouse_global)
 	var dir := Vector2.RIGHT.rotated(angle)
 	var speed: float = lerp(min_speed, max_speed, ratio)
 	var start_global := _get_arrow_spawn_position(player_node, dir)
 
-	line.clear_points()
+	var points := PackedVector2Array()
+	points.resize(maxi(trajectory_points, 2))
 	line.visible = true
 	var gravity := trajectory_gravity
 	for i in range(maxi(trajectory_points, 2)):
 		var t: float = float(i) * maxf(trajectory_step_time, 0.01)
 		var point_global := start_global + (dir * speed * t)
 		point_global.y += 0.5 * gravity * t * t
-		line.add_point(line.to_local(point_global))
+		points[i] = line.to_local(point_global)
+
+	line.points = points
+	_last_trajectory_update_time = now_sec
+	_last_trajectory_mouse_global = mouse_global
 
 func _fire_arrow(ratio: float) -> void:
 	if player == null:
