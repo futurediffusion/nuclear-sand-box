@@ -27,8 +27,7 @@ const VISUALS := {
 		"scale": Vector2(1, 1),
 	},
 	"bow": {
-		# Placeholder, puedes crear el PNG después. Si no existe no crashea.
-		"sprite_path": "res://art/sprites/bow.png",
+		"sprite_path": "res://art/items/bow.png",
 		"weapon_sprite_offset": Vector2(9, -1),
 		"slash_spawn_pos": Vector2(18, 0),
 		"scale": Vector2(0.5, 0.5),
