@@ -5,7 +5,7 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 
 @export var max_draw_time: float = 1.2
 @export var stamina_drain_per_sec: float = 8.0
-@export var min_release_ratio: float = 0.15
+@export var min_release_ratio: float = 0.05
 
 # Para que exista feedback aunque no dispares todavía
 @export var auto_release_on_no_stamina: bool = true
@@ -18,6 +18,9 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 @export var nock_start_pos: Vector2 = Vector2(7, 0)
 @export var nock_pulled_pos: Vector2 = Vector2(4.5, 0)
 @export var arrow_spawn_offset: float = 14.0
+@export var trajectory_points: int = 14
+@export var trajectory_step_time: float = 0.06
+@export var trajectory_gravity: float = 900.0
 
 var is_drawing: bool = false
 var draw_time: float = 0.0
@@ -137,11 +140,46 @@ func _update_draw_visuals(reset: bool = false) -> void:
 	if reset:
 		arrow_sprite.visible = false
 		arrow_sprite.position = nock_start_pos
+		_update_trajectory_visuals(0.0, true)
 		return
 
 	arrow_sprite.visible = true
 	var ratio: float = get_draw_ratio()
 	arrow_sprite.position = nock_start_pos.lerp(nock_pulled_pos, ratio)
+	_update_trajectory_visuals(ratio)
+
+func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
+	if player == null:
+		return
+
+	var line := player.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
+	if line == null:
+		return
+
+	if reset:
+		line.clear_points()
+		line.visible = false
+		return
+
+	var player_node := player as Node2D
+	if player_node == null:
+		line.clear_points()
+		line.visible = false
+		return
+
+	var angle: float = player_node.get_angle_to(player_node.get_global_mouse_position())
+	var dir := Vector2.RIGHT.rotated(angle)
+	var speed: float = lerp(min_speed, max_speed, ratio)
+	var start_global := _get_arrow_spawn_position(player_node, dir)
+
+	line.clear_points()
+	line.visible = true
+	var gravity := trajectory_gravity
+	for i in range(max(trajectory_points, 2)):
+		var t := float(i) * max(trajectory_step_time, 0.01)
+		var point_global := start_global + (dir * speed * t)
+		point_global.y += 0.5 * gravity * t * t
+		line.add_point(line.to_local(point_global))
 
 func _fire_arrow(ratio: float) -> void:
 	if player == null:
@@ -161,14 +199,18 @@ func _fire_arrow(ratio: float) -> void:
 	if arrow == null:
 		return
 
-	var spawn_marker: Node2D = player.get_node_or_null("WeaponPivot/SlashSpawn") as Node2D
-	var spawn_pos: Vector2 = player_node.global_position
-	if spawn_marker != null:
-		spawn_pos = spawn_marker.global_position
-	spawn_pos += dir * arrow_spawn_offset
+	var spawn_pos := _get_arrow_spawn_position(player_node, dir)
 
 	arrow.global_position = spawn_pos
 	arrow.rotation = dir.angle()
 	arrow.setup(dir * speed, dmg, knockback, player_node)
 
 	player.get_tree().current_scene.add_child(arrow)
+
+func _get_arrow_spawn_position(player_node: Node2D, dir: Vector2) -> Vector2:
+	var spawn_marker: Node2D = player.get_node_or_null("WeaponPivot/SlashSpawn") as Node2D
+	var spawn_pos: Vector2 = player_node.global_position
+	if spawn_marker != null:
+		spawn_pos = spawn_marker.global_position
+	spawn_pos += dir * arrow_spawn_offset
+	return spawn_pos
