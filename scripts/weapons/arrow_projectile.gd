@@ -28,8 +28,17 @@ func setup(p_velocity: Vector2, p_damage: int, p_knockback: float, p_owner: Node
 
 func _ready() -> void:
 	_time_left = life_time
+	monitoring = false
+	monitorable = false
 	area_entered.connect(_on_area_entered)
 	body_entered.connect(_on_body_entered)
+	call_deferred("_enable_collision")
+
+func _enable_collision() -> void:
+	if _stuck:
+		return
+	monitoring = true
+	monitorable = true
 
 func _physics_process(delta: float) -> void:
 	if _stuck:

@@ -201,9 +201,9 @@ func _fire_arrow(ratio: float) -> void:
 
 	var spawn_pos := _get_arrow_spawn_position(player_node, dir)
 
+	arrow.setup(dir * speed, dmg, knockback, player_node)
 	arrow.global_position = spawn_pos
 	arrow.rotation = dir.angle()
-	arrow.setup(dir * speed, dmg, knockback, player_node)
 
 	player.get_tree().current_scene.add_child(arrow)
 
