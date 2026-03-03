@@ -22,14 +22,17 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 var is_drawing: bool = false
 var draw_time: float = 0.0
 var _drain_log_accum: float = 0.0
+var _aim_trajectory_line: Line2D
 
 func on_equipped(p_player: Node) -> void:
 	super.on_equipped(p_player)
+	_aim_trajectory_line = player.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
 	_cancel_draw()
 
 func on_unequipped() -> void:
 	_update_draw_visuals(true)
 	_cancel_draw()
+	_aim_trajectory_line = null
 	super.on_unequipped()
 
 func tick(delta: float) -> void:
@@ -165,7 +168,10 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	if player == null:
 		return
 
-	var line := player.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
+	var line := _aim_trajectory_line
+	if line == null:
+		line = player.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
+		_aim_trajectory_line = line
 	if line == null:
 		return
 
