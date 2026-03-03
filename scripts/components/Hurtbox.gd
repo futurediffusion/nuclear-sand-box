@@ -8,7 +8,7 @@ var _iframe_timer: float = 0.0
 
 signal damaged(dmg: int, from_pos: Vector2)
 
-func receive_hit(dmg: int, force: float, from_pos: Vector2) -> void:
+func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if invincible or _iframe_timer > 0.0:
 		return
 

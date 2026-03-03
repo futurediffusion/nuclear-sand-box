@@ -30,4 +30,4 @@ func _on_area_entered(area: Area2D) -> void:
 
 	_hit_bodies.append(hurtbox)
 	hit_landed.emit(hurtbox)
-	hurtbox.receive_hit(damage, knockback_force, global_position)
+	hurtbox.take_damage(damage, global_position)
