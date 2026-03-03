@@ -9,6 +9,7 @@ class_name ArrowProjectile
 @export var max_distance_from_player: float = 1500.0
 @export var distance_check_interval: float = 0.4
 @export var prefer_hurtbox_over_world: bool = true
+@export var debug_hit_logs: bool = false
 
 var velocity: Vector2 = Vector2.ZERO
 var _time_left: float = 0.0
@@ -110,6 +111,7 @@ func _handle_area_hit(hit: Dictionary) -> bool:
 		return false
 
 	var area := hit.get("collider") as Area2D
+	_dbg_area(area)
 	if area == null:
 		return false
 	if _is_owner_related_area(area):
@@ -132,6 +134,7 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 		return false
 
 	var body := hit.get("collider") as Node
+	_dbg_body(body)
 	if body == null:
 		return false
 	if _is_owner_related_node(body):
@@ -143,13 +146,14 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 		_stick_to_world()
 		return true
 
-	if body.has_method("take_damage"):
-		body.take_damage(damage, global_position)
+	var damage_target := _find_damage_target(body)
+	if damage_target != null and damage_target.has_method("take_damage"):
+		damage_target.take_damage(damage, global_position)
 		queue_free()
 		return true
 
-	if body.has_method("receive_hit"):
-		body.receive_hit(damage, knockback, global_position)
+	if damage_target != null and damage_target.has_method("receive_hit"):
+		damage_target.receive_hit(damage, knockback, global_position)
 		queue_free()
 		return true
 
@@ -190,6 +194,55 @@ func _on_body_entered(body: Node2D) -> void:
 
 	if body is TileMap or body is StaticBody2D:
 		_stick_to_world()
+		return
+
+func _find_damage_target(body: Node) -> Node:
+	var current := body
+	while current != null:
+		if current.has_method("take_damage") or current.has_method("receive_hit"):
+			return current
+		current = current.get_parent()
+	return null
+
+func _dbg_area(area: Area2D) -> void:
+	if not debug_hit_logs:
+		return
+
+	if area == null:
+		print("[ARROW AREA] collider=<null>")
+		return
+
+	print(
+		"[ARROW AREA] collider=", area.name,
+		" path=", str(area.get_path()),
+		" class=", area.get_class(),
+		" script=", str(area.get_script()),
+		" has_receive_hit=", area.has_method("receive_hit")
+	)
+
+func _dbg_body(body: Node) -> void:
+	if not debug_hit_logs:
+		return
+
+	if body == null:
+		print("[ARROW HIT] collider=<null>")
+		return
+
+	print(
+		"[ARROW HIT] collider=", body.name,
+		" path=", str(body.get_path()),
+		" class=", body.get_class(),
+		" script=", str(body.get_script()),
+		" owner_related=", _is_owner_related_node(body),
+		" has_take_damage=", body.has_method("take_damage"),
+		" has_receive_hit=", body.has_method("receive_hit")
+	)
+
+	if body is CollisionObject2D:
+		var body_co := body as CollisionObject2D
+		print("[ARROW HIT] collider layers=", body_co.collision_layer, " mask=", body_co.collision_mask)
+
+	print("[ARROW HIT] arrow layers=", collision_layer, " mask=", collision_mask)
 
 func _stick_to_world() -> void:
 	_stuck = true
