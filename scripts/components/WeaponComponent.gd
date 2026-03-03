@@ -10,7 +10,7 @@ signal weapon_equipped(weapon_id: String)
 var weapon_ids: Array[String] = []
 
 var current_index: int = 0
-var current_weapon_id: String = "melee"
+var current_weapon_id: String = "ironpipe"
 var current_weapon: WeaponBase = null
 var _weapon_texture_cache: Dictionary = {}
 
@@ -20,7 +20,7 @@ var _weapon_texture_cache: Dictionary = {}
 # ---- Visual config por arma (mínimo viable) ----
 # En el futuro esto debería ser un Resource por arma, pero por ahora lo dejamos simple.
 const VISUALS := {
-	"melee": {
+	"ironpipe": {
 		"sprite_path": "res://art/sprites/palo.png",
 		"weapon_sprite_offset": Vector2(12, 0),
 		"slash_spawn_pos": Vector2(20, 0),
@@ -44,7 +44,7 @@ func setup_from_inventory(inventory: InventoryComponent) -> void:
 		# Mantener si sigue existiendo, si no, equipa el primero
 		if not weapon_ids.has(current_weapon_id):
 			current_index = 0
-			current_weapon_id = weapon_ids[0]
+			current_weapon_id = _normalize_weapon_id(weapon_ids[0])
 			weapon_equipped.emit(current_weapon_id)
 			weapon_list_changed.emit(weapon_ids)
 
@@ -64,7 +64,7 @@ func rebuild_weapon_list_from_inventory(inventory: InventoryComponent) -> void:
 		if not (slot is Dictionary):
 			continue
 
-		var item_id := String(slot.get("id", ""))
+		var item_id := _normalize_weapon_id(String(slot.get("id", "")))
 		if item_id == "":
 			continue
 
@@ -92,7 +92,7 @@ func rebuild_weapon_list_from_inventory(inventory: InventoryComponent) -> void:
 			current_index = weapon_ids.find(current_weapon_id)
 		else:
 			current_index = clampi(current_index, 0, weapon_ids.size() - 1)
-			current_weapon_id = weapon_ids[current_index]
+			current_weapon_id = _normalize_weapon_id(weapon_ids[current_index])
 			weapon_equipped.emit(current_weapon_id)
 
 	weapon_list_changed.emit(weapon_ids)
@@ -105,7 +105,7 @@ func equip_index(i: int) -> void:
 		return
 
 	current_index = i
-	current_weapon_id = weapon_ids[current_index]
+	current_weapon_id = _normalize_weapon_id(weapon_ids[current_index])
 	if debug_logs:
 		print("[WeaponComponent] equip_index -> ", current_weapon_id)
 	weapon_equipped.emit(current_weapon_id)
@@ -115,7 +115,7 @@ func equip_next() -> void:
 		_equip_fallback()
 		return
 	current_index = (current_index + 1) % weapon_ids.size()
-	current_weapon_id = weapon_ids[current_index]
+	current_weapon_id = _normalize_weapon_id(weapon_ids[current_index])
 	if debug_logs:
 		print("[WeaponComponent] equip_next -> ", current_weapon_id)
 	weapon_equipped.emit(current_weapon_id)
@@ -125,7 +125,7 @@ func equip_prev() -> void:
 		_equip_fallback()
 		return
 	current_index = (current_index - 1 + weapon_ids.size()) % weapon_ids.size()
-	current_weapon_id = weapon_ids[current_index]
+	current_weapon_id = _normalize_weapon_id(weapon_ids[current_index])
 	if debug_logs:
 		print("[WeaponComponent] equip_prev -> ", current_weapon_id)
 	weapon_equipped.emit(current_weapon_id)
@@ -138,7 +138,7 @@ func tick(delta: float) -> void:
 		current_weapon.tick(delta)
 
 func get_current_weapon_id() -> String:
-	return current_weapon_id
+	return _normalize_weapon_id(current_weapon_id)
 
 # ---- Visual application (llamar desde Player) ----
 func apply_visuals(player: Node) -> void:
@@ -151,7 +151,8 @@ func apply_visuals(player: Node) -> void:
 	if weapon_sprite == null or slash_spawn == null:
 		return
 
-	var conf = VISUALS.get(current_weapon_id, VISUALS["melee"])
+	var weapon_id := _normalize_weapon_id(current_weapon_id)
+	var conf = VISUALS.get(weapon_id, VISUALS["ironpipe"])
 	var sprite_path: String = String(conf.get("sprite_path", ""))
 	var sprite_offset: Vector2 = conf.get("weapon_sprite_offset", Vector2(12, 0))
 	var slash_pos: Vector2 = conf.get("slash_spawn_pos", Vector2(20, 0))
@@ -163,6 +164,7 @@ func apply_visuals(player: Node) -> void:
 
 	if sprite_path == "":
 		weapon_sprite.texture = null
+		weapon_sprite.visible = false
 		return
 
 	var texture: Texture2D = _weapon_texture_cache.get(sprite_path)
@@ -172,13 +174,14 @@ func apply_visuals(player: Node) -> void:
 			_weapon_texture_cache[sprite_path] = texture
 
 	weapon_sprite.texture = texture
+	weapon_sprite.visible = texture != null
 
 # ---- Helpers ----
 func _equip_fallback() -> void:
 	current_index = 0
-	if current_weapon_id == "melee":
+	if current_weapon_id == "ironpipe":
 		return
-	current_weapon_id = "melee"
+	current_weapon_id = "ironpipe"
 	weapon_equipped.emit(current_weapon_id)
 
 func _equip_runtime_weapon(player: Node) -> void:
@@ -193,13 +196,20 @@ func _equip_runtime_weapon(player: Node) -> void:
 	current_weapon.on_equipped(player)
 
 func _make_weapon_node(weapon_id: String) -> WeaponBase:
-	match weapon_id:
-		"melee":
-			return MeleePipeWeapon.new()
+	var normalized_weapon_id := _normalize_weapon_id(weapon_id)
+	match normalized_weapon_id:
+		"ironpipe":
+			return IronPipeWeapon.new()
 		"bow":
 			return BowWeapon.new()
 		_:
-			return MeleePipeWeapon.new()
+			return IronPipeWeapon.new()
+
+
+func _normalize_weapon_id(weapon_id: String) -> String:
+	if weapon_id == "melee":
+		return "ironpipe"
+	return weapon_id
 
 func _get_item_data(item_id: String) -> ItemData:
 	if _item_db == null:

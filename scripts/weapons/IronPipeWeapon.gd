@@ -1,5 +1,5 @@
 extends WeaponBase
-class_name MeleePipeWeapon
+class_name IronPipeWeapon
 
 @export var stamina_cost: float = 10.0
 @export var attack_cooldown: float = 0.25
