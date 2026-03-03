@@ -387,8 +387,12 @@ func _build_default_offers() -> Array[VendorOffer]:
 	bow_offer.item_id = "bow"
 	bow_offer.mode = VendorOfferScript.OfferMode.INFINITE
 
+	var ironpipe_offer := VendorOfferScript.new()
+	ironpipe_offer.item_id = "ironpipe"
+	ironpipe_offer.mode = VendorOfferScript.OfferMode.INFINITE
+
 	var arrow_offer := VendorOfferScript.new()
 	arrow_offer.item_id = "arrow"
 	arrow_offer.mode = VendorOfferScript.OfferMode.INFINITE
 
-	return [bandage_offer, copper_offer, bow_offer, arrow_offer]
+	return [bandage_offer, copper_offer, bow_offer, arrow_offer, ironpipe_offer]
