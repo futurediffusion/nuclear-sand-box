@@ -175,8 +175,8 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	line.clear_points()
 	line.visible = true
 	var gravity := trajectory_gravity
-	for i in range(max(trajectory_points, 2)):
-		var t := float(i) * max(trajectory_step_time, 0.01)
+	for i in range(maxi(trajectory_points, 2)):
+		var t: float = float(i) * maxf(trajectory_step_time, 0.01)
 		var point_global := start_global + (dir * speed * t)
 		point_global.y += 0.5 * gravity * t * t
 		line.add_point(line.to_local(point_global))
