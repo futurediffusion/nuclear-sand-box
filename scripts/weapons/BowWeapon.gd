@@ -17,6 +17,7 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 @export var knockback: float = 220.0
 @export var nock_start_pos: Vector2 = Vector2(7, 0)
 @export var nock_pulled_pos: Vector2 = Vector2(4.5, 0)
+@export var arrow_spawn_offset: float = 14.0
 
 var is_drawing: bool = false
 var draw_time: float = 0.0
@@ -164,8 +165,10 @@ func _fire_arrow(ratio: float) -> void:
 	var spawn_pos: Vector2 = player_node.global_position
 	if spawn_marker != null:
 		spawn_pos = spawn_marker.global_position
+	spawn_pos += dir * arrow_spawn_offset
 
 	arrow.global_position = spawn_pos
+	arrow.rotation = dir.angle()
 	arrow.setup(dir * speed, dmg, knockback, player_node)
 
 	player.get_tree().current_scene.add_child(arrow)
