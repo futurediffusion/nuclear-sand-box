@@ -35,7 +35,9 @@ func _is_attack_just_released() -> bool:
 
 func _get_aim_global_position() -> Vector2:
 	if controller != null and controller.has_method("get_aim_global_position"):
-		return controller.call("get_aim_global_position") as Vector2
+		var aim = controller.call("get_aim_global_position")
+		if aim is Vector2:
+			return aim
 	var player_node := player as Node2D
 	if player_node != null:
 		return player_node.get_global_mouse_position()

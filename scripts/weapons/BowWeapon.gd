@@ -1,4 +1,4 @@
-﻿extends WeaponBase
+extends WeaponBase
 class_name BowWeapon
 
 const ARROW_SCENE := preload("res://scenes/arrow.tscn")
@@ -254,4 +254,3 @@ func _get_arrow_spawn_position(player_node: Node2D, dir: Vector2) -> Vector2:
 		spawn_pos = spawn_marker.global_position
 	spawn_pos += dir * arrow_spawn_offset
 	return spawn_pos
-

@@ -12,6 +12,9 @@ func is_attack_just_released() -> bool:
 
 func get_aim_global_position() -> Vector2:
 	var owner_node := owner as Node2D
-	if owner_node == null:
-		return Vector2.ZERO
-	return owner_node.get_global_mouse_position()
+	if owner_node != null:
+		return owner_node.get_global_mouse_position()
+	var parent_node := get_parent() as Node2D
+	if parent_node != null:
+		return parent_node.get_global_mouse_position()
+	return Vector2.ZERO
