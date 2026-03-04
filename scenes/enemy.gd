@@ -80,6 +80,8 @@ func _physics_process(delta: float) -> void:
 	if hp <= 0:
 		return
 
+	EnemyRegistry.update_enemy_chunk(self)
+
 	if hurt_t > 0.0:
 		hurt_t -= delta
 
@@ -168,12 +170,15 @@ func _update_animation() -> void:
 func _apply_separation_force(dt: float) -> void:
 	if ai_component != null and ai_component.is_sleeping():
 		return
-	var enemies: Array[Node2D] = EnemyRegistry.get_live_enemies()
+	var my_chunk := EnemyRegistry.world_to_chunk(global_position)
+	var enemies: Array[Node2D] = EnemyRegistry.get_bucket_neighborhood(my_chunk)
 	if enemies.is_empty():
 		return
 	var radius_sq := separation_radius * separation_radius
 	for e in enemies:
-		if e == self:
+		if e == self or e == null or not is_instance_valid(e):
+			continue
+		if e.has_method("is_sleeping") and e.is_sleeping():
 			continue
 		var delta_pos := global_position - e.global_position
 		var dist_sq := delta_pos.length_squared()
@@ -183,6 +188,9 @@ func _apply_separation_force(dt: float) -> void:
 		var push_dir := delta_pos / dist
 		var t := 1.0 - (dist / separation_radius)
 		velocity += push_dir * separation_strength * t * dt
+
+func is_sleeping() -> bool:
+	return ai_component != null and ai_component.is_sleeping()
 
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	super.take_damage(dmg, from_pos)

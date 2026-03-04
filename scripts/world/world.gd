@@ -69,6 +69,7 @@ const BIOME_TILES = {
 }
 
 func _ready() -> void:
+	add_to_group("world")
 	Debug.log("boot", "World._ready begin")
 	biome_noise.seed = randi()
 	biome_noise.frequency = 0.015
