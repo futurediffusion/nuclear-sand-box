@@ -21,17 +21,17 @@ func tick(_delta: float) -> void:
 func _is_attack_pressed() -> bool:
 	if controller != null and controller.has_method("is_attack_pressed"):
 		return bool(controller.call("is_attack_pressed"))
-	return Input.is_action_pressed("attack")
+	return false
 
 func _is_attack_just_pressed() -> bool:
 	if controller != null and controller.has_method("is_attack_just_pressed"):
 		return bool(controller.call("is_attack_just_pressed"))
-	return Input.is_action_just_pressed("attack")
+	return false
 
 func _is_attack_just_released() -> bool:
 	if controller != null and controller.has_method("is_attack_just_released"):
 		return bool(controller.call("is_attack_just_released"))
-	return Input.is_action_just_released("attack")
+	return false
 
 func _get_aim_global_position() -> Vector2:
 	if controller != null and controller.has_method("get_aim_global_position"):
@@ -42,3 +42,4 @@ func _get_aim_global_position() -> Vector2:
 	if player_node != null:
 		return player_node.get_global_mouse_position()
 	return Vector2.ZERO
+
