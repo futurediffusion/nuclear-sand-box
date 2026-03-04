@@ -7,11 +7,8 @@ extends Node2D
 @onready var _collision_builder := CollisionBuilder.new()
 var _tile_painter := TilePainter.new()
 
-const LEGACY_WORLD_WIDTH: int = 256
-const LEGACY_WORLD_HEIGHT: int = 256
-
-@export var width: int = 128
-@export var height: int = 128
+@export var width: int = 256
+@export var height: int = 256
 @export var chunk_size: int = 32
 @export var active_radius: int = 1
 @export var copper_ore_scene: PackedScene
@@ -208,7 +205,6 @@ func _make_spawn_ctx() -> Dictionary:
 	var player_tile: Vector2i = spawn_tile
 	if player:
 		player_tile = _world_to_tile(player.global_position)
-	var world_area_scale: float = float(width * height) / float(LEGACY_WORLD_WIDTH * LEGACY_WORLD_HEIGHT)
 	return {
 		"tilemap": tilemap,
 		"width": width,
@@ -217,7 +213,6 @@ func _make_spawn_ctx() -> Dictionary:
 		"tavern_chunk": tavern_chunk,
 		"spawn_tile": spawn_tile,
 		"biome_seed": biome_noise.seed,
-		"world_area_scale": world_area_scale,
 		"get_biome": Callable(self, "get_biome"),
 		"chunk_save": chunk_save,
 		"chunk_occupied_tiles": chunk_occupied_tiles,
