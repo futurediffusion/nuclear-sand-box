@@ -12,6 +12,7 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 @export var min_damage: int = 8
 @export var max_damage: int = 18
 @export var knockback: float = 220.0
+@export var consume_arrows: bool = true
 @export var nock_start_pos: Vector2 = Vector2(7, 0)
 @export var nock_pulled_pos: Vector2 = Vector2(4.5, 0)
 @export var arrow_spawn_offset: float = 14.0
@@ -47,26 +48,30 @@ func tick(delta: float) -> void:
 			_cancel_draw()
 		return
 
-	var inv = player.get_node_or_null("InventoryComponent")
-	if inv == null:
-		return
+	var inv: Node = null
+	if consume_arrows:
+		inv = player.get_node_or_null("InventoryComponent")
+		if inv == null:
+			if is_drawing:
+				_cancel_draw()
+			return
 
 	# Start draw
-	if _is_attack_just_pressed():
-		if inv.get_total("arrow") > 0:
+	if _controller_is_attack_just_pressed():
+		if not consume_arrows or inv.get_total("arrow") > 0:
 			_start_draw()
 		else:
 			# Sin flechas: no hace nada
 			_cancel_draw()
 
 	# Hold draw
-	if is_drawing and _is_attack_pressed():
+	if is_drawing and _controller_is_attack_pressed():
 		draw_time = min(draw_time + delta, max_draw_time)
 		_update_draw_visuals()
 		_hold_draw(delta)
 
 	# Release
-	if is_drawing and _is_attack_just_released():
+	if is_drawing and _controller_is_attack_just_released():
 		_release(inv)
 
 func _start_draw() -> void:
@@ -82,7 +87,7 @@ func _hold_draw(delta: float) -> void:
 	# Drenaje de stamina mientras tensas
 	var stamina = player.get_node_or_null("StaminaComponent")
 	if stamina == null:
-		# Si no hay stamina component, igual puedes cargar (pero no deberÃ­as)
+		# Si no hay stamina component, igual puedes cargar (pero no deberias)
 		return
 
 	if stamina.has_method("spend_continuous"):
@@ -101,26 +106,28 @@ func _hold_draw(delta: float) -> void:
 			_cancel_draw()
 			return
 	else:
-		# Si no existe la API (no deberÃ­a pasar ya), no drenar
+		# Si no existe la API (no deberia pasar ya), no drenar
 		pass
 
 	# La carga visual/tiempo se actualiza en tick().
 
 func _release(inventory: Node) -> void:
 	var ratio: float = get_draw_ratio()
-	var has_arrows: bool = bool(inventory.get_total("arrow") > 0)
+	var has_arrows: bool = true
+	if consume_arrows:
+		has_arrows = inventory != null and bool(inventory.get_total("arrow") > 0)
 
 	if not has_arrows:
 		_cancel_draw()
 		return
 
 	if ratio < min_release_ratio:
-		# Soltaste muy rÃ¡pido: cancel
+		# Soltaste muy rapido: cancel
 		_cancel_draw()
 		return
 
-	# Consume 1 flecha
-	inventory.remove_item("arrow", 1)
+	if consume_arrows and inventory != null:
+		inventory.remove_item("arrow", 1)
 
 	_fire_arrow(ratio)
 	_update_draw_visuals(true)
@@ -194,16 +201,16 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 		_last_trajectory_mouse_global = Vector2.INF
 		return
 
-	var mouse_global := _get_aim_global_position()
+	var aim_global := _controller_get_aim_global_position()
 	var now_sec := float(Time.get_ticks_msec()) * 0.001
 	var elapsed := now_sec - _last_trajectory_update_time
 	var significant_delta_sq := trajectory_mouse_significant_delta * trajectory_mouse_significant_delta
-	var mouse_changed_significantly := _last_trajectory_mouse_global == Vector2.INF \
-		or _last_trajectory_mouse_global.distance_squared_to(mouse_global) >= significant_delta_sq
-	if elapsed < maxf(trajectory_update_interval, 0.0) and not mouse_changed_significantly:
+	var aim_changed_significantly := _last_trajectory_mouse_global == Vector2.INF \
+		or _last_trajectory_mouse_global.distance_squared_to(aim_global) >= significant_delta_sq
+	if elapsed < maxf(trajectory_update_interval, 0.0) and not aim_changed_significantly:
 		return
 
-	var angle: float = player_node.get_angle_to(mouse_global)
+	var angle: float = player_node.get_angle_to(aim_global)
 	var dir := Vector2.RIGHT.rotated(angle)
 	var speed: float = lerp(min_speed, max_speed, ratio)
 	var start_global := _get_arrow_spawn_position(player_node, dir)
@@ -220,7 +227,7 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 
 	line.points = points
 	_last_trajectory_update_time = now_sec
-	_last_trajectory_mouse_global = mouse_global
+	_last_trajectory_mouse_global = aim_global
 
 func _fire_arrow(ratio: float) -> void:
 	if player == null:
@@ -230,7 +237,7 @@ func _fire_arrow(ratio: float) -> void:
 	if player_node == null:
 		return
 
-	var angle: float = player_node.get_angle_to(_get_aim_global_position())
+	var angle: float = player_node.get_angle_to(_controller_get_aim_global_position())
 	var dir := Vector2.RIGHT.rotated(angle)
 
 	var speed: float = lerp(min_speed, max_speed, ratio)
@@ -254,3 +261,28 @@ func _get_arrow_spawn_position(player_node: Node2D, dir: Vector2) -> Vector2:
 		spawn_pos = spawn_marker.global_position
 	spawn_pos += dir * arrow_spawn_offset
 	return spawn_pos
+
+func _controller_is_attack_pressed() -> bool:
+	if controller != null and controller.has_method("is_attack_pressed"):
+		return bool(controller.call("is_attack_pressed"))
+	return false
+
+func _controller_is_attack_just_pressed() -> bool:
+	if controller != null and controller.has_method("is_attack_just_pressed"):
+		return bool(controller.call("is_attack_just_pressed"))
+	return false
+
+func _controller_is_attack_just_released() -> bool:
+	if controller != null and controller.has_method("is_attack_just_released"):
+		return bool(controller.call("is_attack_just_released"))
+	return false
+
+func _controller_get_aim_global_position() -> Vector2:
+	if controller != null and controller.has_method("get_aim_global_position"):
+		var aim = controller.call("get_aim_global_position")
+		if aim is Vector2:
+			return aim
+	var player_node := player as Node2D
+	if player_node != null:
+		return player_node.global_position
+	return Vector2.ZERO
