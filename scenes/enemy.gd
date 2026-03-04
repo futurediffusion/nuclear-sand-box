@@ -16,9 +16,9 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 
 @export_group("AI Behavior")
 @export var detection_range: float = 400.0
-@export var ACTIVE_RADIUS_PX: float = 1200.0
+@export var ACTIVE_RADIUS_PX: float = 900.0
 @export var WAKE_HYSTERESIS_PX: float = 200.0
-@export var SLEEP_CHECK_INTERVAL: float = 0.4
+@export var SLEEP_CHECK_INTERVAL: float = 0.5
 
 @export_group("References")
 @export var slash_scene: PackedScene
@@ -46,6 +46,7 @@ var use_left_offset: bool = false
 var target_attack_angle: float = 0.0
 var angle_offset_left: float = -150.0
 var angle_offset_right: float = 150.0
+var _was_sleeping_last_frame: bool = false
 
 func _enter_tree() -> void:
 	EnemyRegistry.register_enemy(self)
@@ -88,12 +89,14 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
+	if is_sleeping != _was_sleeping_last_frame:
+		_set_sleep_visual_state(is_sleeping)
+		_was_sleeping_last_frame = is_sleeping
+
 	if not is_sleeping:
 		_update_weapon(delta)
 		_update_animation()
 		_apply_separation_force(delta)
-	elif sprite.animation != "idle":
-		sprite.play("idle")
 
 	_apply_knockback_step(delta)
 	move_and_slide()
@@ -144,6 +147,16 @@ func _update_weapon(delta: float) -> void:
 	weapon_sprite.flip_v = abs(angle) > PI / 2.0
 	sprite.flip_h = abs(rad_to_deg(angle_to_player)) > 90.0
 
+func _set_sleep_visual_state(is_sleeping: bool) -> void:
+	if is_sleeping:
+		if sprite.animation != "idle":
+			sprite.play("idle")
+		sprite.frame = 0
+		sprite.speed_scale = 0.0
+	else:
+		if sprite.speed_scale == 0.0:
+			sprite.speed_scale = 1.0
+
 func _update_animation() -> void:
 	if hurt_t > 0.0:
 		return
@@ -153,6 +166,8 @@ func _update_animation() -> void:
 		sprite.play("idle")
 
 func _apply_separation_force(dt: float) -> void:
+	if ai_component != null and ai_component.is_sleeping():
+		return
 	var enemies: Array[Node2D] = EnemyRegistry.get_live_enemies()
 	if enemies.is_empty():
 		return

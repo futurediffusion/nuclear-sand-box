@@ -49,6 +49,7 @@ func set_hurt() -> void:
 func set_dead() -> void:
 	sleeping = false
 	current_state = AIState.DEAD
+	sleep_check_timer = null
 
 func _update_state() -> void:
 	if current_state == AIState.DEAD:
@@ -116,11 +117,14 @@ func _find_player() -> void:
 func _schedule_sleep_check() -> void:
 	if owner_entity == null:
 		return
+	if sleep_check_timer != null and sleep_check_timer.time_left > 0.0:
+		return
 	var interval := max(owner_entity.SLEEP_CHECK_INTERVAL, 0.05)
 	sleep_check_timer = owner_entity.get_tree().create_timer(interval)
 	sleep_check_timer.timeout.connect(_on_sleep_check_timeout)
 
 func _on_sleep_check_timeout() -> void:
+	sleep_check_timer = null
 	if not is_instance_valid(self) or owner_entity == null:
 		return
 	if current_state == AIState.DEAD:
