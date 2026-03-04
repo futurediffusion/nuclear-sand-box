@@ -25,16 +25,6 @@ const WALL_MID: Vector2i = Vector2i(3, 1)
 
 var _structure_gen := StructureGenerator.new()
 
-func _density_multiplier(ctx: Dictionary) -> float:
-	var area_scale: float = maxf(float(ctx.get("world_area_scale", 1.0)), 0.01)
-	return 1.0 / area_scale
-
-func _spacing_scale(ctx: Dictionary) -> float:
-	return sqrt(maxf(float(ctx.get("world_area_scale", 1.0)), 0.01))
-
-func _scaled_tile_distance(base_tiles: int, ctx: Dictionary, min_tiles: int = 1) -> int:
-	return max(min_tiles, int(round(float(base_tiles) * _spacing_scale(ctx))))
-
 func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var entities_spawned_chunks: Dictionary = ctx["entities_spawned_chunks"]
 	if entities_spawned_chunks.has(chunk_pos):
@@ -81,11 +71,8 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		0: attempts = rng.randi_range(3, 7)
 		1: attempts = rng.randi_range(0, 3)
 
-	var density_multiplier: float = _density_multiplier(ctx)
-	attempts = maxi(1, int(round(float(attempts) * density_multiplier)))
-
 	var chunk_center_tile := Vector2i(cx, cy)
-	if _tile_distance_to_spawn(chunk_center_tile, ctx) <= float(_scaled_tile_distance(15, ctx)):
+	if _tile_distance_to_spawn(chunk_center_tile, ctx) <= 15.0:
 		attempts = max(attempts, 1)
 
 	var player_tile: Vector2i = ctx["player_tile"]
@@ -93,7 +80,7 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 	for i in range(attempts):
 		var tpos: Vector2i = _find_valid_spawn_tile(
-			chunk_pos, player_tile, _scaled_tile_distance(SAFE_PLAYER_SPAWN_RADIUS_TILES, ctx),
+			chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES,
 			SPAWN_MAX_TRIES, rng, COPPER_FOOTPRINT_RADIUS_TILES, ctx
 		)
 
@@ -105,7 +92,7 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 		var dist := _tile_distance_to_spawn(tpos, ctx)
 		var allow_close := rng.randf() < 0.15
-		if not allow_close and dist < float(_scaled_tile_distance(COPPER_MIN_DIST_TILES, ctx)):
+		if not allow_close and dist < float(COPPER_MIN_DIST_TILES):
 			continue
 
 		var tile_biome: int = int(get_biome.call(tpos.x, tpos.y))
@@ -133,16 +120,16 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		var idx := rng.randi_range(0, copper_positions.size() - 1)
 		var copper_tile := copper_positions[idx]
 
-		var camp_tile := _find_nearby_tile(rng, copper_tile, _scaled_tile_distance(6, ctx), _scaled_tile_distance(14, ctx), ctx)
+		var camp_tile := _find_nearby_tile(rng, copper_tile, 6, 14, ctx)
 		if camp_tile == INVALID_SPAWN_TILE:
 			continue
-		if not _is_spawn_tile_valid(chunk_pos, camp_tile, player_tile, _scaled_tile_distance(SAFE_PLAYER_SPAWN_RADIUS_TILES, ctx), CAMP_FOOTPRINT_RADIUS_TILES, ctx):
+		if not _is_spawn_tile_valid(chunk_pos, camp_tile, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, CAMP_FOOTPRINT_RADIUS_TILES, ctx):
 			continue
 
 		chunk_save[chunk_pos]["camps"].append({"tile": camp_tile})
 		_mark_footprint_occupied(chunk_pos, camp_tile, CAMP_FOOTPRINT_RADIUS_TILES, ctx)
 
-	var random_camps := int(round(float(rng.randi_range(0, 2)) * density_multiplier))
+	var random_camps := rng.randi_range(0, 2)
 	var camp_spawn_failed_logged := false
 
 	for r in range(random_camps):
@@ -150,12 +137,12 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 		for i in range(SPAWN_MAX_TRIES):
 			var candidate: Vector2i = _find_valid_spawn_tile(
-				chunk_pos, player_tile, _scaled_tile_distance(SAFE_PLAYER_SPAWN_RADIUS_TILES, ctx),
+				chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES,
 				SPAWN_MAX_TRIES, rng, CAMP_FOOTPRINT_RADIUS_TILES, ctx
 			)
 			if candidate == INVALID_SPAWN_TILE:
 				break
-			if not _is_close_to_any(candidate, copper_positions, _scaled_tile_distance(10, ctx)):
+			if not _is_close_to_any(candidate, copper_positions, 10):
 				try_tile = candidate
 				break
 
@@ -360,7 +347,7 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		if not exists:
 			chunk_save[chunk_pos]["placements"].append(p)
 
-	var tavern_safe_margin: int = _scaled_tile_distance(TAVERN_SAFE_MARGIN_TILES, ctx)
+	var tavern_safe_margin: int = TAVERN_SAFE_MARGIN_TILES
 	for y in range(y0 - tavern_safe_margin, y1 + tavern_safe_margin + 1):
 		for x in range(x0 - tavern_safe_margin, x1 + tavern_safe_margin + 1):
 			_mark_tile_occupied(chunk_pos, Vector2i(x, y), ctx)

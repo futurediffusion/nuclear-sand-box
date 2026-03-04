@@ -1,7 +1,7 @@
 extends Node2D
 
 @export var world_data: WorldData
-@export var world_map_size: Vector2i = Vector2i(128, 128)
+@export var world_map_size: Vector2i = Vector2i(256, 256)
 @export var default_tavern_position: Vector2i = Vector2i.ZERO
 
 @onready var game_over_panel: Control = $UI/GameOverPanel
