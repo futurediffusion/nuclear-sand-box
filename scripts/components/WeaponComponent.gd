@@ -1,8 +1,6 @@
 extends Node
 class_name WeaponComponent
 
-const PlayerWeaponControllerScript := preload("res://scripts/weapons/PlayerWeaponController.gd")
-
 signal weapon_list_changed(weapon_ids: Array[String])
 signal weapon_equipped(weapon_id: String)
 
@@ -131,8 +129,8 @@ func equip_prev() -> void:
 		print("[WeaponComponent] equip_prev -> ", current_weapon_id)
 	weapon_equipped.emit(current_weapon_id)
 
-func equip_runtime_weapon(player: Node) -> void:
-	_equip_runtime_weapon(player)
+func equip_runtime_weapon(player: Node, controller: Node = null) -> void:
+	_equip_runtime_weapon(player, controller)
 
 func tick(delta: float) -> void:
 	if current_weapon != null:
@@ -185,7 +183,7 @@ func _equip_fallback() -> void:
 	current_weapon_id = "ironpipe"
 	weapon_equipped.emit(current_weapon_id)
 
-func _equip_runtime_weapon(player: Node) -> void:
+func _equip_runtime_weapon(player: Node, controller: Node = null) -> void:
 	if current_weapon != null:
 		current_weapon.on_unequipped()
 		current_weapon.queue_free()
@@ -194,21 +192,7 @@ func _equip_runtime_weapon(player: Node) -> void:
 	current_weapon = _make_weapon_node(current_weapon_id)
 	current_weapon.name = "CurrentWeapon"
 	add_child(current_weapon)
-	var weapon_controller := _get_or_create_player_weapon_controller(player)
-	current_weapon.on_equipped(player, weapon_controller)
-
-func _get_or_create_player_weapon_controller(player: Node) -> Node:
-	if player == null:
-		return null
-	var controller := player.get_node_or_null("PlayerWeaponController")
-	if controller != null:
-		return controller
-	controller = PlayerWeaponControllerScript.new()
-	controller.name = "PlayerWeaponController"
-	player.add_child(controller)
-	if player.is_ancestor_of(controller):
-		controller.owner = player
-	return controller
+	current_weapon.on_equipped(player, controller)
 
 func _make_weapon_node(weapon_id: String) -> WeaponBase:
 	var normalized_weapon_id := _normalize_weapon_id(weapon_id)

@@ -3,6 +3,7 @@ extends CharacterBase
 
 var DEBUG_PLAYER := OS.is_debug_build()
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
+const PlayerWeaponControllerScript = preload("res://scripts/weapons/PlayerWeaponController.gd")
 
 @onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
 @onready var movement_component: MovementComponent = get_node_or_null("MovementComponent") as MovementComponent
@@ -54,6 +55,7 @@ const InventoryComponentScript = preload("res://scripts/components/InventoryComp
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
 @onready var inventory_component: InventoryComponent = get_node_or_null("InventoryComponent") as InventoryComponent
 @onready var weapon_component: WeaponComponent = get_node_or_null("WeaponComponent") as WeaponComponent
+var weapon_controller: Node = null
 
 @export_group("FX")
 @export var droplet_scene: PackedScene
@@ -118,6 +120,7 @@ func _ready() -> void:
 	_setup_health_component()
 	_setup_stamina_component()
 	_setup_inventory_component()
+	_setup_weapon_controller()
 	_grant_temporary_starting_weapon()
 	_setup_weapon_component()
 	_update_hearts_ui()
@@ -208,6 +211,15 @@ func _setup_inventory_component() -> void:
 		Debug.log("inv", "[INV] InventoryComponent creado en Player")
 
 
+func _setup_weapon_controller() -> void:
+	weapon_controller = get_node_or_null("PlayerWeaponController")
+	if weapon_controller == null:
+		weapon_controller = PlayerWeaponControllerScript.new()
+		weapon_controller.name = "PlayerWeaponController"
+		add_child(weapon_controller)
+	if is_ancestor_of(weapon_controller):
+		weapon_controller.owner = self
+
 func _grant_temporary_starting_weapon() -> void:
 	if inventory_component == null:
 		return
@@ -232,7 +244,7 @@ func _setup_weapon_component() -> void:
 	if not weapon_component.weapon_equipped.is_connected(_on_weapon_equipped_apply_visuals):
 		weapon_component.weapon_equipped.connect(_on_weapon_equipped_apply_visuals)
 	weapon_component.apply_visuals(self)
-	weapon_component.equip_runtime_weapon(self)
+	weapon_component.equip_runtime_weapon(self, weapon_controller)
 
 func _on_inventory_changed_rebuild_weapons() -> void:
 	if weapon_component == null:
@@ -243,7 +255,7 @@ func _on_weapon_equipped_apply_visuals(_weapon_id: String) -> void:
 	if weapon_component == null:
 		return
 	weapon_component.apply_visuals(self)
-	weapon_component.equip_runtime_weapon(self)
+	weapon_component.equip_runtime_weapon(self, weapon_controller)
 
 func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
 	stamina_changed.emit(current_stamina, max_stamina)
@@ -348,7 +360,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 func _should_tick_legacy_combat() -> bool:
-	# Legacy únicamente: cuando no existe WeaponComponent runtime.
+	# Legacy unicamente: cuando no existe WeaponComponent runtime.
 	return weapon_component == null
 
 func _update_wall(delta: float) -> void:
@@ -412,7 +424,7 @@ func _calculate_attack_angle() -> void:
 	target_attack_angle = base_angle + deg_to_rad(angle_offset_left if use_left_offset else angle_offset_right)
 	use_left_offset = not use_left_offset
 
-# API pública para spawnear el slash sin acoplarse a detalles internos.
+# API publica para spawnear el slash sin acoplarse a detalles internos.
 func spawn_slash(angle: float) -> void:
 	_spawn_slash(angle)
 
