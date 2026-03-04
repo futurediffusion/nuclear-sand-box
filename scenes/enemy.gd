@@ -170,7 +170,10 @@ func _update_animation() -> void:
 func _apply_separation_force(dt: float) -> void:
 	if ai_component != null and ai_component.is_sleeping():
 		return
-	var my_chunk := EnemyRegistry.world_to_chunk(global_position)
+	var my_chunk_opt: Variant = EnemyRegistry.world_to_chunk(global_position)
+	if my_chunk_opt == null:
+		return
+	var my_chunk: Vector2i = my_chunk_opt
 	var enemies: Array[Node2D] = EnemyRegistry.get_bucket_neighborhood(my_chunk)
 	if enemies.is_empty():
 		return
