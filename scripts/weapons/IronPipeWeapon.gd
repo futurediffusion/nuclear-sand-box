@@ -7,8 +7,8 @@ class_name IronPipeWeapon
 var _cooldown: float = 0.0
 var _character_hitbox: CharacterHitbox = null
 
-func on_equipped(p_player: Node) -> void:
-	super.on_equipped(p_player)
+func on_equipped(p_player: Node, p_controller: Node = null) -> void:
+	super.on_equipped(p_player, p_controller)
 	if player == null:
 		return
 	_character_hitbox = player.get_node_or_null("CharacterHitbox") as CharacterHitbox
@@ -32,7 +32,7 @@ func tick(delta: float) -> void:
 	if UiManager.is_combat_input_blocked():
 		return
 
-	if Input.is_action_just_pressed("attack") and not player.attacking:
+	if _is_attack_just_pressed() and not player.attacking:
 		if player.stamina_component == null or not player.stamina_component.has_method("spend_attack_cost"):
 			return
 		if not player.stamina_component.spend_attack_cost():
@@ -61,9 +61,10 @@ func _try_attack_push() -> void:
 	if player.velocity.length() > player.attack_push_deadzone:
 		return
 
-	var mouse_pos: Vector2 = player.get_global_mouse_position()
+	var mouse_pos: Vector2 = _get_aim_global_position()
 	var dir: Vector2 = mouse_pos - player.global_position
 	if dir.length() < 0.001:
 		return
 	player.attack_push_vel = dir.normalized() * player.attack_push_speed
 	player.attack_push_t = player.attack_push_time
+

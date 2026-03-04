@@ -1,4 +1,4 @@
-extends Node
+﻿extends Node
 class_name WeaponComponent
 
 signal weapon_list_changed(weapon_ids: Array[String])
@@ -6,7 +6,7 @@ signal weapon_equipped(weapon_id: String)
 
 @export var debug_logs: bool = false
 
-# IDs de items que son armas (según ItemData.tags contiene "weapon")
+# IDs de items que son armas (segÃºn ItemData.tags contiene "weapon")
 var weapon_ids: Array[String] = []
 
 var current_index: int = 0
@@ -17,8 +17,8 @@ var _weapon_texture_cache: Dictionary = {}
 # Cache del DB (autoload)
 @onready var _item_db := get_node_or_null("/root/ItemDB")
 
-# ---- Visual config por arma (mínimo viable) ----
-# En el futuro esto debería ser un Resource por arma, pero por ahora lo dejamos simple.
+# ---- Visual config por arma (mÃ­nimo viable) ----
+# En el futuro esto deberÃ­a ser un Resource por arma, pero por ahora lo dejamos simple.
 const VISUALS := {
 	"ironpipe": {
 		"sprite_path": "res://art/sprites/palo.png",
@@ -194,6 +194,18 @@ func _equip_runtime_weapon(player: Node) -> void:
 	add_child(current_weapon)
 	current_weapon.on_equipped(player)
 
+func _get_or_create_player_weapon_controller(player: Node) -> Node:
+	if player == null:
+		return null
+	var controller := player.get_node_or_null("PlayerWeaponController")
+	if controller != null:
+		return controller
+	controller = PlayerWeaponControllerScript.new()
+	controller.name = "PlayerWeaponController"
+	player.add_child(controller)
+	if player.is_ancestor_of(controller):
+		controller.owner = player
+	return controller
 func _make_weapon_node(weapon_id: String) -> WeaponBase:
 	var normalized_weapon_id := _normalize_weapon_id(weapon_id)
 	match normalized_weapon_id:
@@ -224,3 +236,4 @@ func _has_tag(tags: Array, tag: String) -> bool:
 		if String(t) == tag:
 			return true
 	return false
+
