@@ -15,6 +15,7 @@ var _keeper_inv: InventoryComponent = null
 var _refresh_queued: bool = false
 var _current_owner: Node = null
 var _closing_shop: bool = false
+@export var debug_input_logs: bool = false
 
 
 func _ready() -> void:
@@ -304,24 +305,38 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var key_event := event as InputEventKey
 		fallback_key_e = key_event.pressed and not key_event.echo and key_event.keycode == KEY_E
+	var should_log_input := _should_log_input_event(event)
 
-	print(
-		"[SHOP][INPUT] keeper_menu_ui _input instance=", get_instance_id(),
-		" owner=", _current_owner,
-		" shop_open=", is_shop_open(),
-		" event=", event.as_text(),
-		" interact=", interact_pressed,
-		" ui_cancel=", cancel_pressed,
-		" fallback_key_e=", fallback_key_e
-	)
+	if should_log_input:
+		print(
+			"[SHOP][INPUT] keeper_menu_ui _input instance=", get_instance_id(),
+			" owner=", _current_owner,
+			" shop_open=", is_shop_open(),
+			" event=", event.as_text(),
+			" interact=", interact_pressed,
+			" ui_cancel=", cancel_pressed,
+			" fallback_key_e=", fallback_key_e
+		)
 
 	if interact_pressed or cancel_pressed or fallback_key_e:
-		print("[SHOP][INPUT] keeper_menu_ui closing shop by input instance=", get_instance_id())
+		if should_log_input:
+			print("[SHOP][INPUT] keeper_menu_ui closing shop by input instance=", get_instance_id())
 		close_shop()
 		UiManager.block_interact_for(150)
 		get_viewport().set_input_as_handled()
 
 
+func _should_log_input_event(event: InputEvent) -> bool:
+	if not debug_input_logs:
+		return false
+	if event is InputEventMouseMotion:
+		return false
+	if event is InputEventMouseButton:
+		return true
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		return key_event.pressed and not key_event.echo
+	return false
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PAUSED and visible and get_tree().paused:
 		close_shop()

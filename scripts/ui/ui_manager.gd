@@ -4,6 +4,7 @@ var _open_reasons: Dictionary = {}
 var _cursor: CanvasItem = null
 var _block_interact_until_msec: int = 0
 var _combat_block_count: int = 0
+@export var debug_input_logs: bool = false
 
 
 func _ready() -> void:
@@ -120,7 +121,8 @@ func _input(event: InputEvent) -> void:
 		return
 	if not keeper_menu_ui.is_shop_open():
 		return
-	print("[SHOP][INPUT][UIMANAGER] closing shop by global intercept event=", event.as_text(), " ui_manager=", get_instance_id(), " keeper_menu_ui=", keeper_menu_ui.get_instance_id())
+	if debug_input_logs:
+		print("[SHOP][INPUT][UIMANAGER] closing shop by global intercept event=", event.as_text(), " ui_manager=", get_instance_id(), " keeper_menu_ui=", keeper_menu_ui.get_instance_id())
 	keeper_menu_ui.close_shop()
 	block_interact_for(150)
 	get_viewport().set_input_as_handled()

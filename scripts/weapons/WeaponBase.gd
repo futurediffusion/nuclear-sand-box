@@ -42,4 +42,3 @@ func _get_aim_global_position() -> Vector2:
 	if player_node != null:
 		return player_node.get_global_mouse_position()
 	return Vector2.ZERO
-
