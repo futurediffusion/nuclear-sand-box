@@ -119,7 +119,7 @@ func _schedule_sleep_check() -> void:
 		return
 	if sleep_check_timer != null and sleep_check_timer.time_left > 0.0:
 		return
-	var interval := max(owner_entity.SLEEP_CHECK_INTERVAL, 0.05)
+	var interval: float = maxf(float(owner_entity.SLEEP_CHECK_INTERVAL), 0.05)
 	sleep_check_timer = owner_entity.get_tree().create_timer(interval)
 	sleep_check_timer.timeout.connect(_on_sleep_check_timeout)
 
@@ -137,7 +137,7 @@ func _on_sleep_check_timeout() -> void:
 		return
 
 	var distance := owner_entity.global_position.distance_to(player.global_position)
-	var wake_distance := max(owner_entity.ACTIVE_RADIUS_PX - owner_entity.WAKE_HYSTERESIS_PX, 0.0)
+	var wake_distance: float = maxf(float(owner_entity.ACTIVE_RADIUS_PX - owner_entity.WAKE_HYSTERESIS_PX), 0.0)
 	if sleeping:
 		if distance <= wake_distance:
 			wake_now()
