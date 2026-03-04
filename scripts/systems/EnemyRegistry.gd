@@ -5,7 +5,11 @@ var _enemy_chunks: Dictionary = {} # instance_id -> Vector2i
 var buckets: Dictionary = {} # Vector2i -> Array[Node2D]
 var _enemy_bucket_indices: Dictionary = {} # instance_id -> index within bucket array
 var _cleanup_timer: float = 0.0
-const CLEANUP_INTERVAL: float = 5.0
+var _index_cleanup_timer: float = 0.0
+var _bucket_cleanup_cursor: int = 0
+const CLEANUP_INTERVAL: float = 3.0
+const CLEANUP_BUCKETS_PER_TICK: int = 6
+const INDEX_CLEANUP_INTERVAL: float = 20.0
 var _warned_missing_world: bool = false
 
 
@@ -114,15 +118,34 @@ func count() -> int:
 
 func _process(delta: float) -> void:
 	_cleanup_timer += delta
+	_index_cleanup_timer += delta
 	if _cleanup_timer >= CLEANUP_INTERVAL:
 		_cleanup_timer = 0.0
-		_cleanup_invalid_entries()
+		_cleanup_invalid_buckets(CLEANUP_BUCKETS_PER_TICK)
+
+	if _index_cleanup_timer >= INDEX_CLEANUP_INTERVAL:
+		_index_cleanup_timer = 0.0
+		_cleanup_orphan_indices()
 
 
-func _cleanup_invalid_entries() -> void:
+func _cleanup_invalid_buckets(max_buckets: int) -> void:
 	get_live_enemies() # fuerza limpieza de refs muertas
+	if buckets.is_empty():
+		_bucket_cleanup_cursor = 0
+		return
 
-	for chunk_key in buckets.keys():
+	var keys: Array = buckets.keys()
+	if _bucket_cleanup_cursor >= keys.size():
+		_bucket_cleanup_cursor = 0
+
+	var processed: int = 0
+	while processed < max_buckets and not keys.is_empty():
+		if _bucket_cleanup_cursor >= keys.size():
+			_bucket_cleanup_cursor = 0
+		var chunk_key: Variant = keys[_bucket_cleanup_cursor]
+		_bucket_cleanup_cursor += 1
+		processed += 1
+
 		var bucket: Array = buckets[chunk_key]
 		for i: int in range(bucket.size() - 1, -1, -1):
 			var enemy := bucket[i] as Node2D
@@ -134,11 +157,19 @@ func _cleanup_invalid_entries() -> void:
 					_enemy_bucket_indices.erase(removed_id)
 		if bucket.is_empty():
 			buckets.erase(chunk_key)
+			keys.remove_at(_bucket_cleanup_cursor - 1)
+			_bucket_cleanup_cursor -= 1
 		else:
 			buckets[chunk_key] = bucket
 
+
+func _cleanup_orphan_indices() -> void:
+	var live_ids: Dictionary = {}
+	for enemy in get_live_enemies():
+		live_ids[enemy.get_instance_id()] = true
+
 	for id in _enemy_chunks.keys():
-		if not _has_enemy_with_id(id):
+		if not live_ids.has(id):
 			_enemy_chunks.erase(id)
 			_enemy_bucket_indices.erase(id)
 
@@ -184,13 +215,6 @@ func _swap_remove_bucket_at(bucket: Array, idx: int) -> void:
 			_enemy_bucket_indices[swapped.get_instance_id()] = idx
 	bucket.remove_at(last_idx)
 
-
-func _has_enemy_with_id(id: int) -> bool:
-	for w: WeakRef in _enemies:
-		var obj: Object = w.get_ref()
-		if obj != null and obj is Node and (obj as Node).get_instance_id() == id:
-			return true
-	return false
 
 
 func _find_world_node() -> Node:
