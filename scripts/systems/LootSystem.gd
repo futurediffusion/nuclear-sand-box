@@ -1,5 +1,26 @@
 extends Node
 
+@export var debug_loot_logs: bool = false
+@export var metrics_logs_enabled: bool = true
+@export var metrics_log_interval_sec: float = 1.0
+
+var _metric_timer: float = 0.0
+var _drops_spawned_window: int = 0
+var _pickups_window: int = 0
+var _camps_spawned_by_chunk: Dictionary = {}
+
+func _ready() -> void:
+	set_process(metrics_logs_enabled)
+
+func _process(delta: float) -> void:
+	if not metrics_logs_enabled:
+		return
+	_metric_timer += delta
+	if _metric_timer < maxf(0.1, metrics_log_interval_sec):
+		return
+	_metric_timer = 0.0
+	_flush_metrics()
+
 func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, parent: Node, overrides: Dictionary = {}, source_uid: String = "") -> Node:
 	var resolved_item_data: ItemData = item
 	var resolved_id := item_id
@@ -59,7 +80,46 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 	else:
 		drop.global_position = origin
 
-	print("[LootSystem] spawned drop item_id=", resolved_id, " amount=", amount)
+	_drops_spawned_window += 1
+	_loot_log("[LootSystem] spawned drop item_id=%s amount=%d" % [resolved_id, amount])
+
 	if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
 		GameEvents.emit_loot_spawned(resolved_id, amount, origin, source_uid)
 	return drop
+
+func record_pickup() -> void:
+	_pickups_window += 1
+
+func record_camps_spawned(chunk_pos: Vector2i, camps_spawned: int) -> void:
+	if camps_spawned <= 0:
+		return
+	var key := "%d,%d" % [chunk_pos.x, chunk_pos.y]
+	_camps_spawned_by_chunk[key] = int(_camps_spawned_by_chunk.get(key, 0)) + camps_spawned
+
+func _flush_metrics() -> void:
+	if _drops_spawned_window <= 0 and _pickups_window <= 0 and _camps_spawned_by_chunk.is_empty():
+		return
+
+	var camps_summary := "{}"
+	if not _camps_spawned_by_chunk.is_empty():
+		var keys := _camps_spawned_by_chunk.keys()
+		keys.sort()
+		var parts: Array[String] = []
+		for key in keys:
+			parts.append("%s=%d" % [str(key), int(_camps_spawned_by_chunk[key])])
+		camps_summary = "{%s}" % ", ".join(parts)
+
+	print("[LootMetrics] drops_per_sec=%d pickups_per_sec=%d camps_per_chunk=%s" % [
+		_drops_spawned_window,
+		_pickups_window,
+		camps_summary,
+	])
+
+	_drops_spawned_window = 0
+	_pickups_window = 0
+	_camps_spawned_by_chunk.clear()
+
+func _loot_log(message: String) -> void:
+	if not debug_loot_logs:
+		return
+	print(message)

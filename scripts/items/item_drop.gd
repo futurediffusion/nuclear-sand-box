@@ -7,6 +7,7 @@ class_name ItemDrop
 @export var icon: Texture2D
 
 @export var pickup_sfx: AudioStream
+@export var debug_item_drop_logs: bool = false
 
 # Pop inicial
 @export var pop_height: float = 18.0
@@ -27,6 +28,7 @@ class_name ItemDrop
 @export var ground_y_offset: float = 0.0  # por si quieres ajustar donde “queda” el sprite
 
 @onready var spr: Sprite2D = $Sprite2D
+@onready var collision_shape: CollisionShape2D = $CollisionShape2D
 @onready var magnet_delay: Timer = $MagnetDelay
 
 var _t: float = 0.0
@@ -38,6 +40,7 @@ var _magnet_on: bool = false
 var _vel: Vector2 = Vector2.ZERO
 var _throwing: bool = false
 var _ground_y: float = 0.0
+var _picked: bool = false
 
 func _ready() -> void:
 	_resolve_item_data()
@@ -77,11 +80,14 @@ func _resolve_item_data() -> void:
 		pickup_sfx = item_data.pickup_sfx
 
 	if item_data != null:
-		print("[ItemDrop] resolved item_data id=", item_data.id)
+		_item_drop_log("[ItemDrop] resolved item_data id=%s" % item_data.id)
 	else:
-		print("[ItemDrop] using legacy item_id=", item_id)
+		_item_drop_log("[ItemDrop] using legacy item_id=%s" % item_id)
 
 func _process(delta: float) -> void:
+	if _picked:
+		return
+
 	_t += delta
 
 	# =========================
@@ -142,6 +148,8 @@ func _process(delta: float) -> void:
 				_try_pickup()
 				
 func _on_body_entered(body: Node) -> void:
+	if _picked:
+		return
 	if body.is_in_group("player"):
 		_player = body as Node2D
 
@@ -149,41 +157,47 @@ func _on_body_exited(body: Node) -> void:
 	if body == _player:
 		_player = null
 func _try_pickup() -> void:
-	if _player == null:
-		print("[ItemDrop] _try_pickup: NO player")
+	if _picked or _player == null:
 		return
 
 	var inv := _player.get_node_or_null("InventoryComponent")
-	if inv == null:
-		print("[ItemDrop] _try_pickup: NO InventoryComponent en player=", _player.name, " children=", _player.get_children())
-		return
-	if not inv.has_method("add_item"):
-		print("[ItemDrop] _try_pickup: InventoryComponent sin add_item()")
+	if inv == null or not inv.has_method("add_item"):
 		return
 
 	var inserted: int = int(inv.add_item(item_id, amount))
-	print("[ItemDrop] add_item result inserted=", inserted, " item_id=", item_id, " amount=", amount)
-
 	if inserted <= 0:
-		print("[ItemDrop] inserted<=0 (inventario lleno o rechazado). No evento, no audio.")
 		return
 
-	var events := get_node_or_null("/root/GameEvents")
-	if events == null:
-		print("[ItemDrop] NO /root/GameEvents. No evento.")
-	else:
-		print("[ItemDrop] Emitting item_picked item_id=", item_id, " inserted=", inserted)
-		events.emit_item_picked(item_id, inserted, _player)
-
-	# el audio de pickup ahora lo reproduce AudioSystem escuchando GameEvents.item_picked
+	# Idempotent guard: disable collisions before emitting/queueing free.
+	var picker := _player
+	_picked = true
 	monitoring = false
 	monitorable = false
+	collision_layer = 0
+	collision_mask = 0
+	if collision_shape != null:
+		collision_shape.disabled = true
+	_player = null
 	spr.visible = false
+
+	if LootSystem != null and LootSystem.has_method("record_pickup"):
+		LootSystem.record_pickup()
+
+	var events := get_node_or_null("/root/GameEvents")
+	if events != null and events.has_method("emit_item_picked"):
+		events.emit_item_picked(item_id, inserted, picker)
+
 	queue_free()
-	
+
 func throw_from(origin: Vector2, dir: Vector2, speed: float, up_boost: float = 260.0) -> void:
 	global_position = origin
 	_vel = dir.normalized() * speed
 	_vel.y -= absf(up_boost)
 	_throwing = true
 	_ground_y = origin.y
+
+
+func _item_drop_log(message: String) -> void:
+	if not debug_item_drop_logs:
+		return
+	print(message)

@@ -11,6 +11,7 @@ var _gold: int = 0
 var _batch_depth: int = 0
 var _pending_emit: bool = false
 var _dbg_emit_count: int = 0
+@export var debug_inv_logs: bool = false
 @export var debug_emit_logs: bool = false
 
 var gold: int:
@@ -45,7 +46,7 @@ func add_item(item_id: String, amount: int) -> int:
 		return 0
 
 	var stack_limit := _get_stack_limit(item_id)
-	print("[INV] add_item id=%s amount=%d stack_limit=%d" % [item_id, amount, stack_limit])
+	_inv_log(str("[INV] add_item id=%s amount=%d stack_limit=%d" % [item_id, amount, stack_limit]))
 	var remaining := amount
 	var touched := {}
 
@@ -54,7 +55,7 @@ func add_item(item_id: String, amount: int) -> int:
 			touched[i] = true
 
 	# 1) llenar stacks existentes del mismo item
-	print("[INV] add_item scan_merge start=0 slots=%d" % max_slots)
+	_inv_log(str("[INV] add_item scan_merge start=0 slots=%d" % max_slots))
 	for i in range(max_slots):
 		if remaining <= 0:
 			break
@@ -79,13 +80,12 @@ func add_item(item_id: String, amount: int) -> int:
 		slots[i] = s
 		touched[i] = true
 		remaining -= moved
-		print("[INV] add_item MERGE slot=%d moved=%d new_dst=%d remaining=%d" % [i, moved, int(s["count"]), remaining])
 
 	# 2) crear nuevos stacks en slots vacíos
 	# Importante: esto mantiene un comportamiento "first-fit" (sin categorías
 	# fijas). Visualmente puede parecer que un item "salta" de posición cuando
 	# la ocupación cambia, pero es esperado para este modelo.
-	print("[INV] add_item scan_empty start=0")
+	_inv_log(str("[INV] add_item scan_empty start=0"))
 	for i in range(max_slots):
 		if remaining <= 0:
 			break
@@ -96,7 +96,6 @@ func add_item(item_id: String, amount: int) -> int:
 		slots[i] = {"id": item_id, "count": inserted}
 		touched[i] = true
 		remaining -= inserted
-		print("[INV] add_item INSERT slot=%d inserted=%d remaining=%d" % [i, inserted, remaining])
 
 	var inserted := amount - remaining
 	if inserted > 0:
@@ -105,7 +104,7 @@ func add_item(item_id: String, amount: int) -> int:
 		_emit_changed("add_item")
 
 	if remaining > 0:
-		print("[INV] add_item INCOMPLETE remaining=%d" % remaining)
+		_inv_log(str("[INV] add_item INCOMPLETE remaining=%d" % remaining))
 
 	return inserted
 
@@ -189,7 +188,7 @@ func use_slot(slot_index: int) -> bool:
 func has_space_for(item_id: String, amount: int) -> bool:
 	# Simulación rápida: cuánto “hueco” hay para ese item
 	var stack_limit := _get_stack_limit(item_id)
-	print("[INV] has_space_for id=", item_id, " amount=", amount, " stack_limit=", stack_limit)
+	_inv_log("[INV] has_space_for id=%s amount=%d stack_limit=%d" % [item_id, amount, stack_limit])
 	var capacity := 0
 
 	# hueco en stacks existentes
@@ -228,7 +227,7 @@ func add_gold(amount: int) -> void:
 
 
 func debug_print() -> void:
-	print("[INV] gold=", gold, " slots=", slots)
+	_inv_log("[INV] gold=%s slots=%s" % [str(gold), str(slots)])
 
 
 func sell_all(item_id: String, unit_price: int) -> int:
@@ -280,24 +279,24 @@ func buy_item(item_id: String, amount: int, unit_price: int) -> int:
 
 func drag_move_or_merge(from_slot: int, to_slot: int) -> bool:
 	if from_slot < 0 or from_slot >= max_slots:
-		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot]))
 		return false
 	if to_slot < 0 or to_slot >= max_slots:
-		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot]))
 		return false
 	if from_slot == to_slot:
-		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot]))
 		return false
 
 	var from_stack = slots[from_slot]
 	if from_stack == null:
-		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot]))
 		return false
 
 	var from_id := String(from_stack.get("id", ""))
 	var from_count := int(from_stack.get("count", 0))
 	if from_id == "" or from_count <= 0:
-		print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+		_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot]))
 		return false
 
 	var to_stack = slots[to_slot]
@@ -306,7 +305,7 @@ func drag_move_or_merge(from_slot: int, to_slot: int) -> bool:
 		slots[from_slot] = null
 		_emit_slot_changed(from_slot)
 		_emit_slot_changed(to_slot)
-		print("[INV] drag_move_or_merge from=%d to=%d action=move" % [from_slot, to_slot])
+		_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=move" % [from_slot, to_slot]))
 		return true
 
 	var to_id := String(to_stack.get("id", ""))
@@ -316,14 +315,14 @@ func drag_move_or_merge(from_slot: int, to_slot: int) -> bool:
 		slots[from_slot] = null
 		_emit_slot_changed(from_slot)
 		_emit_slot_changed(to_slot)
-		print("[INV] drag_move_or_merge from=%d to=%d action=move" % [from_slot, to_slot])
+		_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=move" % [from_slot, to_slot]))
 		return true
 
 	if from_id == to_id:
 		var stack_limit := _get_stack_limit(from_id)
 		var space := stack_limit - to_count
 		if space <= 0:
-			print("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot])
+			_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=noop" % [from_slot, to_slot]))
 			return false
 
 		var moved := mini(space, from_count)
@@ -339,14 +338,14 @@ func drag_move_or_merge(from_slot: int, to_slot: int) -> bool:
 
 		_emit_slot_changed(from_slot)
 		_emit_slot_changed(to_slot)
-		print("[INV] drag_move_or_merge from=%d to=%d action=merge" % [from_slot, to_slot])
+		_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=merge" % [from_slot, to_slot]))
 		return true
 
 	slots[from_slot] = to_stack.duplicate(true)
 	slots[to_slot] = from_stack.duplicate(true)
 	_emit_slot_changed(from_slot)
 	_emit_slot_changed(to_slot)
-	print("[INV] drag_move_or_merge from=%d to=%d action=swap" % [from_slot, to_slot])
+	_inv_log(str("[INV] drag_move_or_merge from=%d to=%d action=swap" % [from_slot, to_slot]))
 	return true
 
 
@@ -391,7 +390,7 @@ func drag_transfer_amount(from_slot: int, to_slot: int, amount: int) -> bool:
 
 		_emit_slot_changed(from_slot)
 		_emit_slot_changed(to_slot)
-		print("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=%s ok=true" % [from_slot, to_slot, from_id, moved_amount, action])
+		_inv_log(str("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=%s ok=true" % [from_slot, to_slot, from_id, moved_amount, action]))
 		return true
 
 	var to_id := String(to_stack.get("id", ""))
@@ -410,7 +409,7 @@ func drag_transfer_amount(from_slot: int, to_slot: int, amount: int) -> bool:
 
 		_emit_slot_changed(from_slot)
 		_emit_slot_changed(to_slot)
-		print("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=%s ok=true" % [from_slot, to_slot, from_id, moved_amount, action])
+		_inv_log(str("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=%s ok=true" % [from_slot, to_slot, from_id, moved_amount, action]))
 		return true
 
 	if to_id == from_id:
@@ -433,7 +432,7 @@ func drag_transfer_amount(from_slot: int, to_slot: int, amount: int) -> bool:
 
 		_emit_slot_changed(from_slot)
 		_emit_slot_changed(to_slot)
-		print("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=merge ok=true" % [from_slot, to_slot, from_id, moved_amount])
+		_inv_log(str("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=merge ok=true" % [from_slot, to_slot, from_id, moved_amount]))
 		return true
 
 	if requested_amount < from_count:
@@ -443,29 +442,29 @@ func drag_transfer_amount(from_slot: int, to_slot: int, amount: int) -> bool:
 	slots[to_slot] = from_stack.duplicate(true)
 	_emit_slot_changed(from_slot)
 	_emit_slot_changed(to_slot)
-	print("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=swap ok=true" % [from_slot, to_slot, from_id, requested_amount])
+	_inv_log(str("[INV] drag_transfer_amount from=%d to=%d id=%s amount=%d action=swap ok=true" % [from_slot, to_slot, from_id, requested_amount]))
 	return true
 
 
 func extract_amount_for_drop(slot_index: int, amount: int) -> Dictionary:
 	if slot_index < 0 or slot_index >= max_slots:
-		print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, "", amount])
+		_inv_log(str("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, "", amount]))
 		return {}
 
 	var slot = slots[slot_index]
 	if slot == null:
-		print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, "", amount])
+		_inv_log(str("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, "", amount]))
 		return {}
 
 	var item_id := String(slot.get("id", ""))
 	var slot_count := int(slot.get("count", 0))
 	if item_id == "" or slot_count <= 0:
-		print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, item_id, amount])
+		_inv_log(str("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, item_id, amount]))
 		return {}
 
 	var clamped_amount := mini(amount, slot_count)
 	if clamped_amount <= 0:
-		print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, item_id, clamped_amount])
+		_inv_log(str("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=false" % [slot_index, item_id, clamped_amount]))
 		return {}
 
 	slot_count -= clamped_amount
@@ -478,7 +477,7 @@ func extract_amount_for_drop(slot_index: int, amount: int) -> Dictionary:
 	slots[slot_index] = slot
 	_emit_slot_changed(slot_index)
 
-	print("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=true" % [slot_index, item_id, clamped_amount])
+	_inv_log(str("[INV] extract_amount_for_drop slot=%d id=%s amount=%d ok=true" % [slot_index, item_id, clamped_amount]))
 	return {"id": item_id, "amount": clamped_amount}
 
 
@@ -513,7 +512,7 @@ func _emit_changed(tag: String = "") -> void:
 func _emit_changed_internal(tag: String = "") -> void:
 	_dbg_emit_count += 1
 	if debug_emit_logs:
-		print("[INV][emit#", _dbg_emit_count, "] tag=", tag, " gold=", gold)
+		_inv_log("[INV][emit#%d] tag=%s gold=%s" % [_dbg_emit_count, tag, str(gold)])
 	inventory_changed.emit()
 
 func _get_stack_limit(item_id: String) -> int:
@@ -552,7 +551,7 @@ func _use_heal_item(slot_index: int, heal_amount: int) -> bool:
 	if after <= before:
 		return false
 
-	print("[INV] used bandage heal_hp=%d slot=%d" % [heal_amount, slot_index])
+	_inv_log(str("[INV] used bandage heal_hp=%d slot=%d" % [heal_amount, slot_index]))
 
 	_remove_from_slot(slot_index, 1)
 	return true
@@ -624,6 +623,10 @@ func _normalize_slot_if_needed(slot_index: int) -> bool:
 	if not changed and normalized_id == slot_id and normalized_count == slot_count:
 		return false
 
-	print("[INV][WARN] inconsistent slot=%d id='%s' count=%d (fixing)" % [slot_index, slot_id, slot_count])
 	slots[slot_index] = {"id": normalized_id, "count": normalized_count}
 	return true
+
+func _inv_log(message: String) -> void:
+	if not debug_inv_logs:
+		return
+	print(message)

@@ -11,7 +11,7 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var chunk_size: int = ctx["chunk_size"]
 	var pick_tile: Callable = ctx["pick_tile"]
 	var tree: SceneTree = ctx["tree"]
-	var generating_yield_stride: int = ctx.get("generating_yield_stride", 8)
+	var generating_yield_stride: int = ctx.get("generating_yield_stride", 4)
 
 	var start_x := chunk_pos.x * chunk_size
 	var start_y := chunk_pos.y * chunk_size

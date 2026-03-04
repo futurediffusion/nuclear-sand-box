@@ -236,7 +236,7 @@ func _make_ground_ctx() -> Dictionary:
 		"chunk_size": chunk_size,
 		"pick_tile": Callable(self, "pick_tile"),
 		"tree": get_tree(),
-		"generating_yield_stride": 8,
+		"generating_yield_stride": 4,
 	}
 
 func load_chunk_entities(chunk_pos: Vector2i) -> void:
@@ -324,6 +324,9 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		tilemap.add_child(camp)
 		chunk_entities[chunk_pos].append(camp)
 		camp.set("bandit_scene", bandit_scene)
+
+	if LootSystem != null and LootSystem.has_method("record_camps_spawned"):
+		LootSystem.record_camps_spawned(chunk_pos, camps_count)
 
 	# 4) PLACEMENTS (props + npc_keeper)
 	var spawned_count: int = 0
