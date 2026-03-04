@@ -17,6 +17,14 @@ var _current_owner: Node = null
 var _closing_shop: bool = false
 
 
+func _ui_manager() -> Node:
+	return get_node_or_null("/root/UiManager")
+
+
+func _shop_service() -> Node:
+	return get_node_or_null("/root/ShopService")
+
+
 func _ready() -> void:
 	visible = false
 	add_to_group("keeper_menu_ui")
@@ -52,8 +60,10 @@ func open_shop(owner: Node) -> void:
 
 	visible = true
 	_current_owner = owner
-	UiManager.open_ui("shop")
-	UiManager.push_combat_block()
+	var ui := _ui_manager()
+	if ui != null:
+		ui.open_ui("shop")
+		ui.push_combat_block()
 	var root := get_node_or_null("Root") as Control
 	if root != null:
 		root.grab_focus()
@@ -67,8 +77,10 @@ func close_shop() -> void:
 	var closed_owner := _current_owner
 	visible = false
 	_current_owner = null
-	UiManager.close_ui("shop")
-	UiManager.pop_combat_block()
+	var ui := _ui_manager()
+	if ui != null:
+		ui.close_ui("shop")
+		ui.pop_combat_block()
 	shop_closed.emit(closed_owner)
 	_closing_shop = false
 
@@ -111,12 +123,13 @@ func set_vendor(vendor: VendorComponent) -> void:
 	_queue_refresh_keeper_slot_meta()
 	keeper_panel.set_shop_context(_vendor, _player_inv, "BUY")
 	player_panel.set_shop_context(_vendor, _player_inv, "SELL")
+	var shop := _shop_service()
 	if vendor != null:
 		keeper_panel.set_price_resolver(func(item_id: String) -> int:
-			return ShopService.get_buy_price(vendor, item_id)
+			return 0 if shop == null else int(shop.get_buy_price(vendor, item_id))
 		)
 		player_panel.set_price_resolver(func(item_id: String) -> int:
-			return ShopService.get_sell_price(vendor, item_id)
+			return 0 if shop == null else int(shop.get_sell_price(vendor, item_id))
 		)
 	else:
 		keeper_panel.set_price_resolver(Callable())
@@ -151,11 +164,14 @@ func _try_sell_item(item_id: String, amount: int) -> void:
 		return
 	# KeeperMenuUi no muta inventario ni oro directamente.
 	# ShopService es la única autoridad de transacciones.
-	var check := ShopService.can_sell(_vendor, _player_inv, item_id, amount)
+	var shop := _shop_service()
+	if shop == null:
+		return
+	var check: Dictionary = shop.can_sell(_vendor, _player_inv, item_id, amount)
 	if not bool(check.get("ok", false)):
 		print("[SHOP][UI] sell blocked reason=", check.get("reason", "UNKNOWN"))
 		return
-	ShopService.sell(_vendor, _player_inv, item_id, amount, {
+	shop.sell(_vendor, _player_inv, item_id, amount, {
 		"source": "ui_player_slot",
 		"ui_slot": -1,
 		"slot_index": -1,
@@ -173,11 +189,14 @@ func _try_buy_item(slot_meta: Dictionary, amount: int) -> void:
 		return
 	# KeeperMenuUi no muta inventario ni oro directamente.
 	# ShopService es la única autoridad de transacciones.
-	var check := ShopService.can_buy_from_meta(_vendor, _player_inv, slot_meta, amount)
+	var shop := _shop_service()
+	if shop == null:
+		return
+	var check: Dictionary = shop.can_buy_from_meta(_vendor, _player_inv, slot_meta, amount)
 	if not bool(check.get("ok", false)):
 		print("[SHOP][UI] buy blocked reason=%s slot_meta=%s" % [str(check.get("reason", "UNKNOWN")), str(slot_meta)])
 		return
-	ShopService.buy_from_meta(_vendor, _player_inv, slot_meta, amount)
+	shop.buy_from_meta(_vendor, _player_inv, slot_meta, amount)
 	_queue_refresh_keeper_slot_meta()
 
 
@@ -318,7 +337,9 @@ func _input(event: InputEvent) -> void:
 	if interact_pressed or cancel_pressed or fallback_key_e:
 		print("[SHOP][INPUT] keeper_menu_ui closing shop by input instance=", get_instance_id())
 		close_shop()
-		UiManager.block_interact_for(150)
+		var ui := _ui_manager()
+		if ui != null:
+			ui.block_interact_for(150)
 		get_viewport().set_input_as_handled()
 
 
