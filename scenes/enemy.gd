@@ -16,6 +16,9 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 
 @export_group("AI Behavior")
 @export var detection_range: float = 400.0
+@export var ACTIVE_RADIUS_PX: float = 1200.0
+@export var WAKE_HYSTERESIS_PX: float = 200.0
+@export var SLEEP_CHECK_INTERVAL: float = 0.4
 
 @export_group("References")
 @export var slash_scene: PackedScene
@@ -79,12 +82,18 @@ func _physics_process(delta: float) -> void:
 	if hurt_t > 0.0:
 		hurt_t -= delta
 
-	if ai_component != null:
+	var is_sleeping := ai_component != null and ai_component.is_sleeping()
+	if ai_component != null and not is_sleeping:
 		ai_component.physics_tick(delta)
+	else:
+		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
-	_update_weapon(delta)
-	_update_animation()
-	_apply_separation_force(delta)
+	if not is_sleeping:
+		_update_weapon(delta)
+		_update_animation()
+		_apply_separation_force(delta)
+	elif sprite.animation != "idle":
+		sprite.play("idle")
 
 	_apply_knockback_step(delta)
 	move_and_slide()
@@ -162,6 +171,8 @@ func _apply_separation_force(dt: float) -> void:
 
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	super.take_damage(dmg, from_pos)
+	if ai_component != null:
+		ai_component.wake_now()
 
 
 
