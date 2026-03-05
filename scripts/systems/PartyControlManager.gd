@@ -1,5 +1,4 @@
 extends Node
-class_name PartyControlManager
 
 signal controlled_actor_changed(old_actor: Node, new_actor: Node)
 
