@@ -31,6 +31,8 @@ var generated_chunks: Dictionary = {}
 var generating_chunks: Dictionary = {}
 var entities_spawned_chunks: Dictionary = {}
 var chunk_save: Dictionary = {}
+var queued_entity_chunks: Dictionary = {}
+var _spawn_queue: SpawnBudgetQueue
 
 @export var tavern_keeper_scene: PackedScene
 
@@ -89,9 +91,19 @@ func _ready() -> void:
 		player.global_position = spawn_world
 
 	current_player_chunk = world_to_chunk(spawn_world)
+	_spawn_queue = SpawnBudgetQueue.new()
+	_spawn_queue.name = "SpawnBudgetQueue"
+	_spawn_queue.spawn_parent = tilemap
+	_spawn_queue.chunk_active_checker = Callable(self, "_is_chunk_key_loaded")
+	_spawn_queue.job_spawned.connect(_on_spawn_queue_job_spawned)
+	add_child(_spawn_queue)
 	update_chunks(current_player_chunk)
 
 func _process(delta: float) -> void:
+	if _spawn_queue != null:
+		if player:
+			_spawn_queue.set_player_world_pos(player.global_position)
+		_spawn_queue.process_queue(delta)
 	_chunk_timer += delta
 	if _chunk_timer < chunk_check_interval:
 		return
@@ -239,6 +251,9 @@ func _make_ground_ctx() -> Dictionary:
 func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	chunk_entities[chunk_pos] = []
 	chunk_saveables[chunk_pos] = []
+	if queued_entity_chunks.has(chunk_pos):
+		return
+	queued_entity_chunks[chunk_pos] = true
 	prop_spawner.rebuild_chunk_occupied_tiles(chunk_pos, _make_spawn_ctx())
 
 	if not chunk_save.has(chunk_pos):
@@ -253,24 +268,37 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	var cy: int = chunk_pos.y
 	WorldSave.get_chunk_save(cx, cy)
 
+	var chunk_key: String = _chunk_key(chunk_pos)
+	var chunk_ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
+	var jobs: Array[Dictionary] = []
+
 	# 1) ORES
 	for d in chunk_save[chunk_pos]["ores"]:
 		var tpos: Vector2i = d["tile"]
-		var ore := copper_ore_scene.instantiate()
-		ore.position = tilemap.map_to_local(tpos)
-		tilemap.add_child(ore)
-		chunk_entities[chunk_pos].append(ore)
 		var ore_uid: String = UID.make_uid("ore_copper", "", tpos)
-		ore.entity_uid = ore_uid
 		var ore_state = WorldSave.get_entity_state(cx, cy, ore_uid)
+		var ore_init: Dictionary = {
+			"properties": {"entity_uid": ore_uid},
+			"worldsave": {
+				"cx": cx,
+				"cy": cy,
+				"uid": ore_uid,
+				"init_if_missing": ore_state == null,
+			}
+		}
 		if ore_state != null:
-			ore.apply_save_state(ore_state)
+			ore_init["save_state"] = ore_state
 		elif d.has("remaining") and d["remaining"] != -1:
-			ore.set("remaining", int(d["remaining"]))
-			WorldSave.set_entity_state(cx, cy, ore_uid, ore.get_save_state())
-		else:
-			WorldSave.set_entity_state(cx, cy, ore_uid, ore.get_save_state())
-		chunk_saveables[chunk_pos].append(ore)
+			ore_init["save_state"] = {"remaining": int(d["remaining"])}
+		jobs.append({
+			"chunk_key": chunk_key,
+			"kind": "ore",
+			"scene": copper_ore_scene,
+			"global_position": _tile_to_world(tpos),
+			"init_data": ore_init,
+			"priority": chunk_ring,
+			"uid": ore_uid,
+		})
 
 	# 2) TILES PERSISTENTES — suelo en WorldTileMap, paredes en StructureWallsMap
 	var floor_cells: Array[Vector2i] = []
@@ -316,11 +344,17 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	# 3) CAMPS
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
-		var camp := bandit_camp_scene.instantiate()
-		camp.position = tilemap.map_to_local(ct)
-		tilemap.add_child(camp)
-		chunk_entities[chunk_pos].append(camp)
-		camp.set("bandit_scene", bandit_scene)
+		jobs.append({
+			"chunk_key": chunk_key,
+			"kind": "camp",
+			"scene": bandit_camp_scene,
+			"global_position": _tile_to_world(ct),
+			"init_data": {
+				"properties": {"bandit_scene": bandit_scene},
+			},
+			"priority": chunk_ring,
+			"uid": UID.make_uid("camp_bandit", "", ct),
+		})
 
 	# 4) PLACEMENTS (props + npc_keeper)
 	var spawned_count: int = 0
@@ -339,13 +373,19 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 				if path == "": continue
 				var ps: PackedScene = load(path) as PackedScene
 				if ps == null: continue
-				var inst: Node2D = ps.instantiate() as Node2D
 				var ccell: Array = d.get("cell", [0, 0])
 				var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
-				inst.position = tilemap.map_to_local(cell)
-				inst.z_index = tilemap.z_index + 5
-				tilemap.add_child(inst)
-				chunk_entities[chunk_pos].append(inst)
+				jobs.append({
+					"chunk_key": chunk_key,
+					"kind": "prop",
+					"scene": ps,
+					"global_position": _tile_to_world(cell),
+					"init_data": {
+						"properties": {"z_index": tilemap.z_index + 5},
+					},
+					"priority": chunk_ring,
+					"uid": UID.make_uid("prop_%s" % prop_id, "", cell),
+				})
 				spawned_count += 1
 
 			elif kind == "npc_keeper":
@@ -357,24 +397,33 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 				var keeper_state = WorldSave.get_entity_state(cx, cy, keeper_uid)
 				if keeper_state == null:
 					WorldSave.set_entity_state(cx, cy, keeper_uid, {"spawned": true})
-				var keeper := tavern_keeper_scene.instantiate() as TavernKeeper
 				var ccell: Array = d.get("cell", [0, 0])
 				var counter_cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
 				var imin: Array = d.get("inner_min", [0, 0])
 				var imax: Array = d.get("inner_max", [0, 0])
-				keeper.entity_uid = keeper_uid
-				keeper.set("_tilemap", tilemap)
-				keeper.set("tavern_inner_min", Vector2i(int(imin[0]), int(imin[1])))
-				keeper.set("tavern_inner_max", Vector2i(int(imax[0]), int(imax[1])))
-				keeper.set("counter_tile", counter_cell)
-				if keeper_state != null:
-					keeper.apply_save_state(keeper_state)
-				keeper.position = tilemap.map_to_local(counter_cell)
-				tilemap.add_child(keeper)
-				chunk_entities[chunk_pos].append(keeper)
-				chunk_saveables[chunk_pos].append(keeper)
+				jobs.append({
+					"chunk_key": chunk_key,
+					"kind": "npc_keeper",
+					"scene": tavern_keeper_scene,
+					"global_position": _tile_to_world(counter_cell),
+					"init_data": {
+						"properties": {
+							"entity_uid": keeper_uid,
+							"_tilemap": tilemap,
+							"tavern_inner_min": Vector2i(int(imin[0]), int(imin[1])),
+							"tavern_inner_max": Vector2i(int(imax[0]), int(imax[1])),
+							"counter_tile": counter_cell,
+						},
+						"save_state": keeper_state,
+					},
+					"priority": chunk_ring,
+					"uid": keeper_uid,
+				})
 				spawned_npc_count += 1
 				spawned_count += 1
+
+	if _spawn_queue != null and not jobs.is_empty():
+		_spawn_queue.enqueue_many(jobs)
 
 	Debug.log("chunk", "SPAWNED chunk=(%d,%d) props=%d npcs=%d ores=%d camps=%d" % [chunk_pos.x, chunk_pos.y, spawned_count - spawned_npc_count, spawned_npc_count, ores_count, camps_count])
 
@@ -394,6 +443,10 @@ func _debug_check_player_chunk(player_global: Vector2) -> void:
 	Debug.log("spawn", "CHUNK_CHECK player_tile=%s player_chunk=%s" % [str(player_tile), str(chunk_key)])
 
 func unload_chunk_entities(chunk_pos: Vector2i) -> void:
+	if _spawn_queue != null:
+		_spawn_queue.cancel_chunk(_chunk_key(chunk_pos))
+	queued_entity_chunks.erase(chunk_pos)
+
 	if chunk_wall_body.has(chunk_pos):
 		var body: StaticBody2D = chunk_wall_body[chunk_pos]
 		if is_instance_valid(body): body.queue_free()
@@ -428,6 +481,39 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 		if is_instance_valid(e): e.queue_free()
 	chunk_entities.erase(chunk_pos)
 	chunk_saveables.erase(chunk_pos)
+
+func _chunk_key(chunk_pos: Vector2i) -> String:
+	return "%d,%d" % [chunk_pos.x, chunk_pos.y]
+
+func _chunk_from_key(chunk_key: String) -> Vector2i:
+	var parts: PackedStringArray = chunk_key.split(",")
+	if parts.size() != 2:
+		return Vector2i(-99999, -99999)
+	return Vector2i(int(parts[0]), int(parts[1]))
+
+func _is_chunk_key_loaded(chunk_key: String) -> bool:
+	var cpos: Vector2i = _chunk_from_key(chunk_key)
+	return loaded_chunks.has(cpos)
+
+func _on_spawn_queue_job_spawned(job: Dictionary, node: Node) -> void:
+	var chunk_pos: Vector2i = _chunk_from_key(String(job.get("chunk_key", "")))
+	if chunk_pos.x == -99999:
+		return
+	if not chunk_entities.has(chunk_pos):
+		chunk_entities[chunk_pos] = []
+	if not chunk_saveables.has(chunk_pos):
+		chunk_saveables[chunk_pos] = []
+
+	chunk_entities[chunk_pos].append(node)
+	var kind: String = String(job.get("kind", ""))
+	if kind == "ore" or kind == "npc_keeper":
+		chunk_saveables[chunk_pos].append(node)
+
+	if kind == "ore":
+		var init_data: Dictionary = job.get("init_data", {})
+		var ws: Dictionary = init_data.get("worldsave", {})
+		if bool(ws.get("init_if_missing", false)) and node.has_method("get_save_state"):
+			WorldSave.set_entity_state(int(ws.get("cx", chunk_pos.x)), int(ws.get("cy", chunk_pos.y)), String(ws.get("uid", "")), node.call("get_save_state"))
 
 func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var x0: int = chunk_pos.x * chunk_size + 4
