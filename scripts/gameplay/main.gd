@@ -7,10 +7,14 @@ extends Node2D
 @onready var game_over_panel: Control = $UI/GameOverPanel
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
 @onready var inv_menu = $UI/PlayerInventoryMenu
+@onready var player: Node = $Player
 @export var debug_input_logs: bool = false
+
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
 	_ensure_world_data()
+	if PartyControlManager != null:
+		PartyControlManager.set_controlled_actor(player)
 	game_over_panel.visible = false
 	retry_button.pressed.connect(_on_retry_pressed)
 	if not GameManager.player_died.is_connected(_on_player_died_from_manager):
