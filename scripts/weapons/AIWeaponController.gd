@@ -6,6 +6,7 @@ var _prev_attack_down: bool = false
 
 var _just_pressed: bool = false
 var _just_released: bool = false
+var _queued_press: bool = false
 
 var _aim_global: Vector2 = Vector2.ZERO
 
@@ -16,11 +17,15 @@ func set_attack_down(down: bool) -> void:
 func set_aim_global_position(pos: Vector2) -> void:
 	_aim_global = pos
 
+func queue_attack_press() -> void:
+	_queued_press = true
+
 # Llamar 1 vez por frame de physics (Enemy._physics_process o AIComponent.physics_tick)
 func physics_tick() -> void:
-	_just_pressed = (not _prev_attack_down) and _attack_down
+	_just_pressed = ((not _prev_attack_down) and _attack_down) or _queued_press
 	_just_released = _prev_attack_down and (not _attack_down)
 	_prev_attack_down = _attack_down
+	_queued_press = false
 
 # --- Interfaz para armas ---
 func is_attack_pressed() -> bool:

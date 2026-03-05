@@ -50,6 +50,7 @@ func set_dead() -> void:
 	sleeping = false
 	current_state = AIState.DEAD
 	sleep_check_timer = null
+	_owner_set_attack_intent(false)
 
 func _update_state() -> void:
 	if current_state == AIState.DEAD:
@@ -102,8 +103,17 @@ func _try_attack() -> void:
 		_owner_set_attack_intent(false)
 		return
 	can_attack = false
-	_owner_set_attack_intent(true)
+	_owner_queue_attack_press(player.global_position)
 	_start_attack_cooldown()
+
+
+func _owner_queue_attack_press(aim_global_position: Vector2) -> void:
+	if owner_entity == null:
+		return
+	if owner_entity.has_method("queue_ai_attack_press"):
+		owner_entity.call("queue_ai_attack_press", aim_global_position)
+	else:
+		_owner_set_attack_intent(true)
 
 func _owner_set_attack_intent(attack_down: bool) -> void:
 	if owner_entity == null or not owner_entity.has_method("set_ai_attack_intent"):
@@ -159,5 +169,6 @@ func _on_sleep_check_timeout() -> void:
 		if distance > owner_entity.ACTIVE_RADIUS_PX:
 			sleeping = true
 			current_state = AIState.IDLE
+			_owner_set_attack_intent(false)
 
 	_schedule_sleep_check()

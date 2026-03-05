@@ -174,9 +174,17 @@ func _physics_process(delta: float) -> void:
 	_apply_knockback_step(delta)
 	move_and_slide()
 
-func perform_attack(target_position: Vector2) -> void:
-	# Legacy attack flow kept as compatibility no-op.
-	set_ai_attack_intent(true, target_position)
+func perform_attack(_target_position: Vector2) -> void:
+	# Legacy entrypoint intentionally disabled to prevent duplicate attacks.
+	return
+
+func queue_ai_attack_press(aim_global_position: Vector2) -> void:
+	var ctrl := _ensure_ai_weapon_controller()
+	ctrl.set_aim_global_position(aim_global_position)
+	ctrl.queue_attack_press()
+	ctrl.set_attack_down(false)
+	var angle_to_target := global_position.angle_to_point(aim_global_position)
+	_calculate_attack_angle(angle_to_target)
 
 func _calculate_attack_angle(base_angle: float) -> void:
 	if use_left_offset:
