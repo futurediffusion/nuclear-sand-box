@@ -192,6 +192,18 @@ Rol:
 - Instancia y libera una vez escenas clave fuera de pantalla para evitar hitch de “primera vez”.
 - Mantiene un mínimo de ventana de warm-up para ocultar picos iniciales del renderer.
 
+### ⏱️ AWAKE RAMP QUEUE (Autoload)
+
+Ubicación:
+
+- `scripts/systems/AwakeRampQueue.gd`
+
+Rol:
+
+- Escalona el primer full tick de IA cuando muchos enemigos despiertan al mismo tiempo.
+- Aplica budget por frame para repartir el costo de AI/Nav/combate en varios frames.
+- Evita starvation con un tope de delay máximo por enemigo.
+
 ### 🧾 GameManager (Autoload)
 
 Ubicación:

@@ -31,6 +31,11 @@ enum BowState { IDLE, CHARGING, COOLDOWN }
 @export var lod_enable: bool = true
 @export var lod_debug: bool = false
 
+@export_group("AI Awake Ramp")
+@export var awake_warmup_seconds: float = 0.3
+@export var awake_warmup_tick_interval_min: float = 0.10
+@export var awake_warmup_tick_interval_max: float = 0.20
+
 var owner_entity: EnemyAI = null
 var player: CharacterBody2D = null
 var current_state: AIState = AIState.IDLE
@@ -53,6 +58,10 @@ var _lod_interval: float = 0.0
 var _lod_bucket: int = 0
 var _lod_rng_seeded: bool = false
 var _player_find_timer: float = 0.0
+var _warmup_remaining: float = 0.0
+var _is_warming_up: bool = false
+var _warmup_tick_timer: float = 0.0
+var _awaiting_first_full_tick: bool = false
 
 func setup(p_owner_entity: EnemyAI) -> void:
 	owner_entity = p_owner_entity
@@ -74,6 +83,10 @@ func physics_tick(delta: float) -> void:
 		_release_attack_input()
 		owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 		return
+
+	if _is_warming_up:
+		_process_awake_warmup(delta)
+		return
 	if player == null or not is_instance_valid(player):
 		_player_find_timer = maxf(_player_find_timer - delta, 0.0)
 		if _player_find_timer <= 0.0:
@@ -85,6 +98,8 @@ func physics_tick(delta: float) -> void:
 		distance = owner_entity.global_position.distance_to(player.global_position)
 
 	var force_full_tick := _bow_state == BowState.CHARGING
+	if _awaiting_first_full_tick:
+		force_full_tick = false
 	var bucket := _compute_lod_bucket(distance)
 	var new_interval := 0.0 if force_full_tick else _compute_lod_interval(distance)
 	if bucket != _lod_bucket:
@@ -108,6 +123,16 @@ func physics_tick(delta: float) -> void:
 		_lod_timer -= delta
 		if _lod_timer <= 0.0:
 			should_run_heavy = true
+
+	if _awaiting_first_full_tick and should_run_heavy:
+		if AwakeRampQueue == null:
+			_awaiting_first_full_tick = false
+		else:
+			if not AwakeRampQueue.is_ticket_ready(owner_entity.get_instance_id()):
+				_process_queued_minimal_tick(delta)
+				return
+			AwakeRampQueue.consume_ticket(owner_entity.get_instance_id())
+			_awaiting_first_full_tick = false
 
 	if should_run_heavy:
 		_update_state()
@@ -143,7 +168,10 @@ func is_sleeping() -> bool:
 func wake_now() -> void:
 	if current_state == AIState.DEAD:
 		return
+	var was_sleeping := sleeping
 	sleeping = false
+	if was_sleeping:
+		_start_awake_warmup()
 	if current_state == AIState.HURT and owner_entity != null and owner_entity.hurt_t > 0.0:
 		return
 	if current_state != AIState.HURT:
@@ -173,6 +201,56 @@ func _update_timers(delta: float) -> void:
 		_bow_cooldown_t = maxf(_bow_cooldown_t - delta, 0.0)
 		if _bow_cooldown_t <= 0.0:
 			_bow_state = BowState.IDLE
+
+func _start_awake_warmup() -> void:
+	_warmup_remaining = maxf(awake_warmup_seconds, 0.0)
+	_is_warming_up = _warmup_remaining > 0.0
+	_warmup_tick_timer = 0.0
+	_awaiting_first_full_tick = true
+	if AwakeRampQueue != null and owner_entity != null:
+		AwakeRampQueue.request_ticket(owner_entity.get_instance_id())
+	_reset_bow_charge_state()
+
+func _cancel_awake_ramp() -> void:
+	_is_warming_up = false
+	_warmup_remaining = 0.0
+	_warmup_tick_timer = 0.0
+	_awaiting_first_full_tick = false
+	if AwakeRampQueue != null and owner_entity != null:
+		AwakeRampQueue.cancel_ticket(owner_entity.get_instance_id())
+
+func _process_awake_warmup(delta: float) -> void:
+	_warmup_remaining = maxf(_warmup_remaining - delta, 0.0)
+	_reset_bow_charge_state()
+	_release_attack_input()
+	_warmup_tick_timer -= delta
+	if _warmup_tick_timer <= 0.0:
+		_execute_warmup_minimal_tick(delta)
+		_warmup_tick_timer = _randf_range(awake_warmup_tick_interval_min, awake_warmup_tick_interval_max)
+	if _warmup_remaining <= 0.0:
+		_is_warming_up = false
+
+func _process_queued_minimal_tick(delta: float) -> void:
+	_reset_bow_charge_state()
+	_release_attack_input()
+	_warmup_tick_timer -= delta
+	if _warmup_tick_timer <= 0.0:
+		_execute_warmup_minimal_tick(delta)
+		_warmup_tick_timer = _randf_range(awake_warmup_tick_interval_min, awake_warmup_tick_interval_max)
+
+func _execute_warmup_minimal_tick(delta: float) -> void:
+	if owner_entity == null:
+		return
+	owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
+	if current_state == AIState.HURT and owner_entity.hurt_t <= 0.0:
+		current_state = AIState.IDLE
+
+func _reset_bow_charge_state() -> void:
+	if _bow_state == BowState.IDLE and is_zero_approx(_bow_charge_t) and is_zero_approx(_bow_charge_target):
+		return
+	_bow_state = BowState.IDLE
+	_bow_charge_t = 0.0
+	_bow_charge_target = 0.0
 
 func _update_state() -> void:
 	if current_state == AIState.DEAD:
@@ -523,5 +601,9 @@ func _on_sleep_check_timeout() -> void:
 			current_state = AIState.IDLE
 			_release_attack_input()
 			_reset_combat_state()
+			_cancel_awake_ramp()
 
 	_schedule_sleep_check()
+
+func is_in_awake_warmup() -> bool:
+	return _is_warming_up

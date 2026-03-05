@@ -274,11 +274,14 @@ func _physics_process(delta: float) -> void:
 		_set_sleep_visual_state(sleeping_now)
 		_was_sleeping_last_frame = sleeping_now
 
+	var warming_up_now := ai_component != null and ai_component.is_in_awake_warmup()
 	if not sleeping_now:
 		_update_weapon(delta)
 		_update_animation()
-		if _should_run_separation(delta):
+		if not warming_up_now and _should_run_separation(delta):
 			_apply_separation_force(delta)
+		elif warming_up_now:
+			_sep_timer = 0.0
 	else:
 		_sep_timer = 0.0
 
