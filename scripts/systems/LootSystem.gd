@@ -30,8 +30,6 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 		push_warning("[LootSystem] failed to instantiate drop_scene for item_id=%s" % resolved_id)
 		return null
 
-	target_parent.add_child(drop)
-
 	if drop is ItemDrop:
 		var item_drop := drop as ItemDrop
 		item_drop.item_data = resolved_item_data
@@ -49,6 +47,8 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 			item_drop.pickup_sfx = pickup_sfx_override
 		elif resolved_item_data != null and resolved_item_data.pickup_sfx != null:
 			item_drop.pickup_sfx = resolved_item_data.pickup_sfx
+
+	target_parent.add_child(drop)
 
 	if drop.has_method("throw_from"):
 		var angle := randf_range(-PI * 0.15, PI + PI * 0.15)
