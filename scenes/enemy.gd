@@ -180,8 +180,7 @@ func perform_attack(_target_position: Vector2) -> void:
 
 func queue_ai_attack_press(aim_global_position: Vector2) -> void:
 	var ctrl := _ensure_ai_weapon_controller()
-	ctrl.set_aim_global_position(aim_global_position)
-	ctrl.queue_attack_press()
+	ctrl.queue_attack_press_with_aim(aim_global_position)
 	ctrl.set_attack_down(false)
 	var angle_to_target := global_position.angle_to_point(aim_global_position)
 	_calculate_attack_angle(angle_to_target)
