@@ -37,6 +37,11 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 @export var separation_radius: float = 40.0
 @export var separation_strength: float = 120.0
 
+@export_group("AI LOD")
+@export var separation_near_interval: float = 0.0
+@export var separation_mid_interval: float = 0.1
+@export var separation_far_interval: float = 0.25
+
 @export_group("Debug")
 @export var debug_enemy_setup_logs: bool = false
 
@@ -63,6 +68,7 @@ var _logged_duplicate_inventory_count: bool = false
 var _logged_duplicate_weapon_count: bool = false
 var _logged_duplicate_controller_count: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
+var _sep_timer: float = 0.0
 
 const WARMUP_META_KEY := "warmup_instance"
 
@@ -271,7 +277,10 @@ func _physics_process(delta: float) -> void:
 	if not sleeping_now:
 		_update_weapon(delta)
 		_update_animation()
-		_apply_separation_force(delta)
+		if _should_run_separation(delta):
+			_apply_separation_force(delta)
+	else:
+		_sep_timer = 0.0
 
 	_apply_knockback_step(delta)
 	move_and_slide()
@@ -351,6 +360,28 @@ func _update_animation() -> void:
 		sprite.play("walk")
 	else:
 		sprite.play("idle")
+
+func _should_run_separation(delta: float) -> bool:
+	var interval := _get_separation_interval()
+	if is_zero_approx(interval):
+		_sep_timer = 0.0
+		return true
+	_sep_timer -= delta
+	if _sep_timer > 0.0:
+		return false
+	_sep_timer = interval
+	return true
+
+func _get_separation_interval() -> float:
+	if ai_component == null:
+		return maxf(separation_far_interval, 0.0)
+	match ai_component.get_lod_bucket():
+		0:
+			return maxf(separation_near_interval, 0.0)
+		1:
+			return maxf(separation_mid_interval, 0.0)
+		_:
+			return maxf(separation_far_interval, 0.0)
 
 func _apply_separation_force(dt: float) -> void:
 	if ai_component != null and ai_component.is_sleeping():

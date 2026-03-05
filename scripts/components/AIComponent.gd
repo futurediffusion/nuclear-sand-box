@@ -21,6 +21,16 @@ enum BowState { IDLE, CHARGING, COOLDOWN }
 @export var debug_log_style: bool = false
 @export var debug_log_combat: bool = false
 
+@export_group("AI LOD")
+@export var lod_near_distance: float = 160.0
+@export var lod_mid_distance: float = 320.0
+@export var lod_far_distance: float = 520.0
+@export var lod_mid_interval: float = 0.2
+@export var lod_far_interval_min: float = 0.5
+@export var lod_far_interval_max: float = 1.0
+@export var lod_enable: bool = true
+@export var lod_debug: bool = false
+
 var owner_entity: EnemyAI = null
 var player: CharacterBody2D = null
 var current_state: AIState = AIState.IDLE
@@ -38,10 +48,16 @@ var _style_t: float = 0.0
 var _style_duration: float = 0.0
 var _style_swap_cd_t: float = 0.0
 var _rng := RandomNumberGenerator.new()
+var _lod_timer: float = 0.0
+var _lod_interval: float = 0.0
+var _lod_bucket: int = 0
+var _lod_rng_seeded: bool = false
+var _player_find_timer: float = 0.0
 
 func setup(p_owner_entity: EnemyAI) -> void:
 	owner_entity = p_owner_entity
-	_rng.seed = int(Time.get_unix_time_from_system() * 1000000.0) ^ int(get_instance_id())
+	_rng.seed = int(owner_entity.get_instance_id())
+	_lod_rng_seeded = true
 	_init_combat_style_window()
 	_find_player()
 	_schedule_sleep_check()
@@ -49,17 +65,69 @@ func setup(p_owner_entity: EnemyAI) -> void:
 func physics_tick(delta: float) -> void:
 	if owner_entity == null:
 		return
+	_update_timers(delta)
+	_update_combat_style_window(delta)
 	if sleeping:
+		_release_attack_input()
 		return
 	if current_state == AIState.DEAD:
+		_release_attack_input()
 		owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 		return
 	if player == null or not is_instance_valid(player):
-		_find_player()
-	_update_timers(delta)
-	_update_combat_style_window(delta)
-	_update_state()
-	_execute_state(delta)
+		_player_find_timer = maxf(_player_find_timer - delta, 0.0)
+		if _player_find_timer <= 0.0:
+			_find_player()
+			_player_find_timer = 0.25
+
+	var distance := INF
+	if player != null and is_instance_valid(player):
+		distance = owner_entity.global_position.distance_to(player.global_position)
+
+	var force_full_tick := _bow_state == BowState.CHARGING
+	var bucket := _compute_lod_bucket(distance)
+	var new_interval := 0.0 if force_full_tick else _compute_lod_interval(distance)
+	if bucket != _lod_bucket:
+		_lod_bucket = bucket
+		if _lod_bucket == 0:
+			_lod_timer = 0.0
+		else:
+			_lod_timer = minf(_lod_timer, new_interval)
+		if lod_debug:
+			print("[AI LOD] enemy_id=", owner_entity.get_instance_id(), " bucket=", _lod_bucket_name(_lod_bucket), " interval=", snappedf(new_interval, 0.01))
+	_lod_interval = new_interval
+
+	var should_run_heavy := force_full_tick or is_zero_approx(_lod_interval)
+	if not should_run_heavy:
+		_lod_timer -= delta
+		if _lod_timer <= 0.0:
+			should_run_heavy = true
+
+	if should_run_heavy:
+		_update_state()
+		_try_attack_logic(delta)
+		if _lod_interval > 0.0:
+			_lod_timer = _lod_interval * _rng.randf_range(0.3, 1.0)
+		else:
+			_lod_timer = 0.0
+
+	_execute_light_tick(delta)
+
+func _execute_light_tick(delta: float) -> void:
+	if _bow_state != BowState.CHARGING:
+		_release_attack_input()
+	match current_state:
+		AIState.IDLE, AIState.ATTACK, AIState.HURT, AIState.DEAD:
+			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
+			if current_state == AIState.HURT and owner_entity.hurt_t <= 0.0:
+				current_state = AIState.IDLE
+		AIState.CHASE:
+			if player == null or not is_instance_valid(player):
+				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
+				return
+			var dir := owner_entity.global_position.direction_to(player.global_position)
+			var target_velocity := dir * owner_entity.max_speed
+			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 
 func is_sleeping() -> bool:
 	return sleeping
@@ -368,6 +436,44 @@ func _randf_range(min_value: float, max_value: float) -> float:
 	if is_equal_approx(lo, hi):
 		return lo
 	return _rng.randf_range(lo, hi)
+
+func _compute_lod_bucket(distance: float) -> int:
+	if not lod_enable:
+		return 0
+	var near_distance := maxf(lod_near_distance, 0.0)
+	var mid_distance := maxf(lod_mid_distance, near_distance)
+	if distance <= near_distance:
+		return 0
+	if distance <= mid_distance:
+		return 1
+	return 2
+
+func _compute_lod_interval(distance: float) -> float:
+	if not lod_enable:
+		return 0.0
+	var detection_limit := owner_entity.detection_range if owner_entity != null else lod_far_distance
+	var near_distance := minf(maxf(lod_near_distance, 0.0), detection_limit)
+	var mid_distance := minf(maxf(lod_mid_distance, near_distance), detection_limit)
+	var far_distance := minf(maxf(lod_far_distance, mid_distance), detection_limit)
+	if distance <= near_distance:
+		return 0.0
+	if distance <= mid_distance:
+		return maxf(lod_mid_interval, 0.0)
+	if distance <= far_distance or distance <= detection_limit:
+		return _randf_range(maxf(lod_far_interval_min, 0.0), maxf(lod_far_interval_max, 0.0))
+	return _randf_range(maxf(lod_far_interval_min, 0.0), maxf(lod_far_interval_max, 0.0))
+
+func get_lod_bucket() -> int:
+	return _lod_bucket
+
+func _lod_bucket_name(bucket: int) -> String:
+	match bucket:
+		0:
+			return "near"
+		1:
+			return "mid"
+		_:
+			return "far"
 
 func _find_player() -> void:
 	if owner_entity == null:
