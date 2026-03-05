@@ -1,13 +1,22 @@
 extends RefCounted
 class_name CollisionBuilder
 
+const WALL_COLLISION_LAYER: int = 16 # bit 4
+const WALL_COLLISION_MASK: int = 4
+
 func set_chunk_collider_enabled(body: StaticBody2D, enabled: bool) -> void:
 	if body == null or not is_instance_valid(body):
 		return
+	body.collision_layer = WALL_COLLISION_LAYER
+	body.collision_mask = WALL_COLLISION_MASK
 	body.process_mode = Node.PROCESS_MODE_INHERIT if enabled else Node.PROCESS_MODE_DISABLED
-	for child in body.get_children():
+	_set_shapes_enabled_recursive(body, enabled)
+
+func _set_shapes_enabled_recursive(root: Node, enabled: bool) -> void:
+	for child in root.get_children():
 		if child is CollisionShape2D:
 			(child as CollisionShape2D).set_deferred("disabled", not enabled)
+		_set_shapes_enabled_recursive(child, enabled)
 
 func _append_raw_side(raw_columns: Dictionary, face: String, x: int, y: int) -> void:
 	if not raw_columns.has(face):
@@ -173,8 +182,8 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 
 	var body := StaticBody2D.new()
 	body.name = "WallCollisionBody_%d_%d" % [chunk_pos.x, chunk_pos.y]
-	body.collision_layer = 16  # bit 4
-	body.collision_mask  = 4
+	body.collision_layer = WALL_COLLISION_LAYER
+	body.collision_mask  = WALL_COLLISION_MASK
 
 	var shape_count: int = 0
 	var south_runs: Array[Dictionary] = []
