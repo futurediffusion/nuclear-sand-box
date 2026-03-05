@@ -232,14 +232,14 @@ func _physics_process(delta: float) -> void:
 	if hurt_t > 0.0:
 		hurt_t -= delta
 
-	var is_sleeping := ai_component != null and ai_component.is_sleeping()
-	if ai_component != null and not is_sleeping:
+	var sleeping_now := ai_component != null and ai_component.is_sleeping()
+	if ai_component != null and not sleeping_now:
 		ai_component.physics_tick(delta)
 	else:
 		set_ai_attack_intent(false, global_position)
 		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
-	if ai_component != null and not is_sleeping:
+	if ai_component != null and not sleeping_now:
 		# IMPORTANT: mantener orden del pipeline para evitar eventos stale.
 		# AI -> controller -> weapon_component -> weapon
 		if ai_weapon_controller != null:
@@ -247,11 +247,11 @@ func _physics_process(delta: float) -> void:
 		if weapon_component != null:
 			weapon_component.tick(delta)
 
-	if is_sleeping != _was_sleeping_last_frame:
-		_set_sleep_visual_state(is_sleeping)
-		_was_sleeping_last_frame = is_sleeping
+	if sleeping_now != _was_sleeping_last_frame:
+		_set_sleep_visual_state(sleeping_now)
+		_was_sleeping_last_frame = sleeping_now
 
-	if not is_sleeping:
+	if not sleeping_now:
 		_update_weapon(delta)
 		_update_animation()
 		_apply_separation_force(delta)
@@ -317,8 +317,8 @@ func _update_weapon(delta: float) -> void:
 	weapon_sprite.flip_v = abs(angle) > PI / 2.0
 	sprite.flip_h = abs(rad_to_deg(angle_to_player)) > 90.0
 
-func _set_sleep_visual_state(is_sleeping: bool) -> void:
-	if is_sleeping:
+func _set_sleep_visual_state(sleeping_now: bool) -> void:
+	if sleeping_now:
 		if sprite.animation != "idle":
 			sprite.play("idle")
 		sprite.frame = 0
@@ -376,8 +376,6 @@ func _on_before_die() -> void:
 		GameEvents.emit_entity_died("", "enemy", global_position, null)
 	_play_death_sound()
 	_trigger_death_shake()
-	if ai_component != null:
-		ai_component.can_attack = false
 	attacking = false
 	set_ai_attack_intent(false, global_position)
 	set_physics_process(false)
