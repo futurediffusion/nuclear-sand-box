@@ -2,12 +2,16 @@ class_name EnemyAI
 extends "res://scripts/CharacterBase.gd"
 
 const AIComponentScript = preload("res://scripts/components/AIComponent.gd")
+const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
+const WeaponComponentScript = preload("res://scripts/components/WeaponComponent.gd")
+const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponController.gd")
 const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 
 @export_group("Combat")
 @export var attack_damage: int = 1
 @export var attack_cooldown: float = 0.8
 @export var attack_range: float = 60.0
+@export var attack_duration: float = 0.3
 
 @export_group("Movement")
 @export var max_speed: float = 280.0
@@ -38,6 +42,9 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
 @onready var ai_component: AIComponent = get_node_or_null("AIComponent") as AIComponent
+@onready var inventory_component: InventoryComponent = get_node_or_null("InventoryComponent") as InventoryComponent
+@onready var weapon_component: WeaponComponent = get_node_or_null("WeaponComponent") as WeaponComponent
+@onready var ai_weapon_controller: AIWeaponController = get_node_or_null("AIWeaponController") as AIWeaponController
 
 var weapon_follow_speed: float = 25.0
 var attack_snap_speed: float = 50.0
@@ -47,6 +54,7 @@ var target_attack_angle: float = 0.0
 var angle_offset_left: float = -150.0
 var angle_offset_right: float = 150.0
 var _was_sleeping_last_frame: bool = false
+var attack_t: float = 0.0
 
 func _enter_tree() -> void:
 	EnemyRegistry.register_enemy(self)
@@ -63,6 +71,9 @@ func _ready() -> void:
 	weapon_sprite.visible = true
 
 	_setup_components()
+	_setup_inventory_component()
+	_grant_temporary_starting_weapon()
+	_setup_weapon_component()
 	_setup_health_component()
 
 func _setup_components() -> void:
@@ -74,6 +85,60 @@ func _setup_components() -> void:
 		ai_component.setup(self)
 	else:
 		push_warning("[Enemy] Missing AIComponent")
+
+func _setup_inventory_component() -> void:
+	if inventory_component != null:
+		return
+	inventory_component = InventoryComponentScript.new()
+	inventory_component.name = "InventoryComponent"
+	add_child(inventory_component)
+
+func _grant_temporary_starting_weapon() -> void:
+	if inventory_component == null:
+		return
+	if inventory_component.get_total("ironpipe") > 0:
+		return
+	inventory_component.add_item("ironpipe", 1)
+
+func _setup_weapon_component() -> void:
+	if weapon_component == null:
+		weapon_component = WeaponComponentScript.new()
+		weapon_component.name = "WeaponComponent"
+		add_child(weapon_component)
+
+	if inventory_component != null:
+		weapon_component.setup_from_inventory(inventory_component)
+		if not inventory_component.inventory_changed.is_connected(_on_inventory_changed_rebuild_weapons):
+			inventory_component.inventory_changed.connect(_on_inventory_changed_rebuild_weapons)
+	else:
+		weapon_component.setup_from_inventory(null)
+
+	if not weapon_component.weapon_equipped.is_connected(_on_weapon_equipped_apply_visuals):
+		weapon_component.weapon_equipped.connect(_on_weapon_equipped_apply_visuals)
+
+	var ctrl := _ensure_ai_weapon_controller()
+	weapon_component.apply_visuals(self)
+	weapon_component.equip_runtime_weapon(self, ctrl)
+
+func _ensure_ai_weapon_controller() -> AIWeaponController:
+	if ai_weapon_controller != null:
+		return ai_weapon_controller
+	ai_weapon_controller = AIWeaponControllerScript.new()
+	ai_weapon_controller.name = "AIWeaponController"
+	add_child(ai_weapon_controller)
+	return ai_weapon_controller
+
+func _on_inventory_changed_rebuild_weapons() -> void:
+	if weapon_component == null:
+		return
+	weapon_component.rebuild_weapon_list_from_inventory(inventory_component)
+
+func _on_weapon_equipped_apply_visuals(_weapon_id: String) -> void:
+	if weapon_component == null:
+		return
+	var ctrl := _ensure_ai_weapon_controller()
+	weapon_component.apply_visuals(self)
+	weapon_component.equip_runtime_weapon(self, ctrl)
 
 
 func _physics_process(delta: float) -> void:
@@ -89,7 +154,13 @@ func _physics_process(delta: float) -> void:
 	if ai_component != null and not is_sleeping:
 		ai_component.physics_tick(delta)
 	else:
+		set_ai_attack_intent(false, global_position)
 		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
+
+	if ai_weapon_controller != null:
+		ai_weapon_controller.physics_tick()
+	if weapon_component != null:
+		weapon_component.tick(delta)
 
 	if is_sleeping != _was_sleeping_last_frame:
 		_set_sleep_visual_state(is_sleeping)
@@ -104,14 +175,8 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 func perform_attack(target_position: Vector2) -> void:
-	if dying:
-		return
-	attacking = true
-	var angle_to_target := global_position.angle_to_point(target_position)
-	_calculate_attack_angle(angle_to_target)
-	_spawn_slash(angle_to_target)
-	await get_tree().process_frame
-	attacking = false
+	# Legacy attack flow kept as compatibility no-op.
+	set_ai_attack_intent(true, target_position)
 
 func _calculate_attack_angle(base_angle: float) -> void:
 	if use_left_offset:
@@ -128,6 +193,17 @@ func _spawn_slash(angle: float) -> void:
 	get_tree().current_scene.add_child(s)
 	s.global_position = slash_spawn.global_position
 	s.global_rotation = angle
+
+func spawn_slash(angle: float) -> void:
+	_spawn_slash(angle)
+
+func set_ai_attack_intent(attack_down: bool, aim_global_position: Vector2) -> void:
+	var ctrl := _ensure_ai_weapon_controller()
+	ctrl.set_attack_down(attack_down)
+	ctrl.set_aim_global_position(aim_global_position)
+	if attack_down:
+		var angle_to_target := global_position.angle_to_point(aim_global_position)
+		_calculate_attack_angle(angle_to_target)
 
 func _update_weapon(delta: float) -> void:
 	if ai_component == null or ai_component.player == null:
@@ -211,6 +287,7 @@ func _on_before_die() -> void:
 	if ai_component != null:
 		ai_component.can_attack = false
 	attacking = false
+	set_ai_attack_intent(false, global_position)
 	set_physics_process(false)
 	velocity = Vector2.ZERO
 	knock_vel = Vector2.ZERO

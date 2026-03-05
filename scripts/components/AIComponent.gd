@@ -72,8 +72,10 @@ func _update_state() -> void:
 func _execute_state(delta: float) -> void:
 	match current_state:
 		AIState.IDLE:
+			_owner_set_attack_intent(false)
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 		AIState.CHASE:
+			_owner_set_attack_intent(false)
 			if player == null:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 				return
@@ -84,20 +86,32 @@ func _execute_state(delta: float) -> void:
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 			_try_attack()
 		AIState.HURT:
+			_owner_set_attack_intent(false)
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 			if owner_entity.hurt_t <= 0.0:
 				current_state = AIState.IDLE
 		AIState.DEAD:
+			_owner_set_attack_intent(false)
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 
 func _try_attack() -> void:
 	if not can_attack:
+		_owner_set_attack_intent(false)
 		return
 	if owner_entity == null or player == null:
+		_owner_set_attack_intent(false)
 		return
 	can_attack = false
-	owner_entity.perform_attack(player.global_position)
+	_owner_set_attack_intent(true)
 	_start_attack_cooldown()
+
+func _owner_set_attack_intent(attack_down: bool) -> void:
+	if owner_entity == null or not owner_entity.has_method("set_ai_attack_intent"):
+		return
+	var aim := owner_entity.global_position
+	if player != null and is_instance_valid(player):
+		aim = player.global_position
+	owner_entity.call("set_ai_attack_intent", attack_down, aim)
 
 func _start_attack_cooldown() -> void:
 	if owner_entity == null:
