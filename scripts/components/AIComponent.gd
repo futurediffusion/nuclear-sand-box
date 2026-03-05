@@ -25,6 +25,7 @@ var _bow_charge_t: float = 0.0
 var _bow_charge_target: float = 0.0
 var _bow_cooldown_t: float = 0.0
 var _melee_cooldown_t: float = 0.0
+var _last_weapon_id: String = ""
 
 func setup(p_owner_entity: EnemyAI) -> void:
 	owner_entity = p_owner_entity
@@ -137,6 +138,7 @@ func _try_attack_logic(delta: float) -> void:
 
 	var distance := owner_entity.global_position.distance_to(aim_pos)
 	var weapon_id := _update_weapon_selection(distance)
+	_sync_weapon_state_with_equipped(weapon_id)
 
 	if weapon_id == "bow":
 		_process_bow(ctrl, distance)
@@ -179,11 +181,23 @@ func _update_weapon_selection(distance: float) -> String:
 
 func _on_weapon_switched(weapon_id: String) -> void:
 	_release_attack_input()
+	_last_weapon_id = weapon_id
 	if weapon_id != "bow":
 		_bow_state = BowState.IDLE
 		_bow_charge_t = 0.0
 		_bow_charge_target = 0.0
 		_bow_cooldown_t = 0.0
+
+func _sync_weapon_state_with_equipped(current_weapon_id: String) -> void:
+	if current_weapon_id == "" or current_weapon_id == _last_weapon_id:
+		return
+	_release_attack_input()
+	if current_weapon_id != "bow":
+		_bow_state = BowState.IDLE
+		_bow_charge_t = 0.0
+		_bow_charge_target = 0.0
+		_bow_cooldown_t = 0.0
+	_last_weapon_id = current_weapon_id
 
 func _process_bow(ctrl: AIWeaponController, distance: float) -> void:
 	if distance < prefer_melee_distance:
