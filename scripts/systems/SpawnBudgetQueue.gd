@@ -3,6 +3,7 @@ class_name SpawnBudgetQueue
 
 signal job_spawned(job: Dictionary, node: Node)
 signal job_skipped(job: Dictionary, reason: String)
+signal chunk_drained(chunk_key: String)
 
 @export var max_spawns_per_frame: int = 6
 @export var max_ms_per_frame: float = 2.0
@@ -19,6 +20,7 @@ var _by_key: Dictionary = {}
 var _chunk_index: Dictionary = {}
 var _player_pos: Vector2 = Vector2.ZERO
 var _frame_counter: int = 0
+var _chunk_pending_counts: Dictionary = {}
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -35,6 +37,7 @@ func enqueue(job: Dictionary) -> void:
 	_queue.append(normalized)
 	_by_key[dedupe_key] = true
 	var chunk_key: String = String(normalized["chunk_key"])
+	_chunk_pending_counts[chunk_key] = int(_chunk_pending_counts.get(chunk_key, 0)) + 1
 	if not _chunk_index.has(chunk_key):
 		_chunk_index[chunk_key] = []
 	_chunk_index[chunk_key].append(dedupe_key)
@@ -65,10 +68,12 @@ func process_queue(_delta: float) -> void:
 
 		var job: Dictionary = _queue.pop_front()
 		var dedupe_key: String = String(job.get("dedupe_key", ""))
+		var chunk_key: String = String(job.get("chunk_key", ""))
 		_by_key.erase(dedupe_key)
-		_remove_from_chunk_index(String(job.get("chunk_key", "")), dedupe_key)
+		_remove_from_chunk_index(chunk_key, dedupe_key)
+		_decrement_chunk_pending(chunk_key)
 
-		if not _is_chunk_active(String(job.get("chunk_key", ""))):
+		if not _is_chunk_active(chunk_key):
 			job_skipped.emit(job, "chunk_inactive")
 			continue
 
@@ -96,6 +101,7 @@ func cancel_chunk(chunk_key: String) -> void:
 			_queue.remove_at(i)
 	for key in keys:
 		_by_key.erase(String(key))
+		_decrement_chunk_pending(chunk_key)
 	_chunk_index.erase(chunk_key)
 
 func set_player_world_pos(pos: Vector2) -> void:
@@ -117,10 +123,6 @@ func _normalize_job(job: Dictionary) -> Dictionary:
 		return {}
 
 	var scene: PackedScene = job.get("scene", null) as PackedScene
-	if scene == null and job.has("scene_path"):
-		var path: String = String(job.get("scene_path", ""))
-		if path != "":
-			scene = load(path) as PackedScene
 	if scene == null:
 		return {}
 
@@ -142,7 +144,12 @@ func _compute_dedupe_key(job: Dictionary) -> String:
 	var uid: String = String(job.get("uid", ""))
 	if uid != "":
 		return "%s:%s" % [chunk_key, uid]
-	return "%s:%s:%s" % [chunk_key, String(job.get("kind", "unknown")), str(job.get("global_position", Vector2.ZERO))]
+	var tile: Vector2i = Vector2i(job.get("tile", Vector2i(-999999, -999999)))
+	if tile != Vector2i(-999999, -999999):
+		return "%s:%s:%d,%d" % [chunk_key, String(job.get("kind", "unknown")), tile.x, tile.y]
+	var gpos: Vector2 = Vector2(job.get("global_position", Vector2.ZERO))
+	var quantized: Vector2i = Vector2i(int(round(gpos.x)), int(round(gpos.y)))
+	return "%s:%s:%d,%d" % [chunk_key, String(job.get("kind", "unknown")), quantized.x, quantized.y]
 
 func _job_less(a: Dictionary, b: Dictionary) -> bool:
 	var ap: int = int(a.get("priority", 999999))
@@ -215,3 +222,15 @@ func _is_chunk_active(chunk_key: String) -> bool:
 	if chunk_active_checker.is_valid():
 		return bool(chunk_active_checker.call(chunk_key))
 	return true
+
+func _decrement_chunk_pending(chunk_key: String) -> void:
+	if chunk_key == "":
+		return
+	if not _chunk_pending_counts.has(chunk_key):
+		return
+	var remaining: int = int(_chunk_pending_counts.get(chunk_key, 0)) - 1
+	if remaining <= 0:
+		_chunk_pending_counts.erase(chunk_key)
+		chunk_drained.emit(chunk_key)
+		return
+	_chunk_pending_counts[chunk_key] = remaining
