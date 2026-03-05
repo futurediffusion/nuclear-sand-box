@@ -19,7 +19,7 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 @export var trajectory_step_time: float = 0.06
 @export var trajectory_gravity: float = 900.0
 @export var trajectory_update_interval: float = 0.05
-@export var trajectory_mouse_significant_delta: float = 8.0
+@export var trajectory_aim_significant_delta: float = 8.0
 @export var consume_arrows: bool = true
 
 var is_drawing: bool = false
@@ -31,7 +31,10 @@ var _last_trajectory_aim_global: Vector2 = Vector2.INF
 
 func on_equipped(p_owner: Node, p_controller: WeaponController = null) -> void:
 	super.on_equipped(p_owner, p_controller)
-	_aim_trajectory_line = owner_entity.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
+	if owner_entity != null:
+		_aim_trajectory_line = owner_entity.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
+	else:
+		_aim_trajectory_line = null
 	_cancel_draw()
 
 func on_unequipped() -> void:
@@ -200,7 +203,7 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 		return
 	var now_sec := float(Time.get_ticks_msec()) * 0.001
 	var elapsed := now_sec - _last_trajectory_update_time
-	var significant_delta_sq := trajectory_mouse_significant_delta * trajectory_mouse_significant_delta
+	var significant_delta_sq := trajectory_aim_significant_delta * trajectory_aim_significant_delta
 	var aim_changed_significantly := _last_trajectory_aim_global == Vector2.INF \
 		or _last_trajectory_aim_global.distance_squared_to(aim_global) >= significant_delta_sq
 	if elapsed < maxf(trajectory_update_interval, 0.0) and not aim_changed_significantly:
@@ -255,7 +258,11 @@ func _fire_arrow(ratio: float) -> void:
 	var spawn_pos := _get_arrow_spawn_position(owner_entity_node, dir)
 
 	arrow.setup(dir * speed, dmg, knockback, owner_entity_node)
-	owner_entity.get_tree().current_scene.add_child(arrow)
+	var scene_root := owner_entity.get_tree().current_scene
+	if scene_root != null:
+		scene_root.add_child(arrow)
+	else:
+		owner_entity.get_tree().root.add_child(arrow)
 	arrow.global_position = spawn_pos
 	arrow.rotation = dir.angle()
 
