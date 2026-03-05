@@ -24,6 +24,10 @@ const WARMUP_META_KEY := "warmup_instance"
 
 static var _session_warmup_done: bool = false
 
+
+static func reset_session_warmup() -> void:
+	_session_warmup_done = false
+
 func run_warmup() -> void:
 	if _session_warmup_done or not enabled:
 		return
@@ -31,6 +35,7 @@ func run_warmup() -> void:
 	_session_warmup_done = true
 	var start_ms := Time.get_ticks_msec()
 	var warmup_container := Node.new()
+	var bus_was_muted := _mute_master_bus()
 	warmup_container.name = "WarmupContainer"
 	add_child(warmup_container)
 
@@ -49,8 +54,10 @@ func run_warmup() -> void:
 
 	warmup_container.queue_free()
 	await get_tree().process_frame
+	_restore_master_bus(bus_was_muted)
 
 	var elapsed_sec := float(Time.get_ticks_msec() - start_ms) * 0.001
+	Debug.log("boot", "Warmup finished in %.3fs" % elapsed_sec)
 	if elapsed_sec < min_warmup_seconds:
 		await get_tree().create_timer(min_warmup_seconds - elapsed_sec).timeout
 
@@ -83,3 +90,19 @@ func _set_node_processing_recursive(root: Node, should_process: bool) -> void:
 	root.set_process_shortcut_input(should_process)
 	for child in root.get_children():
 		_set_node_processing_recursive(child, should_process)
+
+func _mute_master_bus() -> bool:
+	var master_bus_idx := AudioServer.get_bus_index("Master")
+	if master_bus_idx < 0:
+		return false
+	var was_muted := AudioServer.is_bus_mute(master_bus_idx)
+	if not was_muted:
+		AudioServer.set_bus_mute(master_bus_idx, true)
+	return was_muted
+
+
+func _restore_master_bus(previously_muted: bool) -> void:
+	var master_bus_idx := AudioServer.get_bus_index("Master")
+	if master_bus_idx < 0:
+		return
+	AudioServer.set_bus_mute(master_bus_idx, previously_muted)

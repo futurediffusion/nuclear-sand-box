@@ -64,8 +64,13 @@ var _logged_duplicate_weapon_count: bool = false
 var _logged_duplicate_controller_count: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
 
+const WARMUP_META_KEY := "warmup_instance"
+
 func _is_warmup_instance() -> bool:
-	return has_meta("warmup_instance") and bool(get_meta("warmup_instance"))
+	if not has_meta(WARMUP_META_KEY):
+		return false
+	var flag := get_meta(WARMUP_META_KEY)
+	return flag is bool and flag
 
 func _enter_tree() -> void:
 	if _is_warmup_instance():
