@@ -8,11 +8,14 @@ extends Node2D
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
 @onready var inv_menu = $UI/PlayerInventoryMenu
 @onready var player: Node = $Player
+@onready var warmup_manager: Node = $WarmupManager
 @export var debug_input_logs: bool = false
 
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
 	_ensure_world_data()
+	if warmup_manager != null and warmup_manager.has_method("run_warmup"):
+		await warmup_manager.run_warmup()
 	if PartyControlManager != null:
 		PartyControlManager.set_controlled_actor(player)
 	# Permite que el menú de game over siga recibiendo input aun con el árbol pausado.

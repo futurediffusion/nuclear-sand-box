@@ -180,6 +180,18 @@ Rol:
 - Evita referencias stale/freed en lógica de separación.
 - API: `register_enemy`, `unregister_enemy`, `get_live_enemies`, `count`.
 
+### 🔥 WARMUP MANAGER
+
+Ubicación:
+
+- `scripts/systems/WarmupManager.gd`
+
+Rol:
+
+- Precarga recursos/escenas críticas al boot.
+- Instancia y libera una vez escenas clave fuera de pantalla para evitar hitch de “primera vez”.
+- Mantiene un mínimo de ventana de warm-up para ocultar picos iniciales del renderer.
+
 ### 🧾 GameManager (Autoload)
 
 Ubicación:
