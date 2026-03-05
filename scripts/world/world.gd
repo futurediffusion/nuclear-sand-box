@@ -532,8 +532,11 @@ func _on_spawn_queue_job_skipped(job: Dictionary, reason: String) -> void:
 	var chunk_pos: Vector2i = _chunk_from_key(String(job.get("chunk_key", "")))
 	if chunk_pos.x == -99999:
 		return
-	if not loaded_chunks.has(chunk_pos):
-		queued_entity_chunks.erase(chunk_pos)
+	# Si el job se saltó por inactividad, nunca dejamos el chunk "ocupado".
+	# Esto evita que un skip transitorio deje bloqueado el re-encolado de entidades.
+	queued_entity_chunks.erase(chunk_pos)
+	if loaded_chunks.has(chunk_pos):
+		call_deferred("load_chunk_entities", chunk_pos)
 
 func _on_spawn_queue_chunk_drained(chunk_key: String) -> void:
 	var chunk_pos: Vector2i = _chunk_from_key(chunk_key)
