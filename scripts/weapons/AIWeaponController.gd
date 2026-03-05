@@ -20,12 +20,20 @@ func set_aim_global_position(pos: Vector2) -> void:
 func queue_attack_press() -> void:
 	_queued_press = true
 
+func queue_attack_press_with_aim(pos: Vector2) -> void:
+	# API atómica para evitar taps con aim desactualizado.
+	_aim_global = pos
+	_queued_press = true
+
 # Llamar 1 vez por frame de physics (Enemy._physics_process o AIComponent.physics_tick)
 func physics_tick() -> void:
-	_just_pressed = ((not _prev_attack_down) and _attack_down) or _queued_press
+	# Consumimos el tap one-shot antes de calcular estados para garantizar
+	# que nunca sobreviva accidentalmente al siguiente physics frame.
+	var queued_press := _queued_press
+	_queued_press = false
+	_just_pressed = ((not _prev_attack_down) and _attack_down) or queued_press
 	_just_released = _prev_attack_down and (not _attack_down)
 	_prev_attack_down = _attack_down
-	_queued_press = false
 
 # --- Interfaz para armas ---
 func is_attack_pressed() -> bool:
