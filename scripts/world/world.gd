@@ -120,6 +120,7 @@ func _process(delta: float) -> void:
 		if player:
 			_spawn_queue.set_player_world_pos(player.global_position)
 		_spawn_queue.process_queue(delta)
+	_process_prefetch(delta)
 	_chunk_timer += delta
 	if _chunk_timer < chunk_check_interval:
 		return
@@ -130,7 +131,6 @@ func _process(delta: float) -> void:
 	if pchunk != current_player_chunk:
 		current_player_chunk = pchunk
 		update_chunks(pchunk)
-	_process_prefetch(delta)
 
 func world_to_chunk(pos: Vector2) -> Vector2i:
 	return _tile_to_chunk(_world_to_tile(pos))
@@ -192,6 +192,7 @@ func _process_prefetch(delta: float) -> void:
 
 	var player_tile: Vector2i = _world_to_tile(player.global_position)
 	var player_chunk: Vector2i = _tile_to_chunk(player_tile)
+	_reprioritize_prefetch_queue(player_chunk)
 	var local_in_chunk := Vector2i(posmod(player_tile.x, chunk_size), posmod(player_tile.y, chunk_size))
 	if _should_trigger_prefetch(local_in_chunk):
 		var center_key: String = _chunk_key(player_chunk)
@@ -207,8 +208,8 @@ func _process_prefetch(delta: float) -> void:
 		if _prefetch_queue.is_empty():
 			break
 		var cpos: Vector2i = _prefetch_queue.pop_front()
-		var key: Vector2i = cpos
-		if generated_chunks.has(key) or prefetching_chunks.has(key):
+		var key: String = _chunk_key(cpos)
+		if generated_chunks.has(cpos) or prefetching_chunks.has(key):
 			continue
 		prefetching_chunks[key] = true
 		call_deferred("_prefetch_chunk", cpos)
@@ -237,12 +238,23 @@ func _enqueue_prefetch_ring(center_chunk: Vector2i) -> void:
 				var target := Vector2i(center_chunk.x + dx, center_chunk.y + dy)
 				if target.x < 0 or target.y < 0 or target.x > world_max_chunk_x or target.y > world_max_chunk_y:
 					continue
-				var key: Vector2i = target
-				if generated_chunks.has(key) or prefetched_chunks.has(key) or prefetching_chunks.has(key):
+				var key: String = _chunk_key(target)
+				if generated_chunks.has(target) or prefetched_chunks.has(key) or prefetching_chunks.has(key):
 					continue
 				if _prefetch_queue.has(target):
 					continue
 				_prefetch_queue.append(target)
+	_enforce_prefetch_queue_limit(center_chunk)
+
+func _reprioritize_prefetch_queue(center_chunk: Vector2i) -> void:
+	if _prefetch_queue.is_empty():
+		return
+	var filtered_queue: Array[Vector2i] = []
+	for cpos in _prefetch_queue:
+		var ring_distance: int = max(abs(cpos.x - center_chunk.x), abs(cpos.y - center_chunk.y))
+		if ring_distance <= (prefetch_ring_radius + active_radius + 1):
+			filtered_queue.append(cpos)
+	_prefetch_queue = filtered_queue
 	_enforce_prefetch_queue_limit(center_chunk)
 
 func _enforce_prefetch_queue_limit(center_chunk: Vector2i) -> void:
@@ -265,16 +277,16 @@ func _has_critical_generation_in_active_window(center_chunk: Vector2i) -> bool:
 	return false
 
 func _prefetch_chunk(chunk_pos: Vector2i) -> void:
-	var key: Vector2i = chunk_pos
-	if generated_chunks.has(key):
+	var key: String = _chunk_key(chunk_pos)
+	if generated_chunks.has(chunk_pos):
 		prefetching_chunks.erase(key)
 		prefetched_chunks[key] = true
 		return
-	if generating_chunks.has(key):
+	if generating_chunks.has(chunk_pos):
 		prefetching_chunks.erase(key)
 		return
 
-	generating_chunks[key] = true
+	generating_chunks[chunk_pos] = true
 	await generate_chunk(chunk_pos, false)
 	prefetching_chunks.erase(key)
 	prefetched_chunks[key] = true
@@ -618,7 +630,7 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 	if _spawn_queue != null:
 		_spawn_queue.cancel_chunk(_chunk_key(chunk_pos))
 	queued_entity_chunks.erase(chunk_pos)
-	prefetching_chunks.erase(chunk_pos)
+	prefetching_chunks.erase(_chunk_key(chunk_pos))
 
 	if chunk_wall_body.has(chunk_pos):
 		var body: StaticBody2D = chunk_wall_body[chunk_pos]
