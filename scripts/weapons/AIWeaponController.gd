@@ -27,12 +27,19 @@ func queue_attack_press_with_aim(pos: Vector2) -> void:
 
 # Llamar 1 vez por frame de physics (Enemy._physics_process o AIComponent.physics_tick)
 func physics_tick() -> void:
-	# Consumimos el tap one-shot antes de calcular estados para garantizar
-	# que nunca sobreviva accidentalmente al siguiente physics frame.
+	# Reset seguro por frame: los eventos one-shot no deben sobrevivir.
+	_just_pressed = false
+	_just_released = false
+
+	# Consumimos el tap en cola antes de terminar el frame actual.
 	var queued_press := _queued_press
 	_queued_press = false
-	_just_pressed = ((not _prev_attack_down) and _attack_down) or queued_press
-	_just_released = _prev_attack_down and (not _attack_down)
+
+	if ((not _prev_attack_down) and _attack_down) or queued_press:
+		_just_pressed = true
+	if _prev_attack_down and (not _attack_down):
+		_just_released = true
+
 	_prev_attack_down = _attack_down
 
 # --- Interfaz para armas ---

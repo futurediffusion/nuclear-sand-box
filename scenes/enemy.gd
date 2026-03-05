@@ -240,6 +240,8 @@ func _physics_process(delta: float) -> void:
 		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
 	if ai_component != null and not is_sleeping:
+		# IMPORTANT: mantener orden del pipeline para evitar eventos stale.
+		# AI -> controller -> weapon_component -> weapon
 		if ai_weapon_controller != null:
 			ai_weapon_controller.physics_tick()
 		if weapon_component != null:
