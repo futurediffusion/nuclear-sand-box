@@ -97,7 +97,13 @@ func physics_tick(delta: float) -> void:
 			print("[AI LOD] enemy_id=", owner_entity.get_instance_id(), " bucket=", _lod_bucket_name(_lod_bucket), " interval=", snappedf(new_interval, 0.01))
 	_lod_interval = new_interval
 
-	var should_run_heavy := force_full_tick or is_zero_approx(_lod_interval)
+	# Bow charging always wins over LOD cadence: heavy tick must execute now.
+	var should_run_heavy := false
+	if force_full_tick:
+		_lod_timer = 0.0
+		should_run_heavy = true
+	elif is_zero_approx(_lod_interval):
+		should_run_heavy = true
 	if not should_run_heavy:
 		_lod_timer -= delta
 		if _lod_timer <= 0.0:
@@ -111,10 +117,12 @@ func physics_tick(delta: float) -> void:
 		else:
 			_lod_timer = 0.0
 
-	_execute_light_tick(delta)
+	_execute_light_tick(delta, force_full_tick)
 
-func _execute_light_tick(delta: float) -> void:
-	if _bow_state != BowState.CHARGING:
+func _execute_light_tick(delta: float, force_hold_override: bool = false) -> void:
+	# Safety: lightweight tick must not cut bow hold while CHARGING (or while
+	# a full-rate override is active for the current frame).
+	if _bow_state != BowState.CHARGING and not force_hold_override:
 		_release_attack_input()
 	match current_state:
 		AIState.IDLE, AIState.ATTACK, AIState.HURT, AIState.DEAD:
