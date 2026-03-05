@@ -823,6 +823,8 @@ func _enforce_chunk_collider_cache_limit() -> void:
 
 	var candidates: Array[Dictionary] = []
 	for cpos in chunk_wall_body.keys():
+		if _is_chunk_in_active_window(cpos, current_player_chunk):
+			continue
 		if loaded_chunks.has(cpos):
 			continue
 		var key: String = _chunk_key(cpos)
