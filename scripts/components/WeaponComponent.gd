@@ -96,6 +96,19 @@ func rebuild_weapon_list_from_inventory(inventory: InventoryComponent) -> void:
 
 	weapon_list_changed.emit(weapon_ids)
 
+func equip_weapon_id(weapon_id: String) -> bool:
+	if weapon_ids.is_empty():
+		_equip_fallback()
+		return false
+	var normalized_weapon_id := _normalize_weapon_id(weapon_id)
+	var next_index := weapon_ids.find(normalized_weapon_id)
+	if next_index == -1:
+		return false
+	if current_weapon_id == normalized_weapon_id and current_index == next_index:
+		return false
+	equip_index(next_index)
+	return true
+
 func equip_index(i: int) -> void:
 	if weapon_ids.is_empty():
 		_equip_fallback()
@@ -190,6 +203,8 @@ func _equip_runtime_weapon(owner: Node, controller: WeaponController = null) -> 
 		current_weapon = null
 
 	current_weapon = _make_weapon_node(current_weapon_id)
+	if current_weapon is BowWeapon and controller is AIWeaponController:
+		(current_weapon as BowWeapon).consume_arrows = false
 	current_weapon.name = "CurrentWeapon"
 	add_child(current_weapon)
 	current_weapon.on_equipped(owner, controller)
