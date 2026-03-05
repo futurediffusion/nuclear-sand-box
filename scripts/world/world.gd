@@ -219,6 +219,7 @@ func _make_spawn_ctx() -> Dictionary:
 		"chunk_occupied_tiles": chunk_occupied_tiles,
 		"entities_spawned_chunks": entities_spawned_chunks,
 		"player_tile": player_tile,
+		"player_chunk": current_player_chunk,
 		"copper_ore_scene": copper_ore_scene,
 		"bandit_camp_scene": bandit_camp_scene,
 		"bandit_scene": bandit_scene,

@@ -9,6 +9,9 @@ const BOOT_TRACE := true
 @export var disable_wall_occlusion := false
 @export var disable_enemy_cache := false
 @export var use_legacy_wall_collision: bool = false
+@export var test_density_enabled := true # Disable before release by setting Debug.test_density_enabled = false in res://scripts/Debug.gd before release builds.
+@export var test_density_extra_copper_per_chunk_load := 4
+@export var test_density_extra_bandit_camps_per_chunk_load := 1
 @export var categories := {
 	"boot": BOOT_TRACE,
 	"audio": false,
