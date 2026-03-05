@@ -62,6 +62,7 @@ var _setup_done: bool = false
 var _logged_duplicate_inventory_count: bool = false
 var _logged_duplicate_weapon_count: bool = false
 var _logged_duplicate_controller_count: bool = false
+var _last_chunk_pos: Vector2 = Vector2.INF
 
 func _enter_tree() -> void:
 	EnemyRegistry.register_enemy(self)
@@ -217,7 +218,9 @@ func _physics_process(delta: float) -> void:
 	if hp <= 0:
 		return
 
-	EnemyRegistry.update_enemy_chunk(self)
+	if _last_chunk_pos == Vector2.INF or global_position.distance_squared_to(_last_chunk_pos) >= 1.0:
+		EnemyRegistry.update_enemy_chunk(self)
+		_last_chunk_pos = global_position
 
 	if hurt_t > 0.0:
 		hurt_t -= delta
@@ -229,10 +232,11 @@ func _physics_process(delta: float) -> void:
 		set_ai_attack_intent(false, global_position)
 		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
-	if ai_weapon_controller != null:
-		ai_weapon_controller.physics_tick()
-	if weapon_component != null:
-		weapon_component.tick(delta)
+	if ai_component != null and not is_sleeping:
+		if ai_weapon_controller != null:
+			ai_weapon_controller.physics_tick()
+		if weapon_component != null:
+			weapon_component.tick(delta)
 
 	if is_sleeping != _was_sleeping_last_frame:
 		_set_sleep_visual_state(is_sleeping)

@@ -11,6 +11,7 @@ const CLEANUP_INTERVAL: float = 3.0
 const CLEANUP_BUCKETS_PER_TICK: int = 6
 const INDEX_CLEANUP_INTERVAL: float = 20.0
 var _warned_missing_world: bool = false
+var _cached_world: Node = null
 
 
 func register_enemy(e: Node2D) -> void:
@@ -218,10 +219,17 @@ func _swap_remove_bucket_at(bucket: Array, idx: int) -> void:
 
 
 func _find_world_node() -> Node:
+	if _cached_world != null and is_instance_valid(_cached_world):
+		return _cached_world
+
 	var tree := get_tree()
 	if tree == null:
 		return null
+
 	var world_group: Array[Node] = tree.get_nodes_in_group("world")
 	if not world_group.is_empty():
-		return world_group[0]
-	return tree.current_scene.get_node_or_null("World") if tree.current_scene != null else null
+		_cached_world = world_group[0]
+		return _cached_world
+
+	_cached_world = tree.current_scene.get_node_or_null("World") if tree.current_scene != null else null
+	return _cached_world
