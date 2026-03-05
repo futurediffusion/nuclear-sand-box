@@ -64,13 +64,25 @@ var _logged_duplicate_weapon_count: bool = false
 var _logged_duplicate_controller_count: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
 
+func _is_warmup_instance() -> bool:
+	return has_meta("warmup_instance") and bool(get_meta("warmup_instance"))
+
 func _enter_tree() -> void:
+	if _is_warmup_instance():
+		return
 	EnemyRegistry.register_enemy(self)
 
 func _exit_tree() -> void:
 	EnemyRegistry.unregister_enemy(self)
 
 func _ready() -> void:
+	if _is_warmup_instance():
+		if sprite != null:
+			sprite.visible = false
+		set_process(false)
+		set_physics_process(false)
+		return
+
 	add_to_group("enemy")
 	sprite.play("idle")
 	sprite.z_index = 0

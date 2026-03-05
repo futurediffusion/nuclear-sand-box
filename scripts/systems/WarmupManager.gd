@@ -15,17 +15,24 @@ extends Node
 	"res://data/items/arrow.tres",
 	"res://scripts/weapons/arrow_projectile.gd",
 	"res://art/sprites/slash.png",
-	"res://art/sprites/GOBLIN1-Shee-walkt.png"
+	"res://art/sprites/GOBLIN1-Shee-walkt.png",
+	"res://shaders/wall_occlusion.gdshader",
+	"res://art/tiles/terrain.tres"
 ]
 
-var _did_run: bool = false
+const WARMUP_META_KEY := "warmup_instance"
+
+static var _session_warmup_done: bool = false
 
 func run_warmup() -> void:
-	if _did_run or not enabled:
+	if _session_warmup_done or not enabled:
 		return
 
-	_did_run = true
+	_session_warmup_done = true
 	var start_ms := Time.get_ticks_msec()
+	var warmup_container := Node.new()
+	warmup_container.name = "WarmupContainer"
+	add_child(warmup_container)
 
 	for path in warmup_resource_paths:
 		if path.is_empty():
@@ -38,16 +45,21 @@ func run_warmup() -> void:
 		var packed := ResourceLoader.load(path, "PackedScene", ResourceLoader.CACHE_MODE_REUSE) as PackedScene
 		if packed == null:
 			continue
-		await _warm_scene_instance(packed)
+		await _warm_scene_instance(packed, warmup_container)
+
+	warmup_container.queue_free()
+	await get_tree().process_frame
 
 	var elapsed_sec := float(Time.get_ticks_msec() - start_ms) * 0.001
 	if elapsed_sec < min_warmup_seconds:
 		await get_tree().create_timer(min_warmup_seconds - elapsed_sec).timeout
 
-func _warm_scene_instance(packed: PackedScene) -> void:
+func _warm_scene_instance(packed: PackedScene, warmup_container: Node) -> void:
 	var instance := packed.instantiate()
 	if instance == null:
 		return
+	instance.set_meta(WARMUP_META_KEY, true)
+	_set_node_processing_recursive(instance, false)
 
 	if instance is CanvasItem:
 		var item := instance as CanvasItem
@@ -55,9 +67,19 @@ func _warm_scene_instance(packed: PackedScene) -> void:
 	if instance is Node2D:
 		(instance as Node2D).global_position = Vector2(-100000.0, -100000.0)
 
-	add_child(instance)
+	warmup_container.add_child(instance)
 	await get_tree().process_frame
 	await get_tree().process_frame
 
 	instance.queue_free()
 	await get_tree().process_frame
+
+func _set_node_processing_recursive(root: Node, should_process: bool) -> void:
+	root.set_process(should_process)
+	root.set_physics_process(should_process)
+	root.set_process_input(should_process)
+	root.set_process_unhandled_input(should_process)
+	root.set_process_unhandled_key_input(should_process)
+	root.set_process_shortcut_input(should_process)
+	for child in root.get_children():
+		_set_node_processing_recursive(child, should_process)
