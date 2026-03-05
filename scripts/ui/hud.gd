@@ -5,8 +5,10 @@ extends Control
 @onready var dogs_label: Label = $DogsBar/DogsLabel
 
 var player: Player
+var test_density_watermark: Label
 
 func _ready() -> void:
+	_setup_test_density_watermark()
 	_try_bind_player()
 	if not GameManager.player_healed.is_connected(_on_player_healed):
 		GameManager.player_healed.connect(_on_player_healed)
@@ -55,3 +57,15 @@ func _on_inventory_changed() -> void:
 func _refresh_dogs(inv) -> void:
 	if inv != null:
 		dogs_label.text = str(inv.gold)
+
+
+func _setup_test_density_watermark() -> void:
+	if not Debug.test_density_enabled:
+		return
+	test_density_watermark = Label.new()
+	test_density_watermark.name = "TestDensityWatermark"
+	test_density_watermark.text = "TEST DENSITY ON"
+	test_density_watermark.modulate = Color(1.0, 0.3, 0.3, 0.9)
+	test_density_watermark.add_theme_font_size_override("font_size", 18)
+	test_density_watermark.position = Vector2(10, 54)
+	add_child(test_density_watermark)

@@ -71,6 +71,9 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		0: attempts = rng.randi_range(3, 7)
 		1: attempts = rng.randi_range(0, 3)
 
+	if _is_test_density_chunk(chunk_pos, ctx):
+		attempts += max(0, int(Debug.test_density_extra_copper_per_chunk_load))
+
 	var chunk_center_tile := Vector2i(cx, cy)
 	if _tile_distance_to_spawn(chunk_center_tile, ctx) <= 15.0:
 		attempts = max(attempts, 1)
@@ -130,6 +133,8 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		_mark_footprint_occupied(chunk_pos, camp_tile, CAMP_FOOTPRINT_RADIUS_TILES, ctx)
 
 	var random_camps := rng.randi_range(0, 2)
+	if _is_test_density_chunk(chunk_pos, ctx):
+		random_camps += max(0, int(Debug.test_density_extra_bandit_camps_per_chunk_load))
 	var camp_spawn_failed_logged := false
 
 	for r in range(random_camps):
@@ -154,6 +159,15 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 		chunk_save[chunk_pos]["camps"].append({"tile": try_tile})
 		_mark_footprint_occupied(chunk_pos, try_tile, CAMP_FOOTPRINT_RADIUS_TILES, ctx)
+
+
+func _is_test_density_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> bool:
+	if not Debug.test_density_enabled:
+		return false
+	if not ctx.has("player_chunk"):
+		return false
+	var player_chunk: Vector2i = ctx["player_chunk"]
+	return abs(chunk_pos.x - player_chunk.x) <= 1 and abs(chunk_pos.y - player_chunk.y) <= 1
 
 func rebuild_chunk_occupied_tiles(chunk_key: Vector2i, ctx: Dictionary) -> void:
 	_rebuild_chunk_occupied_tiles(chunk_key, ctx)
