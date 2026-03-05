@@ -266,8 +266,21 @@ func _update_state() -> void:
 	var distance := owner_entity.global_position.distance_to(player.global_position)
 	if distance > owner_entity.detection_range:
 		current_state = AIState.IDLE
+	elif distance > _get_engage_distance_for_state():
+		current_state = AIState.CHASE
 	else:
 		current_state = AIState.ATTACK
+
+func _get_engage_distance_for_state() -> float:
+	if owner_entity == null:
+		return prefer_melee_distance
+	var engage_distance := maxf(prefer_melee_distance, owner_entity.attack_range)
+	var weapon_component := owner_entity.get_node_or_null("WeaponComponent") as WeaponComponent
+	if weapon_component == null:
+		return engage_distance
+	if weapon_component.get_current_weapon_id() == "bow":
+		return maxf(prefer_bow_distance, engage_distance)
+	return engage_distance
 
 func _execute_state(delta: float) -> void:
 	match current_state:
