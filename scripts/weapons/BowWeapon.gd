@@ -28,9 +28,9 @@ var _aim_trajectory_line: Line2D
 var _last_trajectory_update_time: float = -INF
 var _last_trajectory_mouse_global: Vector2 = Vector2.INF
 
-func on_equipped(p_player: Node) -> void:
-	super.on_equipped(p_player)
-	_aim_trajectory_line = player.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
+func on_equipped(p_owner: Node, p_controller: WeaponController = null) -> void:
+	super.on_equipped(p_owner, p_controller)
+	_aim_trajectory_line = owner_entity.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
 	_cancel_draw()
 
 func on_unequipped() -> void:
@@ -40,14 +40,14 @@ func on_unequipped() -> void:
 	super.on_unequipped()
 
 func tick(delta: float) -> void:
-	if player == null:
+	if owner_entity == null:
 		return
 	if UiManager.is_combat_input_blocked():
 		if is_drawing:
 			_cancel_draw()
 		return
 
-	var inv = player.get_node_or_null("InventoryComponent")
+	var inv = owner_entity.get_node_or_null("InventoryComponent")
 	if inv == null:
 		return
 
@@ -80,7 +80,7 @@ func _start_draw() -> void:
 
 func _hold_draw(delta: float) -> void:
 	# Drenaje de stamina mientras tensas
-	var stamina = player.get_node_or_null("StaminaComponent")
+	var stamina = owner_entity.get_node_or_null("StaminaComponent")
 	if stamina == null:
 		# Si no hay stamina component, igual puedes cargar (pero no deberías)
 		return
@@ -136,9 +136,9 @@ func _cancel_draw() -> void:
 	_update_draw_visuals(true)
 
 func _set_stamina_regen_block(blocked: bool) -> void:
-	if player == null:
+	if owner_entity == null:
 		return
-	var stamina = player.get_node_or_null("StaminaComponent")
+	var stamina = owner_entity.get_node_or_null("StaminaComponent")
 	if stamina == null:
 		return
 	if stamina.has_method("set_regen_blocked"):
@@ -150,10 +150,10 @@ func get_draw_ratio() -> float:
 	return clamp(draw_time / max_draw_time, 0.0, 1.0)
 
 func _update_draw_visuals(reset: bool = false) -> void:
-	if player == null:
+	if owner_entity == null:
 		return
 
-	var arrow_sprite: Node2D = player.get_node_or_null("WeaponPivot/NockedArrowSprite") as Node2D
+	var arrow_sprite: Node2D = owner_entity.get_node_or_null("WeaponPivot/NockedArrowSprite") as Node2D
 	if arrow_sprite == null:
 		return
 
@@ -169,12 +169,12 @@ func _update_draw_visuals(reset: bool = false) -> void:
 	_update_trajectory_visuals(ratio)
 
 func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
-	if player == null:
+	if owner_entity == null:
 		return
 
 	var line := _aim_trajectory_line
 	if line == null:
-		line = player.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
+		line = owner_entity.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
 		_aim_trajectory_line = line
 	if line == null:
 		return
@@ -186,15 +186,15 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 		_last_trajectory_mouse_global = Vector2.INF
 		return
 
-	var player_node := player as Node2D
-	if player_node == null:
+	var owner_entity_node := owner_entity as Node2D
+	if owner_entity_node == null:
 		line.points = PackedVector2Array()
 		line.visible = false
 		_last_trajectory_update_time = -INF
 		_last_trajectory_mouse_global = Vector2.INF
 		return
 
-	var mouse_global := player_node.get_global_mouse_position()
+	var mouse_global := owner_entity_node.get_global_mouse_position()
 	var now_sec := float(Time.get_ticks_msec()) * 0.001
 	var elapsed := now_sec - _last_trajectory_update_time
 	var significant_delta_sq := trajectory_mouse_significant_delta * trajectory_mouse_significant_delta
@@ -203,10 +203,10 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	if elapsed < maxf(trajectory_update_interval, 0.0) and not mouse_changed_significantly:
 		return
 
-	var angle: float = player_node.get_angle_to(mouse_global)
+	var angle: float = owner_entity_node.get_angle_to(mouse_global)
 	var dir := Vector2.RIGHT.rotated(angle)
 	var speed: float = lerp(min_speed, max_speed, ratio)
-	var start_global := _get_arrow_spawn_position(player_node, dir)
+	var start_global := _get_arrow_spawn_position(owner_entity_node, dir)
 
 	var points := PackedVector2Array()
 	points.resize(maxi(trajectory_points, 2))
@@ -223,14 +223,14 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	_last_trajectory_mouse_global = mouse_global
 
 func _fire_arrow(ratio: float) -> void:
-	if player == null:
+	if owner_entity == null:
 		return
 
-	var player_node: Node2D = player as Node2D
-	if player_node == null:
+	var owner_entity_node: Node2D = owner_entity as Node2D
+	if owner_entity_node == null:
 		return
 
-	var angle: float = player_node.get_angle_to(player_node.get_global_mouse_position())
+	var angle: float = owner_entity_node.get_angle_to(owner_entity_node.get_global_mouse_position())
 	var dir := Vector2.RIGHT.rotated(angle)
 
 	var speed: float = lerp(min_speed, max_speed, ratio)
@@ -240,16 +240,16 @@ func _fire_arrow(ratio: float) -> void:
 	if arrow == null:
 		return
 
-	var spawn_pos := _get_arrow_spawn_position(player_node, dir)
+	var spawn_pos := _get_arrow_spawn_position(owner_entity_node, dir)
 
-	arrow.setup(dir * speed, dmg, knockback, player_node)
-	player.get_tree().current_scene.add_child(arrow)
+	arrow.setup(dir * speed, dmg, knockback, owner_entity_node)
+	owner_entity.get_tree().current_scene.add_child(arrow)
 	arrow.global_position = spawn_pos
 	arrow.rotation = dir.angle()
 
-func _get_arrow_spawn_position(player_node: Node2D, dir: Vector2) -> Vector2:
-	var spawn_marker: Node2D = player.get_node_or_null("WeaponPivot/SlashSpawn") as Node2D
-	var spawn_pos: Vector2 = player_node.global_position
+func _get_arrow_spawn_position(owner_entity_node: Node2D, dir: Vector2) -> Vector2:
+	var spawn_marker: Node2D = owner_entity.get_node_or_null("WeaponPivot/SlashSpawn") as Node2D
+	var spawn_pos: Vector2 = owner_entity_node.global_position
 	if spawn_marker != null:
 		spawn_pos = spawn_marker.global_position
 	spawn_pos += dir * arrow_spawn_offset
