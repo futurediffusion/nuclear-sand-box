@@ -33,9 +33,19 @@ func run_warmup() -> void:
 		return
 
 	_session_warmup_done = true
+	await _run_with_master_bus_muted(_run_warmup_impl)
+
+
+func _run_with_master_bus_muted(work: Callable) -> void:
+	var bus_was_muted := _mute_master_bus()
+	call_deferred("_restore_master_bus", bus_was_muted)
+	await work.call()
+	_restore_master_bus(bus_was_muted)
+
+
+func _run_warmup_impl() -> void:
 	var start_ms := Time.get_ticks_msec()
 	var warmup_container := Node.new()
-	var bus_was_muted := _mute_master_bus()
 	warmup_container.name = "WarmupContainer"
 	add_child(warmup_container)
 
@@ -54,7 +64,6 @@ func run_warmup() -> void:
 
 	warmup_container.queue_free()
 	await get_tree().process_frame
-	_restore_master_bus(bus_was_muted)
 
 	var elapsed_sec := float(Time.get_ticks_msec() - start_ms) * 0.001
 	Debug.log("boot", "Warmup finished in %.3fs" % elapsed_sec)
