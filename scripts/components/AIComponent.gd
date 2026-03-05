@@ -610,6 +610,27 @@ func _on_sleep_check_timeout() -> void:
 func on_owner_exit_tree() -> void:
 	_cancel_awake_ramp()
 	_release_attack_input()
+	_reset_bow_charge_state()
+
+func on_enter_lite() -> void:
+	_cancel_awake_ramp()
+	_release_attack_input()
+	_reset_combat_state()
+	_lod_timer = 0.0
+
+func on_awake_from_lite() -> void:
+	if owner_entity == null:
+		return
+	if current_state == AIState.DEAD:
+		return
+	sleeping = false
+	current_state = AIState.IDLE
+	_lod_timer = 0.0
+	_lod_interval = 0.0
+	_lod_bucket = 0
+	_start_awake_warmup()
+	_release_attack_input()
+	_reset_combat_state()
 
 func is_in_awake_warmup() -> bool:
 	return _is_warming_up
