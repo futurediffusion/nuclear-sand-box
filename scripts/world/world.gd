@@ -18,6 +18,13 @@ var _tile_painter := TilePainter.new()
 @export var npc_lite_hysteresis: float = 60.0
 @export var npc_lite_check_interval: float = 0.25
 @export var npc_lite_debug: bool = false
+@export_group("NPC Data-Only")
+@export var npc_data_only_enabled: bool = true
+@export var npc_sim_radius: float = 520.0
+@export var npc_sim_hysteresis: float = 80.0
+@export var npc_sim_check_interval: float = 0.25
+@export var npc_despawn_grace_seconds: float = 1.0
+@export var npc_debug_counts: bool = false
 @export var prefetch_enabled: bool = true
 @export var prefetch_border_tiles: int = 6
 @export var prefetch_ring_radius: int = 1
@@ -38,6 +45,7 @@ var spawn_tile: Vector2i
 var tavern_chunk: Vector2i
 var _chunk_timer: float = 0.0
 var _npc_lite_timer: float = 0.0
+var _npc_sim_timer: float = 0.0
 var _pick_rng := RandomNumberGenerator.new()
 
 @export var bandit_camp_scene: PackedScene
@@ -122,6 +130,8 @@ func _ready() -> void:
 	_spawn_queue.job_skipped.connect(_on_spawn_queue_job_skipped)
 	_spawn_queue.chunk_drained.connect(_on_spawn_queue_chunk_drained)
 	add_child(_spawn_queue)
+	if GameEvents != null and not GameEvents.entity_died.is_connected(_on_entity_died):
+		GameEvents.entity_died.connect(_on_entity_died)
 	update_chunks(current_player_chunk)
 
 func _clear_chunk_wall_runtime_cache() -> void:
@@ -140,6 +150,7 @@ func _process(delta: float) -> void:
 		_spawn_queue.process_queue(delta)
 	_process_prefetch(delta)
 	_process_npc_lite_mode(delta)
+	_process_npc_data_only(delta)
 	_chunk_timer += delta
 	if _chunk_timer < chunk_check_interval:
 		return
@@ -176,6 +187,8 @@ func _process_npc_lite_mode(delta: float) -> void:
 		if enemy.has_method("is_dead") and enemy.is_dead():
 			continue
 		var dist: float = enemy.global_position.distance_to(player_pos)
+		if npc_data_only_enabled and dist > (npc_sim_radius + npc_sim_hysteresis):
+			continue
 		if dist > enter_radius:
 			enemy.enter_lite_mode()
 			if npc_lite_debug:
@@ -184,6 +197,148 @@ func _process_npc_lite_mode(delta: float) -> void:
 			enemy.exit_lite_mode()
 			if npc_lite_debug:
 				Debug.log("npc_lite", "enemy=%s -> exit dist=%.2f" % [String(enemy.name), dist])
+
+func _process_npc_data_only(delta: float) -> void:
+	if get_tree().paused:
+		return
+	if not npc_data_only_enabled:
+		return
+	_npc_sim_timer += delta
+	if _npc_sim_timer < maxf(npc_sim_check_interval, 0.05):
+		return
+	_npc_sim_timer = 0.0
+	if player == null or not is_instance_valid(player):
+		return
+
+	var spawn_radius: float = maxf(npc_sim_radius - npc_sim_hysteresis, 0.0)
+	var despawn_radius: float = npc_sim_radius + npc_sim_hysteresis
+	var player_pos: Vector2 = player.global_position
+	for cpos in loaded_chunks.keys():
+		var chunk_pos: Vector2i = cpos
+		_ensure_enemy_spawn_records_for_chunk(chunk_pos)
+		var chunk_key: String = _chunk_key(chunk_pos)
+		for enemy_id in WorldSave.iter_enemy_ids_in_chunk(chunk_key):
+			var state_v = WorldSave.get_enemy_state(chunk_key, enemy_id)
+			if state_v == null:
+				continue
+			var state: Dictionary = state_v
+			var enemy_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
+			var dist: float = enemy_pos.distance_to(player_pos)
+			var is_dead: bool = bool(state.get("is_dead", false))
+			if dist < spawn_radius and not is_dead and not active_enemies.has(enemy_id) and not spawning_enemy_ids.has(enemy_id):
+				_enqueue_enemy_spawn(chunk_pos, enemy_id, state)
+			elif dist > despawn_radius and active_enemies.has(enemy_id):
+				var node := active_enemies.get(enemy_id)
+				if _can_despawn_enemy(node, state):
+					_despawn_enemy(enemy_id)
+	if npc_debug_counts:
+		Debug.log("npc_data", "active=%d queued=%d" % [active_enemies.size(), spawning_enemy_ids.size()])
+
+func _ensure_enemy_spawn_records_for_chunk(chunk_pos: Vector2i) -> void:
+	var chunk_key: String = _chunk_key(chunk_pos)
+	if not WorldSave.get_chunk_enemy_spawns(chunk_key).is_empty():
+		return
+	if not chunk_save.has(chunk_pos):
+		return
+	var records: Array[Dictionary] = []
+	var spawn_index: int = 0
+	for camp in chunk_save[chunk_pos].get("camps", []):
+		if typeof(camp) != TYPE_DICTIONARY:
+			continue
+		var camp_tile: Vector2i = camp.get("tile", Vector2i.ZERO)
+		var camp_world: Vector2 = _tile_to_world(camp_tile)
+		var offsets: Array[Vector2] = [Vector2(-28, -18), Vector2(32, -10), Vector2(-20, 30), Vector2(28, 24)]
+		for offset in offsets:
+			var enemy_id: String = "e:%s:%03d" % [chunk_key, spawn_index]
+			var enemy_pos: Vector2 = camp_world + offset
+			var record: Dictionary = {
+				"spawn_index": spawn_index,
+				"enemy_id": enemy_id,
+				"chunk_key": chunk_key,
+				"pos": enemy_pos,
+				"seed": Seed.chunk_seed(chunk_pos.x, chunk_pos.y) ^ spawn_index,
+				"hp": 3,
+				"loadout": {"weapon_ids": ["ironpipe", "bow"], "equipped_weapon_id": "ironpipe"},
+			}
+			records.append(record)
+			var default_state: Dictionary = {
+				"id": enemy_id,
+				"chunk_key": chunk_key,
+				"pos": enemy_pos,
+				"hp": 3,
+				"is_dead": false,
+				"seed": int(record["seed"]),
+				"weapon_ids": ["ironpipe", "bow"],
+				"equipped_weapon_id": "ironpipe",
+				"alert": 0.0,
+				"last_seen_player_pos": Vector2.ZERO,
+				"last_active_time": 0.0,
+				"version": 1,
+			}
+			WorldSave.get_or_create_enemy_state(chunk_key, enemy_id, default_state)
+			spawn_index += 1
+	WorldSave.ensure_chunk_enemy_spawns(chunk_key, records)
+
+func _enqueue_enemy_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> void:
+	if _spawn_queue == null:
+		return
+	var chunk_key: String = _chunk_key(chunk_pos)
+	spawning_enemy_ids[enemy_id] = true
+	var init_data: Dictionary = {
+		"properties": {
+			"entity_uid": enemy_id,
+			"enemy_chunk_key": chunk_key,
+		},
+		"save_state": state,
+	}
+	var ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
+	_spawn_queue.enqueue({
+		"chunk_key": chunk_key,
+		"kind": "enemy",
+		"scene": bandit_scene,
+		"global_position": Vector2(state.get("pos", Vector2.ZERO)),
+		"init_data": init_data,
+		"priority": ring,
+		"uid": enemy_id,
+	})
+
+func _can_despawn_enemy(node: Node, state: Dictionary) -> bool:
+	if node == null or not is_instance_valid(node):
+		return true
+	if node.has_method("is_attacking") and bool(node.call("is_attacking")):
+		return false
+	var now: float = Time.get_unix_time_from_system()
+	var last_active_time: float = float(state.get("last_active_time", 0.0))
+	if node.has_method("capture_save_state"):
+		var runtime_state: Dictionary = node.call("capture_save_state")
+		last_active_time = maxf(last_active_time, float(runtime_state.get("last_active_time", 0.0)))
+	if now - last_active_time < maxf(npc_despawn_grace_seconds, 0.0):
+		return false
+	return true
+
+func _despawn_enemy(enemy_id: String) -> void:
+	if not active_enemies.has(enemy_id):
+		return
+	var node: Node = active_enemies[enemy_id]
+	var chunk_key: String = String(active_enemy_chunk.get(enemy_id, ""))
+	if node != null and is_instance_valid(node):
+		if node.has_method("capture_save_state"):
+			var state: Dictionary = node.call("capture_save_state")
+			WorldSave.set_enemy_state(chunk_key, enemy_id, state)
+		if node.has_node("AIComponent"):
+			var ai := node.get_node_or_null("AIComponent")
+			if ai != null and ai.has_method("on_owner_exit_tree"):
+				ai.call("on_owner_exit_tree")
+		if node.has_node("AIWeaponController"):
+			var ctrl := node.get_node_or_null("AIWeaponController")
+			if ctrl != null and ctrl.has_method("clear_transient_input"):
+				ctrl.call("clear_transient_input")
+		EnemyRegistry.unregister_enemy(node)
+		node.queue_free()
+	active_enemies.erase(enemy_id)
+	active_enemy_chunk.erase(enemy_id)
+	spawning_enemy_ids.erase(enemy_id)
+
 
 func world_to_chunk(pos: Vector2) -> Vector2i:
 	return _tile_to_chunk(_world_to_tile(pos))
@@ -425,6 +580,9 @@ func pick_tile(x: int, y: int) -> Vector2i:
 	return Vector2i(col, row)
 
 var chunk_entities: Dictionary = {}
+var active_enemies: Dictionary = {}  # enemy_id -> EnemyAI node
+var active_enemy_chunk: Dictionary = {}  # enemy_id -> chunk_key
+var spawning_enemy_ids: Dictionary = {}  # enemy_id -> true while queued
 var chunk_saveables: Dictionary = {}
 var chunk_occupied_tiles: Dictionary = {}
 var chunk_wall_body: Dictionary = {}
@@ -562,7 +720,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	# Colisiones de paredes con hash/dirty-cache por chunk.
 	_ensure_chunk_wall_collision(chunk_pos)
 
-	# 3) CAMPS
+	# 3) CAMPS (solo prop visual; enemies pasan a data-only records)
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
 		jobs.append({
@@ -572,11 +730,12 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 			"tile": ct,
 			"global_position": _tile_to_world(ct),
 			"init_data": {
-				"properties": {"bandit_scene": bandit_scene},
+				"properties": {"bandit_scene": bandit_scene, "max_bandits_alive": 0},
 			},
 			"priority": chunk_ring,
 			"uid": UID.make_uid("camp_bandit", "", ct),
 		})
+	_ensure_enemy_spawn_records_for_chunk(chunk_pos)
 
 	# 4) PLACEMENTS (props + npc_keeper)
 	var spawned_count: int = 0
@@ -670,10 +829,17 @@ func _debug_check_player_chunk(player_global: Vector2) -> void:
 	Debug.log("spawn", "CHUNK_CHECK player_tile=%s player_chunk=%s" % [str(player_tile), str(chunk_key)])
 
 func unload_chunk_entities(chunk_pos: Vector2i) -> void:
+	var chunk_key: String = _chunk_key(chunk_pos)
 	if _spawn_queue != null:
-		_spawn_queue.cancel_chunk(_chunk_key(chunk_pos))
+		_spawn_queue.cancel_chunk(chunk_key)
+	for enemy_id in active_enemy_chunk.keys():
+		if String(active_enemy_chunk[enemy_id]) == chunk_key:
+			_despawn_enemy(String(enemy_id))
+	for enemy_id in spawning_enemy_ids.keys():
+		if String(enemy_id).begins_with("e:%s:" % chunk_key):
+			spawning_enemy_ids.erase(enemy_id)
 	queued_entity_chunks.erase(chunk_pos)
-	prefetching_chunks.erase(_chunk_key(chunk_pos))
+	prefetching_chunks.erase(chunk_key)
 
 	if chunk_wall_body.has(chunk_pos):
 		var body: StaticBody2D = chunk_wall_body[chunk_pos]
@@ -746,6 +912,14 @@ func _on_spawn_queue_job_spawned(job: Dictionary, node: Node) -> void:
 	var kind: String = String(job.get("kind", ""))
 	if kind == "ore" or kind == "npc_keeper":
 		chunk_saveables[chunk_pos].append(node)
+	elif kind == "enemy":
+		var enemy_id: String = String(job.get("uid", ""))
+		spawning_enemy_ids.erase(enemy_id)
+		active_enemies[enemy_id] = node
+		active_enemy_chunk[enemy_id] = String(job.get("chunk_key", ""))
+		if node.has_method("exit_lite_mode"):
+			node.call("exit_lite_mode")
+		EnemyRegistry.register_enemy(node)
 
 	if kind == "ore":
 		var init_data: Dictionary = job.get("init_data", {})
@@ -754,6 +928,9 @@ func _on_spawn_queue_job_spawned(job: Dictionary, node: Node) -> void:
 			WorldSave.set_entity_state(int(ws.get("cx", chunk_pos.x)), int(ws.get("cy", chunk_pos.y)), String(ws.get("uid", "")), node.call("get_save_state"))
 
 func _on_spawn_queue_job_skipped(job: Dictionary, reason: String) -> void:
+	var kind: String = String(job.get("kind", ""))
+	if kind == "enemy":
+		spawning_enemy_ids.erase(String(job.get("uid", "")))
 	if reason != "chunk_inactive":
 		return
 	var chunk_pos: Vector2i = _chunk_from_key(String(job.get("chunk_key", "")))
@@ -902,3 +1079,15 @@ func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var x0: int = chunk_pos.x * chunk_size + 4
 	var y0: int = chunk_pos.y * chunk_size + 3
 	return Vector2i(x0 + 6, y0 + 4)
+
+
+func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
+	if kind != "enemy":
+		return
+	if uid == "":
+		return
+	if active_enemy_chunk.has(uid):
+		WorldSave.mark_enemy_dead(String(active_enemy_chunk[uid]), uid)
+		active_enemies.erase(uid)
+		active_enemy_chunk.erase(uid)
+	spawning_enemy_ids.erase(uid)
