@@ -84,6 +84,8 @@ func _enter_tree() -> void:
 	EnemyRegistry.register_enemy(self)
 
 func _exit_tree() -> void:
+	if ai_component != null:
+		ai_component.on_owner_exit_tree()
 	EnemyRegistry.unregister_enemy(self)
 
 func _ready() -> void:

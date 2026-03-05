@@ -117,14 +117,7 @@ func physics_tick(delta: float) -> void:
 	if force_full_tick:
 		_lod_timer = 0.0
 		should_run_heavy = true
-	elif is_zero_approx(_lod_interval):
-		should_run_heavy = true
-	if not should_run_heavy:
-		_lod_timer -= delta
-		if _lod_timer <= 0.0:
-			should_run_heavy = true
-
-	if _awaiting_first_full_tick and should_run_heavy:
+	elif _awaiting_first_full_tick:
 		if AwakeRampQueue == null:
 			_awaiting_first_full_tick = false
 		else:
@@ -133,6 +126,14 @@ func physics_tick(delta: float) -> void:
 				return
 			AwakeRampQueue.consume_ticket(owner_entity.get_instance_id())
 			_awaiting_first_full_tick = false
+		_lod_timer = 0.0
+		should_run_heavy = true
+	elif is_zero_approx(_lod_interval):
+		should_run_heavy = true
+	if not should_run_heavy:
+		_lod_timer -= delta
+		if _lod_timer <= 0.0:
+			should_run_heavy = true
 
 	if should_run_heavy:
 		_update_state()
@@ -604,6 +605,11 @@ func _on_sleep_check_timeout() -> void:
 			_cancel_awake_ramp()
 
 	_schedule_sleep_check()
+
+
+func on_owner_exit_tree() -> void:
+	_cancel_awake_ramp()
+	_release_attack_input()
 
 func is_in_awake_warmup() -> bool:
 	return _is_warming_up
