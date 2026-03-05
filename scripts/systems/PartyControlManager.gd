@@ -49,6 +49,11 @@ func _grant_actor_control(actor: Node) -> void:
 	# Hook futuro: si el actor no trae Camera2D local, conectar aquí un sistema de cámara party.
 
 func _release_actor_control(actor: Node) -> void:
+	if actor.has_node("Camera2D"):
+		var cam := actor.get_node_or_null("Camera2D") as Camera2D
+		if cam != null and cam.is_current() and cam.has_method("clear_current"):
+			cam.call("clear_current")
+
 	if actor.has_method("on_control_lost"):
 		actor.call("on_control_lost")
 
