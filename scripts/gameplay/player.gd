@@ -291,16 +291,26 @@ func set_weapon_controller_mode(mode: StringName) -> void:
 			weapon_controller.call("set_attack_down", false)
 
 func on_control_gained() -> void:
-	attacking = false
-	if block_component != null and block_component.is_blocking():
-		block_component.blocking = false
+	_reset_control_transient_state()
 	set_weapon_controller_mode(&"player")
 
 func on_control_lost() -> void:
+	_reset_control_transient_state()
+	set_weapon_controller_mode(&"ai")
+
+func _reset_control_transient_state() -> void:
 	attacking = false
+	attack_t = 0.0
+	attack_push_t = 0.0
+	attack_push_vel = Vector2.ZERO
+	blocking = false
+
 	if block_component != null and block_component.is_blocking():
 		block_component.blocking = false
-	set_weapon_controller_mode(&"ai")
+
+	var hitbox := get_node_or_null("CharacterHitbox")
+	if hitbox != null and hitbox.has_method("deactivate"):
+		hitbox.call("deactivate")
 
 func _on_inventory_changed_rebuild_weapons() -> void:
 	if weapon_component == null:
