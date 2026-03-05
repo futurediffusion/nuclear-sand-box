@@ -3,9 +3,11 @@ class_name PlayerWeaponController
 
 @export var attack_action: StringName = &"attack"
 
-# Node2D dueño (Player o quien tenga mouse)
-# Nota: usamos owner, pero si lo instancias como hijo, owner debería ser el Player.
+# Node2D dueño (Player o quien tenga mouse).
+# En runtime conviene usar parent primero (add_child), porque `owner` puede quedar null.
 func _get_owner_node2d() -> Node2D:
+	if get_parent() is Node2D:
+		return get_parent() as Node2D
 	if owner is Node2D:
 		return owner as Node2D
 	return null
