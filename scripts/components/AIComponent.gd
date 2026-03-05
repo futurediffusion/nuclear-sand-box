@@ -2,13 +2,29 @@ extends Node
 class_name AIComponent
 
 enum AIState { IDLE, CHASE, ATTACK, HURT, DEAD }
+enum BowState { IDLE, CHARGING, COOLDOWN }
+
+@export_group("AI Combat")
+@export var prefer_bow_distance: float = 220.0
+@export var prefer_melee_distance: float = 90.0
+@export var bow_charge_min: float = 0.2
+@export var bow_charge_max: float = 0.8
+@export var bow_cooldown_min: float = 0.6
+@export var bow_cooldown_max: float = 1.0
+@export var melee_cooldown_min: float = 0.35
+@export var melee_cooldown_max: float = 0.8
 
 var owner_entity: EnemyAI = null
 var player: CharacterBody2D = null
 var current_state: AIState = AIState.IDLE
-var can_attack: bool = true
 var sleeping: bool = false
 var sleep_check_timer: SceneTreeTimer = null
+
+var _bow_state: BowState = BowState.IDLE
+var _bow_charge_t: float = 0.0
+var _bow_charge_target: float = 0.0
+var _bow_cooldown_t: float = 0.0
+var _melee_cooldown_t: float = 0.0
 
 func setup(p_owner_entity: EnemyAI) -> void:
 	owner_entity = p_owner_entity
@@ -25,6 +41,7 @@ func physics_tick(delta: float) -> void:
 		return
 	if player == null or not is_instance_valid(player):
 		_find_player()
+	_update_timers(delta)
 	_update_state()
 	_execute_state(delta)
 
@@ -50,7 +67,18 @@ func set_dead() -> void:
 	sleeping = false
 	current_state = AIState.DEAD
 	sleep_check_timer = null
-	_owner_set_attack_intent(false)
+	_release_attack_input()
+	_reset_combat_state()
+
+func _update_timers(delta: float) -> void:
+	if _melee_cooldown_t > 0.0:
+		_melee_cooldown_t = maxf(_melee_cooldown_t - delta, 0.0)
+	if _bow_state == BowState.CHARGING:
+		_bow_charge_t += delta
+	elif _bow_state == BowState.COOLDOWN:
+		_bow_cooldown_t = maxf(_bow_cooldown_t - delta, 0.0)
+		if _bow_cooldown_t <= 0.0:
+			_bow_state = BowState.IDLE
 
 func _update_state() -> void:
 	if current_state == AIState.DEAD:
@@ -65,7 +93,7 @@ func _update_state() -> void:
 	var distance := owner_entity.global_position.distance_to(player.global_position)
 	if distance > owner_entity.detection_range:
 		current_state = AIState.IDLE
-	elif distance <= owner_entity.attack_range and can_attack and not owner_entity.attacking:
+	elif distance <= prefer_bow_distance:
 		current_state = AIState.ATTACK
 	else:
 		current_state = AIState.CHASE
@@ -73,10 +101,10 @@ func _update_state() -> void:
 func _execute_state(delta: float) -> void:
 	match current_state:
 		AIState.IDLE:
-			_owner_set_attack_intent(false)
+			_release_attack_input()
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 		AIState.CHASE:
-			_owner_set_attack_intent(false)
+			_release_attack_input()
 			if player == null:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 				return
@@ -85,51 +113,136 @@ func _execute_state(delta: float) -> void:
 			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 		AIState.ATTACK:
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
-			_try_attack()
+			_try_attack_logic(delta)
 		AIState.HURT:
-			_owner_set_attack_intent(false)
+			_release_attack_input()
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 			if owner_entity.hurt_t <= 0.0:
 				current_state = AIState.IDLE
 		AIState.DEAD:
-			_owner_set_attack_intent(false)
+			_release_attack_input()
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 
-func _try_attack() -> void:
-	if not can_attack:
-		_owner_set_attack_intent(false)
-		return
+func _try_attack_logic(delta: float) -> void:
 	if owner_entity == null or player == null:
-		_owner_set_attack_intent(false)
+		_release_attack_input()
 		return
-	can_attack = false
-	_owner_queue_attack_press(player.global_position)
-	_start_attack_cooldown()
 
+	var ctrl := _get_ai_controller()
+	if ctrl == null:
+		return
 
-func _owner_queue_attack_press(aim_global_position: Vector2) -> void:
+	var aim_pos := player.global_position
+	ctrl.set_aim_global_position(aim_pos)
+
+	var distance := owner_entity.global_position.distance_to(aim_pos)
+	var weapon_id := _update_weapon_selection(distance)
+
+	if weapon_id == "bow":
+		_process_bow(ctrl, distance)
+		return
+
+	if weapon_id == "ironpipe":
+		_process_melee(aim_pos, distance, delta)
+		return
+
+	_release_attack_input()
+
+func _update_weapon_selection(distance: float) -> String:
 	if owner_entity == null:
-		return
-	if owner_entity.has_method("queue_ai_attack_press"):
-		owner_entity.call("queue_ai_attack_press", aim_global_position)
+		return ""
+	var weapon_component := owner_entity.get_node_or_null("WeaponComponent") as WeaponComponent
+	if weapon_component == null:
+		return ""
+
+	var current_weapon_id := weapon_component.get_current_weapon_id()
+	var target_weapon_id := current_weapon_id
+
+	if current_weapon_id == "bow":
+		if distance <= prefer_melee_distance:
+			target_weapon_id = "ironpipe"
+	elif current_weapon_id == "ironpipe":
+		if distance >= prefer_bow_distance:
+			target_weapon_id = "bow"
 	else:
-		_owner_set_attack_intent(true)
+		if distance >= prefer_bow_distance:
+			target_weapon_id = "bow"
+		elif distance <= prefer_melee_distance:
+			target_weapon_id = "ironpipe"
 
-func _owner_set_attack_intent(attack_down: bool) -> void:
-	if owner_entity == null or not owner_entity.has_method("set_ai_attack_intent"):
+	if target_weapon_id != "" and target_weapon_id != current_weapon_id:
+		if weapon_component.equip_weapon_id(target_weapon_id):
+			_on_weapon_switched(target_weapon_id)
+			current_weapon_id = weapon_component.get_current_weapon_id()
+
+	return current_weapon_id
+
+func _on_weapon_switched(weapon_id: String) -> void:
+	_release_attack_input()
+	if weapon_id != "bow":
+		_bow_state = BowState.IDLE
+		_bow_charge_t = 0.0
+		_bow_charge_target = 0.0
+		_bow_cooldown_t = 0.0
+
+func _process_bow(ctrl: AIWeaponController, distance: float) -> void:
+	if distance < prefer_melee_distance:
+		_release_attack_input()
 		return
-	var aim := owner_entity.global_position
-	if player != null and is_instance_valid(player):
-		aim = player.global_position
-	owner_entity.call("set_ai_attack_intent", attack_down, aim)
+	if _melee_cooldown_t > 0.0:
+		_release_attack_input()
+		return
 
-func _start_attack_cooldown() -> void:
+	if _bow_state == BowState.IDLE:
+		ctrl.set_attack_down(true)
+		_bow_charge_t = 0.0
+		_bow_charge_target = randf_range(bow_charge_min, bow_charge_max)
+		_bow_state = BowState.CHARGING
+		return
+
+	if _bow_state == BowState.CHARGING and _bow_charge_t >= _bow_charge_target:
+		ctrl.set_attack_down(false)
+		_bow_state = BowState.COOLDOWN
+		_bow_cooldown_t = randf_range(bow_cooldown_min, bow_cooldown_max)
+		return
+
+	if _bow_state != BowState.CHARGING:
+		ctrl.set_attack_down(false)
+
+func _process_melee(aim_pos: Vector2, distance: float, delta: float) -> void:
+	_release_attack_input()
+	if distance > prefer_melee_distance:
+		var dir := owner_entity.global_position.direction_to(aim_pos)
+		var target_velocity := dir * owner_entity.max_speed
+		owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
+		return
+	if _bow_state == BowState.CHARGING:
+		_bow_state = BowState.COOLDOWN
+		_bow_cooldown_t = randf_range(bow_cooldown_min, bow_cooldown_max)
+	if _melee_cooldown_t > 0.0:
+		return
+	owner_entity.queue_ai_attack_press(aim_pos)
+	_melee_cooldown_t = randf_range(melee_cooldown_min, melee_cooldown_max)
+
+func _get_ai_controller() -> AIWeaponController:
 	if owner_entity == null:
+		return null
+	if owner_entity.has_method("_ensure_ai_weapon_controller"):
+		return owner_entity.call("_ensure_ai_weapon_controller") as AIWeaponController
+	return owner_entity.get_node_or_null("AIWeaponController") as AIWeaponController
+
+func _release_attack_input() -> void:
+	var ctrl := _get_ai_controller()
+	if ctrl == null:
 		return
-	await owner_entity.get_tree().create_timer(owner_entity.attack_cooldown).timeout
-	if not is_instance_valid(self):
-		return
-	can_attack = true
+	ctrl.set_attack_down(false)
+
+func _reset_combat_state() -> void:
+	_bow_state = BowState.IDLE
+	_bow_charge_t = 0.0
+	_bow_charge_target = 0.0
+	_bow_cooldown_t = 0.0
+	_melee_cooldown_t = 0.0
 
 func _find_player() -> void:
 	if owner_entity == null:
@@ -169,6 +282,7 @@ func _on_sleep_check_timeout() -> void:
 		if distance > owner_entity.ACTIVE_RADIUS_PX:
 			sleeping = true
 			current_state = AIState.IDLE
-			_owner_set_attack_intent(false)
+			_release_attack_input()
+			_reset_combat_state()
 
 	_schedule_sleep_check()

@@ -117,13 +117,20 @@ func _setup_inventory_component() -> void:
 
 func _grant_temporary_starting_weapon() -> void:
 	if inventory_component == null:
-		_setup_log("grant_ironpipe skip no_inventory")
+		_setup_log("grant_starting_weapons skip no_inventory")
 		return
-	if inventory_component.get_total("ironpipe") > 0:
+
+	if inventory_component.get_total("ironpipe") <= 0:
+		inventory_component.add_item("ironpipe", 1)
+		_setup_log("grant_ironpipe")
+	else:
 		_setup_log("grant_ironpipe skip already_present")
-		return
-	inventory_component.add_item("ironpipe", 1)
-	_setup_log("grant_ironpipe")
+
+	if inventory_component.get_total("bow") <= 0:
+		inventory_component.add_item("bow", 1)
+		_setup_log("grant_bow")
+	else:
+		_setup_log("grant_bow skip already_present")
 
 func _setup_weapon_component() -> void:
 	_count_component_duplicates_once()
