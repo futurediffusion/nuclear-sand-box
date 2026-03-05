@@ -37,6 +37,9 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 @export var separation_radius: float = 40.0
 @export var separation_strength: float = 120.0
 
+@export_group("Debug")
+@export var debug_enemy_setup_logs: bool = false
+
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 @onready var weapon_pivot: Node2D = $WeaponPivot
 @onready var weapon_sprite: Sprite2D = $WeaponPivot/WeaponSprite
@@ -55,6 +58,10 @@ var angle_offset_left: float = -150.0
 var angle_offset_right: float = 150.0
 var _was_sleeping_last_frame: bool = false
 var attack_t: float = 0.0
+var _setup_done: bool = false
+var _logged_duplicate_inventory_count: bool = false
+var _logged_duplicate_weapon_count: bool = false
+var _logged_duplicate_controller_count: bool = false
 
 func _enter_tree() -> void:
 	EnemyRegistry.register_enemy(self)
@@ -70,11 +77,20 @@ func _ready() -> void:
 	weapon_sprite.z_index = 10
 	weapon_sprite.visible = true
 
+	_run_setup_once()
+	_setup_health_component()
+
+
+func _run_setup_once() -> void:
+	if _setup_done:
+		_setup_log("already_initialized")
+		return
+	_setup_done = true
+
 	_setup_components()
 	_setup_inventory_component()
 	_grant_temporary_starting_weapon()
 	_setup_weapon_component()
-	_setup_health_component()
 
 func _setup_components() -> void:
 	if ai_component == null:
@@ -87,24 +103,38 @@ func _setup_components() -> void:
 		push_warning("[Enemy] Missing AIComponent")
 
 func _setup_inventory_component() -> void:
+	_count_component_duplicates_once()
+	if inventory_component == null:
+		inventory_component = get_node_or_null("InventoryComponent") as InventoryComponent
 	if inventory_component != null:
+		_setup_log("setup_inventory reuse")
 		return
 	inventory_component = InventoryComponentScript.new()
 	inventory_component.name = "InventoryComponent"
 	add_child(inventory_component)
+	_setup_log("setup_inventory create")
 
 func _grant_temporary_starting_weapon() -> void:
 	if inventory_component == null:
+		_setup_log("grant_ironpipe skip no_inventory")
 		return
 	if inventory_component.get_total("ironpipe") > 0:
+		_setup_log("grant_ironpipe skip already_present")
 		return
 	inventory_component.add_item("ironpipe", 1)
+	_setup_log("grant_ironpipe")
 
 func _setup_weapon_component() -> void:
+	_count_component_duplicates_once()
+	if weapon_component == null:
+		weapon_component = get_node_or_null("WeaponComponent") as WeaponComponent
 	if weapon_component == null:
 		weapon_component = WeaponComponentScript.new()
 		weapon_component.name = "WeaponComponent"
 		add_child(weapon_component)
+		_setup_log("setup_weapon create")
+	else:
+		_setup_log("setup_weapon reuse")
 
 	if inventory_component != null:
 		weapon_component.setup_from_inventory(inventory_component)
@@ -121,12 +151,54 @@ func _setup_weapon_component() -> void:
 	weapon_component.equip_runtime_weapon(self, ctrl)
 
 func _ensure_ai_weapon_controller() -> AIWeaponController:
+	_count_component_duplicates_once()
+	if ai_weapon_controller == null:
+		ai_weapon_controller = get_node_or_null("AIWeaponController") as AIWeaponController
 	if ai_weapon_controller != null:
+		_setup_log("setup_ai_controller reuse")
 		return ai_weapon_controller
 	ai_weapon_controller = AIWeaponControllerScript.new()
 	ai_weapon_controller.name = "AIWeaponController"
 	add_child(ai_weapon_controller)
+	_setup_log("setup_ai_controller create")
 	return ai_weapon_controller
+
+
+func _count_component_duplicates_once() -> void:
+	if not debug_enemy_setup_logs:
+		return
+
+	if not _logged_duplicate_inventory_count:
+		_logged_duplicate_inventory_count = true
+		var inv_count := _count_children_by_name("InventoryComponent")
+		if inv_count > 1:
+			_setup_log("duplicate inventory_count=%d" % inv_count)
+
+	if not _logged_duplicate_weapon_count:
+		_logged_duplicate_weapon_count = true
+		var weapon_count := _count_children_by_name("WeaponComponent")
+		if weapon_count > 1:
+			_setup_log("duplicate weapon_count=%d" % weapon_count)
+
+	if not _logged_duplicate_controller_count:
+		_logged_duplicate_controller_count = true
+		var ctrl_count := _count_children_by_name("AIWeaponController")
+		if ctrl_count > 1:
+			_setup_log("duplicate ai_controller_count=%d" % ctrl_count)
+
+
+func _count_children_by_name(node_name: String) -> int:
+	var total := 0
+	for child in get_children():
+		if child != null and child.name == node_name:
+			total += 1
+	return total
+
+
+func _setup_log(action: String) -> void:
+	if not debug_enemy_setup_logs:
+		return
+	print("[EnemySetup] name=%s id=%s %s" % [name, str(get_instance_id()), action])
 
 func _on_inventory_changed_rebuild_weapons() -> void:
 	if weapon_component == null:
