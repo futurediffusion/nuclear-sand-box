@@ -13,7 +13,7 @@ class_name ArrowProjectile
 
 var velocity: Vector2 = Vector2.ZERO
 var _time_left: float = 0.0
-var _owner: Node = null
+var _owner_ref: WeakRef = null
 var _stuck: bool = false
 var _ignore_first_frames: int = 0
 var _distance_check_left: float = 0.0
@@ -23,7 +23,7 @@ func setup(p_velocity: Vector2, p_damage: int, p_knockback: float, p_owner: Node
 	velocity = p_velocity
 	damage = p_damage
 	knockback = p_knockback
-	_owner = p_owner
+	_owner_ref = weakref(p_owner) if p_owner != null else null
 	_time_left = life_time
 	_stuck = false
 	_ignore_first_frames = 2
@@ -101,8 +101,9 @@ func _raycast_between(from_pos: Vector2, to_pos: Vector2, collide_areas: bool, c
 	query.collide_with_bodies = collide_bodies
 	query.collision_mask = collision_mask
 	var excluded: Array[RID] = [get_rid()]
-	if _owner is CollisionObject2D:
-		excluded.append((_owner as CollisionObject2D).get_rid())
+	var owner_node := _get_owner_node()
+	if owner_node is CollisionObject2D:
+		excluded.append((owner_node as CollisionObject2D).get_rid())
 	query.exclude = excluded
 	return space_state.intersect_ray(query)
 
@@ -282,15 +283,16 @@ func _get_player_node() -> Node2D:
 	return player
 
 func _is_owner_related_area(area: Area2D) -> bool:
-	if _owner == null:
+	var owner_node := _get_owner_node()
+	if owner_node == null:
 		return false
 
-	if area == _owner:
+	if area == owner_node:
 		return true
 
 	var current: Node = area
 	while current != null:
-		if current == _owner:
+		if current == owner_node:
 			return true
 		current = current.get_parent()
 
@@ -298,22 +300,34 @@ func _is_owner_related_area(area: Area2D) -> bool:
 	# compartido por nodos no relacionados en runtime. Solo ignoramos por owner
 	# cuando hay igualdad exacta para evitar filtrar enemigos válidos.
 	var area_owner := area.owner
-	if area_owner == _owner:
+	if area_owner == owner_node:
 		return true
 
 	return false
 
 func _is_owner_related_node(node: Node) -> bool:
-	if _owner == null or node == null:
+	var owner_node := _get_owner_node()
+	if owner_node == null or node == null:
 		return false
 
-	if node == _owner:
+	if node == owner_node:
 		return true
 
 	var current: Node = node
 	while current != null:
-		if current == _owner:
+		if current == owner_node:
 			return true
 		current = current.get_parent()
 
 	return false
+
+func _get_owner_node() -> Node:
+	if _owner_ref == null:
+		return null
+
+	var owner_node := _owner_ref.get_ref() as Node
+	if owner_node == null or not is_instance_valid(owner_node):
+		_owner_ref = null
+		return null
+
+	return owner_node
