@@ -15,6 +15,8 @@ func _ready() -> void:
 	_ensure_world_data()
 	if PartyControlManager != null:
 		PartyControlManager.set_controlled_actor(player)
+	# Permite que el menú de game over siga recibiendo input aun con el árbol pausado.
+	game_over_panel.process_mode = Node.PROCESS_MODE_WHEN_PAUSED
 	game_over_panel.visible = false
 	retry_button.pressed.connect(_on_retry_pressed)
 	if not GameManager.player_died.is_connected(_on_player_died_from_manager):
