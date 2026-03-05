@@ -13,6 +13,13 @@ var _tile_painter := TilePainter.new()
 @export var active_radius: int = 1
 @export var copper_ore_scene: PackedScene
 @export var chunk_check_interval: float = 0.3
+@export var prefetch_enabled: bool = true
+@export var prefetch_border_tiles: int = 6
+@export var prefetch_ring_radius: int = 1
+@export var prefetch_budget_chunks_per_tick: int = 1
+@export var prefetch_check_interval: float = 0.15
+@export var prefetch_enqueue_entities: bool = false
+@export var prefetch_entity_priority_offset: int = 5
 
 var biome_noise := FastNoiseLite.new()
 
@@ -33,6 +40,13 @@ var entities_spawned_chunks: Dictionary = {}
 var chunk_save: Dictionary = {}
 var queued_entity_chunks: Dictionary = {}
 var _spawn_queue: SpawnBudgetQueue
+var prefetched_chunks: Dictionary = {}
+var prefetching_chunks: Dictionary = {}
+var _prefetch_queue: Array[Vector2i] = []
+var _prefetch_timer: float = 0.0
+var _last_prefetch_center_chunk_key: String = ""
+
+const PREFETCH_QUEUE_MAX: int = 64
 
 @export var tavern_keeper_scene: PackedScene
 
@@ -116,6 +130,7 @@ func _process(delta: float) -> void:
 	if pchunk != current_player_chunk:
 		current_player_chunk = pchunk
 		update_chunks(pchunk)
+	_process_prefetch(delta)
 
 func world_to_chunk(pos: Vector2) -> Vector2i:
 	return _tile_to_chunk(_world_to_tile(pos))
@@ -142,7 +157,7 @@ func update_chunks(center: Vector2i) -> void:
 			needed[cpos] = true
 			if not generated_chunks.has(cpos) and not generating_chunks.has(cpos):
 				generating_chunks[cpos] = true
-				generate_chunk(cpos)
+				generate_chunk(cpos, true)
 			if generating_chunks.has(cpos):
 				continue
 			if not loaded_chunks.has(cpos):
@@ -156,16 +171,162 @@ func update_chunks(center: Vector2i) -> void:
 			loaded_chunks.erase(cpos)
 	Debug.log("boot", "ChunkManager load end center=%s" % center)
 
-func generate_chunk(chunk_pos: Vector2i) -> void:
+func generate_chunk(chunk_pos: Vector2i, spawn_entities: bool = true) -> void:
 	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
 	prop_spawner.generate_chunk_spawns(chunk_pos, _make_spawn_ctx())
 	await chunk_generator.apply_ground(chunk_pos, _make_ground_ctx())
 	generated_chunks[chunk_pos] = true
 	generating_chunks.erase(chunk_pos)
-	if _is_chunk_in_active_window(chunk_pos, current_player_chunk):
+	if spawn_entities and _is_chunk_in_active_window(chunk_pos, current_player_chunk):
 		if not loaded_chunks.has(chunk_pos):
 			load_chunk_entities(chunk_pos)
 			loaded_chunks[chunk_pos] = true
+
+func _process_prefetch(delta: float) -> void:
+	if not prefetch_enabled or player == null:
+		return
+	_prefetch_timer += delta
+	if _prefetch_timer < prefetch_check_interval:
+		return
+	_prefetch_timer = 0.0
+
+	var player_tile: Vector2i = _world_to_tile(player.global_position)
+	var player_chunk: Vector2i = _tile_to_chunk(player_tile)
+	var local_in_chunk := Vector2i(posmod(player_tile.x, chunk_size), posmod(player_tile.y, chunk_size))
+	if _should_trigger_prefetch(local_in_chunk):
+		var center_key: String = _chunk_key(player_chunk)
+		if _last_prefetch_center_chunk_key != center_key:
+			_enqueue_prefetch_ring(player_chunk)
+			_last_prefetch_center_chunk_key = center_key
+
+	if _has_critical_generation_in_active_window(player_chunk):
+		return
+
+	var budget: int = max(0, prefetch_budget_chunks_per_tick)
+	for _i in range(budget):
+		if _prefetch_queue.is_empty():
+			break
+		var cpos: Vector2i = _prefetch_queue.pop_front()
+		var key: Vector2i = cpos
+		if generated_chunks.has(key) or prefetching_chunks.has(key):
+			continue
+		prefetching_chunks[key] = true
+		call_deferred("_prefetch_chunk", cpos)
+
+func _should_trigger_prefetch(local_in_chunk: Vector2i) -> bool:
+	if chunk_size <= 0:
+		return false
+	var border: int = clamp(prefetch_border_tiles, 0, max(0, chunk_size - 1))
+	var max_idx: int = chunk_size - 1
+	return (
+		local_in_chunk.x <= border
+		or local_in_chunk.x >= (max_idx - border)
+		or local_in_chunk.y <= border
+		or local_in_chunk.y >= (max_idx - border)
+	)
+
+func _enqueue_prefetch_ring(center_chunk: Vector2i) -> void:
+	var world_max_chunk_x: int = int(floor(float(width - 1) / float(chunk_size)))
+	var world_max_chunk_y: int = int(floor(float(height - 1) / float(chunk_size)))
+	var ring_radius: int = max(0, prefetch_ring_radius)
+	for ring in range(1, ring_radius + 1):
+		for dy in range(-ring, ring + 1):
+			for dx in range(-ring, ring + 1):
+				if max(abs(dx), abs(dy)) != ring:
+					continue
+				var target := Vector2i(center_chunk.x + dx, center_chunk.y + dy)
+				if target.x < 0 or target.y < 0 or target.x > world_max_chunk_x or target.y > world_max_chunk_y:
+					continue
+				var key: Vector2i = target
+				if generated_chunks.has(key) or prefetched_chunks.has(key) or prefetching_chunks.has(key):
+					continue
+				if _prefetch_queue.has(target):
+					continue
+				_prefetch_queue.append(target)
+	_enforce_prefetch_queue_limit(center_chunk)
+
+func _enforce_prefetch_queue_limit(center_chunk: Vector2i) -> void:
+	if _prefetch_queue.size() <= PREFETCH_QUEUE_MAX:
+		return
+	_prefetch_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var da: int = max(abs(a.x - center_chunk.x), abs(a.y - center_chunk.y))
+		var db: int = max(abs(b.x - center_chunk.x), abs(b.y - center_chunk.y))
+		if da == db:
+			return a.distance_squared_to(center_chunk) < b.distance_squared_to(center_chunk)
+		return da < db
+	)
+	_prefetch_queue.resize(PREFETCH_QUEUE_MAX)
+
+func _has_critical_generation_in_active_window(center_chunk: Vector2i) -> bool:
+	for key in generating_chunks.keys():
+		var cpos: Vector2i = key
+		if _is_chunk_in_active_window(cpos, center_chunk):
+			return true
+	return false
+
+func _prefetch_chunk(chunk_pos: Vector2i) -> void:
+	var key: Vector2i = chunk_pos
+	if generated_chunks.has(key):
+		prefetching_chunks.erase(key)
+		prefetched_chunks[key] = true
+		return
+	if generating_chunks.has(key):
+		prefetching_chunks.erase(key)
+		return
+
+	generating_chunks[key] = true
+	await generate_chunk(chunk_pos, false)
+	prefetching_chunks.erase(key)
+	prefetched_chunks[key] = true
+	if prefetch_enqueue_entities:
+		_enqueue_prefetched_entity_jobs(chunk_pos)
+
+func _enqueue_prefetched_entity_jobs(chunk_pos: Vector2i) -> void:
+	if _spawn_queue == null:
+		return
+	if not chunk_save.has(chunk_pos):
+		return
+	var jobs: Array[Dictionary] = []
+	var chunk_key: String = _chunk_key(chunk_pos)
+	var chunk_ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
+	var priority: int = chunk_ring + prefetch_entity_priority_offset
+	for d in chunk_save[chunk_pos].get("ores", []):
+		var tpos: Vector2i = d["tile"]
+		jobs.append({
+			"chunk_key": chunk_key,
+			"kind": "ore",
+			"scene": copper_ore_scene,
+			"tile": tpos,
+			"global_position": _tile_to_world(tpos),
+			"priority": priority,
+			"uid": UID.make_uid("ore_copper", "", tpos),
+		})
+	for p in chunk_save[chunk_pos].get("placements", []):
+		if typeof(p) != TYPE_DICTIONARY:
+			continue
+		var kind: String = String(p.get("kind", ""))
+		if kind != "prop":
+			continue
+		var prop_id: String = String(p.get("prop_id", ""))
+		var path: String = PropDB.scene_path(prop_id)
+		if path == "":
+			continue
+		var ps: PackedScene = load(path) as PackedScene
+		if ps == null:
+			continue
+		var ccell: Array = p.get("cell", [0, 0])
+		var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
+		jobs.append({
+			"chunk_key": chunk_key,
+			"kind": "prop",
+			"scene": ps,
+			"tile": cell,
+			"global_position": _tile_to_world(cell),
+			"priority": priority,
+			"uid": UID.make_uid("prop_%s" % prop_id, "", cell),
+		})
+	if not jobs.is_empty():
+		_spawn_queue.enqueue_many(jobs)
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
 	# Borrar suelo del WorldTileMap
@@ -457,6 +618,7 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 	if _spawn_queue != null:
 		_spawn_queue.cancel_chunk(_chunk_key(chunk_pos))
 	queued_entity_chunks.erase(chunk_pos)
+	prefetching_chunks.erase(chunk_pos)
 
 	if chunk_wall_body.has(chunk_pos):
 		var body: StaticBody2D = chunk_wall_body[chunk_pos]
