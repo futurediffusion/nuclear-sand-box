@@ -50,7 +50,9 @@ func tick(delta: float) -> void:
 		if owner_entity.has_signal("request_attack"):
 			owner_entity.emit_signal("request_attack")
 		_try_set_attack_target_angle(swing_angle)
-		_try_spawn_slash(swing_angle)
+		# El efecto visual del slash debe apuntar al cursor.
+		# El arma puede seguir usando el ángulo de swing para la animación del brazo.
+		_try_spawn_slash(aim_angle)
 		_try_attack_push(angle_info["direction"] as Vector2)
 		_try_set_attacking_state(true, 0.0)
 		if _character_hitbox != null:
