@@ -175,7 +175,7 @@ func _process_npc_lite_mode(delta: float) -> void:
 			continue
 		if enemy.has_method("is_dead") and enemy.is_dead():
 			continue
-		var dist := enemy.global_position.distance_to(player_pos)
+		var dist: float = enemy.global_position.distance_to(player_pos)
 		if dist > enter_radius:
 			enemy.enter_lite_mode()
 			if npc_lite_debug:
@@ -713,7 +713,7 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 		if e.has_method("enter_lite_mode"):
 			e.enter_lite_mode()
 		if e.has_node("AIComponent"):
-			var ai := e.get_node_or_null("AIComponent")
+			var ai: Node = e.get_node_or_null("AIComponent")
 			if ai != null and ai.has_method("on_owner_exit_tree"):
 				ai.on_owner_exit_tree()
 		e.queue_free()
