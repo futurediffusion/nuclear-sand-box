@@ -10,6 +10,7 @@ signal job_skipped(job: Dictionary, reason: String)
 @export var enable_count_budget: bool = true
 @export var debug_spawn_queue: bool = false
 @export var sort_interval_frames: int = 6
+@export var reorder_player_distance_threshold: float = 96.0
 
 var spawn_parent: Node
 var chunk_active_checker: Callable
@@ -19,6 +20,8 @@ var _by_key: Dictionary = {}
 var _chunk_index: Dictionary = {}
 var _player_pos: Vector2 = Vector2.ZERO
 var _frame_counter: int = 0
+var _queue_dirty: bool = false
+var _last_sort_player_pos: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -34,6 +37,7 @@ func enqueue(job: Dictionary) -> void:
 		return
 	_queue.append(normalized)
 	_by_key[dedupe_key] = true
+	_queue_dirty = true
 	var chunk_key: String = String(normalized["chunk_key"])
 	if not _chunk_index.has(chunk_key):
 		_chunk_index[chunk_key] = []
@@ -49,8 +53,10 @@ func process_queue(_delta: float) -> void:
 	if _queue.is_empty():
 		return
 	_frame_counter += 1
-	if _frame_counter % max(1, sort_interval_frames) == 0:
+	if _frame_counter % max(1, sort_interval_frames) == 0 and _should_reorder_queue():
 		_queue.sort_custom(_job_less)
+		_queue_dirty = false
+		_last_sort_player_pos = _player_pos
 
 	var t0: int = Time.get_ticks_usec()
 	var spawned: int = 0
@@ -65,6 +71,7 @@ func process_queue(_delta: float) -> void:
 
 		var job: Dictionary = _queue.pop_front()
 		var dedupe_key: String = String(job.get("dedupe_key", ""))
+		# Always free dedupe tracking before any skip path so skipped jobs never lock keys.
 		_by_key.erase(dedupe_key)
 		_remove_from_chunk_index(String(job.get("chunk_key", "")), dedupe_key)
 
@@ -94,6 +101,7 @@ func cancel_chunk(chunk_key: String) -> void:
 		var dedupe_key: String = String(_queue[i].get("dedupe_key", ""))
 		if key_set.has(dedupe_key):
 			_queue.remove_at(i)
+			_queue_dirty = true
 	for key in keys:
 		_by_key.erase(String(key))
 	_chunk_index.erase(chunk_key)
@@ -152,6 +160,17 @@ func _job_less(a: Dictionary, b: Dictionary) -> bool:
 		var bd: float = (_player_pos - Vector2(b.get("global_position", Vector2.ZERO))).length_squared()
 		return ad < bd
 	return ap < bp
+
+func _should_reorder_queue() -> bool:
+	if _queue.size() <= 1:
+		return false
+	if _queue_dirty:
+		return true
+	var threshold: float = max(0.0, reorder_player_distance_threshold)
+	if threshold <= 0.0:
+		return true
+	var moved_sq: float = (_player_pos - _last_sort_player_pos).length_squared()
+	return moved_sq >= threshold * threshold
 
 func _spawn_job(job: Dictionary) -> Node:
 	var scene: PackedScene = job.get("scene", null) as PackedScene
