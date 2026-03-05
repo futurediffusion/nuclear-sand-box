@@ -57,6 +57,7 @@ func open_shop(owner: Node) -> void:
 		return
 	if visible and _current_owner != owner:
 		close_shop()
+	_close_inventory_if_open()
 
 	visible = true
 	_current_owner = owner
@@ -68,6 +69,24 @@ func open_shop(owner: Node) -> void:
 	if root != null:
 		root.grab_focus()
 	shop_opened.emit(_current_owner)
+
+
+func _close_inventory_if_open() -> void:
+	var inventory_menu := _get_player_inventory_menu()
+	if inventory_menu != null and inventory_menu.visible:
+		inventory_menu.toggle()
+
+
+func _get_player_inventory_menu() -> PlayerInventoryMenu:
+	var scene := get_tree().current_scene
+	if scene != null:
+		var by_path := scene.get_node_or_null("UI/PlayerInventoryMenu") as PlayerInventoryMenu
+		if by_path != null:
+			return by_path
+	for node in get_tree().get_nodes_in_group("inventory_ui"):
+		if node is PlayerInventoryMenu:
+			return node as PlayerInventoryMenu
+	return null
 
 
 func close_shop() -> void:
