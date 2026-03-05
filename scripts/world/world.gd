@@ -96,6 +96,8 @@ func _ready() -> void:
 	_spawn_queue.spawn_parent = tilemap
 	_spawn_queue.chunk_active_checker = Callable(self, "_is_chunk_key_loaded")
 	_spawn_queue.job_spawned.connect(_on_spawn_queue_job_spawned)
+	_spawn_queue.job_skipped.connect(_on_spawn_queue_job_skipped)
+	_spawn_queue.chunk_drained.connect(_on_spawn_queue_chunk_drained)
 	add_child(_spawn_queue)
 	update_chunks(current_player_chunk)
 
@@ -257,6 +259,8 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	prop_spawner.rebuild_chunk_occupied_tiles(chunk_pos, _make_spawn_ctx())
 
 	if not chunk_save.has(chunk_pos):
+		queued_entity_chunks.erase(chunk_pos)
+		entities_spawned_chunks[chunk_pos] = true
 		return
 
 	var placements_count: int = chunk_save[chunk_pos].get("placements", []).size()
@@ -294,6 +298,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 			"chunk_key": chunk_key,
 			"kind": "ore",
 			"scene": copper_ore_scene,
+			"tile": tpos,
 			"global_position": _tile_to_world(tpos),
 			"init_data": ore_init,
 			"priority": chunk_ring,
@@ -348,6 +353,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 			"chunk_key": chunk_key,
 			"kind": "camp",
 			"scene": bandit_camp_scene,
+			"tile": ct,
 			"global_position": _tile_to_world(ct),
 			"init_data": {
 				"properties": {"bandit_scene": bandit_scene},
@@ -379,6 +385,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 					"chunk_key": chunk_key,
 					"kind": "prop",
 					"scene": ps,
+					"tile": cell,
 					"global_position": _tile_to_world(cell),
 					"init_data": {
 						"properties": {"z_index": tilemap.z_index + 5},
@@ -405,6 +412,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 					"chunk_key": chunk_key,
 					"kind": "npc_keeper",
 					"scene": tavern_keeper_scene,
+					"tile": counter_cell,
 					"global_position": _tile_to_world(counter_cell),
 					"init_data": {
 						"properties": {
@@ -424,6 +432,9 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 
 	if _spawn_queue != null and not jobs.is_empty():
 		_spawn_queue.enqueue_many(jobs)
+	else:
+		queued_entity_chunks.erase(chunk_pos)
+		entities_spawned_chunks[chunk_pos] = true
 
 	Debug.log("chunk", "SPAWNED chunk=(%d,%d) props=%d npcs=%d ores=%d camps=%d" % [chunk_pos.x, chunk_pos.y, spawned_count - spawned_npc_count, spawned_npc_count, ores_count, camps_count])
 
@@ -514,6 +525,22 @@ func _on_spawn_queue_job_spawned(job: Dictionary, node: Node) -> void:
 		var ws: Dictionary = init_data.get("worldsave", {})
 		if bool(ws.get("init_if_missing", false)) and node.has_method("get_save_state"):
 			WorldSave.set_entity_state(int(ws.get("cx", chunk_pos.x)), int(ws.get("cy", chunk_pos.y)), String(ws.get("uid", "")), node.call("get_save_state"))
+
+func _on_spawn_queue_job_skipped(job: Dictionary, reason: String) -> void:
+	if reason != "chunk_inactive":
+		return
+	var chunk_pos: Vector2i = _chunk_from_key(String(job.get("chunk_key", "")))
+	if chunk_pos.x == -99999:
+		return
+	if not loaded_chunks.has(chunk_pos):
+		queued_entity_chunks.erase(chunk_pos)
+
+func _on_spawn_queue_chunk_drained(chunk_key: String) -> void:
+	var chunk_pos: Vector2i = _chunk_from_key(chunk_key)
+	if chunk_pos.x == -99999:
+		return
+	queued_entity_chunks.erase(chunk_pos)
+	entities_spawned_chunks[chunk_pos] = true
 
 func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var x0: int = chunk_pos.x * chunk_size + 4
