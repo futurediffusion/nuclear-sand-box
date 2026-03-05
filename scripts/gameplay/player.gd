@@ -54,6 +54,7 @@ const InventoryComponentScript = preload("res://scripts/components/InventoryComp
 @onready var slash_spawn: Marker2D = $WeaponPivot/SlashSpawn
 @onready var inventory_component: InventoryComponent = get_node_or_null("InventoryComponent") as InventoryComponent
 @onready var weapon_component: WeaponComponent = get_node_or_null("WeaponComponent") as WeaponComponent
+@onready var weapon_controller: PlayerWeaponController = get_node_or_null("PlayerWeaponController") as PlayerWeaponController
 
 @export_group("FX")
 @export var droplet_scene: PackedScene
@@ -231,8 +232,17 @@ func _setup_weapon_component() -> void:
 
 	if not weapon_component.weapon_equipped.is_connected(_on_weapon_equipped_apply_visuals):
 		weapon_component.weapon_equipped.connect(_on_weapon_equipped_apply_visuals)
+	var ctrl := _ensure_weapon_controller()
 	weapon_component.apply_visuals(self)
-	weapon_component.equip_runtime_weapon(self)
+	weapon_component.equip_runtime_weapon(self, ctrl)
+
+func _ensure_weapon_controller() -> PlayerWeaponController:
+	if weapon_controller != null:
+		return weapon_controller
+	weapon_controller = PlayerWeaponController.new()
+	weapon_controller.name = "PlayerWeaponController"
+	add_child(weapon_controller)
+	return weapon_controller
 
 func _on_inventory_changed_rebuild_weapons() -> void:
 	if weapon_component == null:
@@ -242,8 +252,9 @@ func _on_inventory_changed_rebuild_weapons() -> void:
 func _on_weapon_equipped_apply_visuals(_weapon_id: String) -> void:
 	if weapon_component == null:
 		return
+	var ctrl := _ensure_weapon_controller()
 	weapon_component.apply_visuals(self)
-	weapon_component.equip_runtime_weapon(self)
+	weapon_component.equip_runtime_weapon(self, ctrl)
 
 func _on_stamina_changed(current_stamina: float, max_stamina: float) -> void:
 	stamina_changed.emit(current_stamina, max_stamina)
