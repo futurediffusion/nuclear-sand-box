@@ -228,7 +228,7 @@ func _process_npc_data_only(delta: float) -> void:
 			if dist < spawn_radius and not is_dead and not active_enemies.has(enemy_id) and not spawning_enemy_ids.has(enemy_id):
 				_enqueue_enemy_spawn(chunk_pos, enemy_id, state)
 			elif dist > despawn_radius and active_enemies.has(enemy_id):
-				var node := active_enemies.get(enemy_id)
+				var node: Node = active_enemies[enemy_id]
 				if _can_despawn_enemy(node, state):
 					_despawn_enemy(enemy_id)
 	if npc_debug_counts:
