@@ -20,13 +20,14 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 @export var trajectory_gravity: float = 900.0
 @export var trajectory_update_interval: float = 0.05
 @export var trajectory_mouse_significant_delta: float = 8.0
+@export var consume_arrows: bool = true
 
 var is_drawing: bool = false
 var draw_time: float = 0.0
 var _drain_log_accum: float = 0.0
 var _aim_trajectory_line: Line2D
 var _last_trajectory_update_time: float = -INF
-var _last_trajectory_mouse_global: Vector2 = Vector2.INF
+var _last_trajectory_aim_global: Vector2 = Vector2.INF
 
 func on_equipped(p_owner: Node, p_controller: WeaponController = null) -> void:
 	super.on_equipped(p_owner, p_controller)
@@ -42,31 +43,31 @@ func on_unequipped() -> void:
 func tick(delta: float) -> void:
 	if owner_entity == null:
 		return
+	if controller == null:
+		return
 	if UiManager.is_combat_input_blocked():
 		if is_drawing:
 			_cancel_draw()
 		return
 
 	var inv = owner_entity.get_node_or_null("InventoryComponent")
-	if inv == null:
-		return
 
 	# Start draw
-	if Input.is_action_just_pressed("attack"):
-		if inv.get_total("arrow") > 0:
+	if controller.is_attack_just_pressed():
+		if _can_start_draw(inv):
 			_start_draw()
 		else:
 			# Sin flechas: no hace nada
 			_cancel_draw()
 
 	# Hold draw
-	if is_drawing and Input.is_action_pressed("attack"):
+	if is_drawing and controller.is_attack_pressed():
 		draw_time = min(draw_time + delta, max_draw_time)
 		_update_draw_visuals()
 		_hold_draw(delta)
 
 	# Release
-	if is_drawing and Input.is_action_just_released("attack"):
+	if is_drawing and controller.is_attack_just_released():
 		_release(inv)
 
 func _start_draw() -> void:
@@ -108,9 +109,8 @@ func _hold_draw(delta: float) -> void:
 
 func _release(inventory: Node) -> void:
 	var ratio: float = get_draw_ratio()
-	var has_arrows: bool = bool(inventory.get_total("arrow") > 0)
 
-	if not has_arrows:
+	if not _has_ammo_for_release(inventory):
 		_cancel_draw()
 		return
 
@@ -120,7 +120,8 @@ func _release(inventory: Node) -> void:
 		return
 
 	# Consume 1 flecha
-	inventory.remove_item("arrow", 1)
+	if consume_arrows and inventory != null and inventory.has_method("remove_item"):
+		inventory.remove_item("arrow", 1)
 
 	_fire_arrow(ratio)
 	_update_draw_visuals(true)
@@ -183,27 +184,32 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 		line.points = PackedVector2Array()
 		line.visible = false
 		_last_trajectory_update_time = -INF
-		_last_trajectory_mouse_global = Vector2.INF
+		_last_trajectory_aim_global = Vector2.INF
 		return
 
-	var owner_entity_node := owner_entity as Node2D
+	var owner_entity_node := _get_owner_node2d()
 	if owner_entity_node == null:
 		line.points = PackedVector2Array()
 		line.visible = false
 		_last_trajectory_update_time = -INF
-		_last_trajectory_mouse_global = Vector2.INF
+		_last_trajectory_aim_global = Vector2.INF
 		return
 
-	var mouse_global := owner_entity_node.get_global_mouse_position()
+	var aim_global := _get_aim_global_position()
+	if aim_global == Vector2.ZERO:
+		return
 	var now_sec := float(Time.get_ticks_msec()) * 0.001
 	var elapsed := now_sec - _last_trajectory_update_time
 	var significant_delta_sq := trajectory_mouse_significant_delta * trajectory_mouse_significant_delta
-	var mouse_changed_significantly := _last_trajectory_mouse_global == Vector2.INF \
-		or _last_trajectory_mouse_global.distance_squared_to(mouse_global) >= significant_delta_sq
-	if elapsed < maxf(trajectory_update_interval, 0.0) and not mouse_changed_significantly:
+	var aim_changed_significantly := _last_trajectory_aim_global == Vector2.INF \
+		or _last_trajectory_aim_global.distance_squared_to(aim_global) >= significant_delta_sq
+	if elapsed < maxf(trajectory_update_interval, 0.0) and not aim_changed_significantly:
 		return
 
-	var angle: float = owner_entity_node.get_angle_to(mouse_global)
+	if owner_entity_node.global_position.distance_squared_to(aim_global) < 0.0001:
+		return
+
+	var angle: float = owner_entity_node.get_angle_to(aim_global)
 	var dir := Vector2.RIGHT.rotated(angle)
 	var speed: float = lerp(min_speed, max_speed, ratio)
 	var start_global := _get_arrow_spawn_position(owner_entity_node, dir)
@@ -220,17 +226,23 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 
 	line.points = points
 	_last_trajectory_update_time = now_sec
-	_last_trajectory_mouse_global = mouse_global
+	_last_trajectory_aim_global = aim_global
 
 func _fire_arrow(ratio: float) -> void:
 	if owner_entity == null:
 		return
 
-	var owner_entity_node: Node2D = owner_entity as Node2D
+	var owner_entity_node := _get_owner_node2d()
 	if owner_entity_node == null:
 		return
 
-	var angle: float = owner_entity_node.get_angle_to(owner_entity_node.get_global_mouse_position())
+	var aim_global := _get_aim_global_position()
+	if aim_global == Vector2.ZERO:
+		return
+	if owner_entity_node.global_position.distance_squared_to(aim_global) < 0.0001:
+		return
+
+	var angle: float = owner_entity_node.get_angle_to(aim_global)
 	var dir := Vector2.RIGHT.rotated(angle)
 
 	var speed: float = lerp(min_speed, max_speed, ratio)
@@ -246,6 +258,35 @@ func _fire_arrow(ratio: float) -> void:
 	owner_entity.get_tree().current_scene.add_child(arrow)
 	arrow.global_position = spawn_pos
 	arrow.rotation = dir.angle()
+
+
+func _get_owner_node2d() -> Node2D:
+	if owner_entity is Node2D:
+		return owner_entity as Node2D
+	return null
+
+func _get_aim_global_position() -> Vector2:
+	if controller == null:
+		return Vector2.ZERO
+	return controller.get_aim_global_position()
+
+func _can_start_draw(inventory: Node) -> bool:
+	if not consume_arrows:
+		return true
+	if inventory == null:
+		return false
+	if not inventory.has_method("get_total"):
+		return false
+	return int(inventory.get_total("arrow")) > 0
+
+func _has_ammo_for_release(inventory: Node) -> bool:
+	if not consume_arrows:
+		return true
+	if inventory == null:
+		return false
+	if not inventory.has_method("get_total"):
+		return false
+	return int(inventory.get_total("arrow")) > 0
 
 func _get_arrow_spawn_position(owner_entity_node: Node2D, dir: Vector2) -> Vector2:
 	var spawn_marker: Node2D = owner_entity.get_node_or_null("WeaponPivot/SlashSpawn") as Node2D
