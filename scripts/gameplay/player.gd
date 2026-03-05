@@ -3,6 +3,7 @@ extends CharacterBase
 
 var DEBUG_PLAYER := OS.is_debug_build()
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
+const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponController.gd")
 
 @onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
 @onready var movement_component: MovementComponent = get_node_or_null("MovementComponent") as MovementComponent
@@ -55,6 +56,7 @@ const InventoryComponentScript = preload("res://scripts/components/InventoryComp
 @onready var inventory_component: InventoryComponent = get_node_or_null("InventoryComponent") as InventoryComponent
 @onready var weapon_component: WeaponComponent = get_node_or_null("WeaponComponent") as WeaponComponent
 @onready var weapon_controller: PlayerWeaponController = get_node_or_null("PlayerWeaponController") as PlayerWeaponController
+@onready var ai_weapon_controller: AIWeaponController = get_node_or_null("AIWeaponController") as AIWeaponController
 
 @export_group("FX")
 @export var droplet_scene: PackedScene
@@ -91,6 +93,9 @@ var block_angle: float = 0.0
 @export var block_wiggle_deg: float = 60.0
 @export var block_wiggle_hz: float = 6.0
 var block_wiggle_t: float = 0.0
+var _current_weapon_controller: WeaponController = null
+var _movement_control_mode: StringName = &"player"
+var _combat_control_mode: StringName = &"player"
 
 
 signal stamina_changed(stamina: float, max_stamina: float)
@@ -232,17 +237,70 @@ func _setup_weapon_component() -> void:
 
 	if not weapon_component.weapon_equipped.is_connected(_on_weapon_equipped_apply_visuals):
 		weapon_component.weapon_equipped.connect(_on_weapon_equipped_apply_visuals)
-	var ctrl := _ensure_weapon_controller()
+	var ctrl := ensure_player_weapon_controller()
 	weapon_component.apply_visuals(self)
-	weapon_component.equip_runtime_weapon(self, ctrl)
+	set_weapon_controller(ctrl)
 
 func _ensure_weapon_controller() -> PlayerWeaponController:
+	return ensure_player_weapon_controller()
+
+func ensure_player_weapon_controller() -> PlayerWeaponController:
 	if weapon_controller != null:
 		return weapon_controller
 	weapon_controller = PlayerWeaponController.new()
 	weapon_controller.name = "PlayerWeaponController"
 	add_child(weapon_controller)
 	return weapon_controller
+
+func ensure_ai_weapon_controller() -> AIWeaponController:
+	if ai_weapon_controller != null:
+		return ai_weapon_controller
+	ai_weapon_controller = AIWeaponControllerScript.new()
+	ai_weapon_controller.name = "AIWeaponController"
+	add_child(ai_weapon_controller)
+	return ai_weapon_controller
+
+func get_weapon_component() -> WeaponComponent:
+	return weapon_component
+
+func set_weapon_controller(controller: WeaponController) -> void:
+	if weapon_component == null or controller == null:
+		return
+	if _current_weapon_controller == controller and weapon_component.current_weapon != null:
+		if weapon_component.current_weapon.controller != controller:
+			weapon_component.current_weapon.set_controller(controller)
+		return
+	_current_weapon_controller = controller
+	weapon_component.refresh_runtime_weapon_controller(self, _current_weapon_controller)
+
+func set_weapon_controller_mode(mode: StringName) -> void:
+	if mode == &"player":
+		var player_ctrl := ensure_player_weapon_controller()
+		set_weapon_controller(player_ctrl)
+		_movement_control_mode = &"player"
+		_combat_control_mode = &"player"
+		if ai_weapon_controller != null:
+			ai_weapon_controller.set_attack_down(false)
+	elif mode == &"ai":
+		var ai_ctrl := ensure_ai_weapon_controller()
+		ai_ctrl.set_attack_down(false)
+		set_weapon_controller(ai_ctrl)
+		_movement_control_mode = &"ai"
+		_combat_control_mode = &"ai"
+		if weapon_controller != null and weapon_controller.has_method("set_attack_down"):
+			weapon_controller.call("set_attack_down", false)
+
+func on_control_gained() -> void:
+	attacking = false
+	if block_component != null and block_component.is_blocking():
+		block_component.blocking = false
+	set_weapon_controller_mode(&"player")
+
+func on_control_lost() -> void:
+	attacking = false
+	if block_component != null and block_component.is_blocking():
+		block_component.blocking = false
+	set_weapon_controller_mode(&"ai")
 
 func _on_inventory_changed_rebuild_weapons() -> void:
 	if weapon_component == null:
@@ -252,7 +310,9 @@ func _on_inventory_changed_rebuild_weapons() -> void:
 func _on_weapon_equipped_apply_visuals(_weapon_id: String) -> void:
 	if weapon_component == null:
 		return
-	var ctrl := _ensure_weapon_controller()
+	var ctrl := _current_weapon_controller
+	if ctrl == null:
+		ctrl = ensure_player_weapon_controller()
 	weapon_component.apply_visuals(self)
 	weapon_component.equip_runtime_weapon(self, ctrl)
 
@@ -276,6 +336,8 @@ func get_mouse_angle() -> float:
 	return mouse_angle
 
 func _input(event: InputEvent) -> void:
+	if _movement_control_mode != &"player":
+		return
 	if UiManager.is_combat_input_blocked():
 		return
 
@@ -318,8 +380,10 @@ func _physics_process(delta: float) -> void:
 	if hurt_t > 0.0:
 		hurt_t -= delta
 
-	if use_movement_component and movement_component != null:
+	if _movement_control_mode == &"player" and use_movement_component and movement_component != null:
 		movement_component.physics_tick(delta)
+	elif _movement_control_mode != &"player":
+		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 	else:
 		_legacy_movement_physics(delta)
 
@@ -340,14 +404,14 @@ func _physics_process(delta: float) -> void:
 	_update_weapon_flip()
 	if weapon_component != null:
 		weapon_component.tick(delta)
-	if use_combat_component and combat_component != null and _should_tick_legacy_combat():
+	if _combat_control_mode == &"player" and use_combat_component and combat_component != null and _should_tick_legacy_combat():
 		combat_component.tick(delta)
 
-	if use_block_component and block_component != null:
+	if _combat_control_mode == &"player" and use_block_component and block_component != null:
 		block_component.tick(delta)
 		blocking = block_component.is_blocking()
 	else:
-		_legacy_block_input_and_drain(delta)
+		blocking = false
 
 	_update_animation()
 	if attack_push_t > 0.0:

@@ -145,6 +145,15 @@ func equip_prev() -> void:
 func equip_runtime_weapon(owner: Node, controller: WeaponController = null) -> void:
 	_equip_runtime_weapon(owner, controller)
 
+func refresh_runtime_weapon_controller(owner: Node, controller: WeaponController) -> void:
+	if owner == null or controller == null:
+		return
+	if current_weapon == null:
+		_equip_runtime_weapon(owner, controller)
+		return
+	current_weapon.owner_entity = owner
+	current_weapon.set_controller(controller)
+
 func tick(delta: float) -> void:
 	if current_weapon != null:
 		current_weapon.tick(delta)
