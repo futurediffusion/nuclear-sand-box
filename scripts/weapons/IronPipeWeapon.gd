@@ -44,10 +44,13 @@ func tick(delta: float) -> void:
 		var angle_info := _get_attack_angle_and_direction()
 		if not bool(angle_info["valid"]):
 			return
+		var aim_angle := float(angle_info["angle"])
+		var swing_angle := _resolve_swing_angle(aim_angle)
 
 		if owner_entity.has_signal("request_attack"):
 			owner_entity.emit_signal("request_attack")
-		_try_spawn_slash(float(angle_info["angle"]))
+		_try_set_attack_target_angle(swing_angle)
+		_try_spawn_slash(swing_angle)
 		_try_attack_push(angle_info["direction"] as Vector2)
 		_try_set_attacking_state(true, 0.0)
 		if _character_hitbox != null:
@@ -163,3 +166,24 @@ func _get_attack_angle_and_direction() -> Dictionary:
 	result["direction"] = dir.normalized()
 	result["angle"] = (result["direction"] as Vector2).angle()
 	return result
+
+func _resolve_swing_angle(base_angle: float) -> float:
+	if owner_entity == null:
+		return base_angle
+	if not _has_owner_property("use_left_offset"):
+		return base_angle
+	if not _has_owner_property("angle_offset_left"):
+		return base_angle
+	if not _has_owner_property("angle_offset_right"):
+		return base_angle
+
+	var use_left := bool(owner_entity.get("use_left_offset"))
+	var offset_deg := float(owner_entity.get("angle_offset_left")) if use_left else float(owner_entity.get("angle_offset_right"))
+	owner_entity.set("use_left_offset", not use_left)
+	return base_angle + deg_to_rad(offset_deg)
+
+func _try_set_attack_target_angle(angle: float) -> void:
+	if owner_entity == null:
+		return
+	if _has_owner_property("target_attack_angle"):
+		owner_entity.set("target_attack_angle", angle)
