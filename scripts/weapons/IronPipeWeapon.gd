@@ -86,7 +86,7 @@ func _try_attack_push(direction: Vector2) -> void:
 	if not _has_owner_property("attack_push_time"):
 		return
 
-	var vel_value := owner_entity.get("velocity")
+	var vel_value: Variant = owner_entity.get("velocity")
 	if typeof(vel_value) != TYPE_VECTOR2:
 		return
 	var velocity := vel_value as Vector2
