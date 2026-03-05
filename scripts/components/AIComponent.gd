@@ -13,6 +13,12 @@ enum BowState { IDLE, CHARGING, COOLDOWN }
 @export var bow_cooldown_max: float = 1.0
 @export var melee_cooldown_min: float = 0.35
 @export var melee_cooldown_max: float = 0.8
+@export var enable_combat_style_windows: bool = true
+@export var style_window_min: float = 3.0
+@export var style_window_max: float = 8.0
+@export var style_ranged_bias: float = 0.6
+@export var style_swap_cooldown: float = 1.0
+@export var debug_log_style: bool = false
 
 var owner_entity: EnemyAI = null
 var player: CharacterBody2D = null
@@ -26,9 +32,16 @@ var _bow_charge_target: float = 0.0
 var _bow_cooldown_t: float = 0.0
 var _melee_cooldown_t: float = 0.0
 var _last_weapon_id: String = ""
+var _combat_style: StringName = &"ranged"
+var _style_t: float = 0.0
+var _style_duration: float = 0.0
+var _style_swap_cd_t: float = 0.0
+var _rng := RandomNumberGenerator.new()
 
 func setup(p_owner_entity: EnemyAI) -> void:
 	owner_entity = p_owner_entity
+	_rng.seed = int(Time.get_unix_time_from_system() * 1000000.0) ^ int(get_instance_id())
+	_init_combat_style_window()
 	_find_player()
 	_schedule_sleep_check()
 
@@ -43,6 +56,7 @@ func physics_tick(delta: float) -> void:
 	if player == null or not is_instance_valid(player):
 		_find_player()
 	_update_timers(delta)
+	_update_combat_style_window(delta)
 	_update_state()
 	_execute_state(delta)
 
@@ -72,6 +86,8 @@ func set_dead() -> void:
 	_reset_combat_state()
 
 func _update_timers(delta: float) -> void:
+	if _style_swap_cd_t > 0.0:
+		_style_swap_cd_t = maxf(_style_swap_cd_t - delta, 0.0)
 	if _melee_cooldown_t > 0.0:
 		_melee_cooldown_t = maxf(_melee_cooldown_t - delta, 0.0)
 	if _bow_state == BowState.CHARGING:
@@ -172,9 +188,20 @@ func _update_weapon_selection(distance: float) -> String:
 		elif distance <= prefer_melee_distance:
 			target_weapon_id = "ironpipe"
 
+	target_weapon_id = _apply_combat_style_bias(target_weapon_id, current_weapon_id, distance)
+
 	if target_weapon_id != "" and target_weapon_id != current_weapon_id:
+		if _style_swap_cd_t > 0.0:
+			return current_weapon_id
+		if _bow_state == BowState.CHARGING and target_weapon_id != "bow":
+			_release_attack_input()
+			_bow_state = BowState.IDLE
+			_bow_charge_t = 0.0
+			_bow_charge_target = 0.0
+			_bow_cooldown_t = 0.0
 		if weapon_component.equip_weapon_id(target_weapon_id):
 			_on_weapon_switched(target_weapon_id)
+			_style_swap_cd_t = maxf(style_swap_cooldown, 0.0)
 			current_weapon_id = weapon_component.get_current_weapon_id()
 
 	return current_weapon_id
@@ -210,14 +237,14 @@ func _process_bow(ctrl: AIWeaponController, distance: float) -> void:
 	if _bow_state == BowState.IDLE:
 		ctrl.set_attack_down(true)
 		_bow_charge_t = 0.0
-		_bow_charge_target = randf_range(bow_charge_min, bow_charge_max)
+		_bow_charge_target = _randf_range(bow_charge_min, bow_charge_max)
 		_bow_state = BowState.CHARGING
 		return
 
 	if _bow_state == BowState.CHARGING and _bow_charge_t >= _bow_charge_target:
 		ctrl.set_attack_down(false)
 		_bow_state = BowState.COOLDOWN
-		_bow_cooldown_t = randf_range(bow_cooldown_min, bow_cooldown_max)
+		_bow_cooldown_t = _randf_range(bow_cooldown_min, bow_cooldown_max)
 		return
 
 	if _bow_state != BowState.CHARGING:
@@ -232,11 +259,11 @@ func _process_melee(aim_pos: Vector2, distance: float, delta: float) -> void:
 		return
 	if _bow_state == BowState.CHARGING:
 		_bow_state = BowState.COOLDOWN
-		_bow_cooldown_t = randf_range(bow_cooldown_min, bow_cooldown_max)
+		_bow_cooldown_t = _randf_range(bow_cooldown_min, bow_cooldown_max)
 	if _melee_cooldown_t > 0.0:
 		return
 	owner_entity.queue_ai_attack_press(aim_pos)
-	_melee_cooldown_t = randf_range(melee_cooldown_min, melee_cooldown_max)
+	_melee_cooldown_t = _randf_range(melee_cooldown_min, melee_cooldown_max)
 
 func _get_ai_controller() -> AIWeaponController:
 	if owner_entity == null:
@@ -257,6 +284,69 @@ func _reset_combat_state() -> void:
 	_bow_charge_target = 0.0
 	_bow_cooldown_t = 0.0
 	_melee_cooldown_t = 0.0
+	_style_swap_cd_t = 0.0
+
+func _init_combat_style_window() -> void:
+	_combat_style = _roll_combat_style()
+	_style_t = 0.0
+	_style_duration = _randf_range(style_window_min, style_window_max)
+	_style_swap_cd_t = 0.0
+
+func _update_combat_style_window(delta: float) -> void:
+	if not enable_combat_style_windows:
+		return
+	_style_t += delta
+	if _style_t < _style_duration:
+		return
+	if _style_swap_cd_t > 0.0:
+		return
+	if _bow_state == BowState.CHARGING:
+		return
+	if _is_in_critical_cooldown():
+		return
+
+	_combat_style = _roll_combat_style()
+	_style_t = 0.0
+	_style_duration = _randf_range(style_window_min, style_window_max)
+	_style_swap_cd_t = maxf(style_swap_cooldown, 0.0)
+	if debug_log_style:
+		print("[AIStyle] ", owner_entity.name, "#", owner_entity.get_instance_id(), " -> ", _combat_style)
+
+func _is_in_critical_cooldown() -> bool:
+	return _bow_state == BowState.COOLDOWN or _melee_cooldown_t > 0.0
+
+func _apply_combat_style_bias(target_weapon_id: String, current_weapon_id: String, distance: float) -> String:
+	if not enable_combat_style_windows:
+		return target_weapon_id
+
+	if distance <= prefer_melee_distance:
+		return "ironpipe"
+
+	if _combat_style == &"melee":
+		return "ironpipe"
+
+	if _combat_style == &"ranged":
+		if distance >= prefer_bow_distance:
+			return "bow"
+		if current_weapon_id == "bow":
+			return "bow"
+
+	return target_weapon_id
+
+func _roll_combat_style() -> StringName:
+	if _randf() < clampf(style_ranged_bias, 0.0, 1.0):
+		return &"ranged"
+	return &"melee"
+
+func _randf() -> float:
+	return _rng.randf()
+
+func _randf_range(min_value: float, max_value: float) -> float:
+	var lo := minf(min_value, max_value)
+	var hi := maxf(min_value, max_value)
+	if is_equal_approx(lo, hi):
+		return lo
+	return _rng.randf_range(lo, hi)
 
 func _find_player() -> void:
 	if owner_entity == null:
