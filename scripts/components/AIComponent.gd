@@ -19,6 +19,7 @@ enum BowState { IDLE, CHARGING, COOLDOWN }
 @export var style_ranged_bias: float = 0.6
 @export var style_swap_cooldown: float = 1.0
 @export var debug_log_style: bool = false
+@export var debug_log_combat: bool = false
 
 var owner_entity: EnemyAI = null
 var player: CharacterBody2D = null
@@ -110,10 +111,8 @@ func _update_state() -> void:
 	var distance := owner_entity.global_position.distance_to(player.global_position)
 	if distance > owner_entity.detection_range:
 		current_state = AIState.IDLE
-	elif distance <= prefer_bow_distance:
-		current_state = AIState.ATTACK
 	else:
-		current_state = AIState.CHASE
+		current_state = AIState.ATTACK
 
 func _execute_state(delta: float) -> void:
 	match current_state:
@@ -153,8 +152,12 @@ func _try_attack_logic(delta: float) -> void:
 	ctrl.set_aim_global_position(aim_pos)
 
 	var distance := owner_entity.global_position.distance_to(aim_pos)
-	var weapon_id := _update_weapon_selection(distance)
+	var weapon_selection := _update_weapon_selection(distance)
+	var weapon_id := String(weapon_selection.get("weapon_id", ""))
+	var current_weapon_id := String(weapon_selection.get("current_weapon_id", ""))
+	var target_weapon_id := String(weapon_selection.get("target_weapon_id", ""))
 	_sync_weapon_state_with_equipped(weapon_id)
+	_debug_combat_status(distance, current_weapon_id, target_weapon_id)
 
 	if weapon_id == "bow":
 		_process_bow(ctrl, distance)
@@ -166,12 +169,12 @@ func _try_attack_logic(delta: float) -> void:
 
 	_release_attack_input()
 
-func _update_weapon_selection(distance: float) -> String:
+func _update_weapon_selection(distance: float) -> Dictionary:
 	if owner_entity == null:
-		return ""
+		return {"weapon_id": "", "current_weapon_id": "", "target_weapon_id": ""}
 	var weapon_component := owner_entity.get_node_or_null("WeaponComponent") as WeaponComponent
 	if weapon_component == null:
-		return ""
+		return {"weapon_id": "", "current_weapon_id": "", "target_weapon_id": ""}
 
 	var current_weapon_id := weapon_component.get_current_weapon_id()
 	var target_weapon_id := current_weapon_id
@@ -192,7 +195,7 @@ func _update_weapon_selection(distance: float) -> String:
 
 	if target_weapon_id != "" and target_weapon_id != current_weapon_id:
 		if _style_swap_cd_t > 0.0:
-			return current_weapon_id
+			return {"weapon_id": current_weapon_id, "current_weapon_id": current_weapon_id, "target_weapon_id": target_weapon_id}
 		if _bow_state == BowState.CHARGING and target_weapon_id != "bow":
 			_release_attack_input()
 			_bow_state = BowState.IDLE
@@ -204,7 +207,25 @@ func _update_weapon_selection(distance: float) -> String:
 			_style_swap_cd_t = maxf(style_swap_cooldown, 0.0)
 			current_weapon_id = weapon_component.get_current_weapon_id()
 
-	return current_weapon_id
+	return {
+		"weapon_id": current_weapon_id,
+		"current_weapon_id": current_weapon_id,
+		"target_weapon_id": target_weapon_id
+	}
+
+func _debug_combat_status(distance: float, current_weapon_id: String, target_weapon_id: String) -> void:
+	if not debug_log_combat:
+		return
+	print(
+		"[AICombat] ",
+		owner_entity.name,
+		" state=", AIState.keys()[current_state],
+		" distance=", snappedf(distance, 0.1),
+		" current_weapon_id=", current_weapon_id,
+		" target_weapon_id=", target_weapon_id,
+		" combat_style=", _combat_style,
+		" mood=", _combat_style
+	)
 
 func _on_weapon_switched(weapon_id: String) -> void:
 	_release_attack_input()
