@@ -190,11 +190,14 @@ func _apply_init_data(node: Node, init_data: Dictionary) -> void:
 			node.set(String(key), props[key])
 
 	if init_data.has("save_state") and node.has_method("apply_save_state"):
-		node.call("apply_save_state", init_data["save_state"])
+		var save_state: Variant = init_data["save_state"]
+		if save_state is Dictionary:
+			node.call("apply_save_state", save_state)
 
 	if init_data.has("setup_args") and node.has_method("setup"):
-		var args: Array = init_data["setup_args"]
-		node.callv("setup", args)
+		var args: Variant = init_data["setup_args"]
+		if args is Array:
+			node.callv("setup", args)
 
 func _remove_from_chunk_index(chunk_key: String, dedupe_key: String) -> void:
 	if not _chunk_index.has(chunk_key):
