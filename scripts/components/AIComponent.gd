@@ -7,6 +7,8 @@ enum BowState { IDLE, CHARGING, COOLDOWN }
 @export_group("AI Combat")
 @export var prefer_bow_distance: float = 220.0
 @export var prefer_melee_distance: float = 90.0
+@export var bow_engage_buffer: float = 24.0
+@export var engage_hysteresis: float = 18.0
 @export var bow_charge_min: float = 0.2
 @export var bow_charge_max: float = 0.8
 @export var bow_cooldown_min: float = 0.6
@@ -264,23 +266,45 @@ func _update_state() -> void:
 		return
 
 	var distance := owner_entity.global_position.distance_to(player.global_position)
+	var weapon_id_for_state := _get_weapon_id_for_state_decision(distance)
+	var engage_distance := _get_engage_distance_for_weapon(weapon_id_for_state)
+	var hysteresis := maxf(engage_hysteresis, 0.0)
+	var attack_enter_threshold := maxf(engage_distance - hysteresis, 0.0)
+	var attack_exit_threshold := engage_distance + hysteresis
 	if distance > owner_entity.detection_range:
 		current_state = AIState.IDLE
-	elif distance > _get_engage_distance_for_state():
-		current_state = AIState.CHASE
 	else:
-		current_state = AIState.ATTACK
+		match current_state:
+			AIState.ATTACK:
+				current_state = AIState.ATTACK if distance <= attack_exit_threshold else AIState.CHASE
+			AIState.CHASE:
+				current_state = AIState.ATTACK if distance <= attack_enter_threshold else AIState.CHASE
+			_:
+				current_state = AIState.ATTACK if distance <= engage_distance else AIState.CHASE
 
 func _get_engage_distance_for_state() -> float:
+	return _get_engage_distance_for_weapon(_get_weapon_id_for_state_decision())
+
+func _get_engage_distance_for_weapon(weapon_id: String) -> float:
 	if owner_entity == null:
 		return prefer_melee_distance
 	var engage_distance := maxf(prefer_melee_distance, owner_entity.attack_range)
+	if weapon_id == "bow":
+		return maxf(prefer_bow_distance + maxf(bow_engage_buffer, 0.0), engage_distance)
+	return engage_distance
+
+func _get_weapon_id_for_state_decision(distance: float = -1.0) -> String:
+	if owner_entity == null:
+		return ""
 	var weapon_component := owner_entity.get_node_or_null("WeaponComponent") as WeaponComponent
 	if weapon_component == null:
-		return engage_distance
-	if weapon_component.get_current_weapon_id() == "bow":
-		return maxf(prefer_bow_distance, engage_distance)
-	return engage_distance
+		return ""
+	if distance < 0.0 and player != null and is_instance_valid(player):
+		distance = owner_entity.global_position.distance_to(player.global_position)
+	if distance < 0.0:
+		return weapon_component.get_current_weapon_id()
+	var selection := _update_weapon_selection(distance)
+	return String(selection.get("weapon_id", weapon_component.get_current_weapon_id()))
 
 func _execute_state(delta: float) -> void:
 	match current_state:
