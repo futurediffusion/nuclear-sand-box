@@ -69,7 +69,7 @@ const WARMUP_META_KEY := "warmup_instance"
 func _is_warmup_instance() -> bool:
 	if not has_meta(WARMUP_META_KEY):
 		return false
-	var flag := get_meta(WARMUP_META_KEY)
+	var flag: Variant = get_meta(WARMUP_META_KEY)
 	return flag is bool and flag
 
 func _enter_tree() -> void:
