@@ -27,10 +27,14 @@ func is_attack_pressed() -> bool:
 	return _attack_down
 
 func is_attack_just_pressed() -> bool:
-	return _just_pressed
+	var value := _just_pressed
+	_just_pressed = false
+	return value
 
 func is_attack_just_released() -> bool:
-	return _just_released
+	var value := _just_released
+	_just_released = false
+	return value
 
 func get_aim_global_position() -> Vector2:
 	return _aim_global
