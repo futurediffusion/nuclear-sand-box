@@ -64,12 +64,17 @@ var angle_offset_right: float = 150.0
 var _was_sleeping_last_frame: bool = false
 var attack_t: float = 0.0
 var _setup_done: bool = false
+var _save_state_applied: bool = false
 var _logged_duplicate_inventory_count: bool = false
 var _logged_duplicate_weapon_count: bool = false
 var _logged_duplicate_controller_count: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
 var _sep_timer: float = 0.0
 var _is_lite_mode: bool = false
+var entity_uid: String = ""
+var enemy_chunk_key: String = ""
+var enemy_seed: int = 0
+var last_engaged_time: float = 0.0
 
 const WARMUP_META_KEY := "warmup_instance"
 
@@ -118,7 +123,8 @@ func _run_setup_once() -> void:
 
 	_setup_components()
 	_setup_inventory_component()
-	_grant_temporary_starting_weapon()
+	if not _save_state_applied:
+		_grant_temporary_starting_weapon()
 	_setup_weapon_component()
 
 func _setup_components() -> void:
@@ -302,6 +308,7 @@ func perform_attack(_target_position: Vector2) -> void:
 func queue_ai_attack_press(aim_global_position: Vector2) -> void:
 	if _is_lite_mode:
 		return
+	last_engaged_time = Time.get_unix_time_from_system()
 	var ctrl := _ensure_ai_weapon_controller()
 	ctrl.queue_attack_press_with_aim(aim_global_position)
 	ctrl.set_attack_down(false)
@@ -330,6 +337,8 @@ func spawn_slash(angle: float) -> void:
 func set_ai_attack_intent(attack_down: bool, aim_global_position: Vector2) -> void:
 	if _is_lite_mode and attack_down:
 		return
+	if attack_down:
+		last_engaged_time = Time.get_unix_time_from_system()
 	var ctrl := _ensure_ai_weapon_controller()
 	ctrl.set_attack_down(attack_down)
 	ctrl.set_aim_global_position(aim_global_position)
@@ -481,16 +490,72 @@ func exit_lite_mode() -> void:
 	EnemyRegistry.update_enemy_chunk(self)
 
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
+	last_engaged_time = Time.get_unix_time_from_system()
 	super.take_damage(dmg, from_pos)
 	if ai_component != null:
 		ai_component.wake_now()
 
 
 
+func apply_save_state(state: Dictionary) -> void:
+	if state.is_empty():
+		return
+	_save_state_applied = true
+	entity_uid = String(state.get("id", entity_uid))
+	enemy_chunk_key = String(state.get("chunk_key", enemy_chunk_key))
+	enemy_seed = int(state.get("seed", enemy_seed))
+	global_position = Vector2(state.get("pos", global_position))
+	if state.has("hp"):
+		hp = int(state.get("hp", hp))
+		if health_component != null:
+			health_component.hp = hp
+	if bool(state.get("is_dead", false)):
+		queue_free()
+		return
+	if inventory_component != null:
+		for i in range(inventory_component.max_slots):
+			inventory_component.slots[i] = null
+		for wid in state.get("weapon_ids", []):
+			inventory_component.add_item(String(wid), 1)
+	last_engaged_time = float(state.get("last_active_time", 0.0))
+	if weapon_component != null:
+		weapon_component.setup_from_inventory(inventory_component)
+		var equipped_id: String = String(state.get("equipped_weapon_id", ""))
+		if equipped_id != "":
+			weapon_component.equip_weapon_id(equipped_id)
+		weapon_component.apply_visuals(self)
+		weapon_component.equip_runtime_weapon(self, _ensure_ai_weapon_controller())
+
+func capture_save_state() -> Dictionary:
+	var weapon_ids: Array[String] = []
+	if weapon_component != null:
+		weapon_ids = weapon_component.weapon_ids.duplicate()
+	weapon_ids.sort()
+	var equipped: String = ""
+	if weapon_component != null:
+		equipped = String(weapon_component.current_weapon_id)
+	return {
+		"id": entity_uid,
+		"chunk_key": enemy_chunk_key,
+		"pos": global_position,
+		"hp": hp,
+		"is_dead": hp <= 0 or dying,
+		"seed": enemy_seed,
+		"weapon_ids": weapon_ids,
+		"equipped_weapon_id": equipped,
+		"alert": 0.0,
+		"last_seen_player_pos": Vector2.ZERO,
+		"last_active_time": maxf(last_engaged_time, Time.get_unix_time_from_system()),
+		"version": 1,
+	}
+
+func is_attacking() -> bool:
+	return attacking
+
 func _on_before_die() -> void:
 	EnemyRegistry.unregister_enemy(self)
 	if GameEvents != null and GameEvents.has_method("emit_entity_died"):
-		GameEvents.emit_entity_died("", "enemy", global_position, null)
+		GameEvents.emit_entity_died(entity_uid, "enemy", global_position, null)
 	_play_death_sound()
 	_trigger_death_shake()
 	attacking = false
