@@ -13,6 +13,11 @@ var _tile_painter := TilePainter.new()
 @export var active_radius: int = 1
 @export var copper_ore_scene: PackedScene
 @export var chunk_check_interval: float = 0.3
+@export var npc_lite_enabled: bool = true
+@export var npc_lite_radius: float = 420.0
+@export var npc_lite_hysteresis: float = 60.0
+@export var npc_lite_check_interval: float = 0.25
+@export var npc_lite_debug: bool = false
 @export var prefetch_enabled: bool = true
 @export var prefetch_border_tiles: int = 6
 @export var prefetch_ring_radius: int = 1
@@ -32,6 +37,7 @@ var current_player_chunk := Vector2i(-999, -999)
 var spawn_tile: Vector2i
 var tavern_chunk: Vector2i
 var _chunk_timer: float = 0.0
+var _npc_lite_timer: float = 0.0
 var _pick_rng := RandomNumberGenerator.new()
 
 @export var bandit_camp_scene: PackedScene
@@ -133,6 +139,7 @@ func _process(delta: float) -> void:
 			_spawn_queue.set_player_world_pos(player.global_position)
 		_spawn_queue.process_queue(delta)
 	_process_prefetch(delta)
+	_process_npc_lite_mode(delta)
 	_chunk_timer += delta
 	if _chunk_timer < chunk_check_interval:
 		return
@@ -143,6 +150,40 @@ func _process(delta: float) -> void:
 	if pchunk != current_player_chunk:
 		current_player_chunk = pchunk
 		update_chunks(pchunk)
+
+func _process_npc_lite_mode(delta: float) -> void:
+	if get_tree().paused:
+		return
+	_npc_lite_timer += delta
+	if _npc_lite_timer < maxf(npc_lite_check_interval, 0.05):
+		return
+	_npc_lite_timer = 0.0
+	if not npc_lite_enabled:
+		return
+	if player == null or not is_instance_valid(player):
+		return
+
+	var player_pos := player.global_position
+	var enter_radius := npc_lite_radius + npc_lite_hysteresis
+	var exit_radius := maxf(npc_lite_radius - npc_lite_hysteresis, 0.0)
+	for enemy in get_tree().get_nodes_in_group("enemy"):
+		if enemy == null or not is_instance_valid(enemy):
+			continue
+		if enemy.is_queued_for_deletion():
+			continue
+		if not enemy.has_method("enter_lite_mode") or not enemy.has_method("exit_lite_mode"):
+			continue
+		if enemy.has_method("is_dead") and enemy.is_dead():
+			continue
+		var dist := enemy.global_position.distance_to(player_pos)
+		if dist > enter_radius:
+			enemy.enter_lite_mode()
+			if npc_lite_debug:
+				Debug.log("npc_lite", "enemy=%s -> enter dist=%.2f" % [String(enemy.name), dist])
+		elif dist < exit_radius:
+			enemy.exit_lite_mode()
+			if npc_lite_debug:
+				Debug.log("npc_lite", "enemy=%s -> exit dist=%.2f" % [String(enemy.name), dist])
 
 func world_to_chunk(pos: Vector2) -> Vector2i:
 	return _tile_to_chunk(_world_to_tile(pos))
@@ -667,7 +708,15 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 						break
 
 	for e in chunk_entities[chunk_pos]:
-		if is_instance_valid(e): e.queue_free()
+		if not is_instance_valid(e):
+			continue
+		if e.has_method("enter_lite_mode"):
+			e.enter_lite_mode()
+		if e.has_node("AIComponent"):
+			var ai := e.get_node_or_null("AIComponent")
+			if ai != null and ai.has_method("on_owner_exit_tree"):
+				ai.on_owner_exit_tree()
+		e.queue_free()
 	chunk_entities.erase(chunk_pos)
 	chunk_saveables.erase(chunk_pos)
 

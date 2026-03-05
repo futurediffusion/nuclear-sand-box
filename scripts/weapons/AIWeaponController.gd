@@ -25,6 +25,13 @@ func queue_attack_press_with_aim(pos: Vector2) -> void:
 	_aim_global = pos
 	_queued_press = true
 
+func clear_transient_input() -> void:
+	_attack_down = false
+	_prev_attack_down = false
+	_just_pressed = false
+	_just_released = false
+	_queued_press = false
+
 # Llamar 1 vez por frame de physics (Enemy._physics_process o AIComponent.physics_tick)
 func physics_tick() -> void:
 	# Reset seguro por frame: los eventos one-shot no deben sobrevivir.

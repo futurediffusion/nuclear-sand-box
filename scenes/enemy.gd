@@ -69,6 +69,7 @@ var _logged_duplicate_weapon_count: bool = false
 var _logged_duplicate_controller_count: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
 var _sep_timer: float = 0.0
+var _is_lite_mode: bool = false
 
 const WARMUP_META_KEY := "warmup_instance"
 
@@ -84,6 +85,8 @@ func _enter_tree() -> void:
 	EnemyRegistry.register_enemy(self)
 
 func _exit_tree() -> void:
+	if ai_weapon_controller != null:
+		ai_weapon_controller.clear_transient_input()
 	if ai_component != null:
 		ai_component.on_owner_exit_tree()
 	EnemyRegistry.unregister_enemy(self)
@@ -247,6 +250,8 @@ func _on_weapon_equipped_apply_visuals(_weapon_id: String) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _is_lite_mode:
+		return
 	if hp <= 0:
 		return
 
@@ -295,6 +300,8 @@ func perform_attack(_target_position: Vector2) -> void:
 	return
 
 func queue_ai_attack_press(aim_global_position: Vector2) -> void:
+	if _is_lite_mode:
+		return
 	var ctrl := _ensure_ai_weapon_controller()
 	ctrl.queue_attack_press_with_aim(aim_global_position)
 	ctrl.set_attack_down(false)
@@ -321,6 +328,8 @@ func spawn_slash(angle: float) -> void:
 	_spawn_slash(angle)
 
 func set_ai_attack_intent(attack_down: bool, aim_global_position: Vector2) -> void:
+	if _is_lite_mode and attack_down:
+		return
 	var ctrl := _ensure_ai_weapon_controller()
 	ctrl.set_attack_down(attack_down)
 	ctrl.set_aim_global_position(aim_global_position)
@@ -415,6 +424,61 @@ func _apply_separation_force(dt: float) -> void:
 
 func is_sleeping() -> bool:
 	return ai_component != null and ai_component.is_sleeping()
+
+func is_lite_mode() -> bool:
+	return _is_lite_mode
+
+func enter_lite_mode() -> void:
+	if _is_lite_mode:
+		return
+	if hp <= 0 or dying:
+		return
+	_is_lite_mode = true
+	attacking = false
+	attack_t = 0.0
+	velocity = Vector2.ZERO
+	knock_vel = Vector2.ZERO
+	_sep_timer = 0.0
+	if ai_weapon_controller != null:
+		ai_weapon_controller.clear_transient_input()
+		ai_weapon_controller.set_attack_down(false)
+	if ai_component != null:
+		ai_component.on_enter_lite()
+	if weapon_component != null:
+		var character_hitbox := get_node_or_null("CharacterHitbox") as CharacterHitbox
+		if character_hitbox != null:
+			character_hitbox.deactivate()
+	set_process(false)
+	set_physics_process(false)
+	if ai_component != null:
+		ai_component.set_process(false)
+		ai_component.set_physics_process(false)
+	if weapon_component != null:
+		weapon_component.set_process(false)
+		weapon_component.set_physics_process(false)
+	EnemyRegistry.unregister_enemy(self)
+
+func exit_lite_mode() -> void:
+	if not _is_lite_mode:
+		return
+	if hp <= 0 or dying:
+		return
+	_is_lite_mode = false
+	_sep_timer = 0.0
+	set_process(true)
+	set_physics_process(true)
+	if ai_component != null:
+		ai_component.set_process(true)
+		ai_component.set_physics_process(true)
+		ai_component.on_awake_from_lite()
+	if weapon_component != null:
+		weapon_component.set_process(true)
+		weapon_component.set_physics_process(true)
+	if ai_weapon_controller != null:
+		ai_weapon_controller.clear_transient_input()
+		ai_weapon_controller.set_attack_down(false)
+	EnemyRegistry.register_enemy(self)
+	EnemyRegistry.update_enemy_chunk(self)
 
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	super.take_damage(dmg, from_pos)
