@@ -1,6 +1,14 @@
 extends RefCounted
 class_name CollisionBuilder
 
+func set_chunk_collider_enabled(body: StaticBody2D, enabled: bool) -> void:
+	if body == null or not is_instance_valid(body):
+		return
+	body.process_mode = Node.PROCESS_MODE_INHERIT if enabled else Node.PROCESS_MODE_DISABLED
+	for child in body.get_children():
+		if child is CollisionShape2D:
+			(child as CollisionShape2D).set_deferred("disabled", not enabled)
+
 func _append_raw_side(raw_columns: Dictionary, face: String, x: int, y: int) -> void:
 	if not raw_columns.has(face):
 		raw_columns[face] = {}
