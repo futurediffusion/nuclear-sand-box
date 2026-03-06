@@ -114,6 +114,7 @@ func _ready() -> void:
 
 	_run_setup_once()
 	_setup_health_component()
+	ensure_wall_collision()
 	_connect_hurtbox()
 
 
