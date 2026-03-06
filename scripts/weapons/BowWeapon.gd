@@ -2,6 +2,7 @@ extends WeaponBase
 class_name BowWeapon
 
 const ARROW_SCENE := preload("res://scenes/arrow.tscn")
+const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
 
 @export var max_draw_time: float = 1.2
 @export var stamina_drain_per_sec: float = 8.0
@@ -15,6 +16,8 @@ const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 @export var nock_start_pos: Vector2 = Vector2(7, 0)
 @export var nock_pulled_pos: Vector2 = Vector2(4.5, 0)
 @export var arrow_spawn_offset: float = 14.0
+@export var arrow_wall_skin: float = 1.0
+@export var arrow_min_center_advance: float = 2.0
 @export var trajectory_points: int = 14
 @export var trajectory_step_time: float = 0.06
 @export var trajectory_gravity: float = 900.0
@@ -215,7 +218,7 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	var angle: float = owner_entity_node.get_angle_to(aim_global)
 	var dir := Vector2.RIGHT.rotated(angle)
 	var speed: float = lerp(min_speed, max_speed, ratio)
-	var start_global := _get_arrow_spawn_position(owner_entity_node, dir)
+	var start_global := _get_arrow_muzzle_position(owner_entity_node) + dir * arrow_spawn_offset
 
 	var points := PackedVector2Array()
 	points.resize(maxi(trajectory_points, 2))
@@ -255,7 +258,7 @@ func _fire_arrow(ratio: float) -> void:
 	if arrow == null:
 		return
 
-	var spawn_pos := _get_arrow_spawn_position(owner_entity_node, dir)
+	var launch := _resolve_arrow_launch(owner_entity_node, dir, arrow)
 
 	arrow.setup(dir * speed, dmg, knockback, owner_entity_node)
 	var scene_root := owner_entity.get_tree().current_scene
@@ -263,8 +266,13 @@ func _fire_arrow(ratio: float) -> void:
 		scene_root.add_child(arrow)
 	else:
 		owner_entity.get_tree().root.add_child(arrow)
-	arrow.global_position = spawn_pos
+	arrow.global_position = launch["spawn_pos"]
 	arrow.rotation = dir.angle()
+
+	if bool(launch.get("blocked", false)):
+		arrow.embed_in_world(launch["spawn_pos"], dir)
+	else:
+		arrow.call_deferred("validate_spawn_position")
 
 
 func _get_owner_node2d() -> Node2D:
@@ -295,10 +303,57 @@ func _has_ammo_for_release(inventory: Node) -> bool:
 		return false
 	return int(inventory.get_total("arrow")) > 0
 
-func _get_arrow_spawn_position(owner_entity_node: Node2D, dir: Vector2) -> Vector2:
-	var spawn_marker: Node2D = owner_entity.get_node_or_null("WeaponPivot/SlashSpawn") as Node2D
-	var spawn_pos: Vector2 = owner_entity_node.global_position
-	if spawn_marker != null:
-		spawn_pos = spawn_marker.global_position
-	spawn_pos += dir * arrow_spawn_offset
-	return spawn_pos
+func _get_arrow_muzzle_position(owner_entity_node: Node2D) -> Vector2:
+	var muzzle: Node2D = owner_entity.get_node_or_null("WeaponPivot/ArrowMuzzle") as Node2D
+	if muzzle != null:
+		return muzzle.global_position
+	return owner_entity_node.global_position
+
+func _resolve_arrow_launch(owner_entity_node: Node2D, dir: Vector2, arrow: ArrowProjectile) -> Dictionary:
+	var muzzle := _get_arrow_muzzle_position(owner_entity_node)
+	var desired_center := muzzle + dir * arrow_spawn_offset
+	var nose_clearance := arrow.get_forward_half_extent() + arrow_wall_skin
+
+	var body_to_muzzle_hit := CombatQueryScript.find_first_wall_hit(
+		owner_entity_node,
+		owner_entity_node.global_position,
+		muzzle,
+		[owner_entity_node],
+		true
+	)
+
+	if not body_to_muzzle_hit.is_empty():
+		var body_muzzle_hit_pos: Vector2 = body_to_muzzle_hit.get("position", muzzle)
+		return {
+			"blocked": true,
+			"spawn_pos": body_muzzle_hit_pos - dir * arrow_wall_skin,
+		}
+
+	var desired_nose := desired_center + dir * nose_clearance
+	var muzzle_hit := CombatQueryScript.find_first_wall_hit(
+		owner_entity_node,
+		muzzle,
+		desired_nose,
+		[owner_entity_node],
+		true
+	)
+
+	if muzzle_hit.is_empty():
+		return {
+			"blocked": false,
+			"spawn_pos": desired_center,
+		}
+
+	var hit_pos: Vector2 = muzzle_hit.get("position", desired_nose)
+	var available_center_distance := maxf(muzzle.distance_to(hit_pos) - nose_clearance, 0.0)
+
+	if available_center_distance <= arrow_min_center_advance:
+		return {
+			"blocked": true,
+			"spawn_pos": hit_pos - dir * arrow_wall_skin,
+		}
+
+	return {
+		"blocked": false,
+		"spawn_pos": muzzle + dir * minf(arrow_spawn_offset, available_center_distance),
+	}
