@@ -338,11 +338,14 @@ func _calculate_attack_angle(base_angle: float) -> void:
 func _spawn_slash(angle: float) -> void:
 	if slash_scene == null:
 		return
+	var parent := get_tree().current_scene
+	if parent == null:
+		return
 	var s = slash_scene.instantiate()
 	s.setup(&"enemy", self)
-	get_tree().current_scene.add_child(s)
-	s.global_position = slash_spawn.global_position
-	s.global_rotation = angle
+	s.position = parent.to_local(slash_spawn.global_position)
+	s.rotation = angle
+	parent.add_child(s)
 
 func spawn_slash(angle: float) -> void:
 	_spawn_slash(angle)

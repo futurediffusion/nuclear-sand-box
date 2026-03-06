@@ -511,11 +511,14 @@ func spawn_slash(angle: float) -> void:
 func _spawn_slash(angle: float) -> void:
 	if slash_scene == null:
 		return
+	var parent := get_tree().current_scene
+	if parent == null:
+		return
 	var s = slash_scene.instantiate()
 	s.setup(&"player", self)
-	get_tree().current_scene.add_child(s)
-	s.global_position = slash_spawn.global_position
-	s.global_rotation = angle + deg_to_rad(slash_visual_offset_deg)
+	s.position = parent.to_local(slash_spawn.global_position)
+	s.rotation = angle + deg_to_rad(slash_visual_offset_deg)
+	parent.add_child(s)
 	if vfx_component != null and use_vfx_component:
 		vfx_component.play_attack_vfx()
 
