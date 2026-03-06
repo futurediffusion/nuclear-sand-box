@@ -11,7 +11,7 @@ const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponControll
 @onready var block_component: BlockComponent = get_node_or_null("BlockComponent") as BlockComponent
 @onready var wall_occlusion_component: WallOcclusionComponent = get_node_or_null("WallOcclusionComponent") as WallOcclusionComponent
 @onready var vfx_component: VFXComponent = get_node_or_null("VFXComponent") as VFXComponent
-@onready var CharacterHurtbox: CharacterHurtbox = get_node_or_null("CharacterHurtbox") as CharacterHurtbox
+@onready var character_hurtbox: CharacterHurtbox = get_node_or_null("Hurtbox") as CharacterHurtbox
 
 @export_group("Component Toggles")
 @export var use_movement_component := true
@@ -193,8 +193,8 @@ func _setup_health_component() -> void:
 	super._setup_health_component()
 	if health_component != null and health_component.has_signal("damaged") and not health_component.damaged.is_connected(_on_health_damaged):
 		health_component.damaged.connect(_on_health_damaged)
-	if CharacterHurtbox != null and not CharacterHurtbox.damaged.is_connected(_on_CharacterHurtbox_damaged):
-		CharacterHurtbox.damaged.connect(_on_CharacterHurtbox_damaged)
+	if character_hurtbox != null and not character_hurtbox.damaged.is_connected(_on_CharacterHurtbox_damaged):
+		character_hurtbox.damaged.connect(_on_CharacterHurtbox_damaged)
 
 func _setup_stamina_component() -> void:
 	if stamina_component == null:

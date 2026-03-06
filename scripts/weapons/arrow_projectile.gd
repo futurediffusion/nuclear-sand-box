@@ -147,12 +147,6 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 		_stick_to_world()
 		return true
 
-	var damage_target := _find_damage_target(body)
-	if damage_target != null and damage_target.has_method("take_damage"):
-		damage_target.take_damage(damage, global_position)
-		queue_free()
-		return true
-
 	return false
 
 func _on_area_entered(area: Area2D) -> void:
@@ -191,14 +185,6 @@ func _on_body_entered(body: Node2D) -> void:
 	if body is TileMap or body is StaticBody2D:
 		_stick_to_world()
 		return
-
-func _find_damage_target(body: Node) -> Node:
-	var current := body
-	while current != null:
-		if current.has_method("take_damage"):
-			return current
-		current = current.get_parent()
-	return null
 
 func _dbg_area(area: Area2D) -> void:
 	if not debug_hit_logs:
