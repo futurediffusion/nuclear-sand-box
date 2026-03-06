@@ -98,6 +98,7 @@ func _exit_tree() -> void:
 	EnemyRegistry.unregister_enemy(self)
 
 func _ready() -> void:
+	super._ready()
 	if _is_warmup_instance():
 		if sprite != null:
 			sprite.visible = false
@@ -114,7 +115,6 @@ func _ready() -> void:
 
 	_run_setup_once()
 	_setup_health_component()
-	ensure_wall_collision()
 	_connect_hurtbox()
 
 

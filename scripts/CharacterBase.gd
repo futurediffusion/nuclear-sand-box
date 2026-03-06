@@ -2,6 +2,7 @@ class_name CharacterBase
 extends CharacterBody2D
 
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
+const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd")
 
 @export_group("Health")
 @export var max_hp: int = 3
@@ -17,12 +18,18 @@ const HealthComponentScript = preload("res://scripts/components/HealthComponent.
 @export var blood_hit_amount: int = 10
 @export var blood_death_amount: int = 30
 
+@export_group("Collision")
+@export var ignore_world_walls: bool = false
+
 @onready var health_component: Node = get_node_or_null("HealthComponent")
 
 var hp: int = 0
 var dying: bool = false
 var knock_vel: Vector2 = Vector2.ZERO
 var hurt_t: float = 0.0
+
+func _ready() -> void:
+	_apply_world_collision_policy()
 
 func _setup_health_component() -> void:
 	if health_component == null:
@@ -127,8 +134,12 @@ func _update_animation() -> void:
 func _on_after_die() -> void:
 	pass
 
-func ensure_wall_collision() -> void:
+func _apply_world_collision_policy() -> void:
 	if Debug.use_legacy_wall_collision:
+		set_collision_mask_value(CollisionLayersScript.WORLD_WALL_LAYER_BIT, false)
 		return
-	# layer 5 (bit 16) = colisionadores de muro/props construidos en runtime.
-	set_collision_mask_value(5, true)
+	set_collision_mask_value(CollisionLayersScript.WORLD_WALL_LAYER_BIT, not ignore_world_walls)
+
+func ensure_wall_collision() -> void:
+	# Backward compatible alias while callers migrate.
+	_apply_world_collision_policy()

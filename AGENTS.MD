@@ -180,6 +180,18 @@ Rol:
 - Evita referencias stale/freed en lógica de separación.
 - API: `register_enemy`, `unregister_enemy`, `get_live_enemies`, `count`.
 
+### 🧱 COLLISION LAYERS (Canónico)
+
+Ubicación:
+
+- `scripts/systems/CollisionLayers.gd`
+
+Rol:
+
+- Fuente única de capas/máscaras de colisión para muros/props runtime.
+- Evita números mágicos duplicados entre `CharacterBase`, `Player` y `CollisionBuilder`.
+- Permite que la política personaje-vs-mundo se aplique de forma consistente en todos los derivados.
+
 ### 🔥 WARMUP MANAGER
 
 Ubicación:
