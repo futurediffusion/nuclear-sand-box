@@ -119,8 +119,6 @@ func _handle_area_hit(hit: Dictionary) -> bool:
 		return false
 
 	var is_hurtbox := area is CharacterHurtbox
-	if not is_hurtbox and area.has_method("take_damage"):
-		is_hurtbox = true
 	if not is_hurtbox:
 		return false
 
@@ -160,9 +158,6 @@ func _on_area_entered(area: Area2D) -> void:
 		return
 
 	var is_hurtbox := area is CharacterHurtbox
-	if not is_hurtbox and area.has_method("take_damage"):
-		is_hurtbox = true
-
 	if not is_hurtbox:
 		return
 

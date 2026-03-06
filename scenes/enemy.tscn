@@ -1,4 +1,4 @@
-[gd_scene load_steps=28 format=3 uid="uid://b61xj3scmxra2"]
+[gd_scene load_steps=30 format=3 uid="uid://b61xj3scmxra2"]
 
 [ext_resource type="Script" uid="uid://cwpdxeh23xi6u" path="res://scenes/enemy.gd" id="1_4ra3w"]
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="1_md0e3"]
@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" uid="uid://blxq40l48edsl" path="res://scenes/blood_burst.tscn" id="6_blood"]
 [ext_resource type="Script" uid="uid://fs8idwdgvpd3" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
 [ext_resource type="Script" uid="uid://dp25cru3why2a" path="res://scripts/components/AIComponent.gd" id="8_ai"]
+[ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="9_hurtbox"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_ipns3"]
 atlas = ExtResource("6_nenq2")
@@ -142,6 +143,9 @@ animations = [{
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_c4w8v"]
 size = Vector2(14, 15)
 
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_enemy_hurtbox"]
+size = Vector2(12, 13)
+
 [node name="Enemy" type="CharacterBody2D"]
 collision_layer = 4
 collision_mask = 5
@@ -162,6 +166,12 @@ animation = &"death"
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 position = Vector2(0, 0.5)
 shape = SubResource("RectangleShape2D_c4w8v")
+
+[node name="Hurtbox" type="Area2D" parent="."]
+script = ExtResource("9_hurtbox")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+shape = SubResource("RectangleShape2D_enemy_hurtbox")
 
 [node name="WeaponPivot" type="Node2D" parent="."]
 
