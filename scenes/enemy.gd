@@ -53,6 +53,7 @@ const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 @onready var inventory_component: InventoryComponent = get_node_or_null("InventoryComponent") as InventoryComponent
 @onready var weapon_component: WeaponComponent = get_node_or_null("WeaponComponent") as WeaponComponent
 @onready var ai_weapon_controller: AIWeaponController = get_node_or_null("AIWeaponController") as AIWeaponController
+@onready var character_hurtbox: CharacterHurtbox = get_node_or_null("Hurtbox") as CharacterHurtbox
 
 var weapon_follow_speed: float = 25.0
 var attack_snap_speed: float = 50.0
@@ -113,7 +114,18 @@ func _ready() -> void:
 
 	_run_setup_once()
 	_setup_health_component()
+	_connect_hurtbox()
 
+
+
+func _connect_hurtbox() -> void:
+	if character_hurtbox == null:
+		return
+	if not character_hurtbox.damaged.is_connected(_on_character_hurtbox_damaged):
+		character_hurtbox.damaged.connect(_on_character_hurtbox_damaged)
+
+func _on_character_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
+	take_damage(dmg, from_pos)
 
 func _run_setup_once() -> void:
 	if _setup_done:

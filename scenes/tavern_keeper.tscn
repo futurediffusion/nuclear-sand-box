@@ -1,4 +1,4 @@
-[gd_scene load_steps=25 format=3 uid="uid://c1eimnkv5d2r2"]
+[gd_scene load_steps=27 format=3 uid="uid://c1eimnkv5d2r2"]
 
 [ext_resource type="Script" uid="uid://daeh17nvsxhyc" path="res://scripts/npc/tavern_keeper.gd" id="1_sxn48"]
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="2_448nf"]
@@ -6,6 +6,7 @@
 [ext_resource type="Texture2D" uid="uid://cy2jbrjibs00h" path="res://art/sprites/goblinhurt.png" id="4_rnc8v"]
 [ext_resource type="Texture2D" uid="uid://vje5af61y85f" path="res://art/sprites/GOBLIN1-Shee-walkt.png" id="5_7ccs8"]
 [ext_resource type="Texture2D" uid="uid://cj70iqi85uw61" path="res://art/ui/ekey.png" id="6_rnc8v"]
+[ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="7_hurtbox"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_l7ece")
@@ -138,6 +139,9 @@ animations = [{
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_l7ece"]
 size = Vector2(9, 16)
 
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_keeper_hurtbox"]
+size = Vector2(8, 14)
+
 [sub_resource type="CircleShape2D" id="CircleShape2D_rnc8v"]
 radius = 57.3149
 
@@ -159,6 +163,12 @@ z_index = 10
 position = Vector2(0.89, -14.335)
 scale = Vector2(0.353, 0.353)
 texture = ExtResource("6_rnc8v")
+
+[node name="Hurtbox" type="Area2D" parent="."]
+script = ExtResource("7_hurtbox")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+shape = SubResource("RectangleShape2D_keeper_hurtbox")
 
 [node name="DetectionArea" type="Area2D" parent="."]
 

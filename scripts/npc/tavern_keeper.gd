@@ -28,6 +28,7 @@ const VendorOfferScript = preload("res://scripts/shop/vendor_offer.gd")
 @onready var sprite: AnimatedSprite2D        = $AnimatedSprite2D
 @onready var interact_icon: Sprite2D = $InteractIcon
 @onready var detection_area: Area2D          = $DetectionArea
+@onready var character_hurtbox: CharacterHurtbox = get_node_or_null("Hurtbox") as CharacterHurtbox
 @export var shop_copper_stock: int = 30
 
 # =============================================================================
@@ -57,6 +58,7 @@ var entity_uid: String = ""
 # =============================================================================
 func _ready() -> void:
 	_setup_health_component()
+	_connect_hurtbox()
 	add_to_group("npc")
 	add_to_group("tavern_keeper")
 
@@ -88,6 +90,16 @@ func _ready() -> void:
 		_vendor.name = "VendorComponent"
 		add_child(_vendor)
 		_vendor.offers = _build_default_offers()
+
+
+func _connect_hurtbox() -> void:
+	if character_hurtbox == null:
+		return
+	if not character_hurtbox.damaged.is_connected(_on_character_hurtbox_damaged):
+		character_hurtbox.damaged.connect(_on_character_hurtbox_damaged)
+
+func _on_character_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
+	take_damage(dmg, from_pos)
 
 # =============================================================================
 # FÍSICA
