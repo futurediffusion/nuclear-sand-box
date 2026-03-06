@@ -258,6 +258,7 @@ Futuro:
 - `GameManager` para eventos globales.
 - Evitar rutas absolutas a nodos.
 - Usar grupos para localizar entidades dinámicas.
+- Convención obligatoria de personajes: todo script que derive de `CharacterBase` y sobrescriba `_ready()` debe llamar `super._ready()` como primera línea.
 
 ---
 

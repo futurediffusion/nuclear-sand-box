@@ -27,9 +27,20 @@ var hp: int = 0
 var dying: bool = false
 var knock_vel: Vector2 = Vector2.ZERO
 var hurt_t: float = 0.0
+var _base_ready_initialized: bool = false
+var _base_ready_call_count: int = 0
 
 func _ready() -> void:
+	_base_ready_call_count += 1
+	if _base_ready_initialized:
+		return
+	_base_ready_initialized = true
 	_apply_world_collision_policy()
+	_debug_validate_world_collision_setup("CharacterBase._ready")
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_READY:
+		call_deferred("_debug_validate_ready_contract")
 
 func _setup_health_component() -> void:
 	if health_component == null:
@@ -139,6 +150,25 @@ func _apply_world_collision_policy() -> void:
 		set_collision_mask_value(CollisionLayersScript.WORLD_WALL_LAYER_BIT, false)
 		return
 	set_collision_mask_value(CollisionLayersScript.WORLD_WALL_LAYER_BIT, not ignore_world_walls)
+
+func _debug_validate_world_collision_setup(source: String) -> void:
+	if not OS.is_debug_build():
+		return
+	var expected_enabled := (not Debug.use_legacy_wall_collision) and (not ignore_world_walls)
+	var enabled := get_collision_mask_value(CollisionLayersScript.WORLD_WALL_LAYER_BIT)
+	if enabled == expected_enabled:
+		return
+	push_warning("[%s] Invalid world collision policy on '%s'. Expected WORLD_WALL mask=%s but got %s. If this is a CharacterBase-derived script, you likely forgot super._ready() at the start of _ready()." % [source, name, str(expected_enabled), str(enabled)])
+	assert(false, "CharacterBase world collision policy mismatch. Likely missing super._ready() in derived _ready().")
+
+func _debug_validate_ready_contract() -> void:
+	if not OS.is_debug_build():
+		return
+	if _base_ready_call_count <= 0:
+		push_warning("[CharacterBase] '%s' reached READY without CharacterBase._ready(). A derived _ready() probably forgot to call super._ready() first." % name)
+		assert(false, "CharacterBase._ready() was not executed. Derived _ready() must call super._ready() first.")
+		return
+	_debug_validate_world_collision_setup("CharacterBase._notification")
 
 func ensure_wall_collision() -> void:
 	# Backward compatible alias while callers migrate.
