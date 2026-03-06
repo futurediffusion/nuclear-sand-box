@@ -57,6 +57,7 @@ var entity_uid: String = ""
 
 # =============================================================================
 func _ready() -> void:
+	super._ready()
 	_setup_health_component()
 	_connect_hurtbox()
 	add_to_group("npc")

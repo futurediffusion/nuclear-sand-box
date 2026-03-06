@@ -4,6 +4,7 @@ extends CharacterBase
 var DEBUG_PLAYER := OS.is_debug_build()
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponController.gd")
+const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd")
 
 @onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
 @onready var movement_component: MovementComponent = get_node_or_null("MovementComponent") as MovementComponent
@@ -110,6 +111,7 @@ func player_debug(message: String) -> void:
 		print(message)
 
 func _ready() -> void:
+	super._ready()
 	Debug.log("boot", "Player ready begin")
 	sprite.play("idle")
 	sprite.flip_h = false
@@ -168,8 +170,9 @@ func _setup_components() -> void:
 func _configure_collision_mode() -> void:
 	if Debug.use_legacy_wall_collision:
 		collision_mask = 1
-	else:
-		collision_mask = 2 | 16
+		return
+	collision_mask = collision_mask | CollisionLayersScript.WORLD_WALL_LAYER_MASK
+	_apply_world_collision_policy()
 
 func _resolve_hearts_ui() -> void:
 	if hearts_ui != null:
