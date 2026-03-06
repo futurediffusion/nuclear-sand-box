@@ -126,3 +126,9 @@ func _update_animation() -> void:
 
 func _on_after_die() -> void:
 	pass
+
+func ensure_wall_collision() -> void:
+	if Debug.use_legacy_wall_collision:
+		return
+	# layer 5 (bit 16) = colisionadores de muro/props construidos en runtime.
+	set_collision_mask_value(5, true)
