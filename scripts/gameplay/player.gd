@@ -125,7 +125,7 @@ func _ready() -> void:
 	_setup_health_component()
 	_setup_stamina_component()
 	_setup_inventory_component()
-	_grant_temporary_starting_weapon()
+	_grant_starting_loadout()
 	_setup_weapon_component()
 	_update_hearts_ui()
 	var listener := AudioListener2D.new()
@@ -216,13 +216,18 @@ func _setup_inventory_component() -> void:
 		Debug.log("inv", "[INV] InventoryComponent creado en Player")
 
 
-func _grant_temporary_starting_weapon() -> void:
+func _grant_starting_loadout() -> void:
 	if inventory_component == null:
 		return
-	if inventory_component.get_total("ironpipe") > 0:
-		return
-	inventory_component.add_item("ironpipe", 1)
-	Debug.log("inv", "[INV] arma temporal inicial agregada: ironpipe")
+
+	if inventory_component.get_total("bow") <= 0:
+		inventory_component.add_item("bow", 1)
+		Debug.log("inv", "[INV] loadout inicial agregado: bow")
+
+	var current_arrows := inventory_component.get_total("arrow")
+	if current_arrows < 100:
+		inventory_component.add_item("arrow", 100 - current_arrows)
+		Debug.log("inv", "[INV] loadout inicial ajustado: arrows=%d" % 100)
 
 func _setup_weapon_component() -> void:
 	if weapon_component == null:
