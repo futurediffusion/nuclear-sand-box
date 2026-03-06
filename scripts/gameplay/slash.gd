@@ -66,15 +66,27 @@ func _configure_mask() -> void:
 func _on_anim_finished() -> void:
 	queue_free()
 
-func _try_damage(target: Node) -> void:
+func _try_damage(raw_target: Node) -> void:
+	if raw_target == null:
+		return
+
+	var normalized := CombatQueryScript.resolve_damage_target(raw_target)
+	if normalized.is_empty():
+		return
+
+	var target := normalized.get("entity") as Node
+	var target_hurtbox := normalized.get("hurtbox") as Area2D
 	if target == null:
 		return
 
-	# Nunca pegarle al dueño
-	if owner_node != null and target == owner_node:
+	if CombatQueryScript.is_owner_related(owner_node, raw_target):
+		return
+	if CombatQueryScript.is_owner_related(owner_node, target_hurtbox):
+		return
+	if CombatQueryScript.is_owner_related(owner_node, target):
 		return
 
-	if _is_target_blocked_by_wall(target):
+	if _is_target_blocked_by_wall(target, target_hurtbox):
 		return
 
 	var id := target.get_instance_id()
@@ -83,13 +95,9 @@ func _try_damage(target: Node) -> void:
 
 	already_hit[id] = true
 
-	# 1) Si es un recurso (cobre, etc) y tiene método hit()
-	#    Le pasamos el dueño del slash (player/enemy)
-	# Solo minar si este slash puede minar
 	if can_mine and target.has_method("hit"):
 		target.call("hit", owner_node)
 
-		# Sonido especial si el recurso lo define (mining/clink)
 		var s: AudioStream = null
 		if target.has_method("get_hit_sound"):
 			s = target.call("get_hit_sound")
@@ -98,40 +106,35 @@ func _try_damage(target: Node) -> void:
 			impact_sound.stream = s
 			impact_sound.play()
 		elif impact_sound and impact_sound.stream:
-			# fallback por si no tiene sonido custom
 			impact_sound.play()
 
 		return
 
-	# 2) Si no es recurso, entonces es combate normal
 	if target.has_method("take_damage"):
 		var from_pos := global_position
-		if owner_node != null and "global_position" in owner_node:
-			from_pos = owner_node.global_position
+		if owner_node is Node2D:
+			from_pos = (owner_node as Node2D).global_position
 
 		target.call("take_damage", damage, from_pos)
 
-		# Impact SFX SOLO si pegó
 		if impact_sound and impact_sound.stream:
 			impact_sound.play()
 
-		# Knockback
 		if target.has_method("apply_knockback"):
 			var knockback_dir: Vector2
-			if owner_node != null and "global_position" in owner_node:
-				knockback_dir = (target.global_position - owner_node.global_position).normalized()
+			if owner_node is Node2D and target is Node2D:
+				knockback_dir = ((target as Node2D).global_position - (owner_node as Node2D).global_position).normalized()
 			else:
 				knockback_dir = Vector2.RIGHT.rotated(global_rotation)
 
 			target.call("apply_knockback", knockback_dir * knockback_strength)
 
-		# Hitstop
 		if not did_hitstop and target.has_method("apply_hitstop"):
 			did_hitstop = true
 			target.call("apply_hitstop")
 
 
-func _is_target_blocked_by_wall(target: Node) -> bool:
+func _is_target_blocked_by_wall(target: Node, target_hurtbox: Area2D = null) -> bool:
 	if target == null:
 		return false
 	if not (target is Node2D):
@@ -141,12 +144,13 @@ func _is_target_blocked_by_wall(target: Node) -> bool:
 	if owner_node is Node2D:
 		from_pos = (owner_node as Node2D).global_position
 
-	var target_pos := (target as Node2D).global_position
-	var excluded: Array = [self]
+	var excluded: Array = [self, target]
 	if owner_node != null:
 		excluded.append(owner_node)
-	excluded.append(target)
-	return CombatQueryScript.has_wall_between(self, from_pos, target_pos, excluded)
+	if target_hurtbox != null:
+		excluded.append(target_hurtbox)
+
+	return CombatQueryScript.is_melee_target_blocked_by_wall(self, from_pos, target, target_hurtbox, excluded)
 
 func _on_body_entered(body: Node) -> void:
 	_try_damage(body)

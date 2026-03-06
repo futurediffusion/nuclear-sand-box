@@ -16,7 +16,6 @@ var velocity: Vector2 = Vector2.ZERO
 var _time_left: float = 0.0
 var _owner_ref: WeakRef = null
 var _stuck: bool = false
-var _ignore_first_frames: int = 0
 var _distance_check_left: float = 0.0
 var _player_ref: WeakRef = null
 
@@ -27,12 +26,10 @@ func setup(p_velocity: Vector2, p_damage: int, p_knockback: float, p_owner: Node
 	_owner_ref = weakref(p_owner) if p_owner != null else null
 	_time_left = life_time
 	_stuck = false
-	_ignore_first_frames = 2
 	_distance_check_left = distance_check_interval
 
 func _ready() -> void:
 	_time_left = life_time
-	_ignore_first_frames = 2
 	monitoring = false
 	monitorable = false
 	area_entered.connect(_on_area_entered)
@@ -48,19 +45,6 @@ func _enable_collision() -> void:
 func _physics_process(delta: float) -> void:
 	if _stuck:
 		_tick_stuck_state(delta)
-		return
-
-	if _ignore_first_frames > 0:
-		_ignore_first_frames -= 1
-		velocity.y += projectile_gravity * delta
-		global_position += velocity * delta
-
-		if velocity.length_squared() > 0.0001:
-			rotation = velocity.angle()
-
-		_time_left -= delta
-		if _time_left <= 0.0:
-			queue_free()
 		return
 
 	var prev_pos := global_position
@@ -183,29 +167,13 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 
 	return false
 
-func _on_area_entered(area: Area2D) -> void:
-	if _stuck:
-		return
-	if area == null:
-		return
-	if _is_owner_related_area(area):
-		return
-	if not (area is CharacterHurtbox):
-		return
+func _on_area_entered(_area: Area2D) -> void:
+	# El sweep en _physics_process es la única ruta canónica de impacto.
+	pass
 
-	_sweep_hit(global_position, area.global_position)
-
-func _on_body_entered(body: Node2D) -> void:
-	if _stuck:
-		return
-	if body == null:
-		return
-	if _is_owner_related_node(body):
-		return
-	if not CombatQueryScript.is_wall_collider(body):
-		return
-
-	_sweep_hit(global_position, body.global_position)
+func _on_body_entered(_body: Node2D) -> void:
+	# El sweep en _physics_process es la única ruta canónica de impacto.
+	pass
 
 func _dbg_area(area: Area2D) -> void:
 	if not debug_hit_logs:
@@ -290,43 +258,10 @@ func _get_player_node() -> Node2D:
 	return player
 
 func _is_owner_related_area(area: Area2D) -> bool:
-	var owner_node := _get_owner_node()
-	if owner_node == null:
-		return false
-
-	if area == owner_node:
-		return true
-
-	var current: Node = area
-	while current != null:
-		if current == owner_node:
-			return true
-		current = current.get_parent()
-
-	# `Node.owner` puede apuntar al owner de escena (PackedScene), que a veces es
-	# compartido por nodos no relacionados en runtime. Solo ignoramos por owner
-	# cuando hay igualdad exacta para evitar filtrar enemigos válidos.
-	var area_owner := area.owner
-	if area_owner == owner_node:
-		return true
-
-	return false
+	return CombatQueryScript.is_owner_related(_get_owner_node(), area)
 
 func _is_owner_related_node(node: Node) -> bool:
-	var owner_node := _get_owner_node()
-	if owner_node == null or node == null:
-		return false
-
-	if node == owner_node:
-		return true
-
-	var current: Node = node
-	while current != null:
-		if current == owner_node:
-			return true
-		current = current.get_parent()
-
-	return false
+	return CombatQueryScript.is_owner_related(_get_owner_node(), node)
 
 func _get_owner_node() -> Node:
 	if _owner_ref == null:
