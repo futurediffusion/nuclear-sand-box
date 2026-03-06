@@ -1,6 +1,8 @@
 extends Area2D
 class_name ArrowProjectile
 
+const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
+
 @export var damage: int = 12
 @export var knockback: float = 180.0
 @export var life_time: float = 2.5
@@ -8,7 +10,6 @@ class_name ArrowProjectile
 @export var stuck_life_time: float = 15.0
 @export var max_distance_from_player: float = 1500.0
 @export var distance_check_interval: float = 0.4
-@export var prefer_hurtbox_over_world: bool = true
 @export var debug_hit_logs: bool = false
 
 var velocity: Vector2 = Vector2.ZERO
@@ -82,30 +83,65 @@ func _sweep_hit(from_pos: Vector2, to_pos: Vector2) -> bool:
 	if from_pos == to_pos:
 		return false
 
-	var area_hit := _raycast_between(from_pos, to_pos, true, false)
-	var body_hit := _raycast_between(from_pos, to_pos, false, true)
+	var wall_hit := CombatQueryScript.find_first_wall_hit(self, from_pos, to_pos, _build_query_excluded_nodes())
+	var hurtbox_hit := _find_first_hurtbox_hit(from_pos, to_pos)
 
-	if prefer_hurtbox_over_world and _handle_area_hit(area_hit):
-		return true
-	if _handle_body_hit(body_hit):
-		return true
-	if _handle_area_hit(area_hit):
-		return true
+	if not wall_hit.is_empty() and not hurtbox_hit.is_empty():
+		var wall_distance := from_pos.distance_squared_to(wall_hit.get("position", from_pos))
+		var hurtbox_distance := from_pos.distance_squared_to(hurtbox_hit.get("position", from_pos))
+		if wall_distance <= hurtbox_distance:
+			return _handle_body_hit(wall_hit)
+		return _handle_area_hit(hurtbox_hit)
+
+	if not wall_hit.is_empty():
+		return _handle_body_hit(wall_hit)
+	if not hurtbox_hit.is_empty():
+		return _handle_area_hit(hurtbox_hit)
 
 	return false
 
-func _raycast_between(from_pos: Vector2, to_pos: Vector2, collide_areas: bool, collide_bodies: bool) -> Dictionary:
+func _find_first_hurtbox_hit(from_pos: Vector2, to_pos: Vector2) -> Dictionary:
 	var space_state := get_world_2d().direct_space_state
-	var query := PhysicsRayQueryParameters2D.create(from_pos, to_pos)
-	query.collide_with_areas = collide_areas
-	query.collide_with_bodies = collide_bodies
-	query.collision_mask = collision_mask
-	var excluded: Array[RID] = [get_rid()]
+	var excluded := _build_query_excluded_rids()
+
+	for _attempt in range(12):
+		var query := PhysicsRayQueryParameters2D.create(from_pos, to_pos)
+		query.collide_with_areas = true
+		query.collide_with_bodies = false
+		query.collision_mask = collision_mask
+		query.exclude = excluded
+
+		var hit := space_state.intersect_ray(query)
+		if hit.is_empty():
+			return {}
+
+		var area := hit.get("collider") as Area2D
+		if area == null:
+			break
+		if _is_owner_related_area(area) or not (area is CharacterHurtbox):
+			excluded.append(area.get_rid())
+			continue
+
+		return hit
+
+	return {}
+
+
+func _build_query_excluded_nodes() -> Array:
+	var excluded_nodes: Array = [self]
+	var owner_node := _get_owner_node()
+	if owner_node != null:
+		excluded_nodes.append(owner_node)
+	return excluded_nodes
+
+func _build_query_excluded_rids() -> Array[RID]:
+	var excluded: Array[RID] = []
+	if self is CollisionObject2D:
+		excluded.append(get_rid())
 	var owner_node := _get_owner_node()
 	if owner_node is CollisionObject2D:
 		excluded.append((owner_node as CollisionObject2D).get_rid())
-	query.exclude = excluded
-	return space_state.intersect_ray(query)
+	return excluded
 
 func _handle_area_hit(hit: Dictionary) -> bool:
 	if hit.is_empty():
@@ -141,7 +177,7 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 
 	global_position = hit.get("position", global_position)
 
-	if body is TileMap or body is StaticBody2D:
+	if CombatQueryScript.is_wall_collider(body):
 		_stick_to_world()
 		return true
 
@@ -150,36 +186,26 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 func _on_area_entered(area: Area2D) -> void:
 	if _stuck:
 		return
-
 	if area == null:
 		return
-
 	if _is_owner_related_area(area):
 		return
-
-	var is_hurtbox := area is CharacterHurtbox
-	if not is_hurtbox:
+	if not (area is CharacterHurtbox):
 		return
 
-	global_position = area.global_position
-	if area.has_method("take_damage"):
-		area.take_damage(damage, global_position)
-
-	queue_free()
+	_sweep_hit(global_position, area.global_position)
 
 func _on_body_entered(body: Node2D) -> void:
 	if _stuck:
 		return
-
 	if body == null:
 		return
-
 	if _is_owner_related_node(body):
 		return
-
-	if body is TileMap or body is StaticBody2D:
-		_stick_to_world()
+	if not CombatQueryScript.is_wall_collider(body):
 		return
+
+	_sweep_hit(global_position, body.global_position)
 
 func _dbg_area(area: Area2D) -> void:
 	if not debug_hit_logs:
