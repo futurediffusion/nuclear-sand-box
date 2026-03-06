@@ -60,6 +60,8 @@ func _ready() -> void:
 func _activate_hitbox() -> void:
 	if hitbox == null:
 		return
+	if _is_slash_overlapping_wall():
+		return
 	_set_hitbox_enabled(true)
 
 func _set_hitbox_enabled(enabled: bool) -> void:
@@ -103,6 +105,9 @@ func _try_damage(raw_target: Node) -> void:
 	if CombatQueryScript.is_owner_related(owner_node, target_hurtbox):
 		return
 	if CombatQueryScript.is_owner_related(owner_node, target):
+		return
+
+	if _is_slash_overlapping_wall():
 		return
 
 	if _is_target_blocked_by_wall(target, target_hurtbox):
@@ -160,8 +165,6 @@ func _is_target_blocked_by_wall(target: Node, target_hurtbox: Area2D = null) -> 
 		return false
 
 	var from_pos := global_position
-	if owner_node is Node2D:
-		from_pos = (owner_node as Node2D).global_position
 
 	var excluded: Array = [self, target]
 	if owner_node != null:
@@ -170,6 +173,21 @@ func _is_target_blocked_by_wall(target: Node, target_hurtbox: Area2D = null) -> 
 		excluded.append(target_hurtbox)
 
 	return CombatQueryScript.is_melee_target_blocked_by_wall(self, from_pos, target, target_hurtbox, excluded)
+
+
+func _is_slash_overlapping_wall() -> bool:
+	if hitbox == null:
+		return false
+
+	var shape := hitbox.get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if shape == null or shape.shape == null:
+		return false
+
+	var excluded: Array = [self]
+	if owner_node != null:
+		excluded.append(owner_node)
+
+	return CombatQueryScript.shape_overlaps_wall(self, shape, excluded)
 
 func _on_body_entered(body: Node) -> void:
 	_try_damage(body)
