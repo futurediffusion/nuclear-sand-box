@@ -19,6 +19,8 @@ var hitbox: Area2D = null
 var already_hit := {}
 var owner_team: StringName = &"player"
 var owner_node: Node = null
+var owner_damage_entity: Node = null
+var owner_hurtbox: Area2D = null
 var did_hitstop: bool = false
 
 
@@ -26,6 +28,13 @@ var did_hitstop: bool = false
 func setup(team: StringName, owner: Node) -> void:
 	owner_team = team
 	owner_node = owner
+	owner_damage_entity = null
+	owner_hurtbox = null
+
+	if owner_node != null:
+		owner_damage_entity = owner_node
+		if owner_node.has_node("Hurtbox"):
+			owner_hurtbox = owner_node.get_node("Hurtbox") as Area2D
 
 func _ready() -> void:
 	hitbox = get_node_or_null("Hitbox")
@@ -35,9 +44,10 @@ func _ready() -> void:
 		sfx.play()
 
 	_configure_mask()
-	_set_hitbox_enabled(true)
+	_set_hitbox_enabled(false)
 	hitbox.body_entered.connect(_on_body_entered)
 	hitbox.area_entered.connect(_on_area_entered)
+	call_deferred("_activate_hitbox")
 
 	get_tree().create_timer(CharacterHitbox_active_time).timeout.connect(func():
 		if is_instance_valid(self):
@@ -46,6 +56,11 @@ func _ready() -> void:
 
 	anim.play("slash")
 	anim.animation_finished.connect(_on_anim_finished)
+
+func _activate_hitbox() -> void:
+	if hitbox == null:
+		return
+	_set_hitbox_enabled(true)
 
 func _set_hitbox_enabled(enabled: bool) -> void:
 	hitbox.monitoring = enabled
@@ -58,10 +73,7 @@ func _configure_mask() -> void:
 	if hitbox == null:
 		return
 
-	if owner_team == &"player":
-		hitbox.collision_mask = (1 << 2) | (1 << 3)  # EnemyNCP + Resources
-	else:
-		hitbox.collision_mask = 1 << 0  # Player
+	hitbox.collision_mask = (1 << 0) | (1 << 2) | (1 << 3)  # Player + EnemyNPC + Resources
 
 func _on_anim_finished() -> void:
 	queue_free()
@@ -77,6 +89,13 @@ func _try_damage(raw_target: Node) -> void:
 	var target := normalized.get("entity") as Node
 	var target_hurtbox := normalized.get("hurtbox") as Area2D
 	if target == null:
+		return
+
+	if owner_damage_entity != null and target == owner_damage_entity:
+		return
+	if owner_hurtbox != null and target_hurtbox != null and target_hurtbox == owner_hurtbox:
+		return
+	if raw_target == owner_node or raw_target == owner_hurtbox:
 		return
 
 	if CombatQueryScript.is_owner_related(owner_node, raw_target):
