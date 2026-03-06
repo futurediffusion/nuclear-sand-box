@@ -4,7 +4,6 @@ extends CharacterBase
 var DEBUG_PLAYER := OS.is_debug_build()
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponController.gd")
-const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd")
 
 @onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
 @onready var movement_component: MovementComponent = get_node_or_null("MovementComponent") as MovementComponent
