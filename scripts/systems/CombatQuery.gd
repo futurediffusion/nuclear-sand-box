@@ -22,12 +22,16 @@ static func find_first_wall_hit(context: Node, from_pos: Vector2, to_pos: Vector
 	query.collision_mask = CollisionLayersScript.WORLD_WALL_LAYER_MASK
 	query.exclude = _collect_excluded_rids(context, excluded_nodes)
 
-	var space_state := context.get_world_2d().direct_space_state
-	var hit := space_state.intersect_ray(query)
+	var world_2d: World2D = context.get_world_2d()
+	if world_2d == null:
+		return {}
+
+	var space_state: PhysicsDirectSpaceState2D = world_2d.direct_space_state
+	var hit: Dictionary = space_state.intersect_ray(query)
 	if hit.is_empty():
 		return {}
 
-	var collider := hit.get("collider")
+	var collider: Variant = hit.get("collider", null)
 	if not is_wall_collider(collider):
 		return {}
 	return hit
