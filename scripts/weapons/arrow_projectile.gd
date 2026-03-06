@@ -28,6 +28,42 @@ func setup(p_velocity: Vector2, p_damage: int, p_knockback: float, p_owner: Node
 	_stuck = false
 	_distance_check_left = distance_check_interval
 
+func get_forward_half_extent() -> float:
+	var shape_node := get_node_or_null("Collision") as CollisionShape2D
+	if shape_node == null or shape_node.shape == null:
+		return 5.0
+
+	if shape_node.shape is RectangleShape2D:
+		var rect := shape_node.shape as RectangleShape2D
+		return rect.size.x * 0.5 * abs(scale.x) * abs(shape_node.scale.x)
+
+	if shape_node.shape is CircleShape2D:
+		var circle := shape_node.shape as CircleShape2D
+		return circle.radius * maxf(abs(scale.x), abs(scale.y))
+
+	if shape_node.shape is CapsuleShape2D:
+		var capsule := shape_node.shape as CapsuleShape2D
+		return maxf(capsule.height * 0.5, capsule.radius) * abs(scale.x) * abs(shape_node.scale.x)
+
+	return 5.0
+
+func embed_in_world(at_position: Vector2, facing_dir: Vector2 = Vector2.ZERO) -> void:
+	global_position = at_position
+	if facing_dir.length_squared() > 0.0001:
+		rotation = facing_dir.angle()
+	_stick_to_world()
+
+func validate_spawn_position() -> void:
+	if _stuck:
+		return
+
+	var shape_node := get_node_or_null("Collision") as CollisionShape2D
+	if shape_node == null or shape_node.shape == null:
+		return
+
+	if CombatQueryScript.shape_overlaps_wall(self, shape_node, _build_query_excluded_nodes()):
+		embed_in_world(global_position, Vector2.RIGHT.rotated(rotation))
+
 func _ready() -> void:
 	_time_left = life_time
 	monitoring = false

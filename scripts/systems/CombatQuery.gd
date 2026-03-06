@@ -65,7 +65,13 @@ static func is_melee_target_blocked_by_wall(
 
 	return true
 
-static func find_first_wall_hit(context: Node, from_pos: Vector2, to_pos: Vector2, excluded_nodes: Array = []) -> Dictionary:
+static func find_first_wall_hit(
+		context: Node,
+		from_pos: Vector2,
+		to_pos: Vector2,
+		excluded_nodes: Array = [],
+		hit_from_inside: bool = false
+	) -> Dictionary:
 	if context == null:
 		return {}
 	if from_pos == to_pos:
@@ -76,6 +82,7 @@ static func find_first_wall_hit(context: Node, from_pos: Vector2, to_pos: Vector
 	query.collide_with_bodies = true
 	query.collision_mask = CollisionLayersScript.WORLD_WALL_LAYER_MASK
 	query.exclude = _collect_excluded_rids(context, excluded_nodes)
+	query.hit_from_inside = hit_from_inside
 
 	var world_2d: World2D = context.get_world_2d()
 	if world_2d == null:
@@ -90,6 +97,29 @@ static func find_first_wall_hit(context: Node, from_pos: Vector2, to_pos: Vector
 	if not is_wall_collider(collider):
 		return {}
 	return hit
+
+static func shape_overlaps_wall(
+		context: Node,
+		shape_node: CollisionShape2D,
+		excluded_nodes: Array = []
+	) -> bool:
+	if context == null or shape_node == null or shape_node.shape == null:
+		return false
+
+	var world_2d: World2D = context.get_world_2d()
+	if world_2d == null:
+		return false
+
+	var params := PhysicsShapeQueryParameters2D.new()
+	params.shape = shape_node.shape
+	params.transform = shape_node.global_transform
+	params.collide_with_areas = true
+	params.collide_with_bodies = true
+	params.collision_mask = CollisionLayersScript.WORLD_WALL_LAYER_MASK
+	params.exclude = _collect_excluded_rids(context, excluded_nodes)
+
+	var space_state: PhysicsDirectSpaceState2D = world_2d.direct_space_state
+	return not space_state.intersect_shape(params, 1).is_empty()
 
 static func is_wall_collider(collider: Variant) -> bool:
 	if not (collider is CollisionObject2D):

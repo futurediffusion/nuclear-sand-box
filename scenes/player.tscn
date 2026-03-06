@@ -217,6 +217,9 @@ end_cap_mode = 1
 [node name="SlashSpawn" type="Marker2D" parent="WeaponPivot"]
 position = Vector2(20, 0)
 
+[node name="ArrowMuzzle" type="Marker2D" parent="WeaponPivot"]
+position = Vector2(10, 0)
+
 [node name="Camera2D" type="Camera2D" parent="."]
 position_smoothing_enabled = true
 position_smoothing_speed = 6.0
