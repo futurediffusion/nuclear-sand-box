@@ -1,5 +1,7 @@
 extends Node2D
 
+const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
+
 @export var knockback_strength: float = 120.0
 @export var damage: int = 1
 @export var CharacterHitbox_active_time: float = 0.10
@@ -72,6 +74,9 @@ func _try_damage(target: Node) -> void:
 	if owner_node != null and target == owner_node:
 		return
 
+	if _is_target_blocked_by_wall(target):
+		return
+
 	var id := target.get_instance_id()
 	if already_hit.has(id):
 		return
@@ -124,6 +129,24 @@ func _try_damage(target: Node) -> void:
 		if not did_hitstop and target.has_method("apply_hitstop"):
 			did_hitstop = true
 			target.call("apply_hitstop")
+
+
+func _is_target_blocked_by_wall(target: Node) -> bool:
+	if target == null:
+		return false
+	if not (target is Node2D):
+		return false
+
+	var from_pos := global_position
+	if owner_node is Node2D:
+		from_pos = (owner_node as Node2D).global_position
+
+	var target_pos := (target as Node2D).global_position
+	var excluded: Array = [self]
+	if owner_node != null:
+		excluded.append(owner_node)
+	excluded.append(target)
+	return CombatQueryScript.has_wall_between(self, from_pos, target_pos, excluded)
 
 func _on_body_entered(body: Node) -> void:
 	_try_damage(body)
