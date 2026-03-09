@@ -5,28 +5,47 @@ const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
 
 @export var damage: int = 12
 @export var knockback: float = 180.0
-@export var life_time: float = 2.5
 @export var projectile_gravity: float = 900.0
-@export var stuck_life_time: float = 15.0
+@export var max_flight_time: float = 4.0
+@export var stuck_visible_time: float = 5.0
+@export var fade_out_duration: float = 1.0
 @export var max_distance_from_player: float = 1500.0
 @export var distance_check_interval: float = 0.4
 @export var debug_hit_logs: bool = false
 
-var velocity: Vector2 = Vector2.ZERO
-var _time_left: float = 0.0
+var ground_velocity: Vector2 = Vector2.ZERO
+var height: float = 0.0
+var vertical_velocity: float = 0.0
+var flight_time: float = 0.0
+
 var _owner_ref: WeakRef = null
 var _stuck: bool = false
 var _distance_check_left: float = 0.0
 var _player_ref: WeakRef = null
+var _stuck_elapsed: float = 0.0
+var _sprite: Sprite2D = null
+var _sprite_base_pos: Vector2 = Vector2.ZERO
 
-func setup(p_velocity: Vector2, p_damage: int, p_knockback: float, p_owner: Node = null) -> void:
-	velocity = p_velocity
+func setup(
+	p_ground_velocity: Vector2,
+	p_damage: int,
+	p_knockback: float,
+	p_owner: Node = null,
+	p_vertical_velocity: float = 0.0,
+	p_initial_height: float = 0.0
+) -> void:
+	ground_velocity = p_ground_velocity
 	damage = p_damage
 	knockback = p_knockback
 	_owner_ref = weakref(p_owner) if p_owner != null else null
-	_time_left = life_time
+	vertical_velocity = p_vertical_velocity
+	height = maxf(p_initial_height, 0.0)
+	flight_time = 0.0
 	_stuck = false
+	_stuck_elapsed = 0.0
 	_distance_check_left = distance_check_interval
+	_update_visual_height()
+	_set_visual_alpha(1.0)
 
 func get_forward_half_extent() -> float:
 	var shape_node := get_node_or_null("Collision") as CollisionShape2D
@@ -51,6 +70,8 @@ func embed_in_world(at_position: Vector2, facing_dir: Vector2 = Vector2.ZERO) ->
 	global_position = at_position
 	if facing_dir.length_squared() > 0.0001:
 		rotation = facing_dir.angle()
+	height = 0.0
+	vertical_velocity = 0.0
 	_stick_to_world()
 
 func validate_spawn_position() -> void:
@@ -65,12 +86,17 @@ func validate_spawn_position() -> void:
 		embed_in_world(global_position, Vector2.RIGHT.rotated(rotation))
 
 func _ready() -> void:
-	_time_left = life_time
+	_sprite = get_node_or_null("Sprite") as Sprite2D
+	if _sprite != null:
+		_sprite_base_pos = _sprite.position
+	flight_time = 0.0
+	_stuck_elapsed = 0.0
 	monitoring = false
 	monitorable = false
 	area_entered.connect(_on_area_entered)
 	body_entered.connect(_on_body_entered)
 	call_deferred("_enable_collision")
+	_update_visual_height()
 
 func _enable_collision() -> void:
 	if _stuck:
@@ -84,19 +110,29 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var prev_pos := global_position
-	velocity.y += projectile_gravity * delta
-	var next_pos := prev_pos + velocity * delta
+	var next_pos := prev_pos + ground_velocity * delta
 
 	if _sweep_hit(prev_pos, next_pos):
 		return
 
 	global_position = next_pos
 
-	if velocity.length_squared() > 0.0001:
-		rotation = velocity.angle()
+	vertical_velocity -= projectile_gravity * delta
+	height += vertical_velocity * delta
+	flight_time += delta
 
-	_time_left -= delta
-	if _time_left <= 0.0:
+	if ground_velocity.length_squared() > 0.0001:
+		rotation = ground_velocity.angle()
+
+	if height <= 0.0:
+		height = 0.0
+		vertical_velocity = 0.0
+		_stick_to_world()
+		return
+
+	_update_visual_height()
+
+	if max_flight_time > 0.0 and flight_time >= max_flight_time:
 		queue_free()
 
 func _sweep_hit(from_pos: Vector2, to_pos: Vector2) -> bool:
@@ -146,7 +182,6 @@ func _find_first_hurtbox_hit(from_pos: Vector2, to_pos: Vector2) -> Dictionary:
 
 	return {}
 
-
 func _build_query_excluded_nodes() -> Array:
 	var excluded_nodes: Array = [self]
 	var owner_node := _get_owner_node()
@@ -173,9 +208,10 @@ func _handle_area_hit(hit: Dictionary) -> bool:
 		return false
 	if _is_owner_related_area(area):
 		return false
+	if _stuck:
+		return false
 
-	var is_hurtbox := area is CharacterHurtbox
-	if not is_hurtbox:
+	if not (area is CharacterHurtbox):
 		return false
 
 	global_position = hit.get("position", global_position)
@@ -198,17 +234,17 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 	global_position = hit.get("position", global_position)
 
 	if CombatQueryScript.is_wall_collider(body):
+		height = 0.0
+		vertical_velocity = 0.0
 		_stick_to_world()
 		return true
 
 	return false
 
 func _on_area_entered(_area: Area2D) -> void:
-	# El sweep en _physics_process es la única ruta canónica de impacto.
 	pass
 
 func _on_body_entered(_body: Node2D) -> void:
-	# El sweep en _physics_process es la única ruta canónica de impacto.
 	pass
 
 func _dbg_area(area: Area2D) -> void:
@@ -251,17 +287,33 @@ func _dbg_body(body: Node) -> void:
 	print("[ARROW HIT] arrow layers=", collision_layer, " mask=", collision_mask)
 
 func _stick_to_world() -> void:
+	if _stuck:
+		return
+
 	_stuck = true
-	velocity = Vector2.ZERO
-	_time_left = stuck_life_time
+	ground_velocity = Vector2.ZERO
+	vertical_velocity = 0.0
+	height = 0.0
+	_stuck_elapsed = 0.0
+	_update_visual_height()
 	set_deferred("monitoring", false)
 	set_deferred("monitorable", false)
 
 func _tick_stuck_state(delta: float) -> void:
-	_time_left -= delta
-	if _time_left <= 0.0:
-		queue_free()
-		return
+	_stuck_elapsed += delta
+
+	var fade_start := maxf(stuck_visible_time, 0.0)
+	if _stuck_elapsed <= fade_start:
+		_set_visual_alpha(1.0)
+	else:
+		if fade_out_duration <= 0.0:
+			queue_free()
+			return
+		var fade_t := clamp((_stuck_elapsed - fade_start) / fade_out_duration, 0.0, 1.0)
+		_set_visual_alpha(1.0 - fade_t)
+		if fade_t >= 1.0:
+			queue_free()
+			return
 
 	if max_distance_from_player <= 0.0:
 		return
@@ -277,6 +329,16 @@ func _tick_stuck_state(delta: float) -> void:
 
 	if global_position.distance_to(player.global_position) > max_distance_from_player:
 		queue_free()
+
+func _update_visual_height() -> void:
+	if _sprite == null:
+		return
+	_sprite.position = _sprite_base_pos + Vector2(0.0, -height)
+
+func _set_visual_alpha(alpha: float) -> void:
+	var color := modulate
+	color.a = clamp(alpha, 0.0, 1.0)
+	modulate = color
 
 func _get_player_node() -> Node2D:
 	if _player_ref != null:
