@@ -27,6 +27,8 @@ var _player_ref: WeakRef = null
 var _stuck_elapsed: float = 0.0
 var _visual_root: Node2D = null
 var _visual_base_pos: Vector2 = Vector2.ZERO
+var _arc_visibility: float = 1.0
+var _flight_duration: float = 0.0
 
 func setup(
 	p_ground_velocity: Vector2,
@@ -34,7 +36,9 @@ func setup(
 	p_knockback: float,
 	p_owner: Node = null,
 	p_vertical_velocity: float = 0.0,
-	p_initial_height: float = 0.0
+	p_initial_height: float = 0.0,
+	p_flight_duration: float = 0.2,
+	p_arc_visibility: float = 1.0
 ) -> void:
 	ground_velocity = p_ground_velocity
 	damage = p_damage
@@ -43,10 +47,13 @@ func setup(
 	vertical_velocity = p_vertical_velocity
 	height = maxf(p_initial_height, 0.0)
 	flight_time = 0.0
+	_flight_duration = maxf(p_flight_duration, 0.01)
+	_arc_visibility = clampf(p_arc_visibility, 0.0, 1.0)
 	_stuck = false
 	_stuck_elapsed = 0.0
 	_distance_check_left = distance_check_interval
 	_update_visual_height()
+	_update_visual_rotation()
 	_set_visual_alpha(1.0)
 
 func get_forward_half_extent() -> float:
@@ -124,17 +131,15 @@ func _physics_process(delta: float) -> void:
 	vertical_velocity -= projectile_gravity * delta
 	height += vertical_velocity * delta
 	flight_time += delta
+	_update_visual_height()
+	_update_visual_rotation()
 
-	if ground_velocity.length_squared() > 0.0001:
-		rotation = ground_velocity.angle()
-
-	if height <= 0.0:
+	if flight_time >= _flight_duration or height <= 0.0:
 		height = 0.0
 		vertical_velocity = 0.0
+		_update_visual_height()
 		_stick_to_world()
 		return
-
-	_update_visual_height()
 
 	if max_flight_time > 0.0 and flight_time >= max_flight_time:
 		queue_free()
@@ -337,7 +342,15 @@ func _tick_stuck_state(delta: float) -> void:
 func _update_visual_height() -> void:
 	if _visual_root == null:
 		return
-	_visual_root.position = _visual_base_pos + Vector2(0.0, -height)
+	_visual_root.position = _visual_base_pos + Vector2(0.0, -(height * _arc_visibility))
+
+func _update_visual_rotation() -> void:
+	if _visual_root == null:
+		return
+
+	var visual_velocity := ground_velocity + Vector2(0.0, -vertical_velocity * _arc_visibility)
+	if visual_velocity.length_squared() > 0.0001:
+		_visual_root.rotation = visual_velocity.angle()
 
 func _set_visual_alpha(alpha: float) -> void:
 	var color := modulate
