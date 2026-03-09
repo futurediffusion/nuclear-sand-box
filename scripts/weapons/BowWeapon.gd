@@ -8,8 +8,8 @@ const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
 @export var stamina_drain_per_sec: float = 8.0
 @export var min_release_ratio: float = 0.05
 @export var debug_stamina_logs: bool = false
-@export var min_speed: float = 420.0
-@export var max_speed: float = 900.0
+@export var min_range: float = 90.0
+@export var max_range: float = 420.0
 @export var min_damage: int = 1
 @export var max_damage: int = 2
 @export var knockback: float = 220.0
@@ -19,10 +19,9 @@ const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
 @export var arrow_wall_skin: float = 1.0
 @export var arrow_min_center_advance: float = 2.0
 @export var trajectory_points: int = 14
-@export var trajectory_step_time: float = 0.06
 @export var trajectory_gravity: float = 900.0
-@export var min_vertical_launch_speed: float = 220.0
-@export var max_vertical_launch_speed: float = 420.0
+@export var min_flight_time: float = 0.2
+@export var max_flight_time: float = 0.5
 @export var trajectory_update_interval: float = 0.05
 @export var trajectory_aim_significant_delta: float = 8.0
 @export var consume_arrows: bool = true
@@ -217,38 +216,31 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	if owner_entity_node.global_position.distance_squared_to(aim_global) < 0.0001:
 		return
 
-	var angle: float = owner_entity_node.get_angle_to(aim_global)
-	var dir := Vector2.RIGHT.rotated(angle)
-	var speed: float = lerp(min_speed, max_speed, ratio)
-	var start_global := _get_arrow_muzzle_position(owner_entity_node) + dir * arrow_spawn_offset
+	var shot := _build_arrow_shot(ratio)
+	if shot.is_empty():
+		line.points = PackedVector2Array()
+		line.visible = false
+		_last_trajectory_update_time = now_sec
+		_last_trajectory_aim_global = aim_global
+		return
+
+	var start_global: Vector2 = shot["start_global"]
+	var dir: Vector2 = shot["dir"]
+	var ground_speed: float = shot["ground_speed"]
+	var flight_duration: float = shot["flight_duration"]
+	var vertical_launch_speed: float = shot["vertical_launch_speed"]
+	var arc_visibility: float = shot["arc_visibility"]
 
 	var points := PackedVector2Array()
 	line.visible = true
 	var gravity: float = trajectory_gravity
-	var vertical_launch_speed: float = lerpf(min_vertical_launch_speed, max_vertical_launch_speed, ratio)
 	var total_points := maxi(trajectory_points, 2)
-	var step_time := maxf(trajectory_step_time, 0.01)
 	for i in range(total_points):
-		var t: float = float(i) * step_time
-		var point_global := start_global + (dir * speed * t)
-		var point_height: float = (vertical_launch_speed * t) - (0.5 * gravity * t * t)
-
-		if point_height <= 0.0 and i > 0:
-			var prev_t: float = float(i - 1) * step_time
-			var prev_height: float = (vertical_launch_speed * prev_t) - (0.5 * gravity * prev_t * prev_t)
-			var land_t: float = t
-			if prev_height > 0.0:
-				var denom: float = prev_height - point_height
-				if absf(denom) > 0.0001:
-					var alpha: float = clampf(prev_height / denom, 0.0, 1.0)
-					land_t = lerpf(prev_t, t, alpha)
-			var landing_global := start_global + (dir * speed * land_t)
-			points.append(line.to_local(landing_global))
-			break
-
-		if point_height < 0.0:
-			point_height = 0.0
-		point_global.y -= point_height
+		var u: float = float(i) / float(total_points - 1)
+		var t: float = flight_duration * u
+		var ground_point := start_global + dir * ground_speed * t
+		var point_height := maxf(0.0, (vertical_launch_speed * t) - (0.5 * gravity * t * t))
+		var point_global := ground_point + Vector2(0.0, -point_height * arc_visibility)
 		points.append(line.to_local(point_global))
 
 	if points.size() < 2:
@@ -272,10 +264,15 @@ func _fire_arrow(ratio: float) -> void:
 	if owner_entity_node.global_position.distance_squared_to(aim_global) < 0.0001:
 		return
 
-	var angle: float = owner_entity_node.get_angle_to(aim_global)
-	var dir := Vector2.RIGHT.rotated(angle)
+	var shot := _build_arrow_shot(ratio)
+	if shot.is_empty():
+		return
 
-	var speed: float = lerp(min_speed, max_speed, ratio)
+	var dir: Vector2 = shot["dir"]
+	var ground_velocity: Vector2 = shot["ground_velocity"]
+	var vertical_launch_speed: float = shot["vertical_launch_speed"]
+	var flight_duration: float = shot["flight_duration"]
+	var arc_visibility: float = shot["arc_visibility"]
 	var dmg := int(round(lerp(float(min_damage), float(max_damage), ratio)))
 
 	var arrow := ARROW_SCENE.instantiate() as ArrowProjectile
@@ -284,8 +281,16 @@ func _fire_arrow(ratio: float) -> void:
 
 	var launch := _resolve_arrow_launch(owner_entity_node, dir, arrow)
 
-	var vertical_launch_speed: float = lerpf(min_vertical_launch_speed, max_vertical_launch_speed, ratio)
-	arrow.setup(dir * speed, dmg, knockback, owner_entity_node, vertical_launch_speed, 0.0)
+	arrow.setup(
+		ground_velocity,
+		dmg,
+		knockback,
+		owner_entity_node,
+		vertical_launch_speed,
+		0.0,
+		flight_duration,
+		arc_visibility
+	)
 	var scene_root := owner_entity.get_tree().current_scene
 	if scene_root != null:
 		scene_root.add_child(arrow)
@@ -298,6 +303,46 @@ func _fire_arrow(ratio: float) -> void:
 		arrow.embed_in_world(launch["spawn_pos"], dir)
 	else:
 		arrow.call_deferred("validate_spawn_position")
+
+func _build_arrow_shot(ratio: float) -> Dictionary:
+	var owner_entity_node := _get_owner_node2d()
+	if owner_entity_node == null:
+		return {}
+
+	var aim_global := _get_aim_global_position()
+	var muzzle_global := _get_arrow_muzzle_position(owner_entity_node)
+	var to_aim := aim_global - muzzle_global
+	if to_aim.length_squared() < 0.0001:
+		return {}
+
+	var dir := to_aim.normalized()
+	var start_global := muzzle_global + dir * arrow_spawn_offset
+	var to_aim_from_start := aim_global - start_global
+	if to_aim_from_start.length_squared() < 0.0001:
+		return {}
+
+	var max_range_now: float = lerpf(min_range, max_range, ratio)
+	var distance_to_target: float = minf(to_aim_from_start.length(), max_range_now)
+	if distance_to_target <= 0.0:
+		return {}
+
+	var target_global := start_global + dir * distance_to_target
+	var flight_duration: float = maxf(lerpf(min_flight_time, max_flight_time, ratio), 0.05)
+	var ground_speed: float = distance_to_target / flight_duration
+	var vertical_launch_speed: float = 0.5 * trajectory_gravity * flight_duration
+	var arc_visibility: float = absf(dir.x)
+
+	return {
+		"start_global": start_global,
+		"target_global": target_global,
+		"dir": dir,
+		"distance_to_target": distance_to_target,
+		"ground_speed": ground_speed,
+		"ground_velocity": dir * ground_speed,
+		"flight_duration": flight_duration,
+		"vertical_launch_speed": vertical_launch_speed,
+		"arc_visibility": arc_visibility,
+	}
 
 
 func _get_owner_node2d() -> Node2D:
