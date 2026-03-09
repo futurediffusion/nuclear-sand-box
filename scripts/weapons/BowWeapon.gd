@@ -224,24 +224,24 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 
 	var points := PackedVector2Array()
 	line.visible = true
-	var gravity := trajectory_gravity
-	var vertical_launch_speed := lerp(min_vertical_launch_speed, max_vertical_launch_speed, ratio)
+	var gravity: float = trajectory_gravity
+	var vertical_launch_speed: float = lerpf(min_vertical_launch_speed, max_vertical_launch_speed, ratio)
 	var total_points := maxi(trajectory_points, 2)
 	var step_time := maxf(trajectory_step_time, 0.01)
 	for i in range(total_points):
 		var t: float = float(i) * step_time
 		var point_global := start_global + (dir * speed * t)
-		var point_height := (vertical_launch_speed * t) - (0.5 * gravity * t * t)
+		var point_height: float = (vertical_launch_speed * t) - (0.5 * gravity * t * t)
 
 		if point_height <= 0.0 and i > 0:
-			var prev_t := float(i - 1) * step_time
-			var prev_height := (vertical_launch_speed * prev_t) - (0.5 * gravity * prev_t * prev_t)
-			var land_t := t
+			var prev_t: float = float(i - 1) * step_time
+			var prev_height: float = (vertical_launch_speed * prev_t) - (0.5 * gravity * prev_t * prev_t)
+			var land_t: float = t
 			if prev_height > 0.0:
-				var denom := prev_height - point_height
+				var denom: float = prev_height - point_height
 				if absf(denom) > 0.0001:
-					var alpha := clamp(prev_height / denom, 0.0, 1.0)
-					land_t = lerp(prev_t, t, alpha)
+					var alpha: float = clampf(prev_height / denom, 0.0, 1.0)
+					land_t = lerpf(prev_t, t, alpha)
 			var landing_global := start_global + (dir * speed * land_t)
 			points.append(line.to_local(landing_global))
 			break
@@ -284,7 +284,7 @@ func _fire_arrow(ratio: float) -> void:
 
 	var launch := _resolve_arrow_launch(owner_entity_node, dir, arrow)
 
-	var vertical_launch_speed := lerp(min_vertical_launch_speed, max_vertical_launch_speed, ratio)
+	var vertical_launch_speed: float = lerpf(min_vertical_launch_speed, max_vertical_launch_speed, ratio)
 	arrow.setup(dir * speed, dmg, knockback, owner_entity_node, vertical_launch_speed, 0.0)
 	var scene_root := owner_entity.get_tree().current_scene
 	if scene_root != null:
