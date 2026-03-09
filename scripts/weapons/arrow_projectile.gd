@@ -313,7 +313,7 @@ func _tick_stuck_state(delta: float) -> void:
 		if fade_out_duration <= 0.0:
 			queue_free()
 			return
-		var fade_t := clamp((_stuck_elapsed - fade_start) / fade_out_duration, 0.0, 1.0)
+		var fade_t: float = clampf((_stuck_elapsed - fade_start) / fade_out_duration, 0.0, 1.0)
 		_set_visual_alpha(1.0 - fade_t)
 		if fade_t >= 1.0:
 			queue_free()
@@ -341,7 +341,7 @@ func _update_visual_height() -> void:
 
 func _set_visual_alpha(alpha: float) -> void:
 	var color := modulate
-	color.a = clamp(alpha, 0.0, 1.0)
+	color.a = clampf(alpha, 0.0, 1.0)
 	modulate = color
 
 func _get_player_node() -> Node2D:
