@@ -225,8 +225,7 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 		return
 
 	var start_global: Vector2 = shot["start_global"]
-	var dir: Vector2 = shot["dir"]
-	var ground_speed: float = shot["ground_speed"]
+	var ground_velocity: Vector2 = shot["ground_velocity"]
 	var flight_duration: float = shot["flight_duration"]
 	var vertical_launch_speed: float = shot["vertical_launch_speed"]
 	var arc_visibility: float = shot["arc_visibility"]
@@ -238,7 +237,7 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	for i in range(total_points):
 		var u: float = float(i) / float(total_points - 1)
 		var t: float = flight_duration * u
-		var ground_point := start_global + dir * ground_speed * t
+		var ground_point := start_global + ground_velocity * t
 		var point_height := maxf(0.0, (vertical_launch_speed * t) - (0.5 * gravity * t * t))
 		var point_global := ground_point + Vector2(0.0, -point_height * arc_visibility)
 		points.append(line.to_local(point_global))
@@ -268,7 +267,7 @@ func _fire_arrow(ratio: float) -> void:
 	if shot.is_empty():
 		return
 
-	var dir: Vector2 = shot["dir"]
+	var aim_dir: Vector2 = shot["aim_dir"]
 	var ground_velocity: Vector2 = shot["ground_velocity"]
 	var vertical_launch_speed: float = shot["vertical_launch_speed"]
 	var flight_duration: float = shot["flight_duration"]
@@ -279,7 +278,7 @@ func _fire_arrow(ratio: float) -> void:
 	if arrow == null:
 		return
 
-	var launch := _resolve_arrow_launch(owner_entity_node, dir, arrow)
+	var launch := _resolve_arrow_launch(owner_entity_node, aim_dir, arrow)
 
 	arrow.setup(
 		ground_velocity,
@@ -297,10 +296,10 @@ func _fire_arrow(ratio: float) -> void:
 	else:
 		owner_entity.get_tree().root.add_child(arrow)
 	arrow.global_position = launch["spawn_pos"]
-	arrow.rotation = dir.angle()
+	arrow.rotation = aim_dir.angle()
 
 	if bool(launch.get("blocked", false)):
-		arrow.embed_in_world(launch["spawn_pos"], dir)
+		arrow.embed_in_world(launch["spawn_pos"], aim_dir)
 	else:
 		arrow.call_deferred("validate_spawn_position")
 
@@ -315,39 +314,49 @@ func _build_arrow_shot(ratio: float) -> Dictionary:
 	if to_aim.length_squared() < 0.0001:
 		return {}
 
-	var dir := to_aim.normalized()
-	var start_global := muzzle_global + dir * arrow_spawn_offset
+	var aim_dir := to_aim.normalized()
+	var start_global := muzzle_global + aim_dir * arrow_spawn_offset
 	var to_aim_from_start := aim_global - start_global
 	if to_aim_from_start.length_squared() < 0.0001:
 		return {}
 
 	var max_range_now: float = lerpf(min_range, max_range, ratio)
-	var apex_distance: float = minf(to_aim_from_start.length(), max_range_now)
-	if apex_distance <= 0.0:
+	var visual_apex_distance: float = minf(to_aim_from_start.length(), max_range_now)
+	if visual_apex_distance <= 0.0:
 		return {}
 
-	var apex_global := start_global + dir * apex_distance
+	var visual_apex_global := start_global + aim_dir * visual_apex_distance
 	var flight_duration: float = maxf(lerpf(min_flight_time, max_flight_time, ratio), 0.05)
 	var time_to_apex: float = flight_duration * 0.5
-	var ground_speed: float = apex_distance / maxf(time_to_apex, 0.001)
 	var vertical_launch_speed: float = trajectory_gravity * time_to_apex
+	var arc_visibility: float = absf(aim_dir.x)
+	var apex_height: float = (vertical_launch_speed * time_to_apex) - (0.5 * trajectory_gravity * time_to_apex * time_to_apex)
+	var ground_apex_global := visual_apex_global + Vector2(0.0, apex_height * arc_visibility)
+	var ground_to_apex := ground_apex_global - start_global
+	if ground_to_apex.length_squared() < 0.0001:
+		return {}
+	var ground_dir := ground_to_apex.normalized()
+	var ground_speed: float = ground_to_apex.length() / maxf(time_to_apex, 0.001)
+	var ground_velocity := ground_dir * ground_speed
 	var landing_distance: float = ground_speed * flight_duration
-	var landing_global := start_global + dir * landing_distance
-	var arc_visibility: float = absf(dir.x)
+	var landing_global := start_global + ground_dir * landing_distance
 
 	return {
 		"start_global": start_global,
-		"apex_global": apex_global,
+		"visual_apex_global": visual_apex_global,
+		"ground_apex_global": ground_apex_global,
 		"landing_global": landing_global,
-		"dir": dir,
-		"apex_distance": apex_distance,
+		"aim_dir": aim_dir,
+		"ground_dir": ground_dir,
+		"visual_apex_distance": visual_apex_distance,
 		"landing_distance": landing_distance,
 		"ground_speed": ground_speed,
-		"ground_velocity": dir * ground_speed,
+		"ground_velocity": ground_velocity,
 		"flight_duration": flight_duration,
 		"time_to_apex": time_to_apex,
 		"vertical_launch_speed": vertical_launch_speed,
 		"arc_visibility": arc_visibility,
+		"apex_height": apex_height,
 	}
 
 
