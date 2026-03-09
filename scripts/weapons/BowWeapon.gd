@@ -322,24 +322,30 @@ func _build_arrow_shot(ratio: float) -> Dictionary:
 		return {}
 
 	var max_range_now: float = lerpf(min_range, max_range, ratio)
-	var distance_to_target: float = minf(to_aim_from_start.length(), max_range_now)
-	if distance_to_target <= 0.0:
+	var apex_distance: float = minf(to_aim_from_start.length(), max_range_now)
+	if apex_distance <= 0.0:
 		return {}
 
-	var target_global := start_global + dir * distance_to_target
+	var apex_global := start_global + dir * apex_distance
 	var flight_duration: float = maxf(lerpf(min_flight_time, max_flight_time, ratio), 0.05)
-	var ground_speed: float = distance_to_target / flight_duration
-	var vertical_launch_speed: float = 0.5 * trajectory_gravity * flight_duration
+	var time_to_apex: float = flight_duration * 0.5
+	var ground_speed: float = apex_distance / maxf(time_to_apex, 0.001)
+	var vertical_launch_speed: float = trajectory_gravity * time_to_apex
+	var landing_distance: float = ground_speed * flight_duration
+	var landing_global := start_global + dir * landing_distance
 	var arc_visibility: float = absf(dir.x)
 
 	return {
 		"start_global": start_global,
-		"target_global": target_global,
+		"apex_global": apex_global,
+		"landing_global": landing_global,
 		"dir": dir,
-		"distance_to_target": distance_to_target,
+		"apex_distance": apex_distance,
+		"landing_distance": landing_distance,
 		"ground_speed": ground_speed,
 		"ground_velocity": dir * ground_speed,
 		"flight_duration": flight_duration,
+		"time_to_apex": time_to_apex,
 		"vertical_launch_speed": vertical_launch_speed,
 		"arc_visibility": arc_visibility,
 	}

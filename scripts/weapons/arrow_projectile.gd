@@ -345,7 +345,8 @@ func _tick_stuck_state(delta: float) -> void:
 func _update_visual_height() -> void:
 	if _visual_root == null:
 		return
-	_visual_root.position = _visual_base_pos + Vector2(0.0, -(height * _arc_visibility))
+	var screen_offset := Vector2(0.0, -(height * _arc_visibility))
+	_visual_root.position = _visual_base_pos + screen_offset.rotated(-global_rotation)
 
 func _update_visual_rotation() -> void:
 	if _visual_root == null:
