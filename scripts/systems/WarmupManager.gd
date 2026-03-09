@@ -87,7 +87,8 @@ func _warm_scene_instance(packed: PackedScene, warmup_container: Node) -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 
-	instance.queue_free()
+	if is_instance_valid(instance):
+		instance.queue_free()
 	await get_tree().process_frame
 
 func _set_node_processing_recursive(root: Node, should_process: bool) -> void:
