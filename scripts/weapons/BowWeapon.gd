@@ -223,24 +223,36 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	var start_global := _get_arrow_muzzle_position(owner_entity_node) + dir * arrow_spawn_offset
 
 	var points := PackedVector2Array()
-	points.resize(maxi(trajectory_points, 2))
 	line.visible = true
 	var gravity := trajectory_gravity
 	var vertical_launch_speed := lerp(min_vertical_launch_speed, max_vertical_launch_speed, ratio)
-	var reached_ground := false
-	for i in range(maxi(trajectory_points, 2)):
-		var t: float = float(i) * maxf(trajectory_step_time, 0.01)
+	var total_points := maxi(trajectory_points, 2)
+	var step_time := maxf(trajectory_step_time, 0.01)
+	for i in range(total_points):
+		var t: float = float(i) * step_time
 		var point_global := start_global + (dir * speed * t)
 		var point_height := (vertical_launch_speed * t) - (0.5 * gravity * t * t)
+
 		if point_height <= 0.0 and i > 0:
-			point_height = 0.0
-			reached_ground = true
-		point_global.y -= point_height
-		points[i] = line.to_local(point_global)
-		if reached_ground:
-			for j in range(i + 1, maxi(trajectory_points, 2)):
-				points[j] = points[i]
+			var prev_t := float(i - 1) * step_time
+			var prev_height := (vertical_launch_speed * prev_t) - (0.5 * gravity * prev_t * prev_t)
+			var land_t := t
+			if prev_height > 0.0:
+				var denom := prev_height - point_height
+				if absf(denom) > 0.0001:
+					var alpha := clamp(prev_height / denom, 0.0, 1.0)
+					land_t = lerp(prev_t, t, alpha)
+			var landing_global := start_global + (dir * speed * land_t)
+			points.append(line.to_local(landing_global))
 			break
+
+		if point_height < 0.0:
+			point_height = 0.0
+		point_global.y -= point_height
+		points.append(line.to_local(point_global))
+
+	if points.size() < 2:
+		points.append(points[0] if points.size() == 1 else line.to_local(start_global))
 
 	line.points = points
 	_last_trajectory_update_time = now_sec

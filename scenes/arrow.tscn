@@ -12,7 +12,9 @@ script = ExtResource("1_arrow_script")
 collision_layer = 2
 collision_mask = 29
 
-[node name="Sprite" type="Sprite2D" parent="."]
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="Sprite" type="Sprite2D" parent="Visual"]
 texture = ExtResource("2_arrow_texture")
 
 [node name="Collision" type="CollisionShape2D" parent="."]

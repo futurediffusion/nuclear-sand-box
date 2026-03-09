@@ -17,14 +17,16 @@ var ground_velocity: Vector2 = Vector2.ZERO
 var height: float = 0.0
 var vertical_velocity: float = 0.0
 var flight_time: float = 0.0
+# NOTE: Collision remains in base Area2D space (ground plane).
+# Visual height is fake-top-down only and does not affect collision checks.
 
 var _owner_ref: WeakRef = null
 var _stuck: bool = false
 var _distance_check_left: float = 0.0
 var _player_ref: WeakRef = null
 var _stuck_elapsed: float = 0.0
-var _sprite: Sprite2D = null
-var _sprite_base_pos: Vector2 = Vector2.ZERO
+var _visual_root: Node2D = null
+var _visual_base_pos: Vector2 = Vector2.ZERO
 
 func setup(
 	p_ground_velocity: Vector2,
@@ -86,9 +88,11 @@ func validate_spawn_position() -> void:
 		embed_in_world(global_position, Vector2.RIGHT.rotated(rotation))
 
 func _ready() -> void:
-	_sprite = get_node_or_null("Sprite") as Sprite2D
-	if _sprite != null:
-		_sprite_base_pos = _sprite.position
+	_visual_root = get_node_or_null("Visual") as Node2D
+	if _visual_root == null:
+		_visual_root = get_node_or_null("Sprite") as Node2D
+	if _visual_root != null:
+		_visual_base_pos = _visual_root.position
 	flight_time = 0.0
 	_stuck_elapsed = 0.0
 	monitoring = false
@@ -331,9 +335,9 @@ func _tick_stuck_state(delta: float) -> void:
 		queue_free()
 
 func _update_visual_height() -> void:
-	if _sprite == null:
+	if _visual_root == null:
 		return
-	_sprite.position = _sprite_base_pos + Vector2(0.0, -height)
+	_visual_root.position = _visual_base_pos + Vector2(0.0, -height)
 
 func _set_visual_alpha(alpha: float) -> void:
 	var color := modulate
