@@ -12,6 +12,7 @@ const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
 @export var max_distance_from_player: float = 1500.0
 @export var distance_check_interval: float = 0.4
 @export var debug_hit_logs: bool = false
+@export var visual_rotation_offset_deg: float = 0.0
 
 var ground_velocity: Vector2 = Vector2.ZERO
 var height: float = 0.0
@@ -79,6 +80,7 @@ func embed_in_world(at_position: Vector2, facing_dir: Vector2 = Vector2.ZERO) ->
 	global_position = at_position
 	if facing_dir.length_squared() > 0.0001:
 		rotation = facing_dir.angle()
+		_apply_visual_rotation(facing_dir.angle())
 	height = 0.0
 	vertical_velocity = 0.0
 	_stick_to_world()
@@ -108,6 +110,7 @@ func _ready() -> void:
 	body_entered.connect(_on_body_entered)
 	call_deferred("_enable_collision")
 	_update_visual_height()
+	_update_visual_rotation()
 
 func _enable_collision() -> void:
 	if _stuck:
@@ -350,7 +353,12 @@ func _update_visual_rotation() -> void:
 
 	var visual_velocity := ground_velocity + Vector2(0.0, -vertical_velocity * _arc_visibility)
 	if visual_velocity.length_squared() > 0.0001:
-		_visual_root.rotation = visual_velocity.angle()
+		_apply_visual_rotation(visual_velocity.angle())
+
+func _apply_visual_rotation(visual_angle: float) -> void:
+	if _visual_root == null:
+		return
+	_visual_root.global_rotation = visual_angle + deg_to_rad(visual_rotation_offset_deg)
 
 func _set_visual_alpha(alpha: float) -> void:
 	var color := modulate
