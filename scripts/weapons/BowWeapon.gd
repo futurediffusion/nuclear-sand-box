@@ -21,6 +21,8 @@ const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
 @export var trajectory_points: int = 14
 @export var trajectory_step_time: float = 0.06
 @export var trajectory_gravity: float = 900.0
+@export var min_vertical_launch_speed: float = 220.0
+@export var max_vertical_launch_speed: float = 420.0
 @export var trajectory_update_interval: float = 0.05
 @export var trajectory_aim_significant_delta: float = 8.0
 @export var consume_arrows: bool = true
@@ -224,11 +226,21 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	points.resize(maxi(trajectory_points, 2))
 	line.visible = true
 	var gravity := trajectory_gravity
+	var vertical_launch_speed := lerp(min_vertical_launch_speed, max_vertical_launch_speed, ratio)
+	var reached_ground := false
 	for i in range(maxi(trajectory_points, 2)):
 		var t: float = float(i) * maxf(trajectory_step_time, 0.01)
 		var point_global := start_global + (dir * speed * t)
-		point_global.y += 0.5 * gravity * t * t
+		var point_height := (vertical_launch_speed * t) - (0.5 * gravity * t * t)
+		if point_height <= 0.0 and i > 0:
+			point_height = 0.0
+			reached_ground = true
+		point_global.y -= point_height
 		points[i] = line.to_local(point_global)
+		if reached_ground:
+			for j in range(i + 1, maxi(trajectory_points, 2)):
+				points[j] = points[i]
+			break
 
 	line.points = points
 	_last_trajectory_update_time = now_sec
@@ -260,7 +272,8 @@ func _fire_arrow(ratio: float) -> void:
 
 	var launch := _resolve_arrow_launch(owner_entity_node, dir, arrow)
 
-	arrow.setup(dir * speed, dmg, knockback, owner_entity_node)
+	var vertical_launch_speed := lerp(min_vertical_launch_speed, max_vertical_launch_speed, ratio)
+	arrow.setup(dir * speed, dmg, knockback, owner_entity_node, vertical_launch_speed, 0.0)
 	var scene_root := owner_entity.get_tree().current_scene
 	if scene_root != null:
 		scene_root.add_child(arrow)
