@@ -11,12 +11,13 @@ extends Node
 @export var terrain_set_id := 0
 @export var dirt_terrain_id := 0
 @export var grass_terrain_id := 1
-@export var biome_module_size: int = 6
-@export var biome_module_bias: float = 0.22
-@export var dirt_threshold: float = 0.46
-@export var grass_threshold: float = 0.60
+@export var edge_margin_x := 20
+@export var edge_margin_y := 10
+@export var min_nodes := 5
+@export var max_nodes := 8
+@export var corridor_width := 1
 
-var biome_noise := FastNoiseLite.new()
+var nodes: Array[Dictionary] = []
 
 @onready var tilemap: TileMap = get_node_or_null(ground_path)
 @onready var player: Node2D = get_node_or_null(player_path)
@@ -32,11 +33,6 @@ func _ready() -> void:
 		return
 
 	_sync_terrain_ids_from_tileset()
-
-	biome_noise.seed = randi()
-	biome_noise.frequency = 0.015
-	biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-
 	generate_world()
 	spawn_player_center()
 	print("Generated cells:", tilemap.get_used_cells(layer).size())
@@ -44,29 +40,146 @@ func _ready() -> void:
 
 func generate_world() -> void:
 	tilemap.clear_layer(layer)
-	var dirt_cells: Array[Vector2i] = []
-	var grass_cells: Array[Vector2i] = []
+	nodes.clear()
 
+	# Base completa de pasto para que el dirt use transiciones del terrain set existente.
+	var all_cells: Array[Vector2i] = []
 	for x in range(x_min, x_max + 1):
 		for y in range(y_min, y_max + 1):
-			var cell := Vector2i(x, y)
-			if get_biome(x, y) == 0:
-				dirt_cells.append(cell)
-			else:
-				grass_cells.append(cell)
+			all_cells.append(Vector2i(x, y))
+	if all_cells.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, all_cells, terrain_set_id, grass_terrain_id, false)
 
-	if dirt_cells.size() > 0:
-		tilemap.set_cells_terrain_connect(layer, dirt_cells, terrain_set_id, dirt_terrain_id, false)
+	create_nodes()
+	connect_nodes()
+	paint_terrain_features()
 
-	if grass_cells.size() > 0:
-		tilemap.set_cells_terrain_connect(layer, grass_cells, terrain_set_id, grass_terrain_id, false)
 
-	# Segunda pasada para que el autotile vuelva a evaluar bordes entre biomas.
-	if dirt_cells.size() > 0:
-		tilemap.set_cells_terrain_connect(layer, dirt_cells, terrain_set_id, dirt_terrain_id, false)
+func create_nodes() -> void:
+	var count := randi_range(min_nodes, max_nodes)
+	for _i in range(count):
+		var node := {
+			"pos": Vector2i(
+				randi_range(x_min + edge_margin_x, x_max - edge_margin_x),
+				randi_range(y_min + edge_margin_y, y_max - edge_margin_y)
+			),
+			"radius": randi_range(6, 12)
+		}
+		nodes.append(node)
 
-	if grass_cells.size() > 0:
-		tilemap.set_cells_terrain_connect(layer, grass_cells, terrain_set_id, grass_terrain_id, false)
+
+func connect_nodes() -> void:
+	if nodes.size() < 2:
+		return
+
+	for i in range(nodes.size() - 1):
+		var a: Vector2i = nodes[i]["pos"]
+		var b: Vector2i = nodes[i + 1]["pos"]
+		draw_path(a, b)
+
+	# Cierra un loop opcional para una estructura más navegable.
+	if nodes.size() >= 4 and randf() < 0.6:
+		var first: Vector2i = nodes[0]["pos"]
+		var last: Vector2i = nodes[nodes.size() - 1]["pos"]
+		draw_path(first, last)
+
+
+func paint_terrain_features() -> void:
+	for node_data in nodes:
+		paint_node(node_data)
+
+	# Parches sueltos para romper formas demasiado limpias.
+	var patch_count := randi_range(6, 12)
+	for _i in range(patch_count):
+		paint_small_patch(Vector2i(
+			randi_range(x_min + edge_margin_x, x_max - edge_margin_x),
+			randi_range(y_min + edge_margin_y, y_max - edge_margin_y)
+		))
+
+
+func paint_node(node_data: Dictionary) -> void:
+	var center: Vector2i = node_data["pos"]
+	var radius: int = node_data["radius"]
+	var cells: Array[Vector2i] = []
+
+	for x in range(-radius, radius + 1):
+		for y in range(-radius, radius + 1):
+			var p := center + Vector2i(x, y)
+			if not _is_inside_bounds(p):
+				continue
+
+			var dist := Vector2(x, y).length()
+			var jitter := randf_range(-2.2, 2.2)
+			if dist <= radius + jitter:
+				cells.append(p)
+
+	if cells.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, cells, terrain_set_id, dirt_terrain_id, false)
+
+
+func draw_path(a: Vector2i, b: Vector2i) -> void:
+	var pos := a
+	var corridor_cells: Array[Vector2i] = []
+
+	while pos != b:
+		_append_corridor_brush(corridor_cells, pos)
+
+		if abs(b.x - pos.x) > abs(b.y - pos.y):
+			pos.x += sign(b.x - pos.x)
+		else:
+			pos.y += sign(b.y - pos.y)
+
+	_append_corridor_brush(corridor_cells, b)
+	if corridor_cells.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, corridor_cells, terrain_set_id, dirt_terrain_id, false)
+
+
+func paint_small_patch(center: Vector2i) -> void:
+	var shape_roll := randi_range(0, 2)
+	var cells: Array[Vector2i] = []
+
+	match shape_roll:
+		0:
+			# Dot + cruz pequeña.
+			cells = [
+				center,
+				center + Vector2i.LEFT,
+				center + Vector2i.RIGHT,
+				center + Vector2i.UP,
+				center + Vector2i.DOWN,
+			]
+		1:
+			# Diamante.
+			for x in range(-2, 3):
+				for y in range(-2, 3):
+					if abs(x) + abs(y) <= 2:
+						cells.append(center + Vector2i(x, y))
+		_:
+			# Círculo pixelado pequeño.
+			for x in range(-3, 4):
+				for y in range(-3, 4):
+					if Vector2(x, y).length() <= 2.8 + randf_range(-0.6, 0.6):
+						cells.append(center + Vector2i(x, y))
+
+	var filtered: Array[Vector2i] = []
+	for c in cells:
+		if _is_inside_bounds(c):
+			filtered.append(c)
+
+	if filtered.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, filtered, terrain_set_id, dirt_terrain_id, false)
+
+
+func _append_corridor_brush(cells: Array[Vector2i], pos: Vector2i) -> void:
+	for x in range(-corridor_width, corridor_width + 1):
+		for y in range(-corridor_width, corridor_width + 1):
+			var p := pos + Vector2i(x, y)
+			if _is_inside_bounds(p):
+				cells.append(p)
+
+
+func _is_inside_bounds(cell: Vector2i) -> bool:
+	return cell.x >= x_min and cell.x <= x_max and cell.y >= y_min and cell.y <= y_max
 
 
 func _sync_terrain_ids_from_tileset() -> void:
@@ -99,41 +212,14 @@ func _find_terrain_id_by_name(expected_name: String) -> int:
 	return -1
 
 
-func get_biome(x: int, y: int) -> int:
-	var noise_v := (biome_noise.get_noise_2d(x, y) + 1.0) * 0.5
-	var module_v := _module_pattern_value(x, y)
-	var v := clampf(noise_v + (module_v * biome_module_bias), 0.0, 1.0)
-	if v < dirt_threshold:
-		return 0
-	elif v >= grass_threshold:
-		return 1
-	return 0
-
-
-func _module_pattern_value(x: int, y: int) -> float:
-	var module_size: int = max(1, biome_module_size)
-	var module_x: int = int(floor(float(x) / float(module_size)))
-	var module_y: int = int(floor(float(y) / float(module_size)))
-	var module_pos := Vector2i(module_x, module_y)
-
-	var gate_roll: int = int(abs(hash(module_pos)) % 100)
-	var path_roll: int = int(abs(hash(module_pos + Vector2i(31, 17))) % 100)
-	if gate_roll < 18:
-		return -1.0
-	if path_roll < 28:
-		return -0.65
-
-	var block_roll: int = int(abs(hash(module_pos + Vector2i(97, -53))) % 100)
-	if block_roll < 36:
-		return 0.20
-	if block_roll > 84:
-		return 0.75
-	return -0.15
-
-
 func spawn_player_center() -> void:
 	if player == null:
 		push_warning("WorldGeneratorTest: Player no encontrado para reposicionar.")
 		return
 
-	player.global_position = tilemap.map_to_local(Vector2i(0, -5))
+	if nodes.is_empty():
+		player.global_position = tilemap.map_to_local(Vector2i(0, -5))
+		return
+
+	var spawn_cell: Vector2i = nodes[0]["pos"]
+	player.global_position = tilemap.map_to_local(spawn_cell)
