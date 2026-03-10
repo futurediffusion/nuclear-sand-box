@@ -31,6 +31,8 @@ func _ready() -> void:
 		push_error("WorldGeneratorTest: TileMapGround no tiene TileSet asignado.")
 		return
 
+	_sync_terrain_ids_from_tileset()
+
 	biome_noise.seed = randi()
 	biome_noise.frequency = 0.015
 	biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -54,10 +56,47 @@ func generate_world() -> void:
 				grass_cells.append(cell)
 
 	if dirt_cells.size() > 0:
-		tilemap.set_cells_terrain_connect(layer, dirt_cells, terrain_set_id, dirt_terrain_id, true)
+		tilemap.set_cells_terrain_connect(layer, dirt_cells, terrain_set_id, dirt_terrain_id, false)
 
 	if grass_cells.size() > 0:
-		tilemap.set_cells_terrain_connect(layer, grass_cells, terrain_set_id, grass_terrain_id, true)
+		tilemap.set_cells_terrain_connect(layer, grass_cells, terrain_set_id, grass_terrain_id, false)
+
+	# Segunda pasada para que el autotile vuelva a evaluar bordes entre biomas.
+	if dirt_cells.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, dirt_cells, terrain_set_id, dirt_terrain_id, false)
+
+	if grass_cells.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, grass_cells, terrain_set_id, grass_terrain_id, false)
+
+
+func _sync_terrain_ids_from_tileset() -> void:
+	var ts := tilemap.tile_set
+	var terrain_count := ts.get_terrains_count(terrain_set_id)
+	if terrain_count <= 0:
+		push_warning("WorldGeneratorTest: terrain_set_id sin terrains. Revisa TileSetGround.")
+		return
+
+	if dirt_terrain_id < 0 or dirt_terrain_id >= terrain_count:
+		var by_name := _find_terrain_id_by_name("dirt")
+		if by_name != -1:
+			dirt_terrain_id = by_name
+
+	if grass_terrain_id < 0 or grass_terrain_id >= terrain_count:
+		var by_name := _find_terrain_id_by_name("grass")
+		if by_name != -1:
+			grass_terrain_id = by_name
+
+	if dirt_terrain_id == grass_terrain_id:
+		push_warning("WorldGeneratorTest: dirt_terrain_id y grass_terrain_id apuntan al mismo terrain.")
+
+
+func _find_terrain_id_by_name(expected_name: String) -> int:
+	var ts := tilemap.tile_set
+	var terrain_count := ts.get_terrains_count(terrain_set_id)
+	for terrain_id in range(terrain_count):
+		if ts.get_terrain_name(terrain_set_id, terrain_id).to_lower() == expected_name:
+			return terrain_id
+	return -1
 
 
 func get_biome(x: int, y: int) -> int:
