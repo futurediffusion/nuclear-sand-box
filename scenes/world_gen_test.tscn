@@ -13,7 +13,7 @@ layer_0/name = "Ground"
 
 [node name="WorldGenerator" type="Node" parent="."]
 script = ExtResource("2_generator")
-ground = NodePath("../TileMap_Ground")
+ground_path = NodePath("../TileMap_Ground")
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
 position = Vector2(960, 960)
