@@ -1,141 +1,48 @@
 extends Node
 
-@export_node_path("TileMap") var ground_path: NodePath = ^"../TileMap_Ground"
-@export var map_size := Vector2i(120, 120)
+@export_node_path("TileMap") var ground_path: NodePath = ^"../TileMapGround"
+@export_node_path("Node2D") var player_path: NodePath = ^"../Player"
 
-@onready var ground: TileMap = get_node_or_null(ground_path)
+@export var x_min := -100
+@export var x_max := 100
+@export var y_min := -40
+@export var y_max := 10
+@export var layer := 0
+@export var source_id := 0
+@export var atlas_coords := Vector2i(0, 0)
 
-const TERRAIN_SET := 0
-const DIRT := 0
-const GRASS := 1
+@onready var tilemap: TileMap = get_node_or_null(ground_path)
+@onready var player: Node2D = get_node_or_null(player_path)
 
 
 func _ready() -> void:
-	if ground == null:
-		push_error("WorldGeneratorTest: ground TileMap no configurado (ground_path).")
+	if tilemap == null:
+		push_error("WorldGeneratorTest: TileMapGround no configurado (ground_path).")
 		return
 
-	randomize()
+	if tilemap.tile_set == null:
+		push_error("WorldGeneratorTest: TileMapGround no tiene TileSet asignado.")
+		return
+
+	if not tilemap.tile_set.has_source(source_id):
+		push_error("WorldGeneratorTest: source_id %d no existe en el TileSet." % source_id)
+		return
+
 	generate_world()
-
-
-func fill_grass() -> void:
-	for x in range(map_size.x):
-		for y in range(map_size.y):
-			ground.set_cells_terrain_connect(
-				0,
-				[Vector2i(x, y)],
-				TERRAIN_SET,
-				GRASS
-			)
-
-
-func blob(center: Vector2i, radius: int) -> void:
-	for x in range(-radius, radius):
-		for y in range(-radius, radius):
-			var pos := center + Vector2i(x, y)
-			if pos.x < 0 or pos.y < 0:
-				continue
-			if pos.x >= map_size.x or pos.y >= map_size.y:
-				continue
-
-			var dist := Vector2(x, y).length()
-			if dist < radius + randf_range(-2.0, 2.0):
-				ground.set_cells_terrain_connect(
-					0,
-					[pos],
-					TERRAIN_SET,
-					DIRT
-				)
-
-
-func patch_rect(center: Vector2i, size: int) -> void:
-	for x in range(-size, size):
-		for y in range(-size, size):
-			if randf() < 0.85:
-				var pos := center + Vector2i(x, y)
-				if pos.x < 0 or pos.y < 0:
-					continue
-				if pos.x >= map_size.x or pos.y >= map_size.y:
-					continue
-
-				ground.set_cells_terrain_connect(
-					0,
-					[pos],
-					TERRAIN_SET,
-					DIRT
-				)
-
-
-func path(start: Vector2i, length: int) -> void:
-	var pos := start
-	var dirs := [
-		Vector2i.LEFT,
-		Vector2i.RIGHT,
-		Vector2i.UP,
-		Vector2i.DOWN,
-	]
-	var dir: Vector2i = dirs.pick_random()
-
-	for _i in range(length):
-		if pos.x < 0 or pos.y < 0 or pos.x >= map_size.x or pos.y >= map_size.y:
-			break
-
-		ground.set_cells_terrain_connect(
-			0,
-			[pos],
-			TERRAIN_SET,
-			DIRT
-		)
-
-		pos += dir
-		if randf() < 0.25:
-			dir = dirs.pick_random()
-
-
-func sprinkle() -> void:
-	for _i in range(200):
-		var pos := Vector2i(
-			randi_range(0, map_size.x - 1),
-			randi_range(0, map_size.y - 1)
-		)
-		if randf() < 0.35:
-			ground.set_cells_terrain_connect(
-				0,
-				[pos],
-				TERRAIN_SET,
-				DIRT
-			)
+	spawn_player_center()
+	print("Generated cells:", tilemap.get_used_cells(layer).size())
 
 
 func generate_world() -> void:
-	fill_grass()
+	tilemap.clear_layer(layer)
+	for x in range(x_min, x_max + 1):
+		for y in range(y_min, y_max + 1):
+			tilemap.set_cell(layer, Vector2i(x, y), source_id, atlas_coords)
 
-	for _i in range(6):
-		blob(
-			Vector2i(
-				randi_range(10, map_size.x - 10),
-				randi_range(10, map_size.y - 10)
-			),
-			randi_range(6, 12)
-		)
 
-	for _i in range(4):
-		patch_rect(
-			Vector2i(
-				randi_range(10, map_size.x - 10),
-				randi_range(10, map_size.y - 10)
-			),
-			randi_range(3, 6)
-		)
+func spawn_player_center() -> void:
+	if player == null:
+		push_warning("WorldGeneratorTest: Player no encontrado para reposicionar.")
+		return
 
-	for _i in range(8):
-		path(
-			Vector2i(
-				randi_range(0, map_size.x - 1),
-				randi_range(0, map_size.y - 1)
-			),
-			randi_range(10, 40)
-		)
-
-	sprinkle()
+	player.global_position = tilemap.map_to_local(Vector2i(0, -5))
