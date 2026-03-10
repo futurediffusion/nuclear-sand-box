@@ -6,8 +6,8 @@ extends Node
 @onready var ground: TileMap = get_node_or_null(ground_path)
 
 const TERRAIN_SET := 0
-const GRASS := 0
-const DIRT := 1
+const DIRT := 0
+const GRASS := 1
 
 
 func _ready() -> void:
