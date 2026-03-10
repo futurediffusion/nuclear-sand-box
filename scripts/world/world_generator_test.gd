@@ -8,11 +8,13 @@ extends Node
 @export var y_min := -40
 @export var y_max := 10
 @export var layer := 0
-@export var source_id := 0
+@export var terrain_set_id := 0
+@export var dirt_terrain_id := 0
+@export var grass_terrain_id := 1
 @export var biome_module_size: int = 6
 @export var biome_module_bias: float = 0.22
 @export var dirt_threshold: float = 0.46
-@export var grass_threshold: float = 0.72
+@export var grass_threshold: float = 0.60
 
 var biome_noise := FastNoiseLite.new()
 
@@ -29,10 +31,6 @@ func _ready() -> void:
 		push_error("WorldGeneratorTest: TileMapGround no tiene TileSet asignado.")
 		return
 
-	if not tilemap.tile_set.has_source(source_id):
-		push_error("WorldGeneratorTest: source_id %d no existe en el TileSet." % source_id)
-		return
-
 	biome_noise.seed = randi()
 	biome_noise.frequency = 0.015
 	biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -44,10 +42,22 @@ func _ready() -> void:
 
 func generate_world() -> void:
 	tilemap.clear_layer(layer)
+	var dirt_cells: Array[Vector2i] = []
+	var grass_cells: Array[Vector2i] = []
+
 	for x in range(x_min, x_max + 1):
 		for y in range(y_min, y_max + 1):
-			var atlas_coords := pick_tile(x, y)
-			tilemap.set_cell(layer, Vector2i(x, y), source_id, atlas_coords)
+			var cell := Vector2i(x, y)
+			if get_biome(x, y) == 0:
+				dirt_cells.append(cell)
+			else:
+				grass_cells.append(cell)
+
+	if dirt_cells.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, dirt_cells, terrain_set_id, dirt_terrain_id, true)
+
+	if grass_cells.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, grass_cells, terrain_set_id, grass_terrain_id, true)
 
 
 func get_biome(x: int, y: int) -> int:
@@ -56,9 +66,9 @@ func get_biome(x: int, y: int) -> int:
 	var v := clampf(noise_v + (module_v * biome_module_bias), 0.0, 1.0)
 	if v < dirt_threshold:
 		return 0
-	elif v > grass_threshold:
-		return 2
-	return 1
+	elif v >= grass_threshold:
+		return 1
+	return 0
 
 
 func _module_pattern_value(x: int, y: int) -> float:
@@ -80,18 +90,6 @@ func _module_pattern_value(x: int, y: int) -> float:
 	if block_roll > 84:
 		return 0.75
 	return -0.15
-
-
-func pick_tile(x: int, y: int) -> Vector2i:
-	match get_biome(x, y):
-		0:
-			return Vector2i(abs(hash(Vector2i(x, y))) % 3, 1)
-		1:
-			return Vector2i(abs(hash(Vector2i(x, y) + Vector2i(11, 7))) % 3, 0)
-		2:
-			return Vector2i(abs(hash(Vector2i(x, y) + Vector2i(23, -13))) % 3, 2)
-		_:
-			return Vector2i(0, 0)
 
 
 func spawn_player_center() -> void:
