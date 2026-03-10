@@ -1,7 +1,9 @@
 extends Node
 
-@export var ground: TileMap
+@export_node_path("TileMap") var ground_path: NodePath = ^"../TileMap_Ground"
 @export var map_size := Vector2i(120, 120)
+
+@onready var ground: TileMap = get_node_or_null(ground_path)
 
 const TERRAIN_SET := 0
 const GRASS := 0
@@ -9,6 +11,10 @@ const DIRT := 1
 
 
 func _ready() -> void:
+	if ground == null:
+		push_error("WorldGeneratorTest: ground TileMap no configurado (ground_path).")
+		return
+
 	randomize()
 	generate_world()
 
