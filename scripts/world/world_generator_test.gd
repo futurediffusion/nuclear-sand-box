@@ -1,141 +1,48 @@
 extends Node
 
-@export_node_path("TileMap") var ground_path: NodePath = ^"../TileMap_Ground"
-@export var map_size := Vector2i(120, 120)
+@export var map_min_x := -100
+@export var map_max_x := 100
+@export var map_min_y := -40
+@export var map_max_y := 10
+@export var ground_source_id := 0
+@export var dirt_source_id := 1
+@export var ground_atlas := Vector2i(0, 0)
+@export var dirt_atlas := Vector2i(0, 0)
 
-@onready var ground: TileMap = get_node_or_null(ground_path)
-
-const TERRAIN_SET := 0
-const DIRT := 0
-const GRASS := 1
+@onready var tilemap: TileMap = get_node_or_null("../TileMapGround")
+@onready var player: Node2D = get_node_or_null("../Player")
 
 
 func _ready() -> void:
-	if ground == null:
-		push_error("WorldGeneratorTest: ground TileMap no configurado (ground_path).")
+	if tilemap == null:
+		push_error("WorldGeneratorTest: no se encontró ../TileMapGround")
+		return
+
+	if tilemap.tile_set == null:
+		push_error("WorldGeneratorTest: TileMapGround no tiene TileSet asignado")
 		return
 
 	randomize()
 	generate_world()
-
-
-func fill_grass() -> void:
-	for x in range(map_size.x):
-		for y in range(map_size.y):
-			ground.set_cells_terrain_connect(
-				0,
-				[Vector2i(x, y)],
-				TERRAIN_SET,
-				GRASS
-			)
-
-
-func blob(center: Vector2i, radius: int) -> void:
-	for x in range(-radius, radius):
-		for y in range(-radius, radius):
-			var pos := center + Vector2i(x, y)
-			if pos.x < 0 or pos.y < 0:
-				continue
-			if pos.x >= map_size.x or pos.y >= map_size.y:
-				continue
-
-			var dist := Vector2(x, y).length()
-			if dist < radius + randf_range(-2.0, 2.0):
-				ground.set_cells_terrain_connect(
-					0,
-					[pos],
-					TERRAIN_SET,
-					DIRT
-				)
-
-
-func patch_rect(center: Vector2i, size: int) -> void:
-	for x in range(-size, size):
-		for y in range(-size, size):
-			if randf() < 0.85:
-				var pos := center + Vector2i(x, y)
-				if pos.x < 0 or pos.y < 0:
-					continue
-				if pos.x >= map_size.x or pos.y >= map_size.y:
-					continue
-
-				ground.set_cells_terrain_connect(
-					0,
-					[pos],
-					TERRAIN_SET,
-					DIRT
-				)
-
-
-func path(start: Vector2i, length: int) -> void:
-	var pos := start
-	var dirs := [
-		Vector2i.LEFT,
-		Vector2i.RIGHT,
-		Vector2i.UP,
-		Vector2i.DOWN,
-	]
-	var dir: Vector2i = dirs.pick_random()
-
-	for _i in range(length):
-		if pos.x < 0 or pos.y < 0 or pos.x >= map_size.x or pos.y >= map_size.y:
-			break
-
-		ground.set_cells_terrain_connect(
-			0,
-			[pos],
-			TERRAIN_SET,
-			DIRT
-		)
-
-		pos += dir
-		if randf() < 0.25:
-			dir = dirs.pick_random()
-
-
-func sprinkle() -> void:
-	for _i in range(200):
-		var pos := Vector2i(
-			randi_range(0, map_size.x - 1),
-			randi_range(0, map_size.y - 1)
-		)
-		if randf() < 0.35:
-			ground.set_cells_terrain_connect(
-				0,
-				[pos],
-				TERRAIN_SET,
-				DIRT
-			)
+	spawn_player_center()
+	print("Generated cells:", tilemap.get_used_cells(0).size())
 
 
 func generate_world() -> void:
-	fill_grass()
+	tilemap.clear_layer(0)
 
-	for _i in range(6):
-		blob(
-			Vector2i(
-				randi_range(10, map_size.x - 10),
-				randi_range(10, map_size.y - 10)
-			),
-			randi_range(6, 12)
-		)
+	for x in range(map_min_x, map_max_x + 1):
+		for y in range(map_min_y, map_max_y + 1):
+			var use_dirt := y > -8 or randf() < 0.08
+			if use_dirt:
+				tilemap.set_cell(0, Vector2i(x, y), dirt_source_id, dirt_atlas)
+			else:
+				tilemap.set_cell(0, Vector2i(x, y), ground_source_id, ground_atlas)
 
-	for _i in range(4):
-		patch_rect(
-			Vector2i(
-				randi_range(10, map_size.x - 10),
-				randi_range(10, map_size.y - 10)
-			),
-			randi_range(3, 6)
-		)
 
-	for _i in range(8):
-		path(
-			Vector2i(
-				randi_range(0, map_size.x - 1),
-				randi_range(0, map_size.y - 1)
-			),
-			randi_range(10, 40)
-		)
+func spawn_player_center() -> void:
+	if player == null:
+		push_warning("WorldGeneratorTest: no se encontró ../Player para reposicionar")
+		return
 
-	sprinkle()
+	player.global_position = tilemap.map_to_local(Vector2i(0, -5))

@@ -6,14 +6,13 @@
 
 [node name="WorldGenTest" type="Node2D"]
 
-[node name="TileMap_Ground" type="TileMap" parent="."]
+[node name="TileMapGround" type="TileMap" parent="."]
 tile_set = ExtResource("1_tileset")
 format = 2
 layer_0/name = "Ground"
 
 [node name="WorldGenerator" type="Node" parent="."]
 script = ExtResource("2_generator")
-ground_path = NodePath("../TileMap_Ground")
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
-position = Vector2(960, 960)
+position = Vector2(0, 0)
