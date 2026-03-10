@@ -1,4 +1,4 @@
-[gd_scene load_steps=24 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=25 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
@@ -14,6 +14,7 @@
 [ext_resource type="Texture2D" uid="uid://bgcahwp1ti4nn" path="res://art/sprites/heart-empty.png" id="9_choun"]
 [ext_resource type="PackedScene" uid="uid://cpctsrqkuyufx" path="res://scenes/blood_droplet.tscn" id="9_dp3eg"]
 [ext_resource type="Texture2D" uid="uid://b3wu74258jwbc" path="res://art/sprites/stamina-over..png" id="10_eb6dy"]
+[ext_resource type="TileSet" uid="uid://bts015k5iokqt" path="res://scenes/TileMap_Ground.tres" id="10_pm3ni"]
 [ext_resource type="Texture2D" uid="uid://dml1n360g720t" path="res://art/sprites/stamina-under.png" id="10_trceg"]
 [ext_resource type="Texture2D" uid="uid://b5syi5vb3w5xy" path="res://art/sprites/stamina-progress.png" id="11_trceg"]
 [ext_resource type="PackedScene" uid="uid://x4mnfcrurq20" path="res://scenes/copper_ore.tscn" id="13_trceg"]
@@ -60,6 +61,11 @@ z_index = 5
 material = SubResource("ShaderMaterial_0ld40")
 tile_set = ExtResource("14_a8y0u")
 format = 2
+
+[node name="TileMap_Ground" type="TileMap" parent="World"]
+tile_set = ExtResource("10_pm3ni")
+format = 2
+layer_0/tile_data = PackedInt32Array(196606, 262147, 4)
 
 [node name="Player" parent="." instance=ExtResource("1_o5qli")]
 position = Vector2(126.8, 77.2)
