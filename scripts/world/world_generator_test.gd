@@ -67,14 +67,14 @@ func _module_pattern_value(x: int, y: int) -> float:
 	var module_y: int = int(floor(float(y) / float(module_size)))
 	var module_pos := Vector2i(module_x, module_y)
 
-	var gate_roll := abs(hash(module_pos)) % 100
-	var path_roll := abs(hash(module_pos + Vector2i(31, 17))) % 100
+	var gate_roll: int = int(abs(hash(module_pos)) % 100)
+	var path_roll: int = int(abs(hash(module_pos + Vector2i(31, 17))) % 100)
 	if gate_roll < 18:
 		return -1.0
 	if path_roll < 28:
 		return -0.65
 
-	var block_roll := abs(hash(module_pos + Vector2i(97, -53))) % 100
+	var block_roll: int = int(abs(hash(module_pos + Vector2i(97, -53))) % 100)
 	if block_roll < 36:
 		return 0.20
 	if block_roll > 84:
