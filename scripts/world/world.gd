@@ -11,6 +11,8 @@ var _tile_painter := TilePainter.new()
 @export var height: int = 256
 @export var chunk_size: int = 32
 @export var active_radius: int = 1
+@export var biome_module_size: int = 6
+@export var biome_module_bias: float = 0.22
 @export var copper_ore_scene: PackedScene
 @export var chunk_check_interval: float = 0.3
 @export var npc_lite_enabled: bool = true
@@ -555,10 +557,34 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 	_tile_painter.erase_chunk_region(walls_tilemap, chunk_pos, chunk_size, [WALLS_MAP_LAYER])
 
 func get_biome(x: int, y: int) -> int:
-	var v := (biome_noise.get_noise_2d(x, y) + 1.0) * 0.5
-	if v < 0.38: return 0
-	elif v > 0.62: return 2
-	else: return 1
+	var noise_v := (biome_noise.get_noise_2d(x, y) + 1.0) * 0.5
+	var module_v := _module_pattern_value(x, y)
+	var v := clampf(noise_v + (module_v * biome_module_bias), 0.0, 1.0)
+	if v < 0.46:
+		return 0
+	elif v > 0.72:
+		return 2
+	return 1
+
+func _module_pattern_value(x: int, y: int) -> float:
+	var module_size: int = max(1, biome_module_size)
+	var module_x: int = int(floor(float(x) / float(module_size)))
+	var module_y: int = int(floor(float(y) / float(module_size)))
+	var module_pos := Vector2i(module_x, module_y)
+
+	var gate_roll := abs(hash(module_pos)) % 100
+	var path_roll := abs(hash(module_pos + Vector2i(31, 17))) % 100
+	if gate_roll < 18:
+		return -1.0
+	if path_roll < 28:
+		return -0.65
+
+	var block_roll := abs(hash(module_pos + Vector2i(97, -53))) % 100
+	if block_roll < 36:
+		return 0.20
+	if block_roll > 84:
+		return 0.75
+	return -0.15
 
 func pick_tile(x: int, y: int) -> Vector2i:
 	var biome := get_biome(x, y)
