@@ -12,12 +12,12 @@ tile_set = ExtResource("1_tileset")
 format = 2
 layer_0/name = "Ground"
 
-[node name="WorldGenerator" type="Node" parent="."]
-script = ExtResource("2_generator")
-
-[node name="Player" parent="." instance=ExtResource("3_player")]
-
 [node name="TileMap_Cliffs" type="TileMap" parent="."]
 z_index = 1
 tile_set = ExtResource("2_glokq")
 format = 2
+
+[node name="WorldGenerator" type="Node" parent="."]
+script = ExtResource("2_generator")
+
+[node name="Player" parent="." instance=ExtResource("3_player")]
