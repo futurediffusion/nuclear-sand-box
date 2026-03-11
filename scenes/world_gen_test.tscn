@@ -1,7 +1,8 @@
-[gd_scene load_steps=4 format=3 uid="uid://0jqbk53u8dc0"]
+[gd_scene load_steps=5 format=3 uid="uid://0jqbk53u8dc0"]
 
 [ext_resource type="TileSet" uid="uid://bts015k5iokqt" path="res://scenes/TileMap_Ground.tres" id="1_tileset"]
-[ext_resource type="Script" path="res://scripts/world/world_generator_test.gd" id="2_generator"]
+[ext_resource type="Script" uid="uid://bfqh3h4uecdv5" path="res://scripts/world/world_generator_test.gd" id="2_generator"]
+[ext_resource type="TileSet" uid="uid://ct6ocjg1ymnwv" path="res://scenes/TileMap_Cliffs .tres" id="2_glokq"]
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="3_player"]
 
 [node name="WorldGenTest" type="Node2D"]
@@ -13,7 +14,10 @@ layer_0/name = "Ground"
 
 [node name="WorldGenerator" type="Node" parent="."]
 script = ExtResource("2_generator")
-ground_path = NodePath("../TileMapGround")
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
-position = Vector2(0, 0)
+
+[node name="TileMap_Cliffs" type="TileMap" parent="."]
+z_index = 1
+tile_set = ExtResource("2_glokq")
+format = 2
