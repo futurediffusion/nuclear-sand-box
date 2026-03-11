@@ -165,7 +165,7 @@ func _collect_node_cliff_ring(node_data: Dictionary) -> Array[Vector2i]:
 	var center: Vector2i = node_data["pos"]
 	var radius: int = node_data["radius"]
 	var cells: Array[Vector2i] = []
-	var inner_radius := max(1.0, float(radius) - float(cliff_thickness) - 0.8)
+	var inner_radius: float = maxf(1.0, float(radius) - float(cliff_thickness) - 0.8)
 	var outer_radius := float(radius) + float(cliff_thickness) + 1.2
 
 	for x in range(-radius - cliff_thickness - 2, radius + cliff_thickness + 3):
