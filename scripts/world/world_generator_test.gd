@@ -63,13 +63,6 @@ func generate_world() -> void:
 	corridor_centers.clear()
 
 	# Base completa de pasto para que el dirt use transiciones del terrain set existente.
-	var all_cells: Array[Vector2i] = []
-	for x in range(x_min, x_max + 1):
-		for y in range(y_min, y_max + 1):
-			all_cells.append(Vector2i(x, y))
-	if all_cells.size() > 0:
-		tilemap.set_cells_terrain_connect(layer, all_cells, terrain_set_id, grass_terrain_id, false)
-
 	create_nodes()
 	if not nodes.is_empty():
 		spawn_cell = nodes[0]["pos"]
@@ -78,9 +71,25 @@ func generate_world() -> void:
 	var masks := _build_terrain_masks()
 	var ground_cells: Array[Vector2i] = masks["ground"]
 	var cliff_cells: Array[Vector2i] = masks["cliffs"]
+	var ground_lookup: Dictionary = {}
+	for cell in ground_cells:
+		ground_lookup[cell] = true
 
-	if ground_cells.size() > 0:
-		tilemap.set_cells_terrain_connect(layer, ground_cells, terrain_set_id, dirt_terrain_id, false)
+	var grass_cells: Array[Vector2i] = []
+	var dirt_cells: Array[Vector2i] = []
+	for x in range(x_min, x_max + 1):
+		for y in range(y_min, y_max + 1):
+			var c := Vector2i(x, y)
+			if ground_lookup.has(c):
+				dirt_cells.append(c)
+			else:
+				grass_cells.append(c)
+
+	if grass_cells.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, grass_cells, terrain_set_id, grass_terrain_id, true)
+
+	if dirt_cells.size() > 0:
+		tilemap.set_cells_terrain_connect(layer, dirt_cells, terrain_set_id, dirt_terrain_id, true)
 
 	if cliff_cells.size() > 0:
 		cliffs_tilemap.z_index = 1
