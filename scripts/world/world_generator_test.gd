@@ -1,7 +1,7 @@
 extends Node
 
 @export_node_path("TileMap") var ground_path: NodePath = ^"../TileMapGround"
-@export_node_path("TileMap") var cliffs_path: NodePath = ^"../Tilemap_Cliffs"
+@export_node_path("TileMap") var cliffs_path: NodePath = ^"../TileMap_Cliffs"
 @export_node_path("Node2D") var player_path: NodePath = ^"../Player"
 
 @export var x_min := -100
@@ -12,7 +12,8 @@ extends Node
 @export var terrain_set_id := 0
 @export var dirt_terrain_id := 0
 @export var grass_terrain_id := 1
-@export var cliff_terrain_id := 2
+@export var cliff_terrain_set_id := 0
+@export var cliff_terrain_id := 0
 @export var edge_margin_x := 20
 @export var edge_margin_y := 10
 @export var min_nodes := 5
@@ -83,7 +84,7 @@ func generate_world() -> void:
 
 	if cliff_cells.size() > 0:
 		cliffs_tilemap.z_index = 1
-		cliffs_tilemap.set_cells_terrain_connect(layer, cliff_cells, terrain_set_id, cliff_terrain_id, false)
+		cliffs_tilemap.set_cells_terrain_connect(layer, cliff_cells, cliff_terrain_set_id, cliff_terrain_id, false)
 
 
 func create_nodes() -> void:
@@ -311,19 +312,22 @@ func _sync_terrain_ids_from_tileset() -> void:
 		return
 
 	if dirt_terrain_id < 0 or dirt_terrain_id >= terrain_count:
-		var by_name := _find_terrain_id_by_name("dirt")
+		var by_name := _find_terrain_id_by_name("dirt", tilemap.tile_set, terrain_set_id)
 		if by_name != -1:
 			dirt_terrain_id = by_name
 
 	if grass_terrain_id < 0 or grass_terrain_id >= terrain_count:
-		var by_name := _find_terrain_id_by_name("grass")
+		var by_name := _find_terrain_id_by_name("grass", tilemap.tile_set, terrain_set_id)
 		if by_name != -1:
 			grass_terrain_id = by_name
 
-	if cliff_terrain_id < 0 or cliff_terrain_id >= terrain_count:
-		var cliff_by_name := _find_terrain_id_by_name("terrain_2")
+	var cliff_terrain_count := cliffs_tilemap.tile_set.get_terrains_count(cliff_terrain_set_id)
+	if cliff_terrain_count <= 0:
+		push_warning("WorldGeneratorTest: cliff_terrain_set_id sin terrains. Revisa TileMap_Cliffs.")
+	elif cliff_terrain_id < 0 or cliff_terrain_id >= cliff_terrain_count:
+		var cliff_by_name := _find_terrain_id_by_name("terrain_2", cliffs_tilemap.tile_set, cliff_terrain_set_id)
 		if cliff_by_name == -1:
-			cliff_by_name = _find_terrain_id_by_name("cliff")
+			cliff_by_name = _find_terrain_id_by_name("cliff", cliffs_tilemap.tile_set, cliff_terrain_set_id)
 		if cliff_by_name != -1:
 			cliff_terrain_id = cliff_by_name
 
@@ -331,11 +335,10 @@ func _sync_terrain_ids_from_tileset() -> void:
 		push_warning("WorldGeneratorTest: dirt_terrain_id y grass_terrain_id apuntan al mismo terrain.")
 
 
-func _find_terrain_id_by_name(expected_name: String) -> int:
-	var ts := tilemap.tile_set
-	var terrain_count := ts.get_terrains_count(terrain_set_id)
+func _find_terrain_id_by_name(expected_name: String, ts: TileSet, terrain_set: int) -> int:
+	var terrain_count := ts.get_terrains_count(terrain_set)
 	for terrain_id in range(terrain_count):
-		if ts.get_terrain_name(terrain_set_id, terrain_id).to_lower() == expected_name:
+		if ts.get_terrain_name(terrain_set, terrain_id).to_lower() == expected_name.to_lower():
 			return terrain_id
 	return -1
 
