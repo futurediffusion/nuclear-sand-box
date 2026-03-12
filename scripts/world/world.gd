@@ -134,16 +134,28 @@ const WALL_END_RIGHT: Vector2i = Vector2i(1, 1)
 const WALL_END_LEFT: Vector2i = Vector2i(2, 1)
 const WALL_MID: Vector2i = Vector2i(3, 1)
 
+const GROUND_TERRAIN_DIRT: int = 0
+const GROUND_TERRAIN_GRASS: int = 1
+
 const BIOME_TILES = {
-	0: [
-		{"col_range": [0,2], "rows": [1], "w": 1},
-	],
-	1: [
-		{"col_range": [0,2], "rows": [0], "w": 1},
-	],
-	2: [
-		{"col_range": [0,2], "rows": [2], "w": 1},
-	],
+	0: {
+		"ground_terrain_id": GROUND_TERRAIN_DIRT,
+		"tiles": [
+			{"col_range": [0, 2], "rows": [1], "w": 1},
+		],
+	},
+	1: {
+		"ground_terrain_id": GROUND_TERRAIN_GRASS,
+		"tiles": [
+			{"col_range": [0, 2], "rows": [0], "w": 1},
+		],
+	},
+	2: {
+		"ground_terrain_id": GROUND_TERRAIN_GRASS,
+		"tiles": [
+			{"col_range": [0, 2], "rows": [2], "w": 1},
+		],
+	},
 }
 
 func _ready() -> void:
@@ -881,13 +893,16 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 
 func get_biome(x: int, y: int) -> int:
 	var v := (biome_noise.get_noise_2d(x, y) + 1.0) * 0.5
-	if v < 0.38: return 0
-	elif v > 0.62: return 2
-	else: return 1
+	if v < 0.35:
+		return 0
+	if v > 0.65:
+		return 2
+	return 1
 
-func pick_tile(x: int, y: int) -> Vector2i:
+func pick_tile(x: int, y: int) -> Dictionary:
 	var biome := get_biome(x, y)
-	var tiles: Array = BIOME_TILES[biome]
+	var biome_data: Dictionary = BIOME_TILES[biome]
+	var tiles: Array = biome_data["tiles"]
 	var total_weight: int = 0
 	for t in tiles: total_weight += int(t["w"])
 	_pick_rng.seed = hash(Vector2i(x, y))
@@ -902,7 +917,10 @@ func pick_tile(x: int, y: int) -> Vector2i:
 	var col: int = _pick_rng.randi_range(int(winner["col_range"][0]), int(winner["col_range"][1]))
 	var rows: Array = winner["rows"]
 	var row: int = rows[_pick_rng.randi_range(0, rows.size() - 1)]
-	return Vector2i(col, row)
+	return {
+		"atlas_coords": Vector2i(col, row),
+		"ground_terrain_id": int(biome_data["ground_terrain_id"]),
+	}
 
 var chunk_entities: Dictionary = {}
 var active_enemies: Dictionary = {}  # enemy_id -> EnemyAI node

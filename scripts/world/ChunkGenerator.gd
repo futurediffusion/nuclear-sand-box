@@ -25,9 +25,17 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		for x in range(start_x, start_x + chunk_size):
 			if x < 0 or x >= width or y < 0 or y >= height:
 				continue
-			var tile_atlas: Vector2i = pick_tile.call(x, y)
-			tile_atlas.y = clampi(tile_atlas.y, 0, 2)
-			var terrain: int = tile_atlas.y
+			var tile_data_variant: Variant = pick_tile.call(x, y)
+			var tile_data: Dictionary = {}
+			if typeof(tile_data_variant) == TYPE_DICTIONARY:
+				tile_data = tile_data_variant
+			elif typeof(tile_data_variant) == TYPE_VECTOR2I:
+				tile_data = {
+					"atlas_coords": tile_data_variant,
+					"ground_terrain_id": clampi(tile_data_variant.y, 0, 1),
+				}
+
+			var terrain: int = clampi(int(tile_data.get("ground_terrain_id", 0)), 0, 1)
 			if not terrain_buckets.has(terrain):
 				terrain_buckets[terrain] = []
 			terrain_buckets[terrain].append(Vector2i(x, y))
