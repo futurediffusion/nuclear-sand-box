@@ -41,6 +41,10 @@ var _tile_painter := TilePainter.new()
 @export var prefetch_frame_pressure_fps_threshold: float = 52.0
 @export var prefetch_frame_pressure_budget_floor: int = 0
 @export var progressive_terrain_paint_enabled: bool = true
+@export_group("Ground Mapping")
+@export var corrected_ground_mapping_enabled: bool = true
+@export var corrected_ground_mapping_ring0_only: bool = true
+@export var legacy_ground_mapping_allow_fallback: bool = true
 @export var terrain_paint_chunks_per_tick: int = 2
 @export var terrain_paint_ms_budget: float = 1.5
 @export var terrain_paint_ring_priority_enabled: bool = true
@@ -143,11 +147,6 @@ const WALL_MID: Vector2i = Vector2i(3, 1)
 
 const GROUND_TERRAIN_DIRT: int = WorldTerrainConfig.DIRT_ID
 const GROUND_TERRAIN_GRASS: int = WorldTerrainConfig.GRASS_ID
-const SRC_GROUND: int = 0
-const GROUND_FALLBACK_ATLAS_BY_TERRAIN := {
-	GROUND_TERRAIN_DIRT: Vector2i(0, 1),
-	GROUND_TERRAIN_GRASS: Vector2i(0, 0),
-}
 
 const BIOME_ID_DIRT: int = 0
 const BIOME_ID_GRASSLAND: int = 1
@@ -567,7 +566,7 @@ func generate_chunk(chunk_pos: Vector2i, spawn_entities: bool = true) -> void:
 	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
 	var generate_start_us: int = Time.get_ticks_usec()
 	prop_spawner.generate_chunk_spawns(chunk_pos, _make_spawn_ctx())
-	await chunk_generator.apply_ground(chunk_pos, _make_ground_ctx())
+	await chunk_generator.apply_ground(chunk_pos, _make_ground_ctx(chunk_pos))
 	_record_chunk_stage_time(CHUNK_PERF_STAGE_GENERATE, chunk_pos, float(Time.get_ticks_usec() - generate_start_us) / 1000.0)
 	generated_chunks[chunk_pos] = true
 	generating_chunks.erase(chunk_pos)
@@ -907,6 +906,31 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 	# Borrar paredes del StructureWallsMap
 	_tile_painter.erase_chunk_region(walls_tilemap, chunk_pos, chunk_size, [WALLS_MAP_LAYER])
 
+func _chunk_ring_from_center(chunk_pos: Vector2i, center: Vector2i) -> int:
+	return max(abs(chunk_pos.x - center.x), abs(chunk_pos.y - center.y))
+
+func _use_corrected_ground_mapping_for_chunk(chunk_pos: Vector2i) -> bool:
+	if not corrected_ground_mapping_enabled:
+		return false
+	if not corrected_ground_mapping_ring0_only:
+		return true
+	return _chunk_ring_from_center(chunk_pos, current_player_chunk) == 0
+
+func _ground_mapping_profile_for_chunk(chunk_pos: Vector2i) -> Dictionary:
+	if _use_corrected_ground_mapping_for_chunk(chunk_pos):
+		return {
+			"mode": "dirt_grass",
+			"ground_source_id": WorldTerrainConfig.DIRT_GRASS_GROUND_SOURCE_ID,
+			"ground_fallback_atlas_by_terrain": WorldTerrainConfig.DIRT_GRASS_FALLBACK_ATLAS_BY_TERRAIN,
+			"allow_legacy_fallback": false,
+		}
+	return {
+		"mode": "legacy",
+		"ground_source_id": WorldTerrainConfig.LEGACY_GROUND_SOURCE_ID,
+		"ground_fallback_atlas_by_terrain": WorldTerrainConfig.LEGACY_FALLBACK_ATLAS_BY_TERRAIN,
+		"allow_legacy_fallback": legacy_ground_mapping_allow_fallback,
+	}
+
 func get_biome(x: int, y: int) -> int:
 	var v := (biome_noise.get_noise_2d(x, y) + 1.0) * 0.5
 	if v < 0.35:
@@ -984,7 +1008,8 @@ func _make_spawn_ctx() -> Dictionary:
 		"bandit_scene": bandit_scene,
 	}
 
-func _make_ground_ctx() -> Dictionary:
+func _make_ground_ctx(chunk_pos: Vector2i) -> Dictionary:
+	var mapping: Dictionary = _ground_mapping_profile_for_chunk(chunk_pos)
 	return {
 		"tilemap": tilemap,
 		"width": width,
@@ -994,15 +1019,17 @@ func _make_ground_ctx() -> Dictionary:
 		"tree": get_tree(),
 		"generating_yield_stride": 8,
 		"ground_terrain_set": WorldTerrainConfig.TERRAIN_SET,
-		"ground_source_id": SRC_GROUND,
-		"ground_fallback_atlas_by_terrain": GROUND_FALLBACK_ATLAS_BY_TERRAIN,
+		"ground_source_id": int(mapping.get("ground_source_id", WorldTerrainConfig.LEGACY_GROUND_SOURCE_ID)),
+		"ground_fallback_atlas_by_terrain": mapping.get("ground_fallback_atlas_by_terrain", WorldTerrainConfig.LEGACY_FALLBACK_ATLAS_BY_TERRAIN),
+		"allow_legacy_fallback": bool(mapping.get("allow_legacy_fallback", legacy_ground_mapping_allow_fallback)),
+		"ground_mapping_mode": String(mapping.get("mode", "legacy")),
 		"terrain_connect_batch_size": 256,
 		"terrain_connect_yield_each_batches": 1,
 		"perf_stage_hook": Callable(self, "_record_chunk_stage_time"),
 		"ground_fallback_debug_hook": Callable(self, "_on_ground_fallback_debug"),
 	}
 
-func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int) -> void:
+func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int, mode: String = "legacy") -> void:
 	if total_cells <= 0:
 		return
 	_ground_fallback_events_accum += 1
@@ -1015,7 +1042,8 @@ func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_ce
 	_ground_fallback_last_log_msec = now_msec
 	Debug.log(
 		"chunk_ground",
-		"fallback events=%d cells=%d missing=%d invalid_source=%d last_chunk=%s" % [
+		"fallback mode=%s events=%d cells=%d missing=%d invalid_source=%d last_chunk=%s" % [
+			mode,
 			_ground_fallback_events_accum,
 			_ground_fallback_cells_accum,
 			_ground_fallback_missing_accum,
