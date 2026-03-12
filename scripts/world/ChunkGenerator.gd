@@ -18,6 +18,8 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		1: Vector2i(0, 1),
 	})
 	var terrain_connect_batch_size: int = max(1, int(ctx.get("terrain_connect_batch_size", 256)))
+	var allow_legacy_fallback: bool = bool(ctx.get("allow_legacy_fallback", true))
+	var ground_mapping_mode: String = String(ctx.get("ground_mapping_mode", "legacy"))
 	var terrain_connect_yield_each_batches: int = max(1, int(ctx.get("terrain_connect_yield_each_batches", 1)))
 	var perf_hook: Callable = ctx.get("perf_stage_hook", Callable())
 	var fallback_debug_hook: Callable = ctx.get("ground_fallback_debug_hook", Callable())
@@ -59,7 +61,9 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		terrain_connect_yield_each_batches,
 		chunk_pos,
 		perf_hook,
-		fallback_debug_hook
+		fallback_debug_hook,
+		allow_legacy_fallback,
+		ground_mapping_mode
 	)
 
 func apply_ground_terrain_batched(
@@ -73,7 +77,9 @@ func apply_ground_terrain_batched(
 	terrain_connect_yield_each_batches: int,
 	chunk_pos: Vector2i,
 	perf_hook: Callable,
-	fallback_debug_hook: Callable
+	fallback_debug_hook: Callable,
+	allow_legacy_fallback: bool,
+	ground_mapping_mode: String
 ) -> void:
 	var start_us: int = Time.get_ticks_usec()
 	var batch_counter: int = 0
@@ -104,7 +110,8 @@ func apply_ground_terrain_batched(
 					tilemap.set_cell(LAYER_GROUND, cell, ground_source_id, fallback_atlas)
 				elif source_id != ground_source_id:
 					fallback_invalid_source_cells += 1
-					tilemap.set_cell(LAYER_GROUND, cell, ground_source_id, fallback_atlas)
+					if allow_legacy_fallback or ground_mapping_mode != "legacy":
+						tilemap.set_cell(LAYER_GROUND, cell, ground_source_id, fallback_atlas)
 
 			batch_counter += 1
 			if batch_counter % terrain_connect_yield_each_batches == 0:
@@ -118,4 +125,4 @@ func apply_ground_terrain_batched(
 
 	var fallback_total_cells: int = fallback_missing_cells + fallback_invalid_source_cells
 	if fallback_total_cells > 0 and fallback_debug_hook.is_valid():
-		fallback_debug_hook.call(chunk_pos, fallback_total_cells, fallback_missing_cells, fallback_invalid_source_cells)
+		fallback_debug_hook.call(chunk_pos, fallback_total_cells, fallback_missing_cells, fallback_invalid_source_cells, ground_mapping_mode)
