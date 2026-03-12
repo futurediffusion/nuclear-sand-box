@@ -22,7 +22,7 @@
 [ext_resource type="Texture2D" uid="uid://nwqjmtvv26e2" path="res://art/ui/dog.png" id="18_yc10j"]
 [ext_resource type="PackedScene" uid="uid://c8m2xt6bh61m" path="res://scenes/ui/player_inventory_menu.tscn" id="19_gqmmt"]
 [ext_resource type="PackedScene" uid="uid://bvbn22t6ckpau" path="res://scenes/ui/keeper_menu_ui.tscn" id="20_gqmmt"]
-[ext_resource type="Script" path="res://scripts/systems/WarmupManager.gd" id="21_warmup"]
+[ext_resource type="Script" uid="uid://chd7ekynu1aa8" path="res://scripts/systems/WarmupManager.gd" id="21_warmup"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0ld40"]
 shader = ExtResource("8_0ld40")
@@ -47,6 +47,12 @@ copper_ore_scene = ExtResource("13_trceg")
 bandit_camp_scene = ExtResource("4_jkv2x")
 bandit_scene = ExtResource("3_sugp2")
 tavern_keeper_scene = ExtResource("6_jbj1t")
+
+[node name="GroundTileMap" type="TileMap" parent="World"]
+z_index = -1
+tile_set = ExtResource("10_pm3ni")
+format = 2
+layer_0/name = "Ground"
 
 [node name="WorldTileMap" type="TileMap" parent="World"]
 tile_set = ExtResource("10_pm3ni")

@@ -66,6 +66,46 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		ground_mapping_mode
 	)
 
+func apply_ground_terrain_ctx(chunks: Array[Vector2i], ctx: Dictionary) -> void:
+	var tilemap: TileMap = ctx["tilemap"]
+	var width: int = ctx["width"]
+	var height: int = ctx["height"]
+	var chunk_size: int = ctx["chunk_size"]
+	var get_terrain: Callable = ctx["get_terrain"]
+	var terrain_set: int = ctx.get("terrain_set", 0)
+
+	const GROUND_SOURCE: int = 3
+	const GRASS_FILL: Vector2i = Vector2i(4, 3)   # terrain 1 interior tile
+	const DIRT_FILL: Vector2i = Vector2i(3, 3)    # terrain 0 interior fallback
+
+	# Collect all cells and dirt-only cells
+	var all_cells: Array[Vector2i] = []
+	var dirt_cells: Array[Vector2i] = []
+
+	for chunk_pos in chunks:
+		var start_x := chunk_pos.x * chunk_size
+		var start_y := chunk_pos.y * chunk_size
+		for y in range(start_y, start_y + chunk_size):
+			for x in range(start_x, start_x + chunk_size):
+				if x < 0 or x >= width or y < 0 or y >= height:
+					continue
+				var cell := Vector2i(x, y)
+				all_cells.append(cell)
+				if get_terrain.call(x, y) == 0:
+					dirt_cells.append(cell)
+
+	# Step 1: Pre-fill every cell with grass interior tile (solid background)
+	for cell in all_cells:
+		tilemap.set_cell(LAYER_GROUND, cell, GROUND_SOURCE, GRASS_FILL)
+
+	# Step 2: Terrain-connect dirt only — dirt has full Wang set, produces correct borders
+	if not dirt_cells.is_empty():
+		tilemap.set_cells_terrain_connect(LAYER_GROUND, dirt_cells, terrain_set, 0, true)
+		# Fallback: any dirt cell that terrain_connect left empty
+		for cell in dirt_cells:
+			if tilemap.get_cell_source_id(LAYER_GROUND, cell) == -1:
+				tilemap.set_cell(LAYER_GROUND, cell, GROUND_SOURCE, DIRT_FILL)
+
 func apply_ground_terrain_batched(
 	tilemap: TileMap,
 	tree: SceneTree,

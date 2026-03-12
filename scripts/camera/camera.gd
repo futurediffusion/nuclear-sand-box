@@ -12,7 +12,27 @@ var impulse_time_left: float = 0.0
 var impulse_duration: float = 0.0
 var impulse_magnitude: float = 0.0
 
+# --- ZOOM ---
+@export var zoom_min: float = 0.2
+@export var zoom_max: float = 3.0
+@export var zoom_step: float = 0.1
+@export var zoom_speed: float = 8.0
+var _target_zoom: float = 1.0
+
+func _ready() -> void:
+	_target_zoom = zoom.x
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_target_zoom = clampf(_target_zoom + zoom_step, zoom_min, zoom_max)
+		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_target_zoom = clampf(_target_zoom - zoom_step, zoom_min, zoom_max)
+
 func _process(delta: float) -> void:
+	var new_zoom := lerpf(zoom.x, _target_zoom, zoom_speed * delta)
+	zoom = Vector2(new_zoom, new_zoom)
+
 	# -------------------
 	# LOOK AHEAD MOUSE
 	# -------------------

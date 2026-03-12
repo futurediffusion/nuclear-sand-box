@@ -6,6 +6,7 @@ signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
 
 @onready var tilemap: TileMap = $WorldTileMap
 @onready var walls_tilemap: TileMap = $StructureWallsMap   # <-- paredes van aquí
+@onready var ground_tilemap: TileMap = $GroundTileMap
 @onready var prop_spawner := PropSpawner.new()
 @onready var chunk_generator := ChunkGenerator.new()
 @onready var _collision_builder := CollisionBuilder.new()
@@ -65,6 +66,8 @@ var _tile_painter := TilePainter.new()
 @export var debug_chunk_perf_ring0_alert_entities_ms: float = 4.0
 
 var biome_noise := FastNoiseLite.new()
+var _ground_painter := GroundPainter.new()
+var _ground_terrain_painted_chunks: Dictionary = {}
 
 var player: Node2D
 var loaded_chunks: Dictionary = {}
@@ -180,6 +183,9 @@ func _ready() -> void:
 	biome_noise.seed = randi()
 	biome_noise.frequency = 0.015
 	biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_ground_painter.setup(randi(), width, height)
+	ground_tilemap.z_index = -1
+	tilemap.set_layer_enabled(LAYER_GROUND, false)
 
 	player = get_node_or_null("../Player")
 
@@ -205,7 +211,7 @@ func _ready() -> void:
 	add_child(_spawn_queue)
 	if GameEvents != null and not GameEvents.entity_died.is_connected(_on_entity_died):
 		GameEvents.entity_died.connect(_on_entity_died)
-	update_chunks(current_player_chunk)
+	await update_chunks(current_player_chunk)
 
 func _clear_chunk_wall_runtime_cache() -> void:
 	for cpos in chunk_wall_body.keys():
@@ -423,6 +429,8 @@ func _is_chunk_in_active_window(chunk_pos: Vector2i, center: Vector2i) -> bool:
 	return abs(chunk_pos.x - center.x) <= active_radius and abs(chunk_pos.y - center.y) <= active_radius
 
 func update_chunks(center: Vector2i) -> void:
+	if _updating_chunks:
+		return
 	Debug.log("boot", "ChunkManager load begin center=%s" % center)
 	Debug.log("chunk", "CENTER moved -> (%d,%d)" % [center.x, center.y])
 	if player:
@@ -463,7 +471,7 @@ func update_chunks(center: Vector2i) -> void:
 	for cpos in needed_chunks:
 		if not generated_chunks.has(cpos) and not generating_chunks.has(cpos):
 			generating_chunks[cpos] = true
-			generate_chunk(cpos, true)
+			await generate_chunk(cpos, true)
 		if generating_chunks.has(cpos):
 			continue
 		if not loaded_chunks.has(cpos):
@@ -471,6 +479,16 @@ func update_chunks(center: Vector2i) -> void:
 			loaded_chunks[cpos] = true
 		if progressive_terrain_paint_enabled and _is_chunk_in_active_window(cpos, center):
 			_enqueue_terrain_paint_chunk(cpos, center, _terrain_paint_epoch)
+
+	# Pass 2: pintar GroundTileMap para chunks nuevos (todos juntos para que set_cells_terrain_connect vea vecinos)
+	var ground_to_paint: Array[Vector2i] = []
+	for cpos in needed_chunks:
+		if not _ground_terrain_painted_chunks.has(_chunk_key(cpos)):
+			ground_to_paint.append(cpos)
+	if not ground_to_paint.is_empty():
+		await chunk_generator.apply_ground_terrain_ctx(ground_to_paint, _make_ground_terrain_ctx())
+		for cpos in ground_to_paint:
+			_ground_terrain_painted_chunks[_chunk_key(cpos)] = true
 
 	for cpos in loaded_chunks.keys():
 		if not needed.has(cpos):
@@ -905,6 +923,9 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR])
 	# Borrar paredes del StructureWallsMap
 	_tile_painter.erase_chunk_region(walls_tilemap, chunk_pos, chunk_size, [WALLS_MAP_LAYER])
+	# Borrar suelo del GroundTileMap
+	_tile_painter.erase_chunk_region(ground_tilemap, chunk_pos, chunk_size, [0])
+	_ground_terrain_painted_chunks.erase(_chunk_key(chunk_pos))
 
 func _chunk_ring_from_center(chunk_pos: Vector2i, center: Vector2i) -> int:
 	return max(abs(chunk_pos.x - center.x), abs(chunk_pos.y - center.y))
@@ -1027,6 +1048,17 @@ func _make_ground_ctx(chunk_pos: Vector2i) -> Dictionary:
 		"terrain_connect_yield_each_batches": 1,
 		"perf_stage_hook": Callable(self, "_record_chunk_stage_time"),
 		"ground_fallback_debug_hook": Callable(self, "_on_ground_fallback_debug"),
+	}
+
+func _make_ground_terrain_ctx() -> Dictionary:
+	return {
+		"tilemap": ground_tilemap,
+		"width": width,
+		"height": height,
+		"chunk_size": chunk_size,
+		"get_terrain": Callable(_ground_painter, "get_terrain"),
+		"terrain_set": 0,
+		"tree": get_tree(),
 	}
 
 func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int, mode: String = "legacy") -> void:

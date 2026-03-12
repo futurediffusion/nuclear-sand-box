@@ -1,7 +1,7 @@
 [gd_scene load_steps=4 format=3 uid="uid://0jqbk53u8dc0"]
 
 [ext_resource type="TileSet" uid="uid://cw5iyp3lgbpre" path="res://art/tiles/terrain.tres" id="1_tileset"]
-[ext_resource type="Script" path="res://scripts/world/world_generator_test.gd" id="2_generator"]
+[ext_resource type="Script" uid="uid://xbvm0usjbuo2" path="res://scripts/world/world_generator_test.gd" id="2_generator"]
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="3_player"]
 
 [node name="WorldGenTest" type="Node2D"]
@@ -15,4 +15,3 @@ layer_0/name = "Ground"
 script = ExtResource("2_generator")
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
-position = Vector2(0, 0)
