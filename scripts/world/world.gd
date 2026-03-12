@@ -32,6 +32,10 @@ var _tile_painter := TilePainter.new()
 @export var prefetch_check_interval: float = 0.15
 @export var prefetch_enqueue_entities: bool = false
 @export var prefetch_entity_priority_offset: int = 5
+@export var progressive_terrain_paint_enabled: bool = true
+@export var terrain_paint_chunks_per_tick: int = 2
+@export var terrain_paint_ms_budget: float = 1.5
+@export var terrain_paint_ring_priority_enabled: bool = true
 @export var max_cached_chunk_colliders: int = 64
 @export var debug_collision_cache: bool = false
 
@@ -61,6 +65,12 @@ var prefetching_chunks: Dictionary = {}
 var _prefetch_queue: Array[Vector2i] = []
 var _prefetch_timer: float = 0.0
 var _last_prefetch_center_chunk_key: String = ""
+var _terrain_paint_queue: Array[Dictionary] = []
+var _terrain_paint_enqueued: Dictionary = {}
+var _terrain_painted_chunks: Dictionary = {}
+var _terrain_paint_epoch: int = 0
+var _terrain_paint_center_ring0_pending: int = 0
+var _updating_chunks: bool = false
 
 const PREFETCH_QUEUE_MAX: int = 64
 
@@ -151,6 +161,7 @@ func _process(delta: float) -> void:
 	_process_prefetch(delta)
 	_process_npc_lite_mode(delta)
 	_process_npc_data_only(delta)
+	_process_terrain_paint_scheduler()
 	_chunk_timer += delta
 	if _chunk_timer < chunk_check_interval:
 		return
@@ -354,6 +365,7 @@ func update_chunks(center: Vector2i) -> void:
 		_debug_check_player_chunk(player.global_position)
 
 	var needed: Dictionary = {}
+	var needed_chunks: Array[Vector2i] = []
 	var max_chunk_x: int = int(floor(float(width - 1) / float(chunk_size)))
 	var max_chunk_y: int = int(floor(float(height - 1) / float(chunk_size)))
 
@@ -363,21 +375,91 @@ func update_chunks(center: Vector2i) -> void:
 				continue
 			var cpos := Vector2i(cx, cy)
 			needed[cpos] = true
-			if not generated_chunks.has(cpos) and not generating_chunks.has(cpos):
-				generating_chunks[cpos] = true
-				generate_chunk(cpos, true)
-			if generating_chunks.has(cpos):
-				continue
-			if not loaded_chunks.has(cpos):
-				load_chunk_entities(cpos)
-				loaded_chunks[cpos] = true
+			needed_chunks.append(cpos)
+
+	if terrain_paint_ring_priority_enabled:
+		needed_chunks.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+			var ring_a: int = max(abs(a.x - center.x), abs(a.y - center.y))
+			var ring_b: int = max(abs(b.x - center.x), abs(b.y - center.y))
+			if ring_a == ring_b:
+				if a.y == b.y:
+					return a.x < b.x
+				return a.y < b.y
+			return ring_a < ring_b
+		)
+
+	if progressive_terrain_paint_enabled:
+		_terrain_paint_epoch += 1
+		_terrain_paint_queue.clear()
+		_terrain_paint_enqueued.clear()
+		_terrain_paint_center_ring0_pending = 0
+		_updating_chunks = true
+
+	for cpos in needed_chunks:
+		if not generated_chunks.has(cpos) and not generating_chunks.has(cpos):
+			generating_chunks[cpos] = true
+			generate_chunk(cpos, true)
+		if generating_chunks.has(cpos):
+			continue
+		if not loaded_chunks.has(cpos):
+			load_chunk_entities(cpos)
+			loaded_chunks[cpos] = true
+		if progressive_terrain_paint_enabled and _is_chunk_in_active_window(cpos, center):
+			_enqueue_terrain_paint_chunk(cpos, center, _terrain_paint_epoch)
 
 	for cpos in loaded_chunks.keys():
 		if not needed.has(cpos):
 			unload_chunk(cpos)
 			unload_chunk_entities(cpos)
+			_terrain_painted_chunks.erase(_chunk_key(cpos))
 			loaded_chunks.erase(cpos)
+
+	if progressive_terrain_paint_enabled and _terrain_paint_center_ring0_pending == 0:
+		_updating_chunks = false
 	Debug.log("boot", "ChunkManager load end center=%s" % center)
+
+func _enqueue_terrain_paint_chunk(chunk_pos: Vector2i, center: Vector2i, epoch: int) -> void:
+	var key: String = _chunk_key(chunk_pos)
+	if _terrain_painted_chunks.has(key) or _terrain_paint_enqueued.has(key):
+		return
+	var ring: int = max(abs(chunk_pos.x - center.x), abs(chunk_pos.y - center.y))
+	_terrain_paint_queue.append({"chunk": chunk_pos, "ring": ring, "epoch": epoch})
+	_terrain_paint_enqueued[key] = true
+	if ring == 0:
+		_terrain_paint_center_ring0_pending += 1
+
+func _process_terrain_paint_scheduler() -> void:
+	if not progressive_terrain_paint_enabled:
+		return
+	if _terrain_paint_queue.is_empty():
+		if _terrain_paint_center_ring0_pending == 0:
+			_updating_chunks = false
+		return
+
+	var chunks_budget: int = max(1, terrain_paint_chunks_per_tick)
+	var ms_budget: float = maxf(0.0, terrain_paint_ms_budget)
+	var start_ms: int = Time.get_ticks_msec()
+	var processed: int = 0
+	while processed < chunks_budget and not _terrain_paint_queue.is_empty():
+		if ms_budget > 0.0 and float(Time.get_ticks_msec() - start_ms) >= ms_budget:
+			break
+		var job: Dictionary = _terrain_paint_queue.pop_front()
+		if int(job.get("epoch", -1)) != _terrain_paint_epoch:
+			continue
+		var cpos: Vector2i = job.get("chunk", Vector2i.ZERO)
+		var ring: int = int(job.get("ring", 0))
+		var key: String = _chunk_key(cpos)
+		_terrain_paint_enqueued.erase(key)
+		if not loaded_chunks.has(cpos):
+			continue
+		_apply_chunk_persistent_tiles(cpos)
+		_terrain_painted_chunks[key] = true
+		processed += 1
+		if ring == 0:
+			_terrain_paint_center_ring0_pending = max(0, _terrain_paint_center_ring0_pending - 1)
+
+	if _terrain_paint_center_ring0_pending == 0:
+		_updating_chunks = false
 
 func generate_chunk(chunk_pos: Vector2i, spawn_entities: bool = true) -> void:
 	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
@@ -636,6 +718,32 @@ func _make_ground_ctx() -> Dictionary:
 		"generating_yield_stride": 8,
 	}
 
+func _apply_chunk_persistent_tiles(chunk_pos: Vector2i) -> void:
+	if not chunk_save.has(chunk_pos):
+		return
+	var floor_cells: Array[Vector2i] = []
+	var wall_terrain_cells: Array[Vector2i] = []
+	var manual_tiles: Array[Dictionary] = []
+
+	for t in chunk_save[chunk_pos].get("placed_tiles", []):
+		if typeof(t) != TYPE_DICTIONARY:
+			continue
+		var source_id: int = int(t.get("source", 0))
+		if source_id == -1:
+			wall_terrain_cells.append(t["tile"])
+		elif int(t.get("layer", -1)) == LAYER_FLOOR and source_id == SRC_FLOOR and t.get("atlas", Vector2i(-1, -1)) == FLOOR_WOOD:
+			floor_cells.append(t["tile"])
+		else:
+			manual_tiles.append(t)
+
+	if floor_cells.size() > 0:
+		_tile_painter.apply_floor(tilemap, LAYER_FLOOR, SRC_FLOOR, FLOOR_WOOD, floor_cells)
+	if manual_tiles.size() > 0:
+		_tile_painter.apply_manual_tiles(tilemap, manual_tiles)
+	if wall_terrain_cells.size() > 0:
+		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d -> StructureWallsMap" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
+		_tile_painter.apply_walls_terrain_connect(walls_tilemap, WALLS_MAP_LAYER, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
+
 func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	chunk_entities[chunk_pos] = []
 	chunk_saveables[chunk_pos] = []
@@ -692,30 +800,10 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		})
 
 	# 2) TILES PERSISTENTES — suelo en WorldTileMap, paredes en StructureWallsMap
-	var floor_cells: Array[Vector2i] = []
-	var wall_terrain_cells: Array[Vector2i] = []
-	var manual_tiles: Array[Dictionary] = []
-
-	for t in chunk_save[chunk_pos]["placed_tiles"]:
-		var source_id: int = int(t.get("source", 0))
-		if source_id == -1:
-			# Paredes via terrain connect → van a StructureWallsMap layer 0
-			wall_terrain_cells.append(t["tile"])
-		elif int(t.get("layer", -1)) == LAYER_FLOOR and source_id == SRC_FLOOR and t.get("atlas", Vector2i(-1, -1)) == FLOOR_WOOD:
-			floor_cells.append(t["tile"])
-		else:
-			manual_tiles.append(t)
-
-	if floor_cells.size() > 0:
-		_tile_painter.apply_floor(tilemap, LAYER_FLOOR, SRC_FLOOR, FLOOR_WOOD, floor_cells)
-
-	if manual_tiles.size() > 0:
-		_tile_painter.apply_manual_tiles(tilemap, manual_tiles)
-
-	if wall_terrain_cells.size() > 0:
-		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d -> StructureWallsMap" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
-		# *** CLAVE: pintar paredes en StructureWallsMap (layer 0), no en WorldTileMap ***
-		_tile_painter.apply_walls_terrain_connect(walls_tilemap, WALLS_MAP_LAYER, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
+	if progressive_terrain_paint_enabled:
+		_enqueue_terrain_paint_chunk(chunk_pos, current_player_chunk, _terrain_paint_epoch)
+	else:
+		_apply_chunk_persistent_tiles(chunk_pos)
 
 	# Colisiones de paredes con hash/dirty-cache por chunk.
 	_ensure_chunk_wall_collision(chunk_pos)
