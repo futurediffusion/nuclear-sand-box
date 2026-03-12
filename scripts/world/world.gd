@@ -1,7 +1,5 @@
 extends Node2D
 
-const WorldTerrainConfig = preload("res://scripts/world/WorldTerrainConfig.gd")
-
 signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
 
 @onready var tilemap: TileMap = $WorldTileMap
@@ -16,43 +14,11 @@ var _tile_painter := TilePainter.new()
 @export var height: int = 256
 @export var chunk_size: int = 32
 @export var active_radius: int = 1
-@export var copper_ore_scene: PackedScene
 @export var chunk_check_interval: float = 0.3
-@export var npc_lite_enabled: bool = true
-@export var npc_lite_radius: float = 420.0
-@export var npc_lite_hysteresis: float = 60.0
-@export var npc_lite_check_interval: float = 0.25
-@export var npc_lite_debug: bool = false
-@export_group("NPC Data-Only")
-@export var npc_data_only_enabled: bool = true
-@export var npc_sim_radius: float = 520.0
-@export var npc_sim_hysteresis: float = 80.0
-@export var npc_sim_check_interval: float = 0.25
-@export var npc_despawn_grace_seconds: float = 1.0
-@export var npc_debug_counts: bool = false
-@export var prefetch_enabled: bool = true
-@export var prefetch_border_tiles: int = 6
-@export var prefetch_ring_radius: int = 1
-@export var prefetch_budget_chunks_per_tick: int = 1
-@export var prefetch_check_interval: float = 0.15
-@export var prefetch_enqueue_entities: bool = false
-@export var prefetch_entity_priority_offset: int = 5
-@export var prefetch_prepare_ground_enabled: bool = true
-@export var prefetch_prepare_walls_enabled: bool = true
-@export var prefetch_frame_pressure_fps_threshold: float = 52.0
-@export var prefetch_frame_pressure_budget_floor: int = 0
-@export var progressive_terrain_paint_enabled: bool = true
-@export_group("Ground Mapping")
-@export var corrected_ground_mapping_enabled: bool = true
-@export var corrected_ground_mapping_ring0_only: bool = true
-@export var legacy_ground_mapping_allow_fallback: bool = true
-@export var terrain_paint_chunks_per_tick: int = 2
-@export var terrain_paint_ms_budget: float = 1.5
-@export var terrain_paint_ring_priority_enabled: bool = true
-@export var structure_tile_chunks_per_tick: int = 2
-@export var wall_collider_chunks_per_tick: int = 2
-@export var max_cached_chunk_colliders: int = 64
-@export var debug_collision_cache: bool = false
+@export var copper_ore_scene: PackedScene
+@export var bandit_camp_scene: PackedScene
+@export var bandit_scene: PackedScene
+@export var tavern_keeper_scene: PackedScene
 @export_group("Chunk Perf Debug")
 @export var debug_chunk_perf_enabled: bool = true
 @export var debug_chunk_perf_window_size: int = 64
@@ -64,8 +30,10 @@ var _tile_painter := TilePainter.new()
 @export var debug_chunk_perf_ring0_alert_wall_connect_ms: float = 4.0
 @export var debug_chunk_perf_ring0_alert_collider_ms: float = 4.0
 @export var debug_chunk_perf_ring0_alert_entities_ms: float = 4.0
+@export var max_cached_chunk_colliders: int = 64
+@export var debug_collision_cache: bool = false
 
-var biome_noise := FastNoiseLite.new()
+var _biome_seed: int = 0
 var _ground_painter := GroundPainter.new()
 var _ground_terrain_painted_chunks: Dictionary = {}
 
@@ -76,59 +44,18 @@ var current_player_chunk := Vector2i(-999, -999)
 var spawn_tile: Vector2i
 var tavern_chunk: Vector2i
 var _chunk_timer: float = 0.0
-var _npc_lite_timer: float = 0.0
-var _npc_sim_timer: float = 0.0
-var _pick_rng := RandomNumberGenerator.new()
+var npc_simulator: NpcSimulator
+var entity_coordinator: EntitySpawnCoordinator
+var pipeline: ChunkPipeline
 
-@export var bandit_camp_scene: PackedScene
-@export var bandit_scene: PackedScene
-var generated_chunks: Dictionary = {}
-var generating_chunks: Dictionary = {}
-var entities_spawned_chunks: Dictionary = {}
 var chunk_save: Dictionary = {}
-var queued_entity_chunks: Dictionary = {}
 var _spawn_queue: SpawnBudgetQueue
-var prefetched_chunks: Dictionary = {}
-var prefetched_visual_chunks: Dictionary = {}
-var prefetching_chunks: Dictionary = {}
-var _prefetch_queue: Array[Vector2i] = []
-var _prefetch_timer: float = 0.0
-var _last_prefetch_center_chunk_key: String = ""
-var _terrain_paint_queue: Array[Dictionary] = []
-var _terrain_paint_enqueued: Dictionary = {}
-var _terrain_painted_chunks: Dictionary = {}
-var _terrain_paint_epoch: int = 0
-var _terrain_paint_center_ring0_pending: int = 0
-var _structure_tile_queue: Array[Vector2i] = []
-var _structure_tile_enqueued: Dictionary = {}
-var _collider_queue: Array[Vector2i] = []
-var _collider_enqueued: Dictionary = {}
-var _updating_chunks: bool = false
-var _debug_chunk_perf_timer: float = 0.0
-var _ground_fallback_cells_accum: int = 0
-var _ground_fallback_events_accum: int = 0
-var _ground_fallback_missing_accum: int = 0
-var _ground_fallback_invalid_source_accum: int = 0
-var _ground_fallback_last_log_msec: int = 0
-var _chunk_stage_perf: Dictionary = {
-	0: {},
-	1: {},
-	2: {},
-}
+var _perf_monitor := ChunkPerfMonitor.new()
 
-const CHUNK_PERF_STAGE_GENERATE: String = "generate"
-const CHUNK_PERF_STAGE_GROUND_CONNECT: String = "ground terrain connect"
-const CHUNK_PERF_STAGE_WALL_CONNECT: String = "wall terrain connect"
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
-const CHUNK_PERF_STAGE_ENTITIES: String = "enqueue/spawn entities"
-
-const PREFETCH_QUEUE_MAX: int = 64
-
-@export var tavern_keeper_scene: PackedScene
 
 const LAYER_GROUND: int = 0
 const LAYER_FLOOR: int = 1
-const LAYER_WALLS: int = 2        # layer dentro de WorldTileMap (ya no se usa para paredes)
 const WALL_TERRAIN_SET: int = 0
 const WALL_TERRAIN: int = 0
 
@@ -139,53 +66,29 @@ const SRC_FLOOR: int = 1
 const SRC_WALLS: int = 2
 
 const FLOOR_WOOD: Vector2i = Vector2i(0, 0)
-const ROOF_VERTICAL: Vector2i = Vector2i(0, 0)
-const ROOF_CONT_LEFT: Vector2i = Vector2i(1, 0)
-const ROOF_CONT_RIGHT: Vector2i = Vector2i(2, 0)
-const ROOF_BOTH: Vector2i = Vector2i(3, 0)
-const WALL_SINGLE: Vector2i = Vector2i(0, 1)
-const WALL_END_RIGHT: Vector2i = Vector2i(1, 1)
-const WALL_END_LEFT: Vector2i = Vector2i(2, 1)
-const WALL_MID: Vector2i = Vector2i(3, 1)
 
-const GROUND_TERRAIN_DIRT: int = WorldTerrainConfig.DIRT_ID
-const GROUND_TERRAIN_GRASS: int = WorldTerrainConfig.GRASS_ID
-
-const BIOME_ID_DIRT: int = 0
+# Biome IDs used by PropSpawner via get_spawn_biome()
 const BIOME_ID_GRASSLAND: int = 1
 const BIOME_ID_DENSE_GRASS: int = 2
-
-const BIOME_TILES = {
-	BIOME_ID_DIRT: {
-		"ground_terrain_id": GROUND_TERRAIN_DIRT,
-		"tiles": [
-			{"col_range": [0, 2], "rows": [1], "w": 1},
-		],
-	},
-	BIOME_ID_GRASSLAND: {
-		"ground_terrain_id": GROUND_TERRAIN_GRASS,
-		"tiles": [
-			{"col_range": [0, 2], "rows": [0], "w": 1},
-		],
-	},
-	BIOME_ID_DENSE_GRASS: {
-		"ground_terrain_id": GROUND_TERRAIN_GRASS,
-		"tiles": [
-			{"col_range": [0, 2], "rows": [2], "w": 1},
-		],
-	},
-}
 
 func _ready() -> void:
 	_clear_chunk_wall_runtime_cache()
 	add_to_group("world")
 	Debug.log("boot", "World._ready begin")
-	biome_noise.seed = randi()
-	biome_noise.frequency = 0.015
-	biome_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_biome_seed = randi()
 	_ground_painter.setup(randi(), width, height)
 	ground_tilemap.z_index = -1
 	tilemap.set_layer_enabled(LAYER_GROUND, false)
+	_perf_monitor.enabled = debug_chunk_perf_enabled
+	_perf_monitor.window_size = debug_chunk_perf_window_size
+	_perf_monitor.auto_print = debug_chunk_perf_auto_print
+	_perf_monitor.print_interval = debug_chunk_perf_print_interval
+	_perf_monitor.auto_calibrate = debug_chunk_perf_auto_calibrate_runtime
+	_perf_monitor.alert_generate_ms = debug_chunk_perf_ring0_alert_generate_ms
+	_perf_monitor.alert_ground_connect_ms = debug_chunk_perf_ring0_alert_ground_connect_ms
+	_perf_monitor.alert_wall_connect_ms = debug_chunk_perf_ring0_alert_wall_connect_ms
+	_perf_monitor.alert_collider_ms = debug_chunk_perf_ring0_alert_collider_ms
+	_perf_monitor.alert_entities_ms = debug_chunk_perf_ring0_alert_entities_ms
 
 	player = get_node_or_null("../Player")
 
@@ -201,14 +104,83 @@ func _ready() -> void:
 		player.global_position = spawn_world
 
 	current_player_chunk = world_to_chunk(spawn_world)
-	_spawn_queue = SpawnBudgetQueue.new()
-	_spawn_queue.name = "SpawnBudgetQueue"
-	_spawn_queue.spawn_parent = tilemap
-	_spawn_queue.chunk_active_checker = Callable(self, "_is_chunk_key_loaded")
-	_spawn_queue.job_spawned.connect(_on_spawn_queue_job_spawned)
-	_spawn_queue.job_skipped.connect(_on_spawn_queue_job_skipped)
-	_spawn_queue.chunk_drained.connect(_on_spawn_queue_chunk_drained)
-	add_child(_spawn_queue)
+
+	# Create subsystems before wiring them together
+	npc_simulator = NpcSimulator.new()
+	npc_simulator.name = "NpcSimulator"
+	add_child(npc_simulator)
+
+	entity_coordinator = EntitySpawnCoordinator.new()
+	entity_coordinator.name = "EntitySpawnCoordinator"
+	add_child(entity_coordinator)
+
+	pipeline = ChunkPipeline.new()
+	pipeline.name = "ChunkPipeline"
+	add_child(pipeline)
+
+	entity_coordinator.setup({
+		"prop_spawner": prop_spawner,
+		"npc_simulator": npc_simulator,
+		"chunk_save": chunk_save,
+		"loaded_chunks": loaded_chunks,
+		"tilemap": tilemap,
+		"copper_ore_scene": copper_ore_scene,
+		"bandit_camp_scene": bandit_camp_scene,
+		"bandit_scene": bandit_scene,
+		"tavern_keeper_scene": tavern_keeper_scene,
+		"make_spawn_ctx": Callable(self, "_make_spawn_ctx"),
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"chunk_key": Callable(self, "_chunk_key"),
+		"chunk_from_key": Callable(self, "_chunk_from_key"),
+		"enqueue_structure_tile_stage": Callable(pipeline, "enqueue_structure_tile_stage"),
+		"record_stage_time": Callable(self, "_record_chunk_stage_time"),
+	})
+	entity_coordinator.current_player_chunk = current_player_chunk
+	_spawn_queue = entity_coordinator.get_spawn_queue()
+
+	pipeline.setup({
+		"chunk_generator": chunk_generator,
+		"prop_spawner": prop_spawner,
+		"entity_coordinator": entity_coordinator,
+		"tilemap": tilemap,
+		"walls_tilemap": walls_tilemap,
+		"ground_tilemap": ground_tilemap,
+		"tile_painter": _tile_painter,
+		"chunk_save": chunk_save,
+		"loaded_chunks": loaded_chunks,
+		"player": player,
+		"active_radius": active_radius,
+		"width": width,
+		"height": height,
+		"chunk_size": chunk_size,
+		"layer_floor": LAYER_FLOOR,
+		"src_floor": SRC_FLOOR,
+		"floor_wood": FLOOR_WOOD,
+		"walls_map_layer": WALLS_MAP_LAYER,
+		"wall_terrain_set": WALL_TERRAIN_SET,
+		"wall_terrain": WALL_TERRAIN,
+		"chunk_key": Callable(self, "_chunk_key"),
+		"world_to_tile": Callable(self, "_world_to_tile"),
+		"tile_to_chunk": Callable(self, "_tile_to_chunk"),
+		"record_stage_time": Callable(self, "_record_chunk_stage_time"),
+		"emit_stage_completed": func(pos: Vector2i, stage: String) -> void: emit_signal("chunk_stage_completed", pos, stage),
+		"ensure_chunk_wall_collision": Callable(self, "_ensure_chunk_wall_collision"),
+		"make_spawn_ctx": Callable(self, "_make_spawn_ctx"),
+		"on_ground_fallback_debug": Callable(self, "_on_ground_fallback_debug"),
+		"get_terrain": Callable(_ground_painter, "get_terrain"),
+	})
+	pipeline.current_player_chunk = current_player_chunk
+
+	npc_simulator.setup({
+		"player": player,
+		"bandit_scene": bandit_scene,
+		"spawn_queue": _spawn_queue,
+		"loaded_chunks": loaded_chunks,
+		"chunk_save": chunk_save,
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"chunk_key": Callable(self, "_chunk_key"),
+	})
+	npc_simulator.current_player_chunk = current_player_chunk
 	if GameEvents != null and not GameEvents.entity_died.is_connected(_on_entity_died):
 		GameEvents.entity_died.connect(_on_entity_died)
 	await update_chunks(current_player_chunk)
@@ -223,15 +195,9 @@ func _clear_chunk_wall_runtime_cache() -> void:
 	_chunk_wall_use_counter = 0
 
 func _process(delta: float) -> void:
-	_process_chunk_stage_queues()
-	if _spawn_queue != null:
-		if player:
-			_spawn_queue.set_player_world_pos(player.global_position)
-		_spawn_queue.process_queue(delta)
-	_process_prefetch(delta)
-	_process_npc_lite_mode(delta)
-	_process_npc_data_only(delta)
-	_process_terrain_paint_scheduler()
+	pipeline.process(delta)
+	if entity_coordinator != null and player:
+		entity_coordinator.set_player_pos(player.global_position)
 	_process_chunk_perf_debug(delta)
 	_chunk_timer += delta
 	if _chunk_timer < chunk_check_interval:
@@ -242,184 +208,12 @@ func _process(delta: float) -> void:
 	var pchunk := world_to_chunk(player.global_position)
 	if pchunk != current_player_chunk:
 		current_player_chunk = pchunk
+		pipeline.current_player_chunk = pchunk
+		if npc_simulator:
+			npc_simulator.current_player_chunk = pchunk
+		if entity_coordinator:
+			entity_coordinator.current_player_chunk = pchunk
 		update_chunks(pchunk)
-
-func _process_npc_lite_mode(delta: float) -> void:
-	if get_tree().paused:
-		return
-	_npc_lite_timer += delta
-	if _npc_lite_timer < maxf(npc_lite_check_interval, 0.05):
-		return
-	_npc_lite_timer = 0.0
-	if not npc_lite_enabled:
-		return
-	if player == null or not is_instance_valid(player):
-		return
-
-	var player_pos := player.global_position
-	var enter_radius := npc_lite_radius + npc_lite_hysteresis
-	var exit_radius := maxf(npc_lite_radius - npc_lite_hysteresis, 0.0)
-	for enemy in get_tree().get_nodes_in_group("enemy"):
-		if enemy == null or not is_instance_valid(enemy):
-			continue
-		if enemy.is_queued_for_deletion():
-			continue
-		if not enemy.has_method("enter_lite_mode") or not enemy.has_method("exit_lite_mode"):
-			continue
-		if enemy.has_method("is_dead") and enemy.is_dead():
-			continue
-		var dist: float = enemy.global_position.distance_to(player_pos)
-		if npc_data_only_enabled and dist > (npc_sim_radius + npc_sim_hysteresis):
-			continue
-		if dist > enter_radius:
-			enemy.enter_lite_mode()
-			if npc_lite_debug:
-				Debug.log("npc_lite", "enemy=%s -> enter dist=%.2f" % [String(enemy.name), dist])
-		elif dist < exit_radius:
-			enemy.exit_lite_mode()
-			if npc_lite_debug:
-				Debug.log("npc_lite", "enemy=%s -> exit dist=%.2f" % [String(enemy.name), dist])
-
-func _process_npc_data_only(delta: float) -> void:
-	if get_tree().paused:
-		return
-	if not npc_data_only_enabled:
-		return
-	_npc_sim_timer += delta
-	if _npc_sim_timer < maxf(npc_sim_check_interval, 0.05):
-		return
-	_npc_sim_timer = 0.0
-	if player == null or not is_instance_valid(player):
-		return
-
-	var spawn_radius: float = maxf(npc_sim_radius - npc_sim_hysteresis, 0.0)
-	var despawn_radius: float = npc_sim_radius + npc_sim_hysteresis
-	var player_pos: Vector2 = player.global_position
-	for cpos in loaded_chunks.keys():
-		var chunk_pos: Vector2i = cpos
-		_ensure_enemy_spawn_records_for_chunk(chunk_pos)
-		var chunk_key: String = _chunk_key(chunk_pos)
-		for enemy_id in WorldSave.iter_enemy_ids_in_chunk(chunk_key):
-			var state_v = WorldSave.get_enemy_state(chunk_key, enemy_id)
-			if state_v == null:
-				continue
-			var state: Dictionary = state_v
-			var enemy_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
-			var dist: float = enemy_pos.distance_to(player_pos)
-			var is_dead: bool = bool(state.get("is_dead", false))
-			if dist < spawn_radius and not is_dead and not active_enemies.has(enemy_id) and not spawning_enemy_ids.has(enemy_id):
-				_enqueue_enemy_spawn(chunk_pos, enemy_id, state)
-			elif dist > despawn_radius and active_enemies.has(enemy_id):
-				var node: Node = active_enemies[enemy_id]
-				if _can_despawn_enemy(node, state):
-					_despawn_enemy(enemy_id)
-	if npc_debug_counts:
-		Debug.log("npc_data", "active=%d queued=%d" % [active_enemies.size(), spawning_enemy_ids.size()])
-
-func _ensure_enemy_spawn_records_for_chunk(chunk_pos: Vector2i) -> void:
-	var chunk_key: String = _chunk_key(chunk_pos)
-	if not WorldSave.get_chunk_enemy_spawns(chunk_key).is_empty():
-		return
-	if not chunk_save.has(chunk_pos):
-		return
-	var records: Array[Dictionary] = []
-	var spawn_index: int = 0
-	for camp in chunk_save[chunk_pos].get("camps", []):
-		if typeof(camp) != TYPE_DICTIONARY:
-			continue
-		var camp_tile: Vector2i = camp.get("tile", Vector2i.ZERO)
-		var camp_world: Vector2 = _tile_to_world(camp_tile)
-		var offsets: Array[Vector2] = [Vector2(-28, -18), Vector2(32, -10), Vector2(-20, 30), Vector2(28, 24)]
-		for offset in offsets:
-			var enemy_id: String = "e:%s:%03d" % [chunk_key, spawn_index]
-			var enemy_pos: Vector2 = camp_world + offset
-			var record: Dictionary = {
-				"spawn_index": spawn_index,
-				"enemy_id": enemy_id,
-				"chunk_key": chunk_key,
-				"pos": enemy_pos,
-				"seed": Seed.chunk_seed(chunk_pos.x, chunk_pos.y) ^ spawn_index,
-				"hp": 3,
-				"loadout": {"weapon_ids": ["ironpipe", "bow"], "equipped_weapon_id": "ironpipe"},
-			}
-			records.append(record)
-			var default_state: Dictionary = {
-				"id": enemy_id,
-				"chunk_key": chunk_key,
-				"pos": enemy_pos,
-				"hp": 3,
-				"is_dead": false,
-				"seed": int(record["seed"]),
-				"weapon_ids": ["ironpipe", "bow"],
-				"equipped_weapon_id": "ironpipe",
-				"alert": 0.0,
-				"last_seen_player_pos": Vector2.ZERO,
-				"last_active_time": 0.0,
-				"version": 1,
-			}
-			WorldSave.get_or_create_enemy_state(chunk_key, enemy_id, default_state)
-			spawn_index += 1
-	WorldSave.ensure_chunk_enemy_spawns(chunk_key, records)
-
-func _enqueue_enemy_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> void:
-	if _spawn_queue == null:
-		return
-	var chunk_key: String = _chunk_key(chunk_pos)
-	spawning_enemy_ids[enemy_id] = true
-	var init_data: Dictionary = {
-		"properties": {
-			"entity_uid": enemy_id,
-			"enemy_chunk_key": chunk_key,
-		},
-		"save_state": state,
-	}
-	var ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
-	_spawn_queue.enqueue({
-		"chunk_key": chunk_key,
-		"kind": "enemy",
-		"scene": bandit_scene,
-		"global_position": Vector2(state.get("pos", Vector2.ZERO)),
-		"init_data": init_data,
-		"priority": ring,
-		"uid": enemy_id,
-	})
-
-func _can_despawn_enemy(node: Node, state: Dictionary) -> bool:
-	if node == null or not is_instance_valid(node):
-		return true
-	if node.has_method("is_attacking") and bool(node.call("is_attacking")):
-		return false
-	var now: float = Time.get_unix_time_from_system()
-	var last_active_time: float = float(state.get("last_active_time", 0.0))
-	if node.has_method("capture_save_state"):
-		var runtime_state: Dictionary = node.call("capture_save_state")
-		last_active_time = maxf(last_active_time, float(runtime_state.get("last_active_time", 0.0)))
-	if now - last_active_time < maxf(npc_despawn_grace_seconds, 0.0):
-		return false
-	return true
-
-func _despawn_enemy(enemy_id: String) -> void:
-	if not active_enemies.has(enemy_id):
-		return
-	var node: Node = active_enemies[enemy_id]
-	var chunk_key: String = String(active_enemy_chunk.get(enemy_id, ""))
-	if node != null and is_instance_valid(node):
-		if node.has_method("capture_save_state"):
-			var state: Dictionary = node.call("capture_save_state")
-			WorldSave.set_enemy_state(chunk_key, enemy_id, state)
-		if node.has_node("AIComponent"):
-			var ai := node.get_node_or_null("AIComponent")
-			if ai != null and ai.has_method("on_owner_exit_tree"):
-				ai.call("on_owner_exit_tree")
-		if node.has_node("AIWeaponController"):
-			var ctrl := node.get_node_or_null("AIWeaponController")
-			if ctrl != null and ctrl.has_method("clear_transient_input"):
-				ctrl.call("clear_transient_input")
-		EnemyRegistry.unregister_enemy(node)
-		node.queue_free()
-	active_enemies.erase(enemy_id)
-	active_enemy_chunk.erase(enemy_id)
-	spawning_enemy_ids.erase(enemy_id)
 
 
 func world_to_chunk(pos: Vector2) -> Vector2i:
@@ -429,7 +223,7 @@ func _is_chunk_in_active_window(chunk_pos: Vector2i, center: Vector2i) -> bool:
 	return abs(chunk_pos.x - center.x) <= active_radius and abs(chunk_pos.y - center.y) <= active_radius
 
 func update_chunks(center: Vector2i) -> void:
-	if _updating_chunks:
+	if pipeline.is_updating:
 		return
 	Debug.log("boot", "ChunkManager load begin center=%s" % center)
 	Debug.log("chunk", "CENTER moved -> (%d,%d)" % [center.x, center.y])
@@ -450,7 +244,7 @@ func update_chunks(center: Vector2i) -> void:
 			needed[cpos] = true
 			needed_chunks.append(cpos)
 
-	if terrain_paint_ring_priority_enabled:
+	if pipeline.terrain_paint_ring_priority_enabled:
 		needed_chunks.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 			var ring_a: int = max(abs(a.x - center.x), abs(a.y - center.y))
 			var ring_b: int = max(abs(b.x - center.x), abs(b.y - center.y))
@@ -461,463 +255,60 @@ func update_chunks(center: Vector2i) -> void:
 			return ring_a < ring_b
 		)
 
-	if progressive_terrain_paint_enabled:
-		_terrain_paint_epoch += 1
-		_terrain_paint_queue.clear()
-		_terrain_paint_enqueued.clear()
-		_terrain_paint_center_ring0_pending = 0
-		_updating_chunks = true
+	if pipeline.progressive_terrain_paint_enabled:
+		pipeline.reset_terrain_paint_epoch()
 
 	for cpos in needed_chunks:
-		if not generated_chunks.has(cpos) and not generating_chunks.has(cpos):
-			generating_chunks[cpos] = true
-			await generate_chunk(cpos, true)
-		if generating_chunks.has(cpos):
+		if not pipeline.generated_chunks.has(cpos) and not pipeline.generating_chunks.has(cpos):
+			pipeline.generating_chunks[cpos] = true
+			await pipeline.generate_chunk(cpos, true)
+		if pipeline.generating_chunks.has(cpos):
 			continue
 		if not loaded_chunks.has(cpos):
-			load_chunk_entities(cpos)
+			entity_coordinator.load_chunk(cpos)
 			loaded_chunks[cpos] = true
-		if progressive_terrain_paint_enabled and _is_chunk_in_active_window(cpos, center):
-			_enqueue_terrain_paint_chunk(cpos, center, _terrain_paint_epoch)
+		if pipeline.progressive_terrain_paint_enabled and _is_chunk_in_active_window(cpos, center):
+			pipeline.enqueue_terrain_paint(cpos, center, pipeline.terrain_paint_epoch)
 
-	# Pass 2: pintar GroundTileMap para chunks nuevos (todos juntos para que set_cells_terrain_connect vea vecinos)
+	# Pass 2: paint GroundTileMap for new chunks (batched so set_cells_terrain_connect sees neighbors)
 	var ground_to_paint: Array[Vector2i] = []
 	for cpos in needed_chunks:
 		if not _ground_terrain_painted_chunks.has(_chunk_key(cpos)):
 			ground_to_paint.append(cpos)
 	if not ground_to_paint.is_empty():
-		await chunk_generator.apply_ground_terrain_ctx(ground_to_paint, _make_ground_terrain_ctx())
+		await chunk_generator.apply_ground_terrain_ctx(ground_to_paint, pipeline.make_ground_terrain_ctx())
 		for cpos in ground_to_paint:
 			_ground_terrain_painted_chunks[_chunk_key(cpos)] = true
 
 	for cpos in loaded_chunks.keys():
 		if not needed.has(cpos):
 			unload_chunk(cpos)
-			unload_chunk_entities(cpos)
-			_terrain_painted_chunks.erase(_chunk_key(cpos))
+			entity_coordinator.unload_entities(cpos)
+			pipeline.on_chunk_unloaded(cpos)
 			loaded_chunks.erase(cpos)
 
-	if progressive_terrain_paint_enabled and _terrain_paint_center_ring0_pending == 0:
-		_updating_chunks = false
+	if pipeline.progressive_terrain_paint_enabled and pipeline.terrain_paint_center_ring0_pending == 0:
+		pipeline.is_updating = false
 	Debug.log("boot", "ChunkManager load end center=%s" % center)
 
-func _enqueue_terrain_paint_chunk(chunk_pos: Vector2i, center: Vector2i, epoch: int) -> void:
-	var key: String = _chunk_key(chunk_pos)
-	if _terrain_painted_chunks.has(key) or _terrain_paint_enqueued.has(key):
-		return
-	var ring: int = max(abs(chunk_pos.x - center.x), abs(chunk_pos.y - center.y))
-	_terrain_paint_queue.append({"chunk": chunk_pos, "ring": ring, "epoch": epoch})
-	_terrain_paint_enqueued[key] = true
-	if ring == 0:
-		_terrain_paint_center_ring0_pending += 1
-
-func _process_terrain_paint_scheduler() -> void:
-	if not progressive_terrain_paint_enabled:
-		return
-	if _terrain_paint_queue.is_empty():
-		if _terrain_paint_center_ring0_pending == 0:
-			_updating_chunks = false
-		return
-
-	var chunks_budget: int = max(1, terrain_paint_chunks_per_tick)
-	var ms_budget: float = maxf(0.0, terrain_paint_ms_budget)
-	var start_ms: int = Time.get_ticks_msec()
-	var processed: int = 0
-	while processed < chunks_budget and not _terrain_paint_queue.is_empty():
-		if ms_budget > 0.0 and float(Time.get_ticks_msec() - start_ms) >= ms_budget:
-			break
-		var job: Dictionary = _terrain_paint_queue.pop_front()
-		if int(job.get("epoch", -1)) != _terrain_paint_epoch:
-			continue
-		var cpos: Vector2i = job.get("chunk", Vector2i.ZERO)
-		var ring: int = int(job.get("ring", 0))
-		var key: String = _chunk_key(cpos)
-		_terrain_paint_enqueued.erase(key)
-		if not loaded_chunks.has(cpos):
-			continue
-		_apply_chunk_persistent_tiles(cpos)
-		_terrain_painted_chunks[key] = true
-		processed += 1
-		if ring == 0:
-			_terrain_paint_center_ring0_pending = max(0, _terrain_paint_center_ring0_pending - 1)
-
-	if _terrain_paint_center_ring0_pending == 0:
-		_updating_chunks = false
-
-func _process_chunk_stage_queues() -> void:
-	var tiles_budget: int = max(0, structure_tile_chunks_per_tick)
-	while tiles_budget > 0 and not _structure_tile_queue.is_empty():
-		var chunk_pos: Vector2i = _structure_tile_queue.pop_front()
-		_structure_tile_enqueued.erase(chunk_pos)
-		if not loaded_chunks.has(chunk_pos):
-			continue
-		prepare_chunk_tiles(chunk_pos)
-		emit_signal("chunk_stage_completed", chunk_pos, "tiles")
-		_enqueue_collider_stage(chunk_pos)
-		tiles_budget -= 1
-
-	var collider_budget: int = max(0, wall_collider_chunks_per_tick)
-	while collider_budget > 0 and not _collider_queue.is_empty():
-		var chunk_pos: Vector2i = _collider_queue.pop_front()
-		_collider_enqueued.erase(chunk_pos)
-		if not loaded_chunks.has(chunk_pos):
-			continue
-		prepare_chunk_colliders(chunk_pos)
-		emit_signal("chunk_stage_completed", chunk_pos, "collision")
-		enqueue_chunk_entities(chunk_pos)
-		emit_signal("chunk_stage_completed", chunk_pos, "entities_enqueued")
-		collider_budget -= 1
-
-func _enqueue_structure_tile_stage(chunk_pos: Vector2i) -> void:
-	if _structure_tile_enqueued.has(chunk_pos):
-		return
-	_structure_tile_queue.append(chunk_pos)
-	_structure_tile_enqueued[chunk_pos] = true
-
-func _enqueue_collider_stage(chunk_pos: Vector2i) -> void:
-	if _collider_enqueued.has(chunk_pos):
-		return
-	_collider_queue.append(chunk_pos)
-	_collider_enqueued[chunk_pos] = true
-
-func generate_chunk(chunk_pos: Vector2i, spawn_entities: bool = true) -> void:
-	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
-	var generate_start_us: int = Time.get_ticks_usec()
-	prop_spawner.generate_chunk_spawns(chunk_pos, _make_spawn_ctx())
-	if tilemap.is_layer_enabled(LAYER_GROUND):
-		await chunk_generator.apply_ground(chunk_pos, _make_ground_ctx(chunk_pos))
-	_record_chunk_stage_time(CHUNK_PERF_STAGE_GENERATE, chunk_pos, float(Time.get_ticks_usec() - generate_start_us) / 1000.0)
-	generated_chunks[chunk_pos] = true
-	generating_chunks.erase(chunk_pos)
-	if spawn_entities and _is_chunk_in_active_window(chunk_pos, current_player_chunk):
-		if not loaded_chunks.has(chunk_pos):
-			load_chunk_entities(chunk_pos)
-			loaded_chunks[chunk_pos] = true
-
-func _process_prefetch(delta: float) -> void:
-	if not prefetch_enabled or player == null:
-		return
-	_prefetch_timer += delta
-	if _prefetch_timer < prefetch_check_interval:
-		return
-	_prefetch_timer = 0.0
-
-	var player_tile: Vector2i = _world_to_tile(player.global_position)
-	var player_chunk: Vector2i = _tile_to_chunk(player_tile)
-	_reprioritize_prefetch_queue(player_chunk)
-	var local_in_chunk := Vector2i(posmod(player_tile.x, chunk_size), posmod(player_tile.y, chunk_size))
-	if _should_trigger_prefetch(local_in_chunk):
-		var center_key: String = _chunk_key(player_chunk)
-		if _last_prefetch_center_chunk_key != center_key:
-			_enqueue_prefetch_ring(player_chunk)
-			_last_prefetch_center_chunk_key = center_key
-
-	if _has_critical_generation_in_active_window(player_chunk):
-		return
-
-	var budget: int = _runtime_prefetch_budget()
-	for _i in range(budget):
-		if _prefetch_queue.is_empty():
-			break
-		var cpos: Vector2i = _prefetch_queue.pop_front()
-		var key: String = _chunk_key(cpos)
-		if generated_chunks.has(cpos) or prefetching_chunks.has(key):
-			continue
-		prefetching_chunks[key] = true
-		call_deferred("_prefetch_chunk", cpos)
-
-func _should_trigger_prefetch(local_in_chunk: Vector2i) -> bool:
-	if chunk_size <= 0:
-		return false
-	var border: int = clamp(prefetch_border_tiles, 0, max(0, chunk_size - 1))
-	var max_idx: int = chunk_size - 1
-	return (
-		local_in_chunk.x <= border
-		or local_in_chunk.x >= (max_idx - border)
-		or local_in_chunk.y <= border
-		or local_in_chunk.y >= (max_idx - border)
-	)
-
-func _enqueue_prefetch_ring(center_chunk: Vector2i) -> void:
-	var world_max_chunk_x: int = int(floor(float(width - 1) / float(chunk_size)))
-	var world_max_chunk_y: int = int(floor(float(height - 1) / float(chunk_size)))
-	var ring_radius: int = max(0, prefetch_ring_radius)
-	for ring in range(1, ring_radius + 1):
-		for dy in range(-ring, ring + 1):
-			for dx in range(-ring, ring + 1):
-				if max(abs(dx), abs(dy)) != ring:
-					continue
-				var target := Vector2i(center_chunk.x + dx, center_chunk.y + dy)
-				if target.x < 0 or target.y < 0 or target.x > world_max_chunk_x or target.y > world_max_chunk_y:
-					continue
-				var key: String = _chunk_key(target)
-				if generated_chunks.has(target) or prefetched_chunks.has(key) or prefetching_chunks.has(key):
-					continue
-				if _prefetch_queue.has(target):
-					continue
-				_prefetch_queue.append(target)
-	_enforce_prefetch_queue_limit(center_chunk)
-
-func _reprioritize_prefetch_queue(center_chunk: Vector2i) -> void:
-	if _prefetch_queue.is_empty():
-		return
-	var player_dir: Vector2 = _get_prefetch_direction()
-	var has_player_dir: bool = player_dir.length_squared() > 0.0
-	var filtered_queue: Array[Vector2i] = []
-	for cpos in _prefetch_queue:
-		var ring_distance: int = max(abs(cpos.x - center_chunk.x), abs(cpos.y - center_chunk.y))
-		if ring_distance <= (prefetch_ring_radius + active_radius + 1):
-			filtered_queue.append(cpos)
-	filtered_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return _is_prefetch_chunk_higher_priority(a, b, center_chunk, player_dir, has_player_dir)
-	)
-	_prefetch_queue = filtered_queue
-	_enforce_prefetch_queue_limit(center_chunk)
-
-func _enforce_prefetch_queue_limit(center_chunk: Vector2i) -> void:
-	if _prefetch_queue.size() <= PREFETCH_QUEUE_MAX:
-		return
-	var player_dir: Vector2 = _get_prefetch_direction()
-	var has_player_dir: bool = player_dir.length_squared() > 0.0
-	_prefetch_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return _is_prefetch_chunk_higher_priority(a, b, center_chunk, player_dir, has_player_dir)
-	)
-	_prefetch_queue.resize(PREFETCH_QUEUE_MAX)
-
-func _is_prefetch_chunk_higher_priority(a: Vector2i, b: Vector2i, center_chunk: Vector2i, player_dir: Vector2, has_player_dir: bool) -> bool:
-	var ring_a: int = max(abs(a.x - center_chunk.x), abs(a.y - center_chunk.y))
-	var ring_b: int = max(abs(b.x - center_chunk.x), abs(b.y - center_chunk.y))
-	if has_player_dir:
-		var forward_a: float = _chunk_forward_score(a, center_chunk, player_dir)
-		var forward_b: float = _chunk_forward_score(b, center_chunk, player_dir)
-		if !is_equal_approx(forward_a, forward_b):
-			return forward_a > forward_b
-	if ring_a != ring_b:
-		return ring_a < ring_b
-	var dist_a: int = a.distance_squared_to(center_chunk)
-	var dist_b: int = b.distance_squared_to(center_chunk)
-	if dist_a != dist_b:
-		return dist_a < dist_b
-	if a.y == b.y:
-		return a.x < b.x
-	return a.y < b.y
-
-func _chunk_forward_score(chunk_pos: Vector2i, center_chunk: Vector2i, player_dir: Vector2) -> float:
-	var offset := Vector2(chunk_pos - center_chunk)
-	if offset.length_squared() <= 0.0:
-		return -1.0
-	return player_dir.dot(offset.normalized())
-
-func _get_prefetch_direction() -> Vector2:
-	if player == null or not is_instance_valid(player):
-		return Vector2.ZERO
-	var vel_v = player.get("velocity")
-	if typeof(vel_v) == TYPE_VECTOR2:
-		var vel: Vector2 = vel_v
-		if vel.length_squared() > 16.0:
-			return vel.normalized()
-	var last_dir_v = player.get("last_direction")
-	if typeof(last_dir_v) == TYPE_VECTOR2:
-		var last_dir: Vector2 = last_dir_v
-		if last_dir.length_squared() > 0.0:
-			return last_dir.normalized()
-	return Vector2.ZERO
-
-func _runtime_prefetch_budget() -> int:
-	var base_budget: int = max(0, prefetch_budget_chunks_per_tick)
-	if base_budget == 0:
-		return 0
-	var floor_budget: int = clamp(prefetch_frame_pressure_budget_floor, 0, base_budget)
-	var budget: int = base_budget
-	if _updating_chunks:
-		budget = max(floor_budget, budget - 1)
-	if prefetch_frame_pressure_fps_threshold > 0.0:
-		var fps: float = Engine.get_frames_per_second()
-		if fps > 0.0 and fps < prefetch_frame_pressure_fps_threshold:
-			budget = max(floor_budget, budget - 1)
-	return budget
-
-func _has_critical_generation_in_active_window(center_chunk: Vector2i) -> bool:
-	for key in generating_chunks.keys():
-		var cpos: Vector2i = key
-		if _is_chunk_in_active_window(cpos, center_chunk):
-			return true
-	return false
-
-func _prefetch_chunk(chunk_pos: Vector2i) -> void:
-	var key: String = _chunk_key(chunk_pos)
-	if generated_chunks.has(chunk_pos):
-		prefetching_chunks.erase(key)
-		prefetched_chunks[key] = true
-		return
-	if generating_chunks.has(chunk_pos):
-		prefetching_chunks.erase(key)
-		return
-	if _has_critical_generation_in_active_window(current_player_chunk):
-		prefetching_chunks.erase(key)
-		if not _prefetch_queue.has(chunk_pos):
-			_prefetch_queue.push_front(chunk_pos)
-		return
-
-	generating_chunks[chunk_pos] = true
-	await generate_chunk(chunk_pos, false)
-	prefetching_chunks.erase(key)
-	prefetched_chunks[key] = true
-	if not prefetched_visual_chunks.has(key):
-		_prefetch_prepare_chunk_visuals(chunk_pos)
-		prefetched_visual_chunks[key] = true
-	if prefetch_enqueue_entities:
-		_enqueue_prefetched_entity_jobs(chunk_pos)
-
-func _prefetch_prepare_chunk_visuals(chunk_pos: Vector2i) -> void:
-	if not prefetch_prepare_ground_enabled and not prefetch_prepare_walls_enabled:
-		return
-	_apply_chunk_persistent_tiles(chunk_pos, prefetch_prepare_ground_enabled, prefetch_prepare_walls_enabled)
-
-func _enqueue_prefetched_entity_jobs(chunk_pos: Vector2i) -> void:
-	if _spawn_queue == null:
-		return
-	if not chunk_save.has(chunk_pos):
-		return
-	var jobs: Array[Dictionary] = []
-	var chunk_key: String = _chunk_key(chunk_pos)
-	var chunk_ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
-	var priority: int = chunk_ring + prefetch_entity_priority_offset
-	for d in chunk_save[chunk_pos].get("ores", []):
-		var tpos: Vector2i = d["tile"]
-		jobs.append({
-			"chunk_key": chunk_key,
-			"kind": "ore",
-			"scene": copper_ore_scene,
-			"tile": tpos,
-			"global_position": _tile_to_world(tpos),
-			"priority": priority,
-			"uid": UID.make_uid("ore_copper", "", tpos),
-		})
-	for p in chunk_save[chunk_pos].get("placements", []):
-		if typeof(p) != TYPE_DICTIONARY:
-			continue
-		var kind: String = String(p.get("kind", ""))
-		if kind != "prop":
-			continue
-		var prop_id: String = String(p.get("prop_id", ""))
-		var path: String = PropDB.scene_path(prop_id)
-		if path == "":
-			continue
-		var ps: PackedScene = load(path) as PackedScene
-		if ps == null:
-			continue
-		var ccell: Array = p.get("cell", [0, 0])
-		var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
-		jobs.append({
-			"chunk_key": chunk_key,
-			"kind": "prop",
-			"scene": ps,
-			"tile": cell,
-			"global_position": _tile_to_world(cell),
-			"priority": priority,
-			"uid": UID.make_uid("prop_%s" % prop_id, "", cell),
-		})
-	if not jobs.is_empty():
-		_spawn_queue.enqueue_many(jobs)
-
-func _chunk_ring_bucket(chunk_pos: Vector2i) -> int:
-	var ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
-	return clampi(ring, 0, 2)
 
 func _record_chunk_stage_time(stage: String, chunk_pos: Vector2i, elapsed_ms: float) -> void:
-	if not debug_chunk_perf_enabled:
-		return
-	var ring: int = _chunk_ring_bucket(chunk_pos)
-	var ring_data: Dictionary = _chunk_stage_perf.get(ring, {})
-	if not ring_data.has(stage):
-		ring_data[stage] = []
-	var samples: Array = ring_data[stage]
-	samples.append(elapsed_ms)
-	var max_samples: int = max(8, debug_chunk_perf_window_size)
-	while samples.size() > max_samples:
-		samples.remove_at(0)
-	ring_data[stage] = samples
-	_chunk_stage_perf[ring] = ring_data
-	_check_chunk_perf_alert(stage, ring, elapsed_ms, chunk_pos)
-
-func _check_chunk_perf_alert(stage: String, ring: int, elapsed_ms: float, chunk_pos: Vector2i) -> void:
-	if ring != 0:
-		return
-	var threshold: float = _ring0_stage_alert_threshold(stage)
-	if threshold <= 0.0 or elapsed_ms <= threshold:
-		return
-	Debug.log("chunk_perf", "ALERT stage=%s ring=%d chunk=%s ms=%.3f threshold=%.3f" % [stage, ring, str(chunk_pos), elapsed_ms, threshold])
-
-func _ring0_stage_alert_threshold(stage: String) -> float:
-	match stage:
-		CHUNK_PERF_STAGE_GENERATE:
-			return debug_chunk_perf_ring0_alert_generate_ms
-		CHUNK_PERF_STAGE_GROUND_CONNECT:
-			return debug_chunk_perf_ring0_alert_ground_connect_ms
-		CHUNK_PERF_STAGE_WALL_CONNECT:
-			return debug_chunk_perf_ring0_alert_wall_connect_ms
-		CHUNK_PERF_STAGE_COLLIDER_BUILD:
-			return debug_chunk_perf_ring0_alert_collider_ms
-		CHUNK_PERF_STAGE_ENTITIES:
-			return debug_chunk_perf_ring0_alert_entities_ms
-		_:
-			return 0.0
-
-func _calc_percentile(values: Array, ratio: float) -> float:
-	if values.is_empty():
-		return 0.0
-	var sorted: Array = values.duplicate()
-	sorted.sort()
-	var idx: int = int(round((sorted.size() - 1) * clampf(ratio, 0.0, 1.0)))
-	return float(sorted[idx])
+	_perf_monitor.record(stage, chunk_pos, current_player_chunk, elapsed_ms)
 
 func debug_print_chunk_stage_percentiles() -> void:
-	if not debug_chunk_perf_enabled:
-		Debug.log("chunk_perf", "disabled")
-		return
-	for ring in [0, 1, 2]:
-		var ring_data: Dictionary = _chunk_stage_perf.get(ring, {})
-		if ring_data.is_empty():
-			Debug.log("chunk_perf", "ring=%d no-data" % ring)
-			continue
-		for stage in [
-			CHUNK_PERF_STAGE_GENERATE,
-			CHUNK_PERF_STAGE_GROUND_CONNECT,
-			CHUNK_PERF_STAGE_WALL_CONNECT,
-			CHUNK_PERF_STAGE_COLLIDER_BUILD,
-			CHUNK_PERF_STAGE_ENTITIES,
-		]:
-			var samples: Array = ring_data.get(stage, [])
-			if samples.is_empty():
-				continue
-			var p50: float = _calc_percentile(samples, 0.50)
-			var p95: float = _calc_percentile(samples, 0.95)
-			Debug.log("chunk_perf", "ring=%d stage=%s n=%d p50=%.3fms p95=%.3fms" % [ring, stage, samples.size(), p50, p95])
-	_recalibrate_runtime_budgets_from_chunk_perf()
+	_perf_monitor.print_percentiles()
+	_apply_calibrated_perf_budgets()
 
 func _process_chunk_perf_debug(delta: float) -> void:
-	if not debug_chunk_perf_auto_print:
-		return
-	_debug_chunk_perf_timer += delta
-	if _debug_chunk_perf_timer < maxf(0.5, debug_chunk_perf_print_interval):
-		return
-	_debug_chunk_perf_timer = 0.0
-	debug_print_chunk_stage_percentiles()
+	if _perf_monitor.tick(delta):
+		_apply_calibrated_perf_budgets()
 
-func _recalibrate_runtime_budgets_from_chunk_perf() -> void:
-	if not debug_chunk_perf_auto_calibrate_runtime:
-		return
-	var ring0: Dictionary = _chunk_stage_perf.get(0, {})
-	var ground_samples: Array = ring0.get(CHUNK_PERF_STAGE_GROUND_CONNECT, [])
-	var collider_samples: Array = ring0.get(CHUNK_PERF_STAGE_COLLIDER_BUILD, [])
-	if not ground_samples.is_empty():
-		var ground_p95: float = _calc_percentile(ground_samples, 0.95)
-		terrain_paint_ms_budget = clampf(maxf(0.75, ground_p95 * 1.15), 0.75, 8.0)
-	if not collider_samples.is_empty():
-		var collider_p95: float = _calc_percentile(collider_samples, 0.95)
-		wall_collider_chunks_per_tick = int(clampf(floor(4.0 / maxf(0.1, collider_p95)), 1.0, 4.0))
-	Debug.log("chunk_perf", "calibrated terrain_paint_ms_budget=%.2f wall_collider_chunks_per_tick=%d" % [terrain_paint_ms_budget, wall_collider_chunks_per_tick])
+func _apply_calibrated_perf_budgets() -> void:
+	var budgets := _perf_monitor.get_calibrated_budgets()
+	if budgets.has("terrain_paint_ms_budget"):
+		pipeline.terrain_paint_ms_budget = budgets["terrain_paint_ms_budget"]
+	if budgets.has("wall_collider_chunks_per_tick"):
+		pipeline.wall_collider_chunks_per_tick = budgets["wall_collider_chunks_per_tick"]
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
 	# Borrar suelo del WorldTileMap
@@ -928,84 +319,18 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 	_tile_painter.erase_chunk_region(ground_tilemap, chunk_pos, chunk_size, [0])
 	_ground_terrain_painted_chunks.erase(_chunk_key(chunk_pos))
 
-func _chunk_ring_from_center(chunk_pos: Vector2i, center: Vector2i) -> int:
-	return max(abs(chunk_pos.x - center.x), abs(chunk_pos.y - center.y))
-
-func _use_corrected_ground_mapping_for_chunk(chunk_pos: Vector2i) -> bool:
-	if not corrected_ground_mapping_enabled:
-		return false
-	if not corrected_ground_mapping_ring0_only:
-		return true
-	return _chunk_ring_from_center(chunk_pos, current_player_chunk) == 0
-
-func _ground_mapping_profile_for_chunk(chunk_pos: Vector2i) -> Dictionary:
-	if _use_corrected_ground_mapping_for_chunk(chunk_pos):
-		return {
-			"mode": "dirt_grass",
-			"ground_source_id": WorldTerrainConfig.DIRT_GRASS_GROUND_SOURCE_ID,
-			"ground_fallback_atlas_by_terrain": WorldTerrainConfig.DIRT_GRASS_FALLBACK_ATLAS_BY_TERRAIN,
-			"allow_legacy_fallback": false,
-		}
-	return {
-		"mode": "legacy",
-		"ground_source_id": WorldTerrainConfig.LEGACY_GROUND_SOURCE_ID,
-		"ground_fallback_atlas_by_terrain": WorldTerrainConfig.LEGACY_FALLBACK_ATLAS_BY_TERRAIN,
-		"allow_legacy_fallback": legacy_ground_mapping_allow_fallback,
-	}
-
-func get_biome(x: int, y: int) -> int:
-	var v := (biome_noise.get_noise_2d(x, y) + 1.0) * 0.5
-	if v < 0.35:
-		return 0
-	if v > 0.65:
-		return 2
-	return 1
-
 func get_spawn_biome(x: int, y: int) -> int:
 	var terrain := _ground_painter.get_terrain(x, y)
 	if terrain == 0:  # dirt patch → alta densidad de ores
 		return BIOME_ID_DENSE_GRASS
 	return BIOME_ID_GRASSLAND  # grass → baja densidad
 
-func pick_tile(x: int, y: int) -> Dictionary:
-	var biome := get_biome(x, y)
-	var biome_data: Dictionary = BIOME_TILES[biome]
-	var tiles: Array = biome_data["tiles"]
-	var total_weight: int = 0
-	for t in tiles: total_weight += int(t["w"])
-	_pick_rng.seed = hash(Vector2i(x, y))
-	var roll: int = _pick_rng.randi_range(0, total_weight - 1)
-	var acc: int = 0
-	var winner: Dictionary = {}
-	for t in tiles:
-		acc += int(t["w"])
-		if roll < acc:
-			winner = t
-			break
-	var col: int = _pick_rng.randi_range(int(winner["col_range"][0]), int(winner["col_range"][1]))
-	var rows: Array = winner["rows"]
-	var row: int = rows[_pick_rng.randi_range(0, rows.size() - 1)]
-	return {
-		"atlas_coords": Vector2i(col, row),
-		"ground_terrain_id": int(biome_data["ground_terrain_id"]),
-	}
-
-var chunk_entities: Dictionary = {}
-var active_enemies: Dictionary = {}  # enemy_id -> EnemyAI node
-var active_enemy_chunk: Dictionary = {}  # enemy_id -> chunk_key
-var spawning_enemy_ids: Dictionary = {}  # enemy_id -> true while queued
-var chunk_saveables: Dictionary = {}
 var chunk_occupied_tiles: Dictionary = {}
 var chunk_wall_body: Dictionary = {}
 var _chunk_wall_last_used: Dictionary = {}
 var _chunk_wall_use_counter: int = 0
 
 const DEBUG_SPAWN: bool = true
-const DEBUG_SAVE: bool = true
-
-func _debug_spawn_report(chunk_key: Vector2i, player_tile: Vector2i, chosen_tile: Vector2i, reason: String) -> void:
-	if not DEBUG_SPAWN: return
-	Debug.log("spawn", "chunk=%s player_tile=%s chosen=%s -> %s" % [str(chunk_key), str(player_tile), str(chosen_tile), reason])
 
 func _debug_check_tile_alignment(player_global: Vector2) -> void:
 	if not DEBUG_SPAWN: return
@@ -1024,11 +349,11 @@ func _make_spawn_ctx() -> Dictionary:
 		"chunk_size": chunk_size,
 		"tavern_chunk": tavern_chunk,
 		"spawn_tile": spawn_tile,
-		"biome_seed": biome_noise.seed,
+		"biome_seed": _biome_seed,
 		"get_biome": Callable(self, "get_spawn_biome"),
 		"chunk_save": chunk_save,
 		"chunk_occupied_tiles": chunk_occupied_tiles,
-		"entities_spawned_chunks": entities_spawned_chunks,
+		"entities_spawned_chunks": entity_coordinator.entities_spawned_chunks,
 		"player_tile": player_tile,
 		"player_chunk": current_player_chunk,
 		"copper_ore_scene": copper_ore_scene,
@@ -1036,259 +361,8 @@ func _make_spawn_ctx() -> Dictionary:
 		"bandit_scene": bandit_scene,
 	}
 
-func _make_ground_ctx(chunk_pos: Vector2i) -> Dictionary:
-	var mapping: Dictionary = _ground_mapping_profile_for_chunk(chunk_pos)
-	return {
-		"tilemap": tilemap,
-		"width": width,
-		"height": height,
-		"chunk_size": chunk_size,
-		"pick_tile": Callable(self, "pick_tile"),
-		"tree": get_tree(),
-		"generating_yield_stride": 8,
-		"ground_terrain_set": WorldTerrainConfig.TERRAIN_SET,
-		"ground_source_id": int(mapping.get("ground_source_id", WorldTerrainConfig.LEGACY_GROUND_SOURCE_ID)),
-		"ground_fallback_atlas_by_terrain": mapping.get("ground_fallback_atlas_by_terrain", WorldTerrainConfig.LEGACY_FALLBACK_ATLAS_BY_TERRAIN),
-		"allow_legacy_fallback": bool(mapping.get("allow_legacy_fallback", legacy_ground_mapping_allow_fallback)),
-		"ground_mapping_mode": String(mapping.get("mode", "legacy")),
-		"terrain_connect_batch_size": 256,
-		"terrain_connect_yield_each_batches": 1,
-		"perf_stage_hook": Callable(self, "_record_chunk_stage_time"),
-		"ground_fallback_debug_hook": Callable(self, "_on_ground_fallback_debug"),
-	}
-
-func _make_ground_terrain_ctx() -> Dictionary:
-	return {
-		"tilemap": ground_tilemap,
-		"width": width,
-		"height": height,
-		"chunk_size": chunk_size,
-		"get_terrain": Callable(_ground_painter, "get_terrain"),
-		"terrain_set": 0,
-		"tree": get_tree(),
-	}
-
 func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int, mode: String = "legacy") -> void:
-	if total_cells <= 0:
-		return
-	_ground_fallback_events_accum += 1
-	_ground_fallback_cells_accum += total_cells
-	_ground_fallback_missing_accum += missing_cells
-	_ground_fallback_invalid_source_accum += invalid_source_cells
-	var now_msec: int = Time.get_ticks_msec()
-	if now_msec - _ground_fallback_last_log_msec < 2000:
-		return
-	_ground_fallback_last_log_msec = now_msec
-	Debug.log(
-		"chunk_ground",
-		"fallback mode=%s events=%d cells=%d missing=%d invalid_source=%d last_chunk=%s" % [
-			mode,
-			_ground_fallback_events_accum,
-			_ground_fallback_cells_accum,
-			_ground_fallback_missing_accum,
-			_ground_fallback_invalid_source_accum,
-			str(chunk_pos),
-		]
-	)
-
-func _apply_chunk_persistent_tiles(chunk_pos: Vector2i, include_ground: bool = true, include_walls: bool = true) -> void:
-	if not chunk_save.has(chunk_pos):
-		return
-	var floor_cells: Array[Vector2i] = []
-	var wall_terrain_cells: Array[Vector2i] = []
-	var manual_tiles: Array[Dictionary] = []
-
-	for t in chunk_save[chunk_pos].get("placed_tiles", []):
-		if typeof(t) != TYPE_DICTIONARY:
-			continue
-		var source_id: int = int(t.get("source", 0))
-		if source_id == -1:
-			wall_terrain_cells.append(t["tile"])
-		elif int(t.get("layer", -1)) == LAYER_FLOOR and source_id == SRC_FLOOR and t.get("atlas", Vector2i(-1, -1)) == FLOOR_WOOD:
-			floor_cells.append(t["tile"])
-		else:
-			manual_tiles.append(t)
-
-	if include_ground and floor_cells.size() > 0:
-		_tile_painter.apply_floor(tilemap, LAYER_FLOOR, SRC_FLOOR, FLOOR_WOOD, floor_cells)
-	if include_ground and manual_tiles.size() > 0:
-		_tile_painter.apply_manual_tiles(tilemap, manual_tiles)
-	if include_walls and wall_terrain_cells.size() > 0:
-		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d -> StructureWallsMap" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
-		var wall_start_us: int = Time.get_ticks_usec()
-		_tile_painter.apply_walls_terrain_connect(walls_tilemap, WALLS_MAP_LAYER, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
-		_record_chunk_stage_time(CHUNK_PERF_STAGE_WALL_CONNECT, chunk_pos, float(Time.get_ticks_usec() - wall_start_us) / 1000.0)
-
-func load_chunk_entities(chunk_pos: Vector2i) -> void:
-	chunk_entities[chunk_pos] = []
-	chunk_saveables[chunk_pos] = []
-	if queued_entity_chunks.has(chunk_pos):
-		return
-	queued_entity_chunks[chunk_pos] = true
-	prop_spawner.rebuild_chunk_occupied_tiles(chunk_pos, _make_spawn_ctx())
-
-	if not chunk_save.has(chunk_pos):
-		queued_entity_chunks.erase(chunk_pos)
-		entities_spawned_chunks[chunk_pos] = true
-		return
-	_enqueue_structure_tile_stage(chunk_pos)
-
-func prepare_chunk_tiles(chunk_pos: Vector2i) -> void:
-	if not chunk_save.has(chunk_pos):
-		return
-	_apply_chunk_persistent_tiles(chunk_pos)
-	var key: String = _chunk_key(chunk_pos)
-	_terrain_painted_chunks[key] = true
-	_terrain_paint_enqueued.erase(key)
-
-func prepare_chunk_colliders(chunk_pos: Vector2i) -> void:
-	if not chunk_save.has(chunk_pos):
-		return
-	_ensure_chunk_wall_collision(chunk_pos)
-
-func enqueue_chunk_entities(chunk_pos: Vector2i) -> void:
-	var entities_start_us: int = Time.get_ticks_usec()
-	if not chunk_save.has(chunk_pos):
-		queued_entity_chunks.erase(chunk_pos)
-		entities_spawned_chunks[chunk_pos] = true
-		_record_chunk_stage_time(CHUNK_PERF_STAGE_ENTITIES, chunk_pos, float(Time.get_ticks_usec() - entities_start_us) / 1000.0)
-		return
-
-	var placements_count: int = chunk_save[chunk_pos].get("placements", []).size()
-	var ores_count: int = chunk_save[chunk_pos]["ores"].size()
-	var camps_count: int = chunk_save[chunk_pos]["camps"].size()
-	Debug.log("chunk", "LOAD_ENTITIES chunk=(%d,%d) placements=%d ores=%d camps=%d" % [chunk_pos.x, chunk_pos.y, placements_count, ores_count, camps_count])
-
-	var cx: int = chunk_pos.x
-	var cy: int = chunk_pos.y
-	WorldSave.get_chunk_save(cx, cy)
-
-	var chunk_key: String = _chunk_key(chunk_pos)
-	var chunk_ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
-	var jobs: Array[Dictionary] = []
-
-	# 1) ORES
-	for d in chunk_save[chunk_pos]["ores"]:
-		var tpos: Vector2i = d["tile"]
-		var ore_uid: String = UID.make_uid("ore_copper", "", tpos)
-		var ore_state = WorldSave.get_entity_state(cx, cy, ore_uid)
-		var ore_init: Dictionary = {
-			"properties": {"entity_uid": ore_uid},
-			"worldsave": {
-				"cx": cx,
-				"cy": cy,
-				"uid": ore_uid,
-				"init_if_missing": ore_state == null,
-			}
-		}
-		if ore_state != null:
-			ore_init["save_state"] = ore_state
-		elif d.has("remaining") and d["remaining"] != -1:
-			ore_init["save_state"] = {"remaining": int(d["remaining"])}
-		jobs.append({
-			"chunk_key": chunk_key,
-			"kind": "ore",
-			"scene": copper_ore_scene,
-			"tile": tpos,
-			"global_position": _tile_to_world(tpos),
-			"init_data": ore_init,
-			"priority": chunk_ring,
-			"uid": ore_uid,
-		})
-
-	# 2) CAMPS (solo prop visual; enemies pasan a data-only records)
-	for c in chunk_save[chunk_pos]["camps"]:
-		var ct: Vector2i = c["tile"]
-		jobs.append({
-			"chunk_key": chunk_key,
-			"kind": "camp",
-			"scene": bandit_camp_scene,
-			"tile": ct,
-			"global_position": _tile_to_world(ct),
-			"init_data": {
-				"properties": {"bandit_scene": bandit_scene, "max_bandits_alive": 0},
-			},
-			"priority": chunk_ring,
-			"uid": UID.make_uid("camp_bandit", "", ct),
-		})
-	_ensure_enemy_spawn_records_for_chunk(chunk_pos)
-
-	# 3) PLACEMENTS (props + npc_keeper)
-	var spawned_count: int = 0
-	var spawned_npc_count: int = 0
-	var spawned_keeper_uids: Dictionary = {}
-	if chunk_save[chunk_pos].has("placements"):
-		for p in chunk_save[chunk_pos]["placements"]:
-			if typeof(p) != TYPE_DICTIONARY:
-				continue
-			var d: Dictionary = p
-			var kind: String = String(d.get("kind", ""))
-
-			if kind == "prop":
-				var prop_id: String = String(d.get("prop_id", ""))
-				var path: String = PropDB.scene_path(prop_id)
-				if path == "": continue
-				var ps: PackedScene = load(path) as PackedScene
-				if ps == null: continue
-				var ccell: Array = d.get("cell", [0, 0])
-				var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
-				jobs.append({
-					"chunk_key": chunk_key,
-					"kind": "prop",
-					"scene": ps,
-					"tile": cell,
-					"global_position": _tile_to_world(cell),
-					"init_data": {
-						"properties": {"z_index": tilemap.z_index + 5},
-					},
-					"priority": chunk_ring,
-					"uid": UID.make_uid("prop_%s" % prop_id, "", cell),
-				})
-				spawned_count += 1
-
-			elif kind == "npc_keeper":
-				if tavern_keeper_scene == null: continue
-				var site_id: String = String(d.get("site_id", ""))
-				var keeper_uid: String = UID.make_uid("npc_keeper", site_id)
-				if spawned_keeper_uids.has(keeper_uid): continue
-				spawned_keeper_uids[keeper_uid] = true
-				var keeper_state = WorldSave.get_entity_state(cx, cy, keeper_uid)
-				if keeper_state == null:
-					WorldSave.set_entity_state(cx, cy, keeper_uid, {"spawned": true})
-				var ccell: Array = d.get("cell", [0, 0])
-				var counter_cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
-				var imin: Array = d.get("inner_min", [0, 0])
-				var imax: Array = d.get("inner_max", [0, 0])
-				jobs.append({
-					"chunk_key": chunk_key,
-					"kind": "npc_keeper",
-					"scene": tavern_keeper_scene,
-					"tile": counter_cell,
-					"global_position": _tile_to_world(counter_cell),
-					"init_data": {
-						"properties": {
-							"entity_uid": keeper_uid,
-							"_tilemap": tilemap,
-							"tavern_inner_min": Vector2i(int(imin[0]), int(imin[1])),
-							"tavern_inner_max": Vector2i(int(imax[0]), int(imax[1])),
-							"counter_tile": counter_cell,
-						},
-						"save_state": keeper_state,
-					},
-					"priority": chunk_ring,
-					"uid": keeper_uid,
-				})
-				spawned_npc_count += 1
-				spawned_count += 1
-
-	if _spawn_queue != null and not jobs.is_empty():
-		_spawn_queue.enqueue_many(jobs)
-	else:
-		queued_entity_chunks.erase(chunk_pos)
-		entities_spawned_chunks[chunk_pos] = true
-
-	Debug.log("chunk", "SPAWNED chunk=(%d,%d) props=%d npcs=%d ores=%d camps=%d" % [chunk_pos.x, chunk_pos.y, spawned_count - spawned_npc_count, spawned_npc_count, ores_count, camps_count])
-	_record_chunk_stage_time(CHUNK_PERF_STAGE_ENTITIES, chunk_pos, float(Time.get_ticks_usec() - entities_start_us) / 1000.0)
+	_perf_monitor.record_fallback(chunk_pos, total_cells, missing_cells, invalid_source_cells, mode)
 
 func _world_to_tile(world_pos: Vector2) -> Vector2i:
 	return tilemap.local_to_map(tilemap.to_local(world_pos))
@@ -1306,19 +380,8 @@ func _debug_check_player_chunk(player_global: Vector2) -> void:
 	Debug.log("spawn", "CHUNK_CHECK player_tile=%s player_chunk=%s" % [str(player_tile), str(chunk_key)])
 
 func unload_chunk_entities(chunk_pos: Vector2i) -> void:
-	_structure_tile_enqueued.erase(chunk_pos)
-	_collider_enqueued.erase(chunk_pos)
-	var chunk_key: String = _chunk_key(chunk_pos)
-	if _spawn_queue != null:
-		_spawn_queue.cancel_chunk(chunk_key)
-	for enemy_id in active_enemy_chunk.keys():
-		if String(active_enemy_chunk[enemy_id]) == chunk_key:
-			_despawn_enemy(String(enemy_id))
-	for enemy_id in spawning_enemy_ids.keys():
-		if String(enemy_id).begins_with("e:%s:" % chunk_key):
-			spawning_enemy_ids.erase(enemy_id)
-	queued_entity_chunks.erase(chunk_pos)
-	prefetching_chunks.erase(chunk_key)
+	pipeline.on_chunk_unloaded(chunk_pos)
+	entity_coordinator.unload_entities(chunk_pos)
 
 	if chunk_wall_body.has(chunk_pos):
 		var body: StaticBody2D = chunk_wall_body[chunk_pos]
@@ -1326,44 +389,6 @@ func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 			_collision_builder.set_chunk_collider_enabled(body, false)
 			_touch_chunk_wall_usage(chunk_pos)
 	_enforce_chunk_collider_cache_limit()
-
-	if not chunk_entities.has(chunk_pos):
-		return
-
-	var cx: int = chunk_pos.x
-	var cy: int = chunk_pos.y
-	if chunk_saveables.has(chunk_pos):
-		for entity in chunk_saveables[chunk_pos]:
-			if not is_instance_valid(entity): continue
-			if not entity.has_method("get_save_state"): continue
-			var uid_value = entity.get("entity_uid")
-			if uid_value == null: continue
-			var uid: String = String(uid_value)
-			if uid == "": continue
-			WorldSave.set_entity_state(cx, cy, uid, entity.get_save_state())
-
-	if chunk_save.has(chunk_pos):
-		var ore_list = chunk_save[chunk_pos]["ores"]
-		for e in chunk_entities[chunk_pos]:
-			if is_instance_valid(e) and e is CopperOre:
-				var tile := _world_to_tile(e.global_position)
-				for d in ore_list:
-					if d["tile"] == tile:
-						d["remaining"] = int(e.get("remaining"))
-						break
-
-	for e in chunk_entities[chunk_pos]:
-		if not is_instance_valid(e):
-			continue
-		if e.has_method("enter_lite_mode"):
-			e.enter_lite_mode()
-		if e.has_node("AIComponent"):
-			var ai: Node = e.get_node_or_null("AIComponent")
-			if ai != null and ai.has_method("on_owner_exit_tree"):
-				ai.on_owner_exit_tree()
-		e.queue_free()
-	chunk_entities.erase(chunk_pos)
-	chunk_saveables.erase(chunk_pos)
 
 func _chunk_key(chunk_pos: Vector2i) -> String:
 	return "%d,%d" % [chunk_pos.x, chunk_pos.y]
@@ -1374,59 +399,6 @@ func _chunk_from_key(chunk_key: String) -> Vector2i:
 		return Vector2i(-99999, -99999)
 	return Vector2i(int(parts[0]), int(parts[1]))
 
-func _is_chunk_key_loaded(chunk_key: String) -> bool:
-	var cpos: Vector2i = _chunk_from_key(chunk_key)
-	return loaded_chunks.has(cpos)
-
-func _on_spawn_queue_job_spawned(job: Dictionary, node: Node) -> void:
-	var chunk_pos: Vector2i = _chunk_from_key(String(job.get("chunk_key", "")))
-	if chunk_pos.x == -99999:
-		return
-	if not chunk_entities.has(chunk_pos):
-		chunk_entities[chunk_pos] = []
-	if not chunk_saveables.has(chunk_pos):
-		chunk_saveables[chunk_pos] = []
-
-	chunk_entities[chunk_pos].append(node)
-	var kind: String = String(job.get("kind", ""))
-	if kind == "ore" or kind == "npc_keeper":
-		chunk_saveables[chunk_pos].append(node)
-	elif kind == "enemy":
-		var enemy_id: String = String(job.get("uid", ""))
-		spawning_enemy_ids.erase(enemy_id)
-		active_enemies[enemy_id] = node
-		active_enemy_chunk[enemy_id] = String(job.get("chunk_key", ""))
-		if node.has_method("exit_lite_mode"):
-			node.call("exit_lite_mode")
-		EnemyRegistry.register_enemy(node)
-
-	if kind == "ore":
-		var init_data: Dictionary = job.get("init_data", {})
-		var ws: Dictionary = init_data.get("worldsave", {})
-		if bool(ws.get("init_if_missing", false)) and node.has_method("get_save_state"):
-			WorldSave.set_entity_state(int(ws.get("cx", chunk_pos.x)), int(ws.get("cy", chunk_pos.y)), String(ws.get("uid", "")), node.call("get_save_state"))
-
-func _on_spawn_queue_job_skipped(job: Dictionary, reason: String) -> void:
-	var kind: String = String(job.get("kind", ""))
-	if kind == "enemy":
-		spawning_enemy_ids.erase(String(job.get("uid", "")))
-	if reason != "chunk_inactive":
-		return
-	var chunk_pos: Vector2i = _chunk_from_key(String(job.get("chunk_key", "")))
-	if chunk_pos.x == -99999:
-		return
-	# Si el job se saltó por inactividad, nunca dejamos el chunk "ocupado".
-	# Esto evita que un skip transitorio deje bloqueado el re-encolado de entidades.
-	queued_entity_chunks.erase(chunk_pos)
-	if loaded_chunks.has(chunk_pos):
-		call_deferred("load_chunk_entities", chunk_pos)
-
-func _on_spawn_queue_chunk_drained(chunk_key: String) -> void:
-	var chunk_pos: Vector2i = _chunk_from_key(chunk_key)
-	if chunk_pos.x == -99999:
-		return
-	queued_entity_chunks.erase(chunk_pos)
-	entities_spawned_chunks[chunk_pos] = true
 
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	WorldSave.set_chunk_flag(cx, cy, "walls_dirty", true)
@@ -1568,8 +540,4 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 		return
 	if uid == "":
 		return
-	if active_enemy_chunk.has(uid):
-		WorldSave.mark_enemy_dead(String(active_enemy_chunk[uid]), uid)
-		active_enemies.erase(uid)
-		active_enemy_chunk.erase(uid)
-	spawning_enemy_ids.erase(uid)
+	npc_simulator.on_entity_died(uid)

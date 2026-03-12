@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/world/ChunkPipeline.gd 2>&1; godot --path . --check-only --script scripts/world/world.gd 2>&1)",
+      "Bash(where godot:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/walva/AppData/Local/Programs/**)",
+      "Bash(powershell -Command \"Get-Command godot -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")"
+    ]
+  }
+}

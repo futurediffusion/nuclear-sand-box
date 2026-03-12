@@ -43,35 +43,46 @@ Contiene:
 
 ### 🌍 WORLD SYSTEM (Chunk-Based)
 
-Script principal:
+Script orquestador: `scripts/world/world.gd`
 
-- `scripts/world/world.gd`
+`world.gd` **no ejecuta la pipeline directamente** — delega a subsistemas mediante inyección de dependencias (`setup(ctx: Dictionary)`).
 
-Responsabilidades:
+#### Subsistemas
 
-- Generación procedural por chunks (64x64 por defecto).
-- Activación/desactivación según distancia al player.
-- Spawn de:
-  - Tiles por bioma.
-  - Cobre.
-  - Campamentos de bandidos.
-- Persistencia de entidades por chunk.
-- Streaming optimizado.
+| Subsistema | Tipo | Archivo | Responsabilidad |
+|---|---|---|---|
+| `ChunkPipeline` | Node | `scripts/world/ChunkPipeline.gd` | `generate_chunk`, persistent tiles, terrain-paint scheduler, stage queues (tiles/colliders), prefetch completo, ground mapping |
+| `EntitySpawnCoordinator` | Node | `scripts/world/EntitySpawnCoordinator.gd` | Spawn jobs via `SpawnBudgetQueue`, ciclo de vida de entidades por chunk |
+| `NpcSimulator` | Node | `scripts/world/NpcSimulator.gd` | Tracking de enemigos activos, lite-mode (AI on/off por distancia), simulación data-only |
+| `ChunkPerfMonitor` | RefCounted | `scripts/world/ChunkPerfMonitor.gd` | Timings por stage, percentiles, auto-calibración de budgets |
+| `ChunkGenerator` | RefCounted | `scripts/world/chunk_generator.gd` | Datos procedurales de tiles via `FastNoiseLite`; `apply_ground_terrain_ctx` |
+| `GroundPainter` | RefCounted | — | Terreno de GroundTileMap (dirt/grass) |
+| `CollisionBuilder` | RefCounted | — | `StaticBody2D` de muros por chunk, caché por hash |
+| `PropSpawner` | RefCounted | — | Ores, props, campamentos |
 
-Características:
+#### Ciclo de vida de un chunk
 
-- Biomas definidos por `FastNoiseLite`.
-- Reglas de spawn:
-  - Más cobre en piedra.
-  - Algunos cobres custodiados.
-  - Algunos campamentos alejados de cobre.
-- Diccionario `chunk_entities`.
-- Sistema de save/load por chunk implementado.
+```
+update_chunks()
+  → pipeline.generate_chunk()        # prop spawns + perf record
+  → entity_coordinator.load_chunk()  # restaurar estado desde WorldSave
+  → chunk_generator.apply_ground_terrain_ctx()  # GroundTileMap batch
+  → pipeline.enqueue_terrain_paint() # WorldTileMap persistent tiles (progresivo)
+  → [pipeline stage queues]:
+      tiles → colliders → entity_coordinator.enqueue_entities()
+```
 
-⚠️ **Regla importante:**
+Al descargar: `unload_chunk()` + `entity_coordinator.unload_entities()` + `pipeline.on_chunk_unloaded()`
 
-- Un chunk no debe regenerar entidades si ya fue generado.
-- El estado se debe conservar en memoria durante la sesión.
+#### Biomas
+
+`get_spawn_biome(x, y)` en `world.gd` mapea terreno de `GroundPainter` a IDs de bioma (`BIOME_ID_GRASSLAND=1`, `BIOME_ID_DENSE_GRASS=2`) que usa `PropSpawner` para densidad de ores.
+
+⚠️ **Reglas importantes:**
+
+- Un chunk no debe regenerar entidades si ya fue generado (`entities_spawned_chunks`).
+- El estado se conserva en memoria durante la sesión via `WorldSave` (autoload).
+- UIDs de entidades son deterministas: `UID.make_uid(prefix, site_id, tile_pos)`.
 
 ### ⛏️ RECURSOS (Cobre)
 
