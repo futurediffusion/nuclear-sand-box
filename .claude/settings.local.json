@@ -6,7 +6,8 @@
       "Read(//c/Program Files/**)",
       "Read(//c/Users/walva/AppData/Local/Programs/**)",
       "Bash(powershell -Command \"Get-Command godot -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
-      "Bash(find /home -name \"*chunk_generator*\" 2>/dev/null || find /root -name \"*chunk_generator*\" 2>/dev/null || find \"C:\" -name \"*chunk_generator*\" 2>/dev/null || ls \"/c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts/world/\" 2>/dev/null)"
+      "Bash(find /home -name \"*chunk_generator*\" 2>/dev/null || find /root -name \"*chunk_generator*\" 2>/dev/null || find \"C:\" -name \"*chunk_generator*\" 2>/dev/null || ls \"/c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts/world/\" 2>/dev/null)",
+      "Bash(grep -r \"TileMap_Cliffs\" \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\\\\scenes\\\\\" --include=\"*.tscn\" -l 2>/dev/null)"
     ]
   }
 }

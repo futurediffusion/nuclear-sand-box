@@ -5,6 +5,7 @@ signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
 @onready var tilemap: TileMap = $WorldTileMap
 @onready var walls_tilemap: TileMap = $StructureWallsMap   # <-- paredes van aquí
 @onready var ground_tilemap: TileMap = $GroundTileMap
+@onready var cliffs_tilemap: TileMap = $TileMap_Cliffs
 @onready var prop_spawner := PropSpawner.new()
 @onready var chunk_generator := ChunkGenerator.new()
 @onready var _collision_builder := CollisionBuilder.new()
@@ -34,6 +35,8 @@ var _tile_painter := TilePainter.new()
 @export var debug_collision_cache: bool = false
 
 var _biome_seed: int = 0
+var cliff_generator: CliffGenerator
+var _cliff_seed: int = 0
 var _ground_painter := GroundPainter.new()
 var _ground_terrain_painted_chunks: Dictionary = {}
 
@@ -138,6 +141,20 @@ func _ready() -> void:
 	entity_coordinator.current_player_chunk = current_player_chunk
 	_spawn_queue = entity_coordinator.get_spawn_queue()
 
+	_cliff_seed = randi()
+	cliff_generator = CliffGenerator.new()
+	cliff_generator.name = "CliffGenerator"
+	add_child(cliff_generator)
+	cliff_generator.setup({
+		"x_min": 0, "x_max": width, "y_min": 0, "y_max": height,
+		"chunk_size": chunk_size, "layer": LAYER_GROUND,
+		"terrain_set_id": 0, "terrain_id": 2,
+		"spawn_center": spawn_tile,
+		"cliff_seed": _cliff_seed,
+		"cliffs_tilemap": cliffs_tilemap,
+	})
+	cliff_generator.global_phase()
+
 	pipeline.setup({
 		"chunk_generator": chunk_generator,
 		"prop_spawner": prop_spawner,
@@ -168,6 +185,8 @@ func _ready() -> void:
 		"make_spawn_ctx": Callable(self, "_make_spawn_ctx"),
 		"on_ground_fallback_debug": Callable(self, "_on_ground_fallback_debug"),
 		"get_terrain": Callable(_ground_painter, "get_terrain"),
+		"cliff_generator": cliff_generator,
+		"cliffs_tilemap": cliffs_tilemap,
 	})
 	pipeline.current_player_chunk = current_player_chunk
 

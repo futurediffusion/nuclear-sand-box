@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=22 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
@@ -19,6 +19,7 @@
 [ext_resource type="PackedScene" uid="uid://c8m2xt6bh61m" path="res://scenes/ui/player_inventory_menu.tscn" id="19_gqmmt"]
 [ext_resource type="PackedScene" uid="uid://bvbn22t6ckpau" path="res://scenes/ui/keeper_menu_ui.tscn" id="20_gqmmt"]
 [ext_resource type="Script" uid="uid://chd7ekynu1aa8" path="res://scripts/systems/WarmupManager.gd" id="21_warmup"]
+[ext_resource type="TileSet" uid="uid://dqq1nwydgswfm" path="res://scenes/TileMap_Cliffs .tres" id="22_cliffs"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0ld40"]
 shader = ExtResource("8_0ld40")
@@ -64,6 +65,12 @@ format = 2
 tile_set = ExtResource("10_pm3ni")
 format = 2
 layer_0/tile_data = PackedInt32Array(196606, 262147, 4)
+
+[node name="TileMap_Cliffs" type="TileMap" parent="World"]
+z_index = 1
+tile_set = ExtResource("22_cliffs")
+format = 2
+layer_0/name = "Cliffs"
 
 [node name="Player" parent="." instance=ExtResource("1_o5qli")]
 position = Vector2(126.8, 77.2)

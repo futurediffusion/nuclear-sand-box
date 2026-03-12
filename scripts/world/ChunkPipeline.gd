@@ -68,6 +68,8 @@ var entity_coordinator: EntitySpawnCoordinator
 var tilemap: TileMap
 var walls_tilemap: TileMap
 var ground_tilemap: TileMap
+var _cliff_generator: CliffGenerator
+var _cliffs_tilemap: TileMap
 var _tile_painter    # TilePainter
 var chunk_save: Dictionary
 var loaded_chunks: Dictionary
@@ -129,6 +131,8 @@ func setup(ctx: Dictionary) -> void:
 	_make_spawn_ctx = ctx["make_spawn_ctx"]
 	_on_ground_fallback_debug = ctx["on_ground_fallback_debug"]
 	_get_terrain = ctx["get_terrain"]
+	_cliff_generator = ctx.get("cliff_generator")
+	_cliffs_tilemap = ctx.get("cliffs_tilemap")
 
 
 # Called every frame from world._process(delta)
@@ -229,6 +233,8 @@ func prepare_chunk_tiles(chunk_pos: Vector2i) -> void:
 	if not chunk_save.has(chunk_pos):
 		return
 	_apply_chunk_persistent_tiles(chunk_pos)
+	if _cliff_generator != null:
+		_cliff_generator.paint_chunk_cliffs(chunk_pos)
 	var key: String = _chunk_key.call(chunk_pos)
 	_terrain_painted_chunks[key] = true
 	_terrain_paint_enqueued.erase(key)
@@ -238,6 +244,8 @@ func prepare_chunk_colliders(chunk_pos: Vector2i) -> void:
 	if not chunk_save.has(chunk_pos):
 		return
 	_ensure_chunk_wall_collision.call(chunk_pos)
+	if _cliff_generator != null:
+		_cliff_generator.build_chunk_cliff_collisions(chunk_pos)
 
 
 # ── Persistent tile application ───────────────────────────────────────────────
