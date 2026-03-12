@@ -32,6 +32,10 @@ var _tile_painter := TilePainter.new()
 @export var prefetch_check_interval: float = 0.15
 @export var prefetch_enqueue_entities: bool = false
 @export var prefetch_entity_priority_offset: int = 5
+@export var prefetch_prepare_ground_enabled: bool = true
+@export var prefetch_prepare_walls_enabled: bool = true
+@export var prefetch_frame_pressure_fps_threshold: float = 52.0
+@export var prefetch_frame_pressure_budget_floor: int = 0
 @export var progressive_terrain_paint_enabled: bool = true
 @export var terrain_paint_chunks_per_tick: int = 2
 @export var terrain_paint_ms_budget: float = 1.5
@@ -61,6 +65,7 @@ var chunk_save: Dictionary = {}
 var queued_entity_chunks: Dictionary = {}
 var _spawn_queue: SpawnBudgetQueue
 var prefetched_chunks: Dictionary = {}
+var prefetched_visual_chunks: Dictionary = {}
 var prefetching_chunks: Dictionary = {}
 var _prefetch_queue: Array[Vector2i] = []
 var _prefetch_timer: float = 0.0
@@ -493,7 +498,7 @@ func _process_prefetch(delta: float) -> void:
 	if _has_critical_generation_in_active_window(player_chunk):
 		return
 
-	var budget: int = max(0, prefetch_budget_chunks_per_tick)
+	var budget: int = _runtime_prefetch_budget()
 	for _i in range(budget):
 		if _prefetch_queue.is_empty():
 			break
@@ -539,25 +544,81 @@ func _enqueue_prefetch_ring(center_chunk: Vector2i) -> void:
 func _reprioritize_prefetch_queue(center_chunk: Vector2i) -> void:
 	if _prefetch_queue.is_empty():
 		return
+	var player_dir: Vector2 = _get_prefetch_direction()
+	var has_player_dir: bool = player_dir.length_squared() > 0.0
 	var filtered_queue: Array[Vector2i] = []
 	for cpos in _prefetch_queue:
 		var ring_distance: int = max(abs(cpos.x - center_chunk.x), abs(cpos.y - center_chunk.y))
 		if ring_distance <= (prefetch_ring_radius + active_radius + 1):
 			filtered_queue.append(cpos)
+	filtered_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _is_prefetch_chunk_higher_priority(a, b, center_chunk, player_dir, has_player_dir)
+	)
 	_prefetch_queue = filtered_queue
 	_enforce_prefetch_queue_limit(center_chunk)
 
 func _enforce_prefetch_queue_limit(center_chunk: Vector2i) -> void:
 	if _prefetch_queue.size() <= PREFETCH_QUEUE_MAX:
 		return
+	var player_dir: Vector2 = _get_prefetch_direction()
+	var has_player_dir: bool = player_dir.length_squared() > 0.0
 	_prefetch_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		var da: int = max(abs(a.x - center_chunk.x), abs(a.y - center_chunk.y))
-		var db: int = max(abs(b.x - center_chunk.x), abs(b.y - center_chunk.y))
-		if da == db:
-			return a.distance_squared_to(center_chunk) < b.distance_squared_to(center_chunk)
-		return da < db
+		return _is_prefetch_chunk_higher_priority(a, b, center_chunk, player_dir, has_player_dir)
 	)
 	_prefetch_queue.resize(PREFETCH_QUEUE_MAX)
+
+func _is_prefetch_chunk_higher_priority(a: Vector2i, b: Vector2i, center_chunk: Vector2i, player_dir: Vector2, has_player_dir: bool) -> bool:
+	var ring_a: int = max(abs(a.x - center_chunk.x), abs(a.y - center_chunk.y))
+	var ring_b: int = max(abs(b.x - center_chunk.x), abs(b.y - center_chunk.y))
+	if has_player_dir:
+		var forward_a: float = _chunk_forward_score(a, center_chunk, player_dir)
+		var forward_b: float = _chunk_forward_score(b, center_chunk, player_dir)
+		if !is_equal_approx(forward_a, forward_b):
+			return forward_a > forward_b
+	if ring_a != ring_b:
+		return ring_a < ring_b
+	var dist_a: int = a.distance_squared_to(center_chunk)
+	var dist_b: int = b.distance_squared_to(center_chunk)
+	if dist_a != dist_b:
+		return dist_a < dist_b
+	if a.y == b.y:
+		return a.x < b.x
+	return a.y < b.y
+
+func _chunk_forward_score(chunk_pos: Vector2i, center_chunk: Vector2i, player_dir: Vector2) -> float:
+	var offset := Vector2(chunk_pos - center_chunk)
+	if offset.length_squared() <= 0.0:
+		return -1.0
+	return player_dir.dot(offset.normalized())
+
+func _get_prefetch_direction() -> Vector2:
+	if player == null or not is_instance_valid(player):
+		return Vector2.ZERO
+	var vel_v = player.get("velocity")
+	if typeof(vel_v) == TYPE_VECTOR2:
+		var vel: Vector2 = vel_v
+		if vel.length_squared() > 16.0:
+			return vel.normalized()
+	var last_dir_v = player.get("last_direction")
+	if typeof(last_dir_v) == TYPE_VECTOR2:
+		var last_dir: Vector2 = last_dir_v
+		if last_dir.length_squared() > 0.0:
+			return last_dir.normalized()
+	return Vector2.ZERO
+
+func _runtime_prefetch_budget() -> int:
+	var base_budget: int = max(0, prefetch_budget_chunks_per_tick)
+	if base_budget == 0:
+		return 0
+	var floor_budget: int = clamp(prefetch_frame_pressure_budget_floor, 0, base_budget)
+	var budget: int = base_budget
+	if _updating_chunks:
+		budget = max(floor_budget, budget - 1)
+	if prefetch_frame_pressure_fps_threshold > 0.0:
+		var fps: float = Engine.get_frames_per_second()
+		if fps > 0.0 and fps < prefetch_frame_pressure_fps_threshold:
+			budget = max(floor_budget, budget - 1)
+	return budget
 
 func _has_critical_generation_in_active_window(center_chunk: Vector2i) -> bool:
 	for key in generating_chunks.keys():
@@ -575,13 +636,26 @@ func _prefetch_chunk(chunk_pos: Vector2i) -> void:
 	if generating_chunks.has(chunk_pos):
 		prefetching_chunks.erase(key)
 		return
+	if _has_critical_generation_in_active_window(current_player_chunk):
+		prefetching_chunks.erase(key)
+		if not _prefetch_queue.has(chunk_pos):
+			_prefetch_queue.push_front(chunk_pos)
+		return
 
 	generating_chunks[chunk_pos] = true
 	await generate_chunk(chunk_pos, false)
 	prefetching_chunks.erase(key)
 	prefetched_chunks[key] = true
+	if not prefetched_visual_chunks.has(key):
+		_prefetch_prepare_chunk_visuals(chunk_pos)
+		prefetched_visual_chunks[key] = true
 	if prefetch_enqueue_entities:
 		_enqueue_prefetched_entity_jobs(chunk_pos)
+
+func _prefetch_prepare_chunk_visuals(chunk_pos: Vector2i) -> void:
+	if not prefetch_prepare_ground_enabled and not prefetch_prepare_walls_enabled:
+		return
+	_apply_chunk_persistent_tiles(chunk_pos, prefetch_prepare_ground_enabled, prefetch_prepare_walls_enabled)
 
 func _enqueue_prefetched_entity_jobs(chunk_pos: Vector2i) -> void:
 	if _spawn_queue == null:
@@ -721,7 +795,7 @@ func _make_ground_ctx() -> Dictionary:
 		"terrain_connect_yield_each_batches": 1,
 	}
 
-func _apply_chunk_persistent_tiles(chunk_pos: Vector2i) -> void:
+func _apply_chunk_persistent_tiles(chunk_pos: Vector2i, include_ground: bool = true, include_walls: bool = true) -> void:
 	if not chunk_save.has(chunk_pos):
 		return
 	var floor_cells: Array[Vector2i] = []
@@ -739,11 +813,11 @@ func _apply_chunk_persistent_tiles(chunk_pos: Vector2i) -> void:
 		else:
 			manual_tiles.append(t)
 
-	if floor_cells.size() > 0:
+	if include_ground and floor_cells.size() > 0:
 		_tile_painter.apply_floor(tilemap, LAYER_FLOOR, SRC_FLOOR, FLOOR_WOOD, floor_cells)
-	if manual_tiles.size() > 0:
+	if include_ground and manual_tiles.size() > 0:
 		_tile_painter.apply_manual_tiles(tilemap, manual_tiles)
-	if wall_terrain_cells.size() > 0:
+	if include_walls and wall_terrain_cells.size() > 0:
 		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d -> StructureWallsMap" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
 		_tile_painter.apply_walls_terrain_connect(walls_tilemap, WALLS_MAP_LAYER, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
 
