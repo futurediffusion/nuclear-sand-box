@@ -96,6 +96,11 @@ var _collider_queue: Array[Vector2i] = []
 var _collider_enqueued: Dictionary = {}
 var _updating_chunks: bool = false
 var _debug_chunk_perf_timer: float = 0.0
+var _ground_fallback_cells_accum: int = 0
+var _ground_fallback_events_accum: int = 0
+var _ground_fallback_missing_accum: int = 0
+var _ground_fallback_invalid_source_accum: int = 0
+var _ground_fallback_last_log_msec: int = 0
 var _chunk_stage_perf: Dictionary = {
 	0: {},
 	1: {},
@@ -136,6 +141,11 @@ const WALL_MID: Vector2i = Vector2i(3, 1)
 
 const GROUND_TERRAIN_DIRT: int = 0
 const GROUND_TERRAIN_GRASS: int = 1
+const SRC_GROUND: int = 0
+const GROUND_FALLBACK_ATLAS_BY_TERRAIN := {
+	GROUND_TERRAIN_DIRT: Vector2i(0, 1),
+	GROUND_TERRAIN_GRASS: Vector2i(0, 0),
+}
 
 const BIOME_TILES = {
 	0: {
@@ -978,10 +988,35 @@ func _make_ground_ctx() -> Dictionary:
 		"tree": get_tree(),
 		"generating_yield_stride": 8,
 		"ground_terrain_set": 0,
+		"ground_source_id": SRC_GROUND,
+		"ground_fallback_atlas_by_terrain": GROUND_FALLBACK_ATLAS_BY_TERRAIN,
 		"terrain_connect_batch_size": 256,
 		"terrain_connect_yield_each_batches": 1,
 		"perf_stage_hook": Callable(self, "_record_chunk_stage_time"),
+		"ground_fallback_debug_hook": Callable(self, "_on_ground_fallback_debug"),
 	}
+
+func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int) -> void:
+	if total_cells <= 0:
+		return
+	_ground_fallback_events_accum += 1
+	_ground_fallback_cells_accum += total_cells
+	_ground_fallback_missing_accum += missing_cells
+	_ground_fallback_invalid_source_accum += invalid_source_cells
+	var now_msec: int = Time.get_ticks_msec()
+	if now_msec - _ground_fallback_last_log_msec < 2000:
+		return
+	_ground_fallback_last_log_msec = now_msec
+	Debug.log(
+		"chunk_ground",
+		"fallback events=%d cells=%d missing=%d invalid_source=%d last_chunk=%s" % [
+			_ground_fallback_events_accum,
+			_ground_fallback_cells_accum,
+			_ground_fallback_missing_accum,
+			_ground_fallback_invalid_source_accum,
+			str(chunk_pos),
+		]
+	)
 
 func _apply_chunk_persistent_tiles(chunk_pos: Vector2i, include_ground: bool = true, include_walls: bool = true) -> void:
 	if not chunk_save.has(chunk_pos):
