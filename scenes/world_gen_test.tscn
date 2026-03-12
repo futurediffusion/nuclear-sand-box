@@ -1,15 +1,22 @@
-[gd_scene load_steps=4 format=3 uid="uid://0jqbk53u8dc0"]
+[gd_scene load_steps=5 format=3 uid="uid://0jqbk53u8dc0"]
 
-[ext_resource type="TileSet" uid="uid://cw5iyp3lgbpre" path="res://art/tiles/terrain.tres" id="1_tileset"]
+[ext_resource type="TileSet" uid="uid://bts015k5iokqt" path="res://scenes/TileMap_Ground.tres" id="1_0y2sr"]
 [ext_resource type="Script" uid="uid://xbvm0usjbuo2" path="res://scripts/world/world_generator_test.gd" id="2_generator"]
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="3_player"]
+[ext_resource type="TileSet" uid="uid://dqq1nwydgswfm" path="res://scenes/TileMap_Cliffs .tres" id="4_cliffs"]
 
 [node name="WorldGenTest" type="Node2D"]
 
 [node name="TileMapGround" type="TileMap" parent="."]
-tile_set = ExtResource("1_tileset")
+tile_set = ExtResource("1_0y2sr")
 format = 2
 layer_0/name = "Ground"
+
+[node name="TileMap_Cliffs" type="TileMap" parent="."]
+z_index = 1
+tile_set = ExtResource("4_cliffs")
+format = 2
+layer_0/name = "Cliffs"
 
 [node name="WorldGenerator" type="Node" parent="."]
 script = ExtResource("2_generator")

@@ -5,7 +5,8 @@
       "Bash(where godot:*)",
       "Read(//c/Program Files/**)",
       "Read(//c/Users/walva/AppData/Local/Programs/**)",
-      "Bash(powershell -Command \"Get-Command godot -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")"
+      "Bash(powershell -Command \"Get-Command godot -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Bash(find /home -name \"*chunk_generator*\" 2>/dev/null || find /root -name \"*chunk_generator*\" 2>/dev/null || find \"C:\" -name \"*chunk_generator*\" 2>/dev/null || ls \"/c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts/world/\" 2>/dev/null)"
     ]
   }
 }
