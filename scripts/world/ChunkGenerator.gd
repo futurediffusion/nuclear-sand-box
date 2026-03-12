@@ -2,7 +2,6 @@ extends RefCounted
 class_name ChunkGenerator
 
 const LAYER_GROUND: int = 0
-const GROUND_SOURCE: int = 0
 
 func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var tilemap: TileMap = ctx["tilemap"]
@@ -13,9 +12,15 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var tree: SceneTree = ctx["tree"]
 	var generating_yield_stride: int = ctx.get("generating_yield_stride", 8)
 	var terrain_set: int = ctx.get("ground_terrain_set", 0)
+	var ground_source_id: int = int(ctx.get("ground_source_id", 0))
+	var ground_fallback_atlas_by_terrain: Dictionary = ctx.get("ground_fallback_atlas_by_terrain", {
+		0: Vector2i(0, 0),
+		1: Vector2i(0, 1),
+	})
 	var terrain_connect_batch_size: int = max(1, int(ctx.get("terrain_connect_batch_size", 256)))
 	var terrain_connect_yield_each_batches: int = max(1, int(ctx.get("terrain_connect_yield_each_batches", 1)))
 	var perf_hook: Callable = ctx.get("perf_stage_hook", Callable())
+	var fallback_debug_hook: Callable = ctx.get("ground_fallback_debug_hook", Callable())
 
 	var start_x := chunk_pos.x * chunk_size
 	var start_y := chunk_pos.y * chunk_size
@@ -48,10 +53,13 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		tree,
 		terrain_set,
 		terrain_buckets,
+		ground_source_id,
+		ground_fallback_atlas_by_terrain,
 		terrain_connect_batch_size,
 		terrain_connect_yield_each_batches,
 		chunk_pos,
-		perf_hook
+		perf_hook,
+		fallback_debug_hook
 	)
 
 func apply_ground_terrain_batched(
@@ -59,15 +67,23 @@ func apply_ground_terrain_batched(
 	tree: SceneTree,
 	terrain_set: int,
 	terrain_buckets: Dictionary,
+	ground_source_id: int,
+	ground_fallback_atlas_by_terrain: Dictionary,
 	terrain_connect_batch_size: int,
 	terrain_connect_yield_each_batches: int,
 	chunk_pos: Vector2i,
-	perf_hook: Callable
+	perf_hook: Callable,
+	fallback_debug_hook: Callable
 ) -> void:
 	var start_us: int = Time.get_ticks_usec()
 	var batch_counter: int = 0
+	var fallback_missing_cells: int = 0
+	var fallback_invalid_source_cells: int = 0
 	for terrain_key in terrain_buckets.keys():
 		var terrain: int = int(terrain_key)
+		var fallback_atlas: Vector2i = Vector2i(0, terrain)
+		if ground_fallback_atlas_by_terrain.has(terrain):
+			fallback_atlas = Vector2i(ground_fallback_atlas_by_terrain[terrain])
 		var cells_variant: Array = terrain_buckets[terrain]
 		var cells: Array[Vector2i] = []
 		cells.assign(cells_variant)
@@ -82,8 +98,13 @@ func apply_ground_terrain_batched(
 
 			tilemap.set_cells_terrain_connect(LAYER_GROUND, sub_batch, terrain_set, terrain, true)
 			for cell in sub_batch:
-				if tilemap.get_cell_source_id(LAYER_GROUND, cell) == -1:
-					tilemap.set_cell(LAYER_GROUND, cell, GROUND_SOURCE, Vector2i(0, terrain))
+				var source_id: int = tilemap.get_cell_source_id(LAYER_GROUND, cell)
+				if source_id == -1:
+					fallback_missing_cells += 1
+					tilemap.set_cell(LAYER_GROUND, cell, ground_source_id, fallback_atlas)
+				elif source_id != ground_source_id:
+					fallback_invalid_source_cells += 1
+					tilemap.set_cell(LAYER_GROUND, cell, ground_source_id, fallback_atlas)
 
 			batch_counter += 1
 			if batch_counter % terrain_connect_yield_each_batches == 0:
@@ -94,3 +115,7 @@ func apply_ground_terrain_batched(
 	if perf_hook.is_valid():
 		var elapsed_ms: float = float(Time.get_ticks_usec() - start_us) / 1000.0
 		perf_hook.call("ground terrain connect", chunk_pos, elapsed_ms)
+
+	var fallback_total_cells: int = fallback_missing_cells + fallback_invalid_source_cells
+	if fallback_total_cells > 0 and fallback_debug_hook.is_valid():
+		fallback_debug_hook.call(chunk_pos, fallback_total_cells, fallback_missing_cells, fallback_invalid_source_cells)
