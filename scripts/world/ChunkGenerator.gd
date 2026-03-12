@@ -60,7 +60,9 @@ func apply_ground_terrain_batched(
 	var batch_counter: int = 0
 	for terrain_key in terrain_buckets.keys():
 		var terrain: int = int(terrain_key)
-		var cells: Array[Vector2i] = terrain_buckets[terrain]
+		var cells_variant: Array = terrain_buckets[terrain]
+		var cells: Array[Vector2i] = []
+		cells.assign(cells_variant)
 		if cells.is_empty():
 			continue
 
