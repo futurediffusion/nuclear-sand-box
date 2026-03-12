@@ -15,6 +15,7 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var terrain_set: int = ctx.get("ground_terrain_set", 0)
 	var terrain_connect_batch_size: int = max(1, int(ctx.get("terrain_connect_batch_size", 256)))
 	var terrain_connect_yield_each_batches: int = max(1, int(ctx.get("terrain_connect_yield_each_batches", 1)))
+	var perf_hook: Callable = ctx.get("perf_stage_hook", Callable())
 
 	var start_x := chunk_pos.x * chunk_size
 	var start_y := chunk_pos.y * chunk_size
@@ -40,7 +41,9 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		terrain_set,
 		terrain_buckets,
 		terrain_connect_batch_size,
-		terrain_connect_yield_each_batches
+		terrain_connect_yield_each_batches,
+		chunk_pos,
+		perf_hook
 	)
 
 func apply_ground_terrain_batched(
@@ -49,8 +52,11 @@ func apply_ground_terrain_batched(
 	terrain_set: int,
 	terrain_buckets: Dictionary,
 	terrain_connect_batch_size: int,
-	terrain_connect_yield_each_batches: int
+	terrain_connect_yield_each_batches: int,
+	chunk_pos: Vector2i,
+	perf_hook: Callable
 ) -> void:
+	var start_us: int = Time.get_ticks_usec()
 	var batch_counter: int = 0
 	for terrain_key in terrain_buckets.keys():
 		var terrain: int = int(terrain_key)
@@ -74,3 +80,7 @@ func apply_ground_terrain_batched(
 				await tree.process_frame
 
 			start_idx = end_idx
+
+	if perf_hook.is_valid():
+		var elapsed_ms: float = float(Time.get_ticks_usec() - start_us) / 1000.0
+		perf_hook.call("ground terrain connect", chunk_pos, elapsed_ms)
