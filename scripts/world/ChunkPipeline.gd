@@ -37,6 +37,7 @@ const PREFETCH_QUEUE_MAX: int = 64
 @export var terrain_paint_ring_priority_enabled: bool = true
 @export var structure_tile_chunks_per_tick: int = 2
 @export var wall_collider_chunks_per_tick: int = 2
+@export var cliff_paint_chunks_per_tick: int = 1
 
 # ── Pipeline state ────────────────────────────────────────────────────────────
 var generated_chunks: Dictionary = {}
@@ -58,6 +59,8 @@ var _structure_tile_queue: Array[Vector2i] = []
 var _structure_tile_enqueued: Dictionary = {}
 var _collider_queue: Array[Vector2i] = []
 var _collider_enqueued: Dictionary = {}
+var _cliff_paint_queue: Array[Vector2i] = []
+var _cliff_paint_enqueued: Dictionary = {}
 
 var is_updating: bool = false
 
@@ -154,6 +157,7 @@ func reset_terrain_paint_epoch() -> void:
 # Called by world when a chunk is removed from loaded_chunks
 func on_chunk_unloaded(chunk_pos: Vector2i) -> void:
 	_structure_tile_enqueued.erase(chunk_pos)
+	_cliff_paint_enqueued.erase(chunk_pos)
 	_collider_enqueued.erase(chunk_pos)
 	var key: String = _chunk_key.call(chunk_pos)
 	prefetching_chunks.erase(key)
@@ -199,8 +203,18 @@ func _process_chunk_stage_queues() -> void:
 			continue
 		prepare_chunk_tiles(chunk_pos)
 		_emit_stage_completed.call(chunk_pos, "tiles")
-		_enqueue_collider_stage(chunk_pos)
 		tiles_budget -= 1
+
+	var cliff_budget: int = max(0, cliff_paint_chunks_per_tick)
+	while cliff_budget > 0 and not _cliff_paint_queue.is_empty():
+		var chunk_pos: Vector2i = _cliff_paint_queue.pop_front()
+		_cliff_paint_enqueued.erase(chunk_pos)
+		if not loaded_chunks.has(chunk_pos):
+			continue
+		if _cliff_generator != null:
+			_cliff_generator.paint_chunk_cliffs(chunk_pos)
+		_enqueue_collider_stage(chunk_pos)
+		cliff_budget -= 1
 
 	var collider_budget: int = max(0, wall_collider_chunks_per_tick)
 	while collider_budget > 0 and not _collider_queue.is_empty():
@@ -222,6 +236,13 @@ func enqueue_structure_tile_stage(chunk_pos: Vector2i) -> void:
 	_structure_tile_enqueued[chunk_pos] = true
 
 
+func _enqueue_cliff_paint_stage(chunk_pos: Vector2i) -> void:
+	if _cliff_paint_enqueued.has(chunk_pos):
+		return
+	_cliff_paint_queue.append(chunk_pos)
+	_cliff_paint_enqueued[chunk_pos] = true
+
+
 func _enqueue_collider_stage(chunk_pos: Vector2i) -> void:
 	if _collider_enqueued.has(chunk_pos):
 		return
@@ -233,8 +254,7 @@ func prepare_chunk_tiles(chunk_pos: Vector2i) -> void:
 	if not chunk_save.has(chunk_pos):
 		return
 	_apply_chunk_persistent_tiles(chunk_pos)
-	if _cliff_generator != null:
-		_cliff_generator.paint_chunk_cliffs(chunk_pos)
+	_enqueue_cliff_paint_stage(chunk_pos)
 	var key: String = _chunk_key.call(chunk_pos)
 	_terrain_painted_chunks[key] = true
 	_terrain_paint_enqueued.erase(key)

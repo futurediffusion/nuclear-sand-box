@@ -6,6 +6,8 @@ const STAGE_GROUND_CONNECT: String = "ground terrain connect"
 const STAGE_WALL_CONNECT: String = "wall terrain connect"
 const STAGE_COLLIDER_BUILD: String = "collider build"
 const STAGE_ENTITIES: String = "enqueue/spawn entities"
+const STAGE_CLIFF_PAINT: String = "cliff terrain paint"
+const STAGE_CLIFF_COLLIDER: String = "cliff collider build"
 
 var enabled: bool = true
 var window_size: int = 64
@@ -19,6 +21,8 @@ var alert_ground_connect_ms: float = 4.0
 var alert_wall_connect_ms: float = 4.0
 var alert_collider_ms: float = 4.0
 var alert_entities_ms: float = 4.0
+var alert_cliff_paint_ms: float = 6.0
+var alert_cliff_collider_ms: float = 4.0
 
 # Acumuladores de fallback de terrain
 var fallback_cells_accum: int = 0
@@ -104,10 +108,15 @@ func get_calibrated_budgets() -> Dictionary:
 	if not collider_samples.is_empty():
 		var p95: float = _calc_percentile(collider_samples, 0.95)
 		result["wall_collider_chunks_per_tick"] = int(clampf(floor(4.0 / maxf(0.1, p95)), 1.0, 4.0))
+	var cliff_paint_samples: Array = ring0.get(STAGE_CLIFF_PAINT, [])
+	if not cliff_paint_samples.is_empty():
+		var p95: float = _calc_percentile(cliff_paint_samples, 0.95)
+		result["cliff_paint_chunks_per_tick"] = int(clamp(floor(3.0 / max(0.1, p95)), 1, 3))
 	if not result.is_empty():
-		Debug.log("chunk_perf", "calibrated terrain_paint_ms_budget=%s wall_collider_chunks_per_tick=%s" % [
+		Debug.log("chunk_perf", "calibrated terrain_paint_ms_budget=%s wall_collider_chunks_per_tick=%s cliff_paint_chunks_per_tick=%s" % [
 			str(result.get("terrain_paint_ms_budget", "unchanged")),
 			str(result.get("wall_collider_chunks_per_tick", "unchanged")),
+			str(result.get("cliff_paint_chunks_per_tick", "unchanged")),
 		])
 	return result
 
@@ -128,6 +137,8 @@ func _alert_threshold(stage: String) -> float:
 		STAGE_WALL_CONNECT:  return alert_wall_connect_ms
 		STAGE_COLLIDER_BUILD: return alert_collider_ms
 		STAGE_ENTITIES:      return alert_entities_ms
+		STAGE_CLIFF_PAINT:   return alert_cliff_paint_ms
+		STAGE_CLIFF_COLLIDER: return alert_cliff_collider_ms
 		_: return 0.0
 
 func _calc_percentile(values: Array, ratio: float) -> float:

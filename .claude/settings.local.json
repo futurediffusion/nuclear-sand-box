@@ -12,7 +12,14 @@
       "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box -name \"*game_over*\" -o -name \"*death*\" 2>/dev/null | grep -v \".git\")",
       "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scenes -name \"*.tscn\" 2>/dev/null | grep -v \".git\" | head -20)",
       "Bash(grep -r \"quit\\\\|QUIT\" /c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts --include=\"*.gd\" 2>/dev/null | grep -v \".git\")",
-      "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts -name \"*.gd\" ! -path \"*/.git/*\" -type f | xargs grep -l \"class_name.*Hurtbox\")"
+      "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts -name \"*.gd\" ! -path \"*/.git/*\" -type f | xargs grep -l \"class_name.*Hurtbox\")",
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/world/world.gd 2>&1)",
+      "Bash(powershell -Command \"Get-Command godot -ErrorAction SilentlyContinue; Get-ChildItem 'C:\\\\Users\\\\walva\\\\AppData\\\\Local\\\\Programs\\\\' -Filter '*Godot*' -ErrorAction SilentlyContinue; Get-ChildItem 'C:\\\\Program Files\\\\' -Filter '*Godot*' -ErrorAction SilentlyContinue\")",
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Users\\\\walva' -Recurse -Filter '*Godot*.exe' -ErrorAction SilentlyContinue -Depth 4 | Select-Object FullName\")",
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\' -Recurse -Filter '*Godot*.exe' -ErrorAction SilentlyContinue -Depth 3 | Select-Object FullName\")",
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\tools','C:\\\\dev','C:\\\\godot' -Filter '*.exe' -ErrorAction SilentlyContinue | Select-Object FullName\")",
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/systems/SaveManager.gd 2>&1)",
+      "Bash(powershell.exe \"Get-ChildItem 'C:\\\\' -Recurse -Filter 'godot*.exe' -ErrorAction SilentlyContinue | Select-Object -First 5 FullName\" 2>/dev/null)"
     ]
   }
 }

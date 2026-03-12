@@ -251,6 +251,19 @@ func unload_entities(chunk_pos: Vector2i) -> void:
 	chunk_entities.erase(chunk_pos)
 	chunk_saveables.erase(chunk_pos)
 
+func snapshot_entities_to_world_save() -> void:
+	for chunk_pos in chunk_saveables.keys():
+		var cx: int = chunk_pos.x
+		var cy: int = chunk_pos.y
+		for entity in chunk_saveables[chunk_pos]:
+			if not is_instance_valid(entity): continue
+			if not entity.has_method("get_save_state"): continue
+			var uid_value = entity.get("entity_uid")
+			if uid_value == null: continue
+			var uid: String = String(uid_value)
+			if uid == "": continue
+			WorldSave.set_entity_state(cx, cy, uid, entity.get_save_state())
+
 func enqueue_prefetched_jobs(chunk_pos: Vector2i, priority_offset: int) -> void:
 	if _spawn_queue == null or not chunk_save.has(chunk_pos):
 		return

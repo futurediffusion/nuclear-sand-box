@@ -21,6 +21,9 @@ var _spawn_safe_radius: int = 5
 var _cliff_seed: int = 0
 var _cliffs_tilemap: TileMap = null
 
+var _record_stage_time: Callable
+var _cliff_collision_bodies: Dictionary = {}
+
 # ── Estado interno ────────────────────────────────────────────────────────────
 var _cliff_blob_centers: Array[Dictionary] = []
 var _free_zone: Dictionary = {}
@@ -46,6 +49,7 @@ func setup(ctx: Dictionary) -> void:
 	_spawn_safe_radius = ctx.get("spawn_safe_radius", 5)
 	_cliff_seed = ctx.get("cliff_seed", 0)
 	_cliffs_tilemap = ctx.get("cliffs_tilemap")
+	_record_stage_time = ctx.get("record_stage_time", Callable())
 
 	_noise = FastNoiseLite.new()
 	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -67,6 +71,7 @@ func global_phase() -> void:
 func paint_chunk_cliffs(chunk_pos: Vector2i) -> void:
 	if _cliffs_tilemap == null:
 		return
+	var _paint_start_us: int = Time.get_ticks_usec()
 	var margin: int = _radius_max + ceili(_warp_strength) + 2
 	var area_x0: int = chunk_pos.x * _chunk_size - margin
 	var area_y0: int = chunk_pos.y * _chunk_size - margin
@@ -106,6 +111,8 @@ func paint_chunk_cliffs(chunk_pos: Vector2i) -> void:
 	for c in cliff_set.keys():
 		cliff_cells.append(c)
 	_cliffs_tilemap.set_cells_terrain_connect(_layer, cliff_cells, _terrain_set_id, _terrain_id, false)
+	if _record_stage_time.is_valid():
+		_record_stage_time.call("cliff terrain paint", chunk_pos, float(Time.get_ticks_usec() - _paint_start_us) / 1000.0)
 
 
 # Construye StaticBody2D con bandas N/S/E/O y lo añade como hijo del tilemap.
@@ -113,6 +120,9 @@ func paint_chunk_cliffs(chunk_pos: Vector2i) -> void:
 func build_chunk_cliff_collisions(chunk_pos: Vector2i) -> void:
 	if _cliffs_tilemap == null:
 		return
+	if _cliff_collision_bodies.has(chunk_pos) and is_instance_valid(_cliff_collision_bodies[chunk_pos]):
+		return
+	var _collider_start_us: int = Time.get_ticks_usec()
 	var start_x := chunk_pos.x * _chunk_size
 	var start_y := chunk_pos.y * _chunk_size
 	var end_x   := start_x + _chunk_size - 1
@@ -133,7 +143,7 @@ func build_chunk_cliff_collisions(chunk_pos: Vector2i) -> void:
 				wall_lookup[cell] = true
 
 	var body := StaticBody2D.new()
-	body.set_collision_layer_value(5, true)
+	body.set_collision_layer_value(CollisionLayers.WORLD_WALL_LAYER_BIT, true)
 	body.name = "CliffCollision_%d_%d" % [chunk_pos.x, chunk_pos.y]
 	var shape_count := 0
 
@@ -263,8 +273,21 @@ func build_chunk_cliff_collisions(chunk_pos: Vector2i) -> void:
 
 	if shape_count == 0:
 		body.queue_free()
+		if _record_stage_time.is_valid():
+			_record_stage_time.call("cliff collider build", chunk_pos, float(Time.get_ticks_usec() - _collider_start_us) / 1000.0)
 		return
+	_cliff_collision_bodies[chunk_pos] = body
 	_cliffs_tilemap.add_child(body)
+	if _record_stage_time.is_valid():
+		_record_stage_time.call("cliff collider build", chunk_pos, float(Time.get_ticks_usec() - _collider_start_us) / 1000.0)
+
+
+func release_chunk_cliff_collisions(chunk_pos: Vector2i) -> void:
+	if _cliff_collision_bodies.has(chunk_pos):
+		var body: StaticBody2D = _cliff_collision_bodies[chunk_pos]
+		if is_instance_valid(body):
+			body.queue_free()
+		_cliff_collision_bodies.erase(chunk_pos)
 
 
 # ── Helpers privados ──────────────────────────────────────────────────────────

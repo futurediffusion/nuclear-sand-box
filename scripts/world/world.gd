@@ -33,7 +33,9 @@ var _tile_painter := TilePainter.new()
 @export var debug_chunk_perf_ring0_alert_entities_ms: float = 4.0
 @export var max_cached_chunk_colliders: int = 64
 @export var debug_collision_cache: bool = false
+@export var autosave_interval: float = 120.0
 
+var _autosave_timer: float = 0.0
 var _biome_seed: int = 0
 var cliff_generator: CliffGenerator
 var _cliff_seed: int = 0
@@ -77,6 +79,7 @@ const BIOME_ID_DENSE_GRASS: int = 2
 func _ready() -> void:
 	_clear_chunk_wall_runtime_cache()
 	add_to_group("world")
+	get_tree().set_auto_accept_quit(false)
 	Debug.log("boot", "World._ready begin")
 	_biome_seed = randi()
 	_ground_painter.setup(randi(), width, height)
@@ -93,6 +96,9 @@ func _ready() -> void:
 	_perf_monitor.alert_collider_ms = debug_chunk_perf_ring0_alert_collider_ms
 	_perf_monitor.alert_entities_ms = debug_chunk_perf_ring0_alert_entities_ms
 
+	SaveManager.register_world(self)
+	var _had_save := SaveManager.load_world_save()
+
 	player = get_node_or_null("../Player")
 
 	var occ_ctrl := OcclusionController.new()
@@ -106,7 +112,11 @@ func _ready() -> void:
 	if player:
 		player.global_position = spawn_world
 
-	current_player_chunk = world_to_chunk(spawn_world)
+	if _had_save and player:
+		player.global_position = SaveManager._pending_player_pos
+		current_player_chunk = world_to_chunk(SaveManager._pending_player_pos)
+	else:
+		current_player_chunk = world_to_chunk(spawn_world)
 
 	# Create subsystems before wiring them together
 	npc_simulator = NpcSimulator.new()
@@ -152,6 +162,7 @@ func _ready() -> void:
 		"spawn_center": spawn_tile,
 		"cliff_seed": _cliff_seed,
 		"cliffs_tilemap": cliffs_tilemap,
+		"record_stage_time": Callable(self, "_record_chunk_stage_time"),
 	})
 	cliff_generator.global_phase()
 
@@ -213,11 +224,24 @@ func _clear_chunk_wall_runtime_cache() -> void:
 	_chunk_wall_last_used.clear()
 	_chunk_wall_use_counter = 0
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		SaveManager.save_world()
+		get_tree().quit()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_save_game"):
+		SaveManager.save_world()
+
 func _process(delta: float) -> void:
 	pipeline.process(delta)
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
 	_process_chunk_perf_debug(delta)
+	_autosave_timer += delta
+	if _autosave_timer >= autosave_interval:
+		_autosave_timer = 0.0
+		SaveManager.save_world()
 	_chunk_timer += delta
 	if _chunk_timer < chunk_check_interval:
 		return
@@ -328,6 +352,8 @@ func _apply_calibrated_perf_budgets() -> void:
 		pipeline.terrain_paint_ms_budget = budgets["terrain_paint_ms_budget"]
 	if budgets.has("wall_collider_chunks_per_tick"):
 		pipeline.wall_collider_chunks_per_tick = budgets["wall_collider_chunks_per_tick"]
+	if budgets.has("cliff_paint_chunks_per_tick"):
+		pipeline.cliff_paint_chunks_per_tick = budgets["cliff_paint_chunks_per_tick"]
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
 	# Borrar suelo del WorldTileMap
@@ -337,6 +363,9 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 	# Borrar suelo del GroundTileMap
 	_tile_painter.erase_chunk_region(ground_tilemap, chunk_pos, chunk_size, [0])
 	_ground_terrain_painted_chunks.erase(_chunk_key(chunk_pos))
+	# Liberar collider de cliffs y borrar tiles del TileMap_Cliffs
+	cliff_generator.release_chunk_cliff_collisions(chunk_pos)
+	_tile_painter.erase_chunk_region(cliffs_tilemap, chunk_pos, chunk_size, [LAYER_GROUND])
 
 func get_spawn_biome(x: int, y: int) -> int:
 	var terrain := _ground_painter.get_terrain(x, y)
@@ -427,11 +456,22 @@ func _ensure_chunk_wall_collision(chunk_pos: Vector2i) -> void:
 	var cx: int = chunk_pos.x
 	var cy: int = chunk_pos.y
 	var chunk_key: String = _chunk_key(chunk_pos)
-	var current_hash: int = _compute_walls_hash(chunk_pos)
-	var saved_hash = WorldSave.get_chunk_flag(cx, cy, "walls_hash")
 	var dirty: bool = WorldSave.get_chunk_flag(cx, cy, "walls_dirty") == true
+	var saved_hash = WorldSave.get_chunk_flag(cx, cy, "walls_hash")
 	var collider_exists: bool = _has_valid_chunk_wall_body(chunk_pos)
 
+	# Fast-path: collider fresco, no dirty, hash ya guardado → el hash no puede haber cambiado.
+	# Saltar _compute_walls_hash (3072 llamadas TileMap) y reutilizar directamente.
+	if collider_exists and not dirty and saved_hash != null:
+		var cached_body: StaticBody2D = chunk_wall_body[chunk_pos]
+		_collision_builder.set_chunk_collider_enabled(cached_body, true)
+		_touch_chunk_wall_usage(chunk_pos)
+		if debug_collision_cache:
+			Debug.log("chunk", "REUSE walls collider chunk=%s hash=%d (fast-path)" % [chunk_key, int(saved_hash)])
+		_record_chunk_stage_time(CHUNK_PERF_STAGE_COLLIDER_BUILD, chunk_pos, float(Time.get_ticks_usec() - collider_start_us) / 1000.0)
+		return
+
+	var current_hash: int = _compute_walls_hash(chunk_pos)
 	var must_rebuild: bool = dirty or saved_hash == null or int(saved_hash) != current_hash or not collider_exists
 	if must_rebuild:
 		if collider_exists:

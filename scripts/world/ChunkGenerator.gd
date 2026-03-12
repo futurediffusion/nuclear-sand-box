@@ -73,6 +73,7 @@ func apply_ground_terrain_ctx(chunks: Array[Vector2i], ctx: Dictionary) -> void:
 	var chunk_size: int = ctx["chunk_size"]
 	var get_terrain: Callable = ctx["get_terrain"]
 	var terrain_set: int = ctx.get("terrain_set", 0)
+	var tree: SceneTree = ctx.get("tree")
 
 	const GROUND_SOURCE: int = 3
 	const GRASS_FILL: Vector2i = Vector2i(4, 3)   # terrain 1 interior tile
@@ -94,9 +95,14 @@ func apply_ground_terrain_ctx(chunks: Array[Vector2i], ctx: Dictionary) -> void:
 				if get_terrain.call(x, y) == 0:
 					dirt_cells.append(cell)
 
-	# Step 1: Pre-fill every cell with grass interior tile (solid background)
+	# Step 1: Pre-fill every cell with grass interior tile (cheap, no neighbor lookups)
 	for cell in all_cells:
 		tilemap.set_cell(LAYER_GROUND, cell, GROUND_SOURCE, GRASS_FILL)
+
+	# Yield between fill and terrain-connect: set_cells_terrain_connect hace lookups de
+	# vecinos en C++ y es la operación más cara. Separarlo en otro frame elimina el spike.
+	if tree != null:
+		await tree.process_frame
 
 	# Step 2: Terrain-connect dirt only — dirt has full Wang set, produces correct borders
 	if not dirt_cells.is_empty():
