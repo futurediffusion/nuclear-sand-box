@@ -46,6 +46,17 @@ var _tile_painter := TilePainter.new()
 @export var wall_collider_chunks_per_tick: int = 2
 @export var max_cached_chunk_colliders: int = 64
 @export var debug_collision_cache: bool = false
+@export_group("Chunk Perf Debug")
+@export var debug_chunk_perf_enabled: bool = true
+@export var debug_chunk_perf_window_size: int = 64
+@export var debug_chunk_perf_auto_print: bool = false
+@export var debug_chunk_perf_print_interval: float = 5.0
+@export var debug_chunk_perf_auto_calibrate_runtime: bool = false
+@export var debug_chunk_perf_ring0_alert_generate_ms: float = 4.0
+@export var debug_chunk_perf_ring0_alert_ground_connect_ms: float = 4.0
+@export var debug_chunk_perf_ring0_alert_wall_connect_ms: float = 4.0
+@export var debug_chunk_perf_ring0_alert_collider_ms: float = 4.0
+@export var debug_chunk_perf_ring0_alert_entities_ms: float = 4.0
 
 var biome_noise := FastNoiseLite.new()
 
@@ -84,6 +95,18 @@ var _structure_tile_enqueued: Dictionary = {}
 var _collider_queue: Array[Vector2i] = []
 var _collider_enqueued: Dictionary = {}
 var _updating_chunks: bool = false
+var _debug_chunk_perf_timer: float = 0.0
+var _chunk_stage_perf: Dictionary = {
+	0: {},
+	1: {},
+	2: {},
+}
+
+const CHUNK_PERF_STAGE_GENERATE: String = "generate"
+const CHUNK_PERF_STAGE_GROUND_CONNECT: String = "ground terrain connect"
+const CHUNK_PERF_STAGE_WALL_CONNECT: String = "wall terrain connect"
+const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
+const CHUNK_PERF_STAGE_ENTITIES: String = "enqueue/spawn entities"
 
 const PREFETCH_QUEUE_MAX: int = 64
 
@@ -176,6 +199,7 @@ func _process(delta: float) -> void:
 	_process_npc_lite_mode(delta)
 	_process_npc_data_only(delta)
 	_process_terrain_paint_scheduler()
+	_process_chunk_perf_debug(delta)
 	_chunk_timer += delta
 	if _chunk_timer < chunk_check_interval:
 		return
@@ -513,8 +537,10 @@ func _enqueue_collider_stage(chunk_pos: Vector2i) -> void:
 
 func generate_chunk(chunk_pos: Vector2i, spawn_entities: bool = true) -> void:
 	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
+	var generate_start_us: int = Time.get_ticks_usec()
 	prop_spawner.generate_chunk_spawns(chunk_pos, _make_spawn_ctx())
 	await chunk_generator.apply_ground(chunk_pos, _make_ground_ctx())
+	_record_chunk_stage_time(CHUNK_PERF_STAGE_GENERATE, chunk_pos, float(Time.get_ticks_usec() - generate_start_us) / 1000.0)
 	generated_chunks[chunk_pos] = true
 	generating_chunks.erase(chunk_pos)
 	if spawn_entities and _is_chunk_in_active_window(chunk_pos, current_player_chunk):
@@ -749,6 +775,104 @@ func _enqueue_prefetched_entity_jobs(chunk_pos: Vector2i) -> void:
 	if not jobs.is_empty():
 		_spawn_queue.enqueue_many(jobs)
 
+func _chunk_ring_bucket(chunk_pos: Vector2i) -> int:
+	var ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
+	return clampi(ring, 0, 2)
+
+func _record_chunk_stage_time(stage: String, chunk_pos: Vector2i, elapsed_ms: float) -> void:
+	if not debug_chunk_perf_enabled:
+		return
+	var ring: int = _chunk_ring_bucket(chunk_pos)
+	var ring_data: Dictionary = _chunk_stage_perf.get(ring, {})
+	if not ring_data.has(stage):
+		ring_data[stage] = []
+	var samples: Array = ring_data[stage]
+	samples.append(elapsed_ms)
+	var max_samples: int = max(8, debug_chunk_perf_window_size)
+	while samples.size() > max_samples:
+		samples.remove_at(0)
+	ring_data[stage] = samples
+	_chunk_stage_perf[ring] = ring_data
+	_check_chunk_perf_alert(stage, ring, elapsed_ms, chunk_pos)
+
+func _check_chunk_perf_alert(stage: String, ring: int, elapsed_ms: float, chunk_pos: Vector2i) -> void:
+	if ring != 0:
+		return
+	var threshold: float = _ring0_stage_alert_threshold(stage)
+	if threshold <= 0.0 or elapsed_ms <= threshold:
+		return
+	Debug.log("chunk_perf", "ALERT stage=%s ring=%d chunk=%s ms=%.3f threshold=%.3f" % [stage, ring, str(chunk_pos), elapsed_ms, threshold])
+
+func _ring0_stage_alert_threshold(stage: String) -> float:
+	match stage:
+		CHUNK_PERF_STAGE_GENERATE:
+			return debug_chunk_perf_ring0_alert_generate_ms
+		CHUNK_PERF_STAGE_GROUND_CONNECT:
+			return debug_chunk_perf_ring0_alert_ground_connect_ms
+		CHUNK_PERF_STAGE_WALL_CONNECT:
+			return debug_chunk_perf_ring0_alert_wall_connect_ms
+		CHUNK_PERF_STAGE_COLLIDER_BUILD:
+			return debug_chunk_perf_ring0_alert_collider_ms
+		CHUNK_PERF_STAGE_ENTITIES:
+			return debug_chunk_perf_ring0_alert_entities_ms
+		_:
+			return 0.0
+
+func _calc_percentile(values: Array, ratio: float) -> float:
+	if values.is_empty():
+		return 0.0
+	var sorted: Array = values.duplicate()
+	sorted.sort()
+	var idx: int = int(round((sorted.size() - 1) * clampf(ratio, 0.0, 1.0)))
+	return float(sorted[idx])
+
+func debug_print_chunk_stage_percentiles() -> void:
+	if not debug_chunk_perf_enabled:
+		Debug.log("chunk_perf", "disabled")
+		return
+	for ring in [0, 1, 2]:
+		var ring_data: Dictionary = _chunk_stage_perf.get(ring, {})
+		if ring_data.is_empty():
+			Debug.log("chunk_perf", "ring=%d no-data" % ring)
+			continue
+		for stage in [
+			CHUNK_PERF_STAGE_GENERATE,
+			CHUNK_PERF_STAGE_GROUND_CONNECT,
+			CHUNK_PERF_STAGE_WALL_CONNECT,
+			CHUNK_PERF_STAGE_COLLIDER_BUILD,
+			CHUNK_PERF_STAGE_ENTITIES,
+		]:
+			var samples: Array = ring_data.get(stage, [])
+			if samples.is_empty():
+				continue
+			var p50: float = _calc_percentile(samples, 0.50)
+			var p95: float = _calc_percentile(samples, 0.95)
+			Debug.log("chunk_perf", "ring=%d stage=%s n=%d p50=%.3fms p95=%.3fms" % [ring, stage, samples.size(), p50, p95])
+	_recalibrate_runtime_budgets_from_chunk_perf()
+
+func _process_chunk_perf_debug(delta: float) -> void:
+	if not debug_chunk_perf_auto_print:
+		return
+	_debug_chunk_perf_timer += delta
+	if _debug_chunk_perf_timer < maxf(0.5, debug_chunk_perf_print_interval):
+		return
+	_debug_chunk_perf_timer = 0.0
+	debug_print_chunk_stage_percentiles()
+
+func _recalibrate_runtime_budgets_from_chunk_perf() -> void:
+	if not debug_chunk_perf_auto_calibrate_runtime:
+		return
+	var ring0: Dictionary = _chunk_stage_perf.get(0, {})
+	var ground_samples: Array = ring0.get(CHUNK_PERF_STAGE_GROUND_CONNECT, [])
+	var collider_samples: Array = ring0.get(CHUNK_PERF_STAGE_COLLIDER_BUILD, [])
+	if not ground_samples.is_empty():
+		var ground_p95: float = _calc_percentile(ground_samples, 0.95)
+		terrain_paint_ms_budget = clampf(maxf(0.75, ground_p95 * 1.15), 0.75, 8.0)
+	if not collider_samples.is_empty():
+		var collider_p95: float = _calc_percentile(collider_samples, 0.95)
+		wall_collider_chunks_per_tick = int(clampf(floor(4.0 / maxf(0.1, collider_p95)), 1.0, 4.0))
+	Debug.log("chunk_perf", "calibrated terrain_paint_ms_budget=%.2f wall_collider_chunks_per_tick=%d" % [terrain_paint_ms_budget, wall_collider_chunks_per_tick])
+
 func unload_chunk(chunk_pos: Vector2i) -> void:
 	# Borrar suelo del WorldTileMap
 	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR])
@@ -838,6 +962,7 @@ func _make_ground_ctx() -> Dictionary:
 		"ground_terrain_set": 0,
 		"terrain_connect_batch_size": 256,
 		"terrain_connect_yield_each_batches": 1,
+		"perf_stage_hook": Callable(self, "_record_chunk_stage_time"),
 	}
 
 func _apply_chunk_persistent_tiles(chunk_pos: Vector2i, include_ground: bool = true, include_walls: bool = true) -> void:
@@ -864,7 +989,9 @@ func _apply_chunk_persistent_tiles(chunk_pos: Vector2i, include_ground: bool = t
 		_tile_painter.apply_manual_tiles(tilemap, manual_tiles)
 	if include_walls and wall_terrain_cells.size() > 0:
 		Debug.log("chunk", "WALL_TERRAIN_PAINT chunk=(%d,%d) cells=%d -> StructureWallsMap" % [chunk_pos.x, chunk_pos.y, wall_terrain_cells.size()])
+		var wall_start_us: int = Time.get_ticks_usec()
 		_tile_painter.apply_walls_terrain_connect(walls_tilemap, WALLS_MAP_LAYER, WALL_TERRAIN_SET, WALL_TERRAIN, wall_terrain_cells)
+		_record_chunk_stage_time(CHUNK_PERF_STAGE_WALL_CONNECT, chunk_pos, float(Time.get_ticks_usec() - wall_start_us) / 1000.0)
 
 func load_chunk_entities(chunk_pos: Vector2i) -> void:
 	chunk_entities[chunk_pos] = []
@@ -894,9 +1021,11 @@ func prepare_chunk_colliders(chunk_pos: Vector2i) -> void:
 	_ensure_chunk_wall_collision(chunk_pos)
 
 func enqueue_chunk_entities(chunk_pos: Vector2i) -> void:
+	var entities_start_us: int = Time.get_ticks_usec()
 	if not chunk_save.has(chunk_pos):
 		queued_entity_chunks.erase(chunk_pos)
 		entities_spawned_chunks[chunk_pos] = true
+		_record_chunk_stage_time(CHUNK_PERF_STAGE_ENTITIES, chunk_pos, float(Time.get_ticks_usec() - entities_start_us) / 1000.0)
 		return
 
 	var placements_count: int = chunk_save[chunk_pos].get("placements", []).size()
@@ -1033,6 +1162,7 @@ func enqueue_chunk_entities(chunk_pos: Vector2i) -> void:
 		entities_spawned_chunks[chunk_pos] = true
 
 	Debug.log("chunk", "SPAWNED chunk=(%d,%d) props=%d npcs=%d ores=%d camps=%d" % [chunk_pos.x, chunk_pos.y, spawned_count - spawned_npc_count, spawned_npc_count, ores_count, camps_count])
+	_record_chunk_stage_time(CHUNK_PERF_STAGE_ENTITIES, chunk_pos, float(Time.get_ticks_usec() - entities_start_us) / 1000.0)
 
 func _world_to_tile(world_pos: Vector2) -> Vector2i:
 	return tilemap.local_to_map(tilemap.to_local(world_pos))
@@ -1176,6 +1306,7 @@ func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	WorldSave.set_chunk_flag(cx, cy, "walls_dirty", true)
 
 func _ensure_chunk_wall_collision(chunk_pos: Vector2i) -> void:
+	var collider_start_us: int = Time.get_ticks_usec()
 	var cx: int = chunk_pos.x
 	var cy: int = chunk_pos.y
 	var chunk_key: String = _chunk_key(chunk_pos)
@@ -1215,6 +1346,7 @@ func _ensure_chunk_wall_collision(chunk_pos: Vector2i) -> void:
 			else:
 				reason = "hash_changed"
 			Debug.log("chunk", "REBUILD walls collider chunk=%s reason=%s hash=%d" % [chunk_key, reason, current_hash])
+		_record_chunk_stage_time(CHUNK_PERF_STAGE_COLLIDER_BUILD, chunk_pos, float(Time.get_ticks_usec() - collider_start_us) / 1000.0)
 		return
 
 	var cached_body: StaticBody2D = chunk_wall_body[chunk_pos]
@@ -1222,6 +1354,7 @@ func _ensure_chunk_wall_collision(chunk_pos: Vector2i) -> void:
 	_touch_chunk_wall_usage(chunk_pos)
 	if debug_collision_cache:
 		Debug.log("chunk", "REUSE walls collider chunk=%s hash=%d" % [chunk_key, current_hash])
+	_record_chunk_stage_time(CHUNK_PERF_STAGE_COLLIDER_BUILD, chunk_pos, float(Time.get_ticks_usec() - collider_start_us) / 1000.0)
 
 func _has_valid_chunk_wall_body(chunk_pos: Vector2i) -> bool:
 	if not chunk_wall_body.has(chunk_pos):
