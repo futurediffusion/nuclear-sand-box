@@ -716,6 +716,9 @@ func _make_ground_ctx() -> Dictionary:
 		"pick_tile": Callable(self, "pick_tile"),
 		"tree": get_tree(),
 		"generating_yield_stride": 8,
+		"ground_terrain_set": 0,
+		"terrain_connect_batch_size": 256,
+		"terrain_connect_yield_each_batches": 1,
 	}
 
 func _apply_chunk_persistent_tiles(chunk_pos: Vector2i) -> void:
