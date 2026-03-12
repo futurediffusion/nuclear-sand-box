@@ -49,7 +49,7 @@ bandit_scene = ExtResource("3_sugp2")
 tavern_keeper_scene = ExtResource("6_jbj1t")
 
 [node name="WorldTileMap" type="TileMap" parent="World"]
-tile_set = ExtResource("14_a8y0u")
+tile_set = ExtResource("10_pm3ni")
 format = 2
 layer_0/name = "Ground"
 layer_1/name = "floor"
