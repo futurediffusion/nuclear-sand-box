@@ -227,6 +227,18 @@ Rol:
 - Aplica budget por frame para repartir el costo de AI/Nav/combate en varios frames.
 - Evita starvation con un tope de delay máximo por enemigo.
 
+### 💬 IN-GAME COMMAND BAR
+
+Ubicación:
+
+- `scripts/gameplay/main.gd`
+
+Rol:
+
+- Abre una barra de comandos con `T` en la parte inferior.
+- Ejecuta comandos con prefijo `/`.
+- Soporta `/summon enemy` para invocar un enemigo cerca del jugador.
+
 ### 🧾 GameManager (Autoload)
 
 Ubicación:
