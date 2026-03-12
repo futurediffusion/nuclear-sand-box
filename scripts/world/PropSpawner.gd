@@ -67,9 +67,9 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 	var attempts := 0
 	match biome:
-		2: attempts = rng.randi_range(6, 16)
-		0: attempts = rng.randi_range(3, 7)
-		1: attempts = rng.randi_range(0, 3)
+		2: attempts = rng.randi_range(2, 5)   # dirt patch → densidad moderada
+		0: attempts = rng.randi_range(3, 7)   # (unused con nuevo sistema)
+		1: attempts = rng.randi_range(0, 1)   # grass → casi sin ores
 
 	if _is_test_density_chunk(chunk_pos, ctx):
 		attempts += max(0, int(Debug.test_density_extra_copper_per_chunk_load))

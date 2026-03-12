@@ -584,7 +584,8 @@ func generate_chunk(chunk_pos: Vector2i, spawn_entities: bool = true) -> void:
 	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
 	var generate_start_us: int = Time.get_ticks_usec()
 	prop_spawner.generate_chunk_spawns(chunk_pos, _make_spawn_ctx())
-	await chunk_generator.apply_ground(chunk_pos, _make_ground_ctx(chunk_pos))
+	if tilemap.is_layer_enabled(LAYER_GROUND):
+		await chunk_generator.apply_ground(chunk_pos, _make_ground_ctx(chunk_pos))
 	_record_chunk_stage_time(CHUNK_PERF_STAGE_GENERATE, chunk_pos, float(Time.get_ticks_usec() - generate_start_us) / 1000.0)
 	generated_chunks[chunk_pos] = true
 	generating_chunks.erase(chunk_pos)
@@ -960,6 +961,12 @@ func get_biome(x: int, y: int) -> int:
 		return 2
 	return 1
 
+func get_spawn_biome(x: int, y: int) -> int:
+	var terrain := _ground_painter.get_terrain(x, y)
+	if terrain == 0:  # dirt patch → alta densidad de ores
+		return BIOME_ID_DENSE_GRASS
+	return BIOME_ID_GRASSLAND  # grass → baja densidad
+
 func pick_tile(x: int, y: int) -> Dictionary:
 	var biome := get_biome(x, y)
 	var biome_data: Dictionary = BIOME_TILES[biome]
@@ -1018,7 +1025,7 @@ func _make_spawn_ctx() -> Dictionary:
 		"tavern_chunk": tavern_chunk,
 		"spawn_tile": spawn_tile,
 		"biome_seed": biome_noise.seed,
-		"get_biome": Callable(self, "get_biome"),
+		"get_biome": Callable(self, "get_spawn_biome"),
 		"chunk_save": chunk_save,
 		"chunk_occupied_tiles": chunk_occupied_tiles,
 		"entities_spawned_chunks": entities_spawned_chunks,

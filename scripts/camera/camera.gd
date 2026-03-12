@@ -14,7 +14,7 @@ var impulse_magnitude: float = 0.0
 
 # --- ZOOM ---
 @export var zoom_min: float = 0.2
-@export var zoom_max: float = 3.0
+@export var zoom_max: float = 1.5
 @export var zoom_step: float = 0.1
 @export var zoom_speed: float = 8.0
 var _target_zoom: float = 1.0

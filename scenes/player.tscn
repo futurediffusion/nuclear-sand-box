@@ -224,6 +224,7 @@ position = Vector2(10, 0)
 position_smoothing_enabled = true
 position_smoothing_speed = 6.0
 script = ExtResource("6_tuyoq")
+zoom_min = 0.4
 
 [node name="Hurtbox" type="Area2D" parent="."]
 script = ExtResource("17_qfm1y")
