@@ -548,6 +548,9 @@ func _enforce_chunk_collider_cache_limit() -> void:
 		chunk_wall_body.erase(cpos)
 		_chunk_wall_last_used.erase(key)
 
+func get_spawn_world_pos() -> Vector2:
+	return _tile_to_world(spawn_tile)
+
 func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var x0: int = chunk_pos.x * chunk_size + 4
 	var y0: int = chunk_pos.y * chunk_size + 3

@@ -603,7 +603,26 @@ func _on_before_die() -> void:
 
 func _on_after_die() -> void:
 	GameManager.player_died.emit()
-	queue_free()
+
+func respawn(pos: Vector2) -> void:
+	dying = false
+	hurt_t = 0.0
+	knock_vel = Vector2.ZERO
+	velocity = Vector2.ZERO
+	attacking = false
+	attack_t = 0.0
+	attack_push_t = 0.0
+	attack_push_vel = Vector2.ZERO
+	blocking = false
+	if health_component != null and health_component.has_method("reset"):
+		health_component.reset()
+		hp = health_component.hp
+	else:
+		hp = max_hp
+	weapon_sprite.visible = true
+	sprite.play("idle")
+	global_position = pos
+	_update_hearts_ui()
 
 func _spawn_droplets(count: int, base_dir: Vector2) -> void:
 	if droplet_scene == null:

@@ -7,7 +7,12 @@
       "Read(//c/Users/walva/AppData/Local/Programs/**)",
       "Bash(powershell -Command \"Get-Command godot -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
       "Bash(find /home -name \"*chunk_generator*\" 2>/dev/null || find /root -name \"*chunk_generator*\" 2>/dev/null || find \"C:\" -name \"*chunk_generator*\" 2>/dev/null || ls \"/c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts/world/\" 2>/dev/null)",
-      "Bash(grep -r \"TileMap_Cliffs\" \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\\\\scenes\\\\\" --include=\"*.tscn\" -l 2>/dev/null)"
+      "Bash(grep -r \"TileMap_Cliffs\" \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\\\\scenes\\\\\" --include=\"*.tscn\" -l 2>/dev/null)",
+      "Bash(ls -la /c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts/gameplay/ 2>/dev/null | grep -E \"\\\\.gd$\")",
+      "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box -name \"*game_over*\" -o -name \"*death*\" 2>/dev/null | grep -v \".git\")",
+      "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scenes -name \"*.tscn\" 2>/dev/null | grep -v \".git\" | head -20)",
+      "Bash(grep -r \"quit\\\\|QUIT\" /c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts --include=\"*.gd\" 2>/dev/null | grep -v \".git\")",
+      "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts -name \"*.gd\" ! -path \"*/.git/*\" -type f | xargs grep -l \"class_name.*Hurtbox\")"
     ]
   }
 }

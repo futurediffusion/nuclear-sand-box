@@ -41,3 +41,8 @@ func heal(amount: int) -> void:
 
 func is_dead() -> bool:
 	return hp <= 0
+
+func reset() -> void:
+	_dead_emitted = false
+	hp = max_hp
+	hp_changed.emit(hp, max_hp)

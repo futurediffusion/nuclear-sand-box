@@ -8,6 +8,7 @@ extends Node2D
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
 @onready var inv_menu = $UI/PlayerInventoryMenu
 @onready var player: Node = $Player
+@onready var world: Node2D = $World
 @onready var warmup_manager: Node = $WarmupManager
 @export var debug_input_logs: bool = false
 
@@ -37,8 +38,10 @@ func on_player_died() -> void:
 
 func _on_retry_pressed() -> void:
 	UiManager.close_ui("game_over")
+	game_over_panel.visible = false
 	get_tree().paused = false
-	get_tree().reload_current_scene()
+	if player != null and player.has_method("respawn") and world != null and world.has_method("get_spawn_world_pos"):
+		player.call("respawn", world.call("get_spawn_world_pos"))
 
 func _ensure_world_data() -> void:
 	if world_data == null:
