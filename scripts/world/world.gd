@@ -1,5 +1,7 @@
 extends Node2D
 
+const WorldTerrainConfig = preload("res://scripts/world/WorldTerrainConfig.gd")
+
 signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
 
 @onready var tilemap: TileMap = $WorldTileMap
@@ -139,28 +141,32 @@ const WALL_END_RIGHT: Vector2i = Vector2i(1, 1)
 const WALL_END_LEFT: Vector2i = Vector2i(2, 1)
 const WALL_MID: Vector2i = Vector2i(3, 1)
 
-const GROUND_TERRAIN_DIRT: int = 0
-const GROUND_TERRAIN_GRASS: int = 1
+const GROUND_TERRAIN_DIRT: int = WorldTerrainConfig.DIRT_ID
+const GROUND_TERRAIN_GRASS: int = WorldTerrainConfig.GRASS_ID
 const SRC_GROUND: int = 0
 const GROUND_FALLBACK_ATLAS_BY_TERRAIN := {
 	GROUND_TERRAIN_DIRT: Vector2i(0, 1),
 	GROUND_TERRAIN_GRASS: Vector2i(0, 0),
 }
 
+const BIOME_ID_DIRT: int = 0
+const BIOME_ID_GRASSLAND: int = 1
+const BIOME_ID_DENSE_GRASS: int = 2
+
 const BIOME_TILES = {
-	0: {
+	BIOME_ID_DIRT: {
 		"ground_terrain_id": GROUND_TERRAIN_DIRT,
 		"tiles": [
 			{"col_range": [0, 2], "rows": [1], "w": 1},
 		],
 	},
-	1: {
+	BIOME_ID_GRASSLAND: {
 		"ground_terrain_id": GROUND_TERRAIN_GRASS,
 		"tiles": [
 			{"col_range": [0, 2], "rows": [0], "w": 1},
 		],
 	},
-	2: {
+	BIOME_ID_DENSE_GRASS: {
 		"ground_terrain_id": GROUND_TERRAIN_GRASS,
 		"tiles": [
 			{"col_range": [0, 2], "rows": [2], "w": 1},
@@ -987,7 +993,7 @@ func _make_ground_ctx() -> Dictionary:
 		"pick_tile": Callable(self, "pick_tile"),
 		"tree": get_tree(),
 		"generating_yield_stride": 8,
-		"ground_terrain_set": 0,
+		"ground_terrain_set": WorldTerrainConfig.TERRAIN_SET,
 		"ground_source_id": SRC_GROUND,
 		"ground_fallback_atlas_by_terrain": GROUND_FALLBACK_ATLAS_BY_TERRAIN,
 		"terrain_connect_batch_size": 256,
