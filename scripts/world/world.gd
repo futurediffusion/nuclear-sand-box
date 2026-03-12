@@ -1,5 +1,7 @@
 extends Node2D
 
+signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
+
 @onready var tilemap: TileMap = $WorldTileMap
 @onready var walls_tilemap: TileMap = $StructureWallsMap   # <-- paredes van aquí
 @onready var prop_spawner := PropSpawner.new()
@@ -40,6 +42,8 @@ var _tile_painter := TilePainter.new()
 @export var terrain_paint_chunks_per_tick: int = 2
 @export var terrain_paint_ms_budget: float = 1.5
 @export var terrain_paint_ring_priority_enabled: bool = true
+@export var structure_tile_chunks_per_tick: int = 2
+@export var wall_collider_chunks_per_tick: int = 2
 @export var max_cached_chunk_colliders: int = 64
 @export var debug_collision_cache: bool = false
 
@@ -75,6 +79,10 @@ var _terrain_paint_enqueued: Dictionary = {}
 var _terrain_painted_chunks: Dictionary = {}
 var _terrain_paint_epoch: int = 0
 var _terrain_paint_center_ring0_pending: int = 0
+var _structure_tile_queue: Array[Vector2i] = []
+var _structure_tile_enqueued: Dictionary = {}
+var _collider_queue: Array[Vector2i] = []
+var _collider_enqueued: Dictionary = {}
 var _updating_chunks: bool = false
 
 const PREFETCH_QUEUE_MAX: int = 64
@@ -159,6 +167,7 @@ func _clear_chunk_wall_runtime_cache() -> void:
 	_chunk_wall_use_counter = 0
 
 func _process(delta: float) -> void:
+	_process_chunk_stage_queues()
 	if _spawn_queue != null:
 		if player:
 			_spawn_queue.set_player_world_pos(player.global_position)
@@ -465,6 +474,42 @@ func _process_terrain_paint_scheduler() -> void:
 
 	if _terrain_paint_center_ring0_pending == 0:
 		_updating_chunks = false
+
+func _process_chunk_stage_queues() -> void:
+	var tiles_budget: int = max(0, structure_tile_chunks_per_tick)
+	while tiles_budget > 0 and not _structure_tile_queue.is_empty():
+		var chunk_pos: Vector2i = _structure_tile_queue.pop_front()
+		_structure_tile_enqueued.erase(chunk_pos)
+		if not loaded_chunks.has(chunk_pos):
+			continue
+		prepare_chunk_tiles(chunk_pos)
+		emit_signal("chunk_stage_completed", chunk_pos, "tiles")
+		_enqueue_collider_stage(chunk_pos)
+		tiles_budget -= 1
+
+	var collider_budget: int = max(0, wall_collider_chunks_per_tick)
+	while collider_budget > 0 and not _collider_queue.is_empty():
+		var chunk_pos: Vector2i = _collider_queue.pop_front()
+		_collider_enqueued.erase(chunk_pos)
+		if not loaded_chunks.has(chunk_pos):
+			continue
+		prepare_chunk_colliders(chunk_pos)
+		emit_signal("chunk_stage_completed", chunk_pos, "collision")
+		enqueue_chunk_entities(chunk_pos)
+		emit_signal("chunk_stage_completed", chunk_pos, "entities_enqueued")
+		collider_budget -= 1
+
+func _enqueue_structure_tile_stage(chunk_pos: Vector2i) -> void:
+	if _structure_tile_enqueued.has(chunk_pos):
+		return
+	_structure_tile_queue.append(chunk_pos)
+	_structure_tile_enqueued[chunk_pos] = true
+
+func _enqueue_collider_stage(chunk_pos: Vector2i) -> void:
+	if _collider_enqueued.has(chunk_pos):
+		return
+	_collider_queue.append(chunk_pos)
+	_collider_enqueued[chunk_pos] = true
 
 func generate_chunk(chunk_pos: Vector2i, spawn_entities: bool = true) -> void:
 	Debug.log("chunk", "GENERATE chunk=(%d,%d) run_seed=%d chunk_seed=%d" % [chunk_pos.x, chunk_pos.y, Seed.run_seed, Seed.chunk_seed(chunk_pos.x, chunk_pos.y)])
@@ -833,6 +878,26 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		queued_entity_chunks.erase(chunk_pos)
 		entities_spawned_chunks[chunk_pos] = true
 		return
+	_enqueue_structure_tile_stage(chunk_pos)
+
+func prepare_chunk_tiles(chunk_pos: Vector2i) -> void:
+	if not chunk_save.has(chunk_pos):
+		return
+	_apply_chunk_persistent_tiles(chunk_pos)
+	var key: String = _chunk_key(chunk_pos)
+	_terrain_painted_chunks[key] = true
+	_terrain_paint_enqueued.erase(key)
+
+func prepare_chunk_colliders(chunk_pos: Vector2i) -> void:
+	if not chunk_save.has(chunk_pos):
+		return
+	_ensure_chunk_wall_collision(chunk_pos)
+
+func enqueue_chunk_entities(chunk_pos: Vector2i) -> void:
+	if not chunk_save.has(chunk_pos):
+		queued_entity_chunks.erase(chunk_pos)
+		entities_spawned_chunks[chunk_pos] = true
+		return
 
 	var placements_count: int = chunk_save[chunk_pos].get("placements", []).size()
 	var ores_count: int = chunk_save[chunk_pos]["ores"].size()
@@ -876,16 +941,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 			"uid": ore_uid,
 		})
 
-	# 2) TILES PERSISTENTES — suelo en WorldTileMap, paredes en StructureWallsMap
-	if progressive_terrain_paint_enabled:
-		_enqueue_terrain_paint_chunk(chunk_pos, current_player_chunk, _terrain_paint_epoch)
-	else:
-		_apply_chunk_persistent_tiles(chunk_pos)
-
-	# Colisiones de paredes con hash/dirty-cache por chunk.
-	_ensure_chunk_wall_collision(chunk_pos)
-
-	# 3) CAMPS (solo prop visual; enemies pasan a data-only records)
+	# 2) CAMPS (solo prop visual; enemies pasan a data-only records)
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
 		jobs.append({
@@ -902,7 +958,7 @@ func load_chunk_entities(chunk_pos: Vector2i) -> void:
 		})
 	_ensure_enemy_spawn_records_for_chunk(chunk_pos)
 
-	# 4) PLACEMENTS (props + npc_keeper)
+	# 3) PLACEMENTS (props + npc_keeper)
 	var spawned_count: int = 0
 	var spawned_npc_count: int = 0
 	var spawned_keeper_uids: Dictionary = {}
@@ -994,6 +1050,8 @@ func _debug_check_player_chunk(player_global: Vector2) -> void:
 	Debug.log("spawn", "CHUNK_CHECK player_tile=%s player_chunk=%s" % [str(player_tile), str(chunk_key)])
 
 func unload_chunk_entities(chunk_pos: Vector2i) -> void:
+	_structure_tile_enqueued.erase(chunk_pos)
+	_collider_enqueued.erase(chunk_pos)
 	var chunk_key: String = _chunk_key(chunk_pos)
 	if _spawn_queue != null:
 		_spawn_queue.cancel_chunk(chunk_key)
