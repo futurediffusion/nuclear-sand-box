@@ -12,17 +12,65 @@ func apply_ground(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var pick_tile: Callable = ctx["pick_tile"]
 	var tree: SceneTree = ctx["tree"]
 	var generating_yield_stride: int = ctx.get("generating_yield_stride", 8)
+	var terrain_set: int = ctx.get("ground_terrain_set", 0)
+	var terrain_connect_batch_size: int = max(1, int(ctx.get("terrain_connect_batch_size", 256)))
+	var terrain_connect_yield_each_batches: int = max(1, int(ctx.get("terrain_connect_yield_each_batches", 1)))
 
 	var start_x := chunk_pos.x * chunk_size
 	var start_y := chunk_pos.y * chunk_size
 
+	var terrain_buckets: Dictionary = {}
 	for y in range(start_y, start_y + chunk_size):
 		for x in range(start_x, start_x + chunk_size):
 			if x < 0 or x >= width or y < 0 or y >= height:
 				continue
 			var tile_atlas: Vector2i = pick_tile.call(x, y)
 			tile_atlas.y = clampi(tile_atlas.y, 0, 2)
-			tilemap.set_cell(LAYER_GROUND, Vector2i(x, y), GROUND_SOURCE, tile_atlas)
+			var terrain: int = tile_atlas.y
+			if not terrain_buckets.has(terrain):
+				terrain_buckets[terrain] = []
+			terrain_buckets[terrain].append(Vector2i(x, y))
 
 		if y % generating_yield_stride == 0:
 			await tree.process_frame
+
+	await apply_ground_terrain_batched(
+		tilemap,
+		tree,
+		terrain_set,
+		terrain_buckets,
+		terrain_connect_batch_size,
+		terrain_connect_yield_each_batches
+	)
+
+func apply_ground_terrain_batched(
+	tilemap: TileMap,
+	tree: SceneTree,
+	terrain_set: int,
+	terrain_buckets: Dictionary,
+	terrain_connect_batch_size: int,
+	terrain_connect_yield_each_batches: int
+) -> void:
+	var batch_counter: int = 0
+	for terrain_key in terrain_buckets.keys():
+		var terrain: int = int(terrain_key)
+		var cells: Array[Vector2i] = terrain_buckets[terrain]
+		if cells.is_empty():
+			continue
+
+		var start_idx: int = 0
+		while start_idx < cells.size():
+			var end_idx: int = min(start_idx + terrain_connect_batch_size, cells.size())
+			var sub_batch: Array[Vector2i] = []
+			sub_batch.assign(cells.slice(start_idx, end_idx))
+
+			tilemap.set_cells_terrain_connect(LAYER_GROUND, sub_batch, terrain_set, terrain, true)
+			for cell in sub_batch:
+				if tilemap.get_cell_source_id(LAYER_GROUND, cell) == -1:
+					tilemap.set_cell(LAYER_GROUND, cell, GROUND_SOURCE, Vector2i(0, terrain))
+
+			batch_counter += 1
+			if batch_counter % terrain_connect_yield_each_batches == 0:
+				await tree.process_frame
+
+			start_idx = end_idx
