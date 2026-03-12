@@ -196,9 +196,12 @@ func _summon_enemy_near_player() -> void:
 		return
 
 	var spawn_pos := _get_command_spawn_position()
+	world.add_child(enemy)
 	if enemy is Node2D:
 		(enemy as Node2D).global_position = spawn_pos
-	world.add_child(enemy)
+		var dist_to_player := _distance_to_player((enemy as Node2D).global_position)
+		Debug.log("commands", "Enemy invocado en %s (distancia al player: %.2f)" % [str((enemy as Node2D).global_position), dist_to_player])
+		return
 	Debug.log("commands", "Enemy invocado en %s" % str(spawn_pos))
 
 func _get_command_spawn_position() -> Vector2:
@@ -208,6 +211,11 @@ func _get_command_spawn_position() -> Vector2:
 		var dist := randf_range(COMMAND_SPAWN_MIN_DIST, COMMAND_SPAWN_MAX_DIST)
 		return player_pos + Vector2.RIGHT.rotated(angle) * dist
 	return Vector2.ZERO
+
+func _distance_to_player(pos: Vector2) -> float:
+	if player != null and player is Node2D:
+		return pos.distance_to((player as Node2D).global_position)
+	return -1.0
 
 func _boot_frame_ping() -> void:
 	Debug.log("boot", "First frame reached")
