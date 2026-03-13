@@ -6,6 +6,7 @@ const COMMAND_BAR_HEIGHT := 34.0
 const COMMAND_SPAWN_MIN_DIST := 56.0
 const COMMAND_SPAWN_MAX_DIST := 110.0
 const DEFAULT_COMMAND_TILE_SIZE := 16.0
+const COMMAND_HISTORY_LIMIT := 10
 
 @export var world_data: WorldData
 @export var world_map_size: Vector2i = Vector2i(256, 256)
@@ -23,6 +24,8 @@ const DEFAULT_COMMAND_TILE_SIZE := 16.0
 var _command_container: Control
 var _command_input: LineEdit
 var _command_open: bool = false
+var _command_history: Array[String] = []
+var _command_history_index: int = -1
 
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
@@ -125,7 +128,7 @@ func _setup_command_bar() -> void:
 	_command_input.offset_top = 4.0
 	_command_input.offset_right = -8.0
 	_command_input.offset_bottom = -4.0
-	_command_input.placeholder_text = "/summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]"
+	_command_input.placeholder_text = "/summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles] | /give <item_id> <cantidad>"
 	_command_input.clear_button_enabled = true
 	_command_input.text_submitted.connect(_on_command_submitted)
 	_command_input.gui_input.connect(_on_command_gui_input)
@@ -139,6 +142,7 @@ func _open_command_bar() -> void:
 	if _command_input.text.is_empty():
 		_command_input.text = COMMAND_PREFIX
 	_command_input.caret_column = _command_input.text.length()
+	_command_history_index = _command_history.size()
 	_command_input.grab_focus()
 
 func _close_command_bar() -> void:
@@ -157,6 +161,15 @@ func _on_command_gui_input(event: InputEvent) -> void:
 		if key_event.keycode == KEY_ESCAPE:
 			_close_command_bar()
 			_command_input.accept_event()
+			return
+		if key_event.keycode == KEY_UP:
+			_navigate_command_history(-1)
+			_command_input.accept_event()
+			return
+		if key_event.keycode == KEY_DOWN:
+			_navigate_command_history(1)
+			_command_input.accept_event()
+			return
 
 func _on_command_submitted(raw_text: String) -> void:
 	var command_text := raw_text.strip_edges()
@@ -165,6 +178,7 @@ func _on_command_submitted(raw_text: String) -> void:
 		return
 
 	_execute_command(command_text)
+	_push_command_history(command_text)
 	_close_command_bar()
 
 func _execute_command(command_text: String) -> void:
@@ -183,8 +197,86 @@ func _execute_command(command_text: String) -> void:
 			return
 		Debug.log("commands", "Uso: /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]")
 		return
+	if base_command == "give":
+		_give_item_command(parts.slice(1))
+		return
 
 	Debug.log("commands", "Comando desconocido: %s" % base_command)
+
+func _push_command_history(command_text: String) -> void:
+	if command_text.is_empty():
+		return
+	if not _command_history.is_empty() and _command_history[_command_history.size() - 1] == command_text:
+		_command_history_index = _command_history.size()
+		return
+	_command_history.append(command_text)
+	if _command_history.size() > COMMAND_HISTORY_LIMIT:
+		_command_history.pop_front()
+	_command_history_index = _command_history.size()
+
+func _navigate_command_history(direction: int) -> void:
+	if _command_input == null or _command_history.is_empty():
+		return
+
+	if _command_history_index < 0:
+		_command_history_index = _command_history.size()
+
+	_command_history_index = clampi(_command_history_index + direction, 0, _command_history.size())
+	if _command_history_index >= _command_history.size():
+		_command_input.text = COMMAND_PREFIX
+	else:
+		_command_input.text = _command_history[_command_history_index]
+	_command_input.caret_column = _command_input.text.length()
+
+func _give_item_command(raw_args: Array) -> void:
+	if raw_args.size() < 2:
+		Debug.log("commands", "Uso: /give <item_id> <cantidad>")
+		return
+
+	var item_id := String(raw_args[0]).strip_edges().to_lower()
+	if item_id.is_empty():
+		Debug.log("commands", "item_id inválido")
+		return
+
+	var amount_text := String(raw_args[1]).strip_edges()
+	if not amount_text.is_valid_int():
+		Debug.log("commands", "cantidad inválida: %s" % amount_text)
+		return
+
+	var amount := maxi(1, amount_text.to_int())
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db == null or not item_db.has_method("get_item"):
+		Debug.log("commands", "ItemDB no está disponible")
+		return
+
+	var item_data := item_db.call("get_item", item_id)
+	if item_data == null:
+		Debug.log("commands", "Item no registrado en ItemDB: %s" % item_id)
+		return
+
+	var inventory := _get_player_inventory_component()
+	if inventory == null:
+		Debug.log("commands", "No se encontró InventoryComponent del jugador")
+		return
+
+	var inserted := int(inventory.call("add_item", item_id, amount))
+	if inserted <= 0:
+		Debug.log("commands", "Inventario lleno. No se pudo agregar %s" % item_id)
+		return
+
+	if inserted < amount:
+		Debug.log("commands", "Se agregaron %d/%d de %s (inventario lleno)" % [inserted, amount, item_id])
+		return
+
+	Debug.log("commands", "Agregados %d de %s al inventario" % [inserted, item_id])
+
+func _get_player_inventory_component() -> Node:
+	if player == null:
+		return null
+	var inventory := player.get_node_or_null("InventoryComponent")
+	if inventory == null:
+		return null
+	return inventory
 
 func _summon_enemy_command(raw_args: Array) -> void:
 	if ENEMY_SCENE == null or world == null:
