@@ -192,6 +192,7 @@ func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: 
 		return false
 
 	var occ: Dictionary = ctx["chunk_occupied_tiles"].get(chunk_key, {})
+	var cg = ctx.get("cliff_generator")
 	for oy in range(-footprint_radius_tiles, footprint_radius_tiles + 1):
 		for ox in range(-footprint_radius_tiles, footprint_radius_tiles + 1):
 			var probe := tile_pos + Vector2i(ox, oy)
@@ -200,6 +201,8 @@ func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: 
 			if probe.distance_to(player_tile) <= float(safe_radius_tiles):
 				return false
 			if occ.has(probe):
+				return false
+			if cg != null and cg.is_cliff_tile(probe):
 				return false
 	return true
 

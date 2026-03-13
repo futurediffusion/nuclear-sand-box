@@ -320,6 +320,28 @@ func _is_inside_bounds(cell: Vector2i) -> bool:
 	return cell.x >= _x_min and cell.x <= _x_max and cell.y >= _y_min and cell.y <= _y_max
 
 
+func is_cliff_tile(tile_pos: Vector2i) -> bool:
+	if _free_zone.has(tile_pos):
+		return false
+	if not _is_inside_bounds(tile_pos):
+		return false
+	for blob in _cliff_blob_centers:
+		var center: Vector2i = blob["center"]
+		var radius: int = blob["radius"]
+		var ox: float = blob["ox"]
+		var oy: float = blob["oy"]
+		var diff := tile_pos - center
+		var dist := Vector2(diff.x, diff.y).length()
+		var scan: int = radius + int(_warp_strength) + 2
+		if abs(diff.x) > scan or abs(diff.y) > scan:
+			continue
+		var warp := _noise.get_noise_2d(float(tile_pos.x) + ox, float(tile_pos.y) + oy) * _warp_strength
+		var angle_var := sin(atan2(float(diff.y), float(diff.x)) * 2.5 + ox * 0.005) * (radius * 0.15)
+		if dist <= float(radius) + warp + angle_var:
+			return true
+	return false
+
+
 func _fill_circle(dict: Dictionary, center: Vector2i, radius: int) -> void:
 	for x in range(-radius, radius + 1):
 		for y in range(-radius, radius + 1):

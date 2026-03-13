@@ -120,6 +120,10 @@ func get_chunk_enemy_spawns(chunk_key: String) -> Array:
 		return []
 	return (enemy_spawns_by_chunk[chunk_key] as Array).duplicate(true)
 
+func clear_chunk_enemy_spawns(chunk_key: String) -> void:
+	enemy_spawns_by_chunk.erase(chunk_key)
+	enemy_state_by_chunk.erase(chunk_key)
+
 # --- Flower data ---
 var _flower_data: Dictionary = {}  # Vector2i -> Array
 

@@ -24,7 +24,19 @@
       "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/npc/tavern_keeper.gd 2>&1 | head -40)",
       "Bash(cd \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box\" && where godot 2>&1 || powershell -Command \"Get-Command godot -ErrorAction SilentlyContinue)",
       "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Users\\\\walva' -Filter 'Godot*' -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object FullName -First 5\")",
-      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\' -Filter 'Godot*.exe' -Recurse -Depth 5 -ErrorAction SilentlyContinue | Select-Object FullName -First 5\")"
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\' -Filter 'Godot*.exe' -Recurse -Depth 5 -ErrorAction SilentlyContinue | Select-Object FullName -First 5\")",
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/systems/game_manager.gd 2>&1)",
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && \"/c/Program Files/Godot/Godot_v4.4-stable_win64.exe\" --path . --check-only --script scripts/systems/game_manager.gd 2>&1 || true)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(find /c -name Godot*.exe -maxdepth 5)",
+      "Bash(where godot.exe 2>/dev/null || cmd /c \"where godot\" 2>/dev/null || ls /c/Users/walva/AppData/Local/Programs/ 2>/dev/null | head -10)",
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/world/NpcSimulator.gd 2>&1; godot --path . --check-only --script scripts/world/PropSpawner.gd 2>&1)",
+      "Bash(ls /c/Users/walva/AppData/Local/Programs/Godot*)",
+      "Read(//mnt/c/Users/walva/AppData/Local/**)",
+      "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box -name \"*bandit*\" -type f 2>/dev/null | head -20)",
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && cat scenes/bandit_camp.tscn | head -30; echo \"---\"; ls scenes/enemy* scenes/bandit* 2>/dev/null; echo \"---\"; find scripts -name \"bandit*\" -o -name \"enemy*\" 2>/dev/null | head -10)",
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/world/NpcSimulator.gd 2>&1; godot --path . --check-only --script scripts/systems/WorldSave.gd 2>&1; godot --path . --check-only --script scripts/systems/SpawnBudgetQueue.gd 2>&1)",
+      "Bash(where godot.exe 2>/dev/null || ls /c/Users/walva/AppData/Local/Programs/Godot/ 2>/dev/null || ls \"/c/Program Files/Godot/\" 2>/dev/null || ls \"/c/Program Files \\(x86\\)/Godot/\" 2>/dev/null || echo \"not found\")"
     ]
   }
 }

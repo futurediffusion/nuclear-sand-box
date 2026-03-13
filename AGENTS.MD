@@ -247,10 +247,12 @@ Ubicación:
 
 Rol:
 
-- Señales globales.
-- `player_died`
-- `zone_entered`
-- Estado global temporal.
+- Director del loop de sesión. Nunca spawnea — solo emite señales.
+- Señales globales: `player_died`, `player_healed`, `zone_entered`, `phase_changed(SessionPhase)`, `threat_level_changed(int)`.
+- `SessionPhase` enum: `EXPLORE`, `RETURNING`, `RESTING`, `GAME_OVER`. Estado actual en `session_phase`.
+- Contadores de sesión: `enemies_killed`, `resources_gathered`, `chunks_explored`, `session_time_seconds`, `threat_level`.
+- `threat_level` sube cada 60s de juego o cada 5 kills; emite `threat_level_changed`.
+- API pública: `register_kill()`, `register_resource_gathered()`, `register_chunk_explored()`.
 - Evitar acoplamiento directo entre escenas.
 
 ---

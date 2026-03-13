@@ -178,6 +178,9 @@ func _spawn_job(job: Dictionary) -> Node:
 		node.queue_free()
 		return null
 
+	var override_parent = job.get("parent_override", null)
+	if override_parent != null and is_instance_valid(override_parent):
+		target_parent = override_parent
 	target_parent.add_child(node)
 	if node is Node2D:
 		(node as Node2D).global_position = Vector2(job.get("global_position", Vector2.ZERO))

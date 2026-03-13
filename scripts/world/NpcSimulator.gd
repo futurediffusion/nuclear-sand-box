@@ -25,6 +25,9 @@ var _loaded_chunks: Dictionary = {}  # referencia al dict de World
 var _chunk_save: Dictionary = {}     # referencia al dict de World
 var _tile_to_world: Callable
 var _chunk_key_fn: Callable
+var _cliff_gen: CliffGenerator = null
+var _world_to_tile: Callable
+var _entity_root: Node2D = null
 
 # Estado propio
 var active_enemies: Dictionary = {}      # enemy_id -> Node
@@ -42,6 +45,9 @@ func setup(ctx: Dictionary) -> void:
 	_chunk_save = ctx["chunk_save"]
 	_tile_to_world = ctx["tile_to_world"]
 	_chunk_key_fn = ctx["chunk_key"]
+	_cliff_gen = ctx.get("cliff_generator")
+	_world_to_tile = ctx.get("world_to_tile", Callable())
+	_entity_root = ctx.get("entity_root")
 
 func _process(delta: float) -> void:
 	_tick_lite_mode(delta)
@@ -126,7 +132,7 @@ func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> 
 	var chunk_key: String = _chunk_key_fn.call(chunk_pos)
 	spawning_enemy_ids[enemy_id] = true
 	var ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
-	_spawn_queue.enqueue({
+	var job: Dictionary = {
 		"chunk_key": chunk_key,
 		"kind": "enemy",
 		"scene": bandit_scene,
@@ -137,7 +143,10 @@ func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> 
 		},
 		"priority": ring,
 		"uid": enemy_id,
-	})
+	}
+	if _entity_root != null:
+		job["parent_override"] = _entity_root
+	_spawn_queue.enqueue(job)
 
 func despawn_enemy(enemy_id: String) -> void:
 	if not active_enemies.has(enemy_id):
@@ -199,7 +208,19 @@ func on_chunk_unloaded(chunk_key: String) -> void:
 func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 	var chunk_key: String = _chunk_key_fn.call(chunk_pos)
 	if not WorldSave.get_chunk_enemy_spawns(chunk_key).is_empty():
-		return
+		if _cliff_gen == null or not _world_to_tile.is_valid():
+			return
+		var stale := false
+		for eid in WorldSave.iter_enemy_ids_in_chunk(chunk_key):
+			var st = WorldSave.get_enemy_state(chunk_key, eid)
+			if st == null:
+				continue
+			if _cliff_gen.is_cliff_tile(_world_to_tile.call(Vector2(st.get("pos", Vector2.ZERO)))):
+				stale = true
+				break
+		if not stale:
+			return
+		WorldSave.clear_chunk_enemy_spawns(chunk_key)
 	if not _chunk_save.has(chunk_pos):
 		return
 	var records: Array[Dictionary] = []
@@ -209,10 +230,20 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 			continue
 		var camp_tile: Vector2i = camp.get("tile", Vector2i.ZERO)
 		var camp_world: Vector2 = _tile_to_world.call(camp_tile)
-		var offsets: Array[Vector2] = [Vector2(-28, -18), Vector2(32, -10), Vector2(-20, 30), Vector2(28, 24)]
-		for offset in offsets:
+		var primary_offsets: Array[Vector2] = [Vector2(-28, -18), Vector2(32, -10), Vector2(-20, 30), Vector2(28, 24)]
+		var fallback_offsets: Array[Vector2] = [Vector2(-48, 0), Vector2(48, 0), Vector2(0, -48), Vector2(0, 48)]
+		for offset in primary_offsets:
 			var enemy_id: String = "e:%s:%03d" % [chunk_key, spawn_index]
-			var enemy_pos: Vector2 = camp_world + offset
+			var chosen_offset: Vector2 = offset
+			if _cliff_gen != null and _world_to_tile.is_valid():
+				var candidate: Vector2 = camp_world + offset
+				if _cliff_gen.is_cliff_tile(_world_to_tile.call(candidate)):
+					for fb in fallback_offsets:
+						var fb_candidate: Vector2 = camp_world + fb
+						if not _cliff_gen.is_cliff_tile(_world_to_tile.call(fb_candidate)):
+							chosen_offset = fb
+							break
+			var enemy_pos: Vector2 = camp_world + chosen_offset
 			var record: Dictionary = {
 				"spawn_index": spawn_index,
 				"enemy_id": enemy_id,

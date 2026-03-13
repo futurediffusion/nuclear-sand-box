@@ -64,6 +64,7 @@ var _chunk_timer: float = 0.0
 var npc_simulator: NpcSimulator
 var entity_coordinator: EntitySpawnCoordinator
 var pipeline: ChunkPipeline
+var _entity_root: Node2D
 
 var chunk_save: Dictionary = {}
 var _spawn_queue: SpawnBudgetQueue
@@ -187,6 +188,12 @@ func _ready() -> void:
 	cliff_generator = CliffGenerator.new()
 	cliff_generator.name = "CliffGenerator"
 	add_child(cliff_generator)
+
+	_entity_root = Node2D.new()
+	_entity_root.name = "EntitiesRoot"
+	_entity_root.z_index = 10
+	add_child(_entity_root)
+
 	cliff_generator.setup({
 		"x_min": 0, "x_max": width, "y_min": 0, "y_max": height,
 		"chunk_size": chunk_size, "layer": LAYER_GROUND,
@@ -248,6 +255,9 @@ func _ready() -> void:
 		"chunk_save": chunk_save,
 		"tile_to_world": Callable(self, "_tile_to_world"),
 		"chunk_key": Callable(self, "_chunk_key"),
+		"cliff_generator": cliff_generator,
+		"world_to_tile": Callable(self, "_world_to_tile"),
+		"entity_root": _entity_root,
 	})
 	npc_simulator.current_player_chunk = current_player_chunk
 	_vegetation_root.setup({
@@ -470,6 +480,7 @@ func _make_spawn_ctx() -> Dictionary:
 		"copper_ore_scene": copper_ore_scene,
 		"bandit_camp_scene": bandit_camp_scene,
 		"bandit_scene": bandit_scene,
+		"cliff_generator": cliff_generator,
 	}
 
 func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int, mode: String = "legacy") -> void:
