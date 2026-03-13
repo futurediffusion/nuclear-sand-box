@@ -6,6 +6,7 @@ signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
 @onready var walls_tilemap: TileMap = $StructureWallsMap   # <-- paredes van aquí
 @onready var ground_tilemap: TileMap = $GroundTileMap
 @onready var cliffs_tilemap: TileMap = $TileMap_Cliffs
+@onready var _vegetation_root: VegetationRoot = $VegetationRoot
 @onready var prop_spawner := PropSpawner.new()
 @onready var chunk_generator := ChunkGenerator.new()
 @onready var _collision_builder := CollisionBuilder.new()
@@ -249,6 +250,14 @@ func _ready() -> void:
 		"chunk_key": Callable(self, "_chunk_key"),
 	})
 	npc_simulator.current_player_chunk = current_player_chunk
+	_vegetation_root.setup({
+		"ground_tilemap": ground_tilemap,
+		"chunk_size": chunk_size,
+		"tile_size": 32,
+		"grass_source_id": 3,   # source 3 = grassautotile.png en TileMap_Ground.tres
+		"grass_terrain_id": 1,  # terrain_set_0/terrain_1 = "grass"
+	})
+
 	if GameEvents != null and not GameEvents.entity_died.is_connected(_on_entity_died):
 		GameEvents.entity_died.connect(_on_entity_died)
 	await update_chunks(current_player_chunk)
@@ -371,6 +380,7 @@ func update_chunks(center: Vector2i) -> void:
 		await chunk_generator.apply_ground_terrain_ctx(ground_to_paint, pipeline.make_ground_terrain_ctx())
 		for cpos in ground_to_paint:
 			_ground_terrain_painted_chunks[_chunk_key(cpos)] = true
+			_vegetation_root.load_chunk(cpos)
 
 	for cpos in loaded_chunks.keys():
 		if not needed.has(cpos):
@@ -408,6 +418,7 @@ func _apply_calibrated_perf_budgets() -> void:
 		pipeline.cliff_paint_chunks_per_tick = budgets["cliff_paint_chunks_per_tick"]
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
+	_vegetation_root.unload_chunk(chunk_pos)
 	# Borrar suelo del WorldTileMap
 	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR])
 	# Borrar paredes del StructureWallsMap

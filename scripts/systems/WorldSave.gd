@@ -119,3 +119,21 @@ func get_chunk_enemy_spawns(chunk_key: String) -> Array:
 	if not enemy_spawns_by_chunk.has(chunk_key):
 		return []
 	return (enemy_spawns_by_chunk[chunk_key] as Array).duplicate(true)
+
+# --- Flower data ---
+var _flower_data: Dictionary = {}  # Vector2i -> Array
+
+func set_flower_data(chunk: Vector2i, data: Array) -> void:
+	_flower_data[chunk] = data
+
+func get_flower_data(chunk: Vector2i) -> Array:
+	return _flower_data.get(chunk, []) as Array
+
+# --- Fungus data ---
+var _fungus_data: Dictionary = {}  # Vector2i -> Array
+
+func set_fungus_data(chunk: Vector2i, data: Array) -> void:
+	_fungus_data[chunk] = data
+
+func get_fungus_data(chunk: Vector2i) -> Array:
+	return _fungus_data.get(chunk, []) as Array
