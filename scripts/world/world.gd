@@ -95,8 +95,6 @@ func _ready() -> void:
 	add_to_group("world")
 	get_tree().set_auto_accept_quit(false)
 	Debug.log("boot", "World._ready begin")
-	_biome_seed = randi()
-	_ground_painter.setup(randi(), width, height)
 	ground_tilemap.z_index = -1
 	cliffs_tilemap.z_index = 5
 	var cliff_mat := ShaderMaterial.new()
@@ -122,6 +120,10 @@ func _ready() -> void:
 
 	SaveManager.register_world(self)
 	var _had_save := SaveManager.load_world_save()
+
+	# Seeds derivados de run_seed — determinísticos y persistentes entre cargas
+	_biome_seed = absi(hash(Seed.run_seed ^ 0x1A2B3C4D))
+	_ground_painter.setup(absi(hash(Seed.run_seed ^ 0x5E6F7A8B)), width, height)
 
 	player = get_node_or_null("../Player")
 
@@ -184,7 +186,7 @@ func _ready() -> void:
 	entity_coordinator.current_player_chunk = current_player_chunk
 	_spawn_queue = entity_coordinator.get_spawn_queue()
 
-	_cliff_seed = randi()
+	_cliff_seed = absi(hash(Seed.run_seed ^ 0x9C0D1E2F))
 	cliff_generator = CliffGenerator.new()
 	cliff_generator.name = "CliffGenerator"
 	add_child(cliff_generator)

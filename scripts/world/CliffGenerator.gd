@@ -297,21 +297,23 @@ func _build_free_zone() -> void:
 
 
 func _prebuild_cliff_blobs() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _cliff_seed
 	var placed := 0
 	var attempts := 0
 	var margin := _radius_max + 2
 	while placed < _blob_count and attempts < _blob_count * 20:
 		attempts += 1
-		var cx := randi_range(_x_min + margin, _x_max - margin)
-		var cy := randi_range(_y_min + margin, _y_max - margin)
+		var cx := rng.randi_range(_x_min + margin, _x_max - margin)
+		var cy := rng.randi_range(_y_min + margin, _y_max - margin)
 		var center := Vector2i(cx, cy)
 		if _free_zone.has(center):
 			continue
 		_cliff_blob_centers.append({
 			"center": center,
-			"radius": randi_range(_radius_min, _radius_max),
-			"ox": randf_range(-500.0, 500.0),
-			"oy": randf_range(-500.0, 500.0),
+			"radius": rng.randi_range(_radius_min, _radius_max),
+			"ox": rng.randf_range(-500.0, 500.0),
+			"oy": rng.randf_range(-500.0, 500.0),
 		})
 		placed += 1
 

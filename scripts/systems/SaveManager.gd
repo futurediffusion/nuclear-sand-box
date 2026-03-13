@@ -113,7 +113,12 @@ func new_game() -> void:
 	WorldSave.enemy_state_by_chunk.clear()
 	WorldSave.enemy_spawns_by_chunk.clear()
 	WorldSave.global_flags.clear()
-	Seed.initialize_run_seed()
+	# Generar semilla aleatoria real, ignorando debug_seed
+	var new_seed := int(Time.get_unix_time_from_system()) % 2147483647
+	if new_seed <= 0:
+		new_seed = 1
+	Seed.run_seed = new_seed
+	seed(new_seed)
 	Debug.log("save", "New game — save cleared, new seed=%d" % Seed.run_seed)
 
 # ---------------------------------------------------------------------------
