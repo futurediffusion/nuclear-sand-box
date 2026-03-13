@@ -249,7 +249,7 @@ func _give_item_command(raw_args: Array) -> void:
 		Debug.log("commands", "ItemDB no está disponible")
 		return
 
-	var item_data := item_db.call("get_item", item_id)
+	var item_data = item_db.call("get_item", item_id)
 	if item_data == null:
 		Debug.log("commands", "Item no registrado en ItemDB: %s" % item_id)
 		return
