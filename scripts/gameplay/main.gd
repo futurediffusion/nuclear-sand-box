@@ -5,6 +5,7 @@ const COMMAND_PREFIX := "/"
 const COMMAND_BAR_HEIGHT := 34.0
 const COMMAND_SPAWN_MIN_DIST := 56.0
 const COMMAND_SPAWN_MAX_DIST := 110.0
+const DEFAULT_COMMAND_TILE_SIZE := 16.0
 
 @export var world_data: WorldData
 @export var world_map_size: Vector2i = Vector2i(256, 256)
@@ -124,7 +125,7 @@ func _setup_command_bar() -> void:
 	_command_input.offset_top = 4.0
 	_command_input.offset_right = -8.0
 	_command_input.offset_bottom = -4.0
-	_command_input.placeholder_text = "/summon enemy"
+	_command_input.placeholder_text = "/summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]"
 	_command_input.clear_button_enabled = true
 	_command_input.text_submitted.connect(_on_command_submitted)
 	_command_input.gui_input.connect(_on_command_gui_input)
@@ -178,44 +179,77 @@ func _execute_command(command_text: String) -> void:
 	var base_command := String(parts[0]).to_lower()
 	if base_command == "summon":
 		if parts.size() >= 2 and String(parts[1]).to_lower() == "enemy":
-			_summon_enemy_near_player()
+			_summon_enemy_command(parts.slice(2))
 			return
-		Debug.log("commands", "Uso: /summon enemy")
+		Debug.log("commands", "Uso: /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]")
 		return
 
 	Debug.log("commands", "Comando desconocido: %s" % base_command)
 
-func _summon_enemy_near_player() -> void:
+func _summon_enemy_command(raw_args: Array) -> void:
 	if ENEMY_SCENE == null or world == null:
 		Debug.log("commands", "No se pudo invocar enemy: escena o world no disponible")
 		return
 
+	var spawn_count := 1
+	if raw_args.size() >= 1:
+		if not String(raw_args[0]).is_valid_int():
+			Debug.log("commands", "cantidad inválida: %s" % str(raw_args[0]))
+			return
+		spawn_count = maxi(1, String(raw_args[0]).to_int())
+
+	var has_tile_offset := raw_args.size() >= 3
+	var tile_offset := Vector2i.ZERO
+	if has_tile_offset:
+		if not String(raw_args[1]).is_valid_int() or not String(raw_args[2]).is_valid_int():
+			Debug.log("commands", "offset inválido: usa enteros, ejemplo /summon enemy 2 3 -2")
+			return
+		tile_offset = Vector2i(String(raw_args[1]).to_int(), String(raw_args[2]).to_int())
+	elif raw_args.size() == 2:
+		Debug.log("commands", "faltó offset_y. Uso: /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]")
+		return
+
+	var spawned := 0
+	for _i in spawn_count:
+		if _summon_single_enemy(tile_offset if has_tile_offset else null):
+			spawned += 1
+
+	if has_tile_offset:
+		Debug.log("commands", "Invocados %d enemy(s) con offset (%d, %d) tiles" % [spawned, tile_offset.x, tile_offset.y])
+	else:
+		Debug.log("commands", "Invocados %d enemy(s) cerca del jugador" % spawned)
+
+func _summon_single_enemy(tile_offset: Variant = null) -> bool:
 	var enemy := ENEMY_SCENE.instantiate()
 	if enemy == null:
 		Debug.log("commands", "No se pudo instanciar enemy")
-		return
+		return false
 
-	var spawn_pos := _get_command_spawn_position()
+	var spawn_pos := _get_command_spawn_position(tile_offset)
 	world.add_child(enemy)
 	if enemy is Node2D:
 		(enemy as Node2D).global_position = spawn_pos
-		var dist_to_player := _distance_to_player((enemy as Node2D).global_position)
-		Debug.log("commands", "Enemy invocado en %s (distancia al player: %.2f)" % [str((enemy as Node2D).global_position), dist_to_player])
-		return
-	Debug.log("commands", "Enemy invocado en %s" % str(spawn_pos))
+	return true
 
-func _get_command_spawn_position() -> Vector2:
+func _get_command_spawn_position(tile_offset: Variant = null) -> Vector2:
 	if player != null and player is Node2D:
 		var player_pos := (player as Node2D).global_position
+		if tile_offset != null and tile_offset is Vector2i:
+			var offset := tile_offset as Vector2i
+			var tile_size := _get_command_tile_size()
+			return player_pos + Vector2(offset.x * tile_size, offset.y * tile_size)
 		var angle := randf() * TAU
 		var dist := randf_range(COMMAND_SPAWN_MIN_DIST, COMMAND_SPAWN_MAX_DIST)
 		return player_pos + Vector2.RIGHT.rotated(angle) * dist
 	return Vector2.ZERO
 
-func _distance_to_player(pos: Vector2) -> float:
-	if player != null and player is Node2D:
-		return pos.distance_to((player as Node2D).global_position)
-	return -1.0
+func _get_command_tile_size() -> float:
+	var world_tile_map := world.get_node_or_null("WorldTileMap")
+	if world_tile_map != null and world_tile_map is TileMapLayer:
+		var tile_set := (world_tile_map as TileMapLayer).tile_set
+		if tile_set != null:
+			return float(tile_set.tile_size.x)
+	return DEFAULT_COMMAND_TILE_SIZE
 
 func _boot_frame_ping() -> void:
 	Debug.log("boot", "First frame reached")
