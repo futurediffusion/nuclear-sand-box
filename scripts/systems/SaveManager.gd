@@ -35,6 +35,7 @@ func save_world() -> void:
 		"worldsave_chunks": _ser(WorldSave.chunks),
 		"worldsave_enemy_state": _ser(WorldSave.enemy_state_by_chunk),
 		"worldsave_enemy_spawns": _ser(WorldSave.enemy_spawns_by_chunk),
+		"worldsave_global_flags": _ser(WorldSave.global_flags),
 	}
 
 	var json_str: String = JSON.stringify(data)
@@ -88,6 +89,10 @@ func load_world_save() -> bool:
 	if ws_enemy_spawns is Dictionary:
 		WorldSave.enemy_spawns_by_chunk = ws_enemy_spawns
 
+	var ws_global_flags = _des(data.get("worldsave_global_flags", {}))
+	if ws_global_flags is Dictionary:
+		WorldSave.global_flags = ws_global_flags
+
 	# Restore chunk_save into world's existing dict (mutate in-place so references stay valid)
 	if _world != null:
 		var cs = _des(data.get("chunk_save", {}))
@@ -101,6 +106,15 @@ func load_world_save() -> bool:
 
 func delete_save() -> void:
 	DirAccess.remove_absolute(SAVE_PATH)
+
+func new_game() -> void:
+	delete_save()
+	WorldSave.chunks.clear()
+	WorldSave.enemy_state_by_chunk.clear()
+	WorldSave.enemy_spawns_by_chunk.clear()
+	WorldSave.global_flags.clear()
+	Seed.initialize_run_seed()
+	Debug.log("save", "New game — save cleared, new seed=%d" % Seed.run_seed)
 
 # ---------------------------------------------------------------------------
 # Serialization helpers

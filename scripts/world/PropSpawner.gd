@@ -114,51 +114,30 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	if ctx["bandit_camp_scene"] == null or ctx["bandit_scene"] == null:
 		return
 
-	var guarded_count := int(floor(copper_positions.size() * 0.40))
-	guarded_count = clampi(guarded_count, 0, 3)
+	# Solo existe 1 campamento en todo el mundo
+	if WorldSave.global_flags.get("global_camp_placed", false):
+		return
 
-	for g in range(guarded_count):
-		if copper_positions.is_empty():
+	var camp_tile: Vector2i = INVALID_SPAWN_TILE
+	for cp in copper_positions:
+		var candidate := _find_nearby_tile(rng, cp, 6, 14, ctx)
+		if candidate == INVALID_SPAWN_TILE:
+			continue
+		if _is_spawn_tile_valid(chunk_pos, candidate, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, CAMP_FOOTPRINT_RADIUS_TILES, ctx):
+			camp_tile = candidate
 			break
-		var idx := rng.randi_range(0, copper_positions.size() - 1)
-		var copper_tile := copper_positions[idx]
+	if camp_tile == INVALID_SPAWN_TILE:
+		camp_tile = _find_valid_spawn_tile(
+			chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES,
+			SPAWN_MAX_TRIES, rng, CAMP_FOOTPRINT_RADIUS_TILES, ctx
+		)
+	if camp_tile == INVALID_SPAWN_TILE:
+		_debug_spawn_report(chunk_pos, player_tile, INVALID_SPAWN_TILE, "CANCEL: no valid tile for global camp")
+		return
 
-		var camp_tile := _find_nearby_tile(rng, copper_tile, 6, 14, ctx)
-		if camp_tile == INVALID_SPAWN_TILE:
-			continue
-		if not _is_spawn_tile_valid(chunk_pos, camp_tile, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES, CAMP_FOOTPRINT_RADIUS_TILES, ctx):
-			continue
-
-		chunk_save[chunk_pos]["camps"].append({"tile": camp_tile})
-		_mark_footprint_occupied(chunk_pos, camp_tile, CAMP_FOOTPRINT_RADIUS_TILES, ctx)
-
-	var random_camps := rng.randi_range(0, 2)
-	if _is_test_density_chunk(chunk_pos, ctx):
-		random_camps += max(0, int(Debug.test_density_extra_bandit_camps_per_chunk_load))
-	var camp_spawn_failed_logged := false
-
-	for r in range(random_camps):
-		var try_tile: Vector2i = INVALID_SPAWN_TILE
-
-		for i in range(SPAWN_MAX_TRIES):
-			var candidate: Vector2i = _find_valid_spawn_tile(
-				chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES,
-				SPAWN_MAX_TRIES, rng, CAMP_FOOTPRINT_RADIUS_TILES, ctx
-			)
-			if candidate == INVALID_SPAWN_TILE:
-				break
-			if not _is_close_to_any(candidate, copper_positions, 10):
-				try_tile = candidate
-				break
-
-		if try_tile == INVALID_SPAWN_TILE:
-			if not camp_spawn_failed_logged:
-				_debug_spawn_report(chunk_pos, player_tile, INVALID_SPAWN_TILE, "CANCEL: no valid tile after tries")
-				camp_spawn_failed_logged = true
-			continue
-
-		chunk_save[chunk_pos]["camps"].append({"tile": try_tile})
-		_mark_footprint_occupied(chunk_pos, try_tile, CAMP_FOOTPRINT_RADIUS_TILES, ctx)
+	chunk_save[chunk_pos]["camps"].append({"tile": camp_tile})
+	_mark_footprint_occupied(chunk_pos, camp_tile, CAMP_FOOTPRINT_RADIUS_TILES, ctx)
+	WorldSave.global_flags["global_camp_placed"] = true
 
 
 func _is_test_density_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> bool:

@@ -12,8 +12,8 @@ signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
 @onready var _collision_builder := CollisionBuilder.new()
 var _tile_painter := TilePainter.new()
 
-@export var width: int = 128
-@export var height: int = 128
+@export var width: int = 64
+@export var height: int = 64
 @export var chunk_size: int = 32
 @export var active_radius: int = 1
 @export var chunk_check_interval: float = 0.3
@@ -289,6 +289,14 @@ func _notification(what: int) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_save_game"):
 		SaveManager.save_world()
+	elif event.is_action_pressed("ui_load_game"):
+		if SaveManager.has_save():
+			get_tree().reload_current_scene()
+		else:
+			Debug.log("save", "F6: no save found")
+	elif event.is_action_pressed("ui_new_game"):
+		SaveManager.new_game()
+		get_tree().reload_current_scene()
 
 func _process_tile_erase_queue() -> void:
 	var budget := 2

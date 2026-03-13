@@ -230,8 +230,18 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 			continue
 		var camp_tile: Vector2i = camp.get("tile", Vector2i.ZERO)
 		var camp_world: Vector2 = _tile_to_world.call(camp_tile)
-		var primary_offsets: Array[Vector2] = [Vector2(-28, -18), Vector2(32, -10), Vector2(-20, 30), Vector2(28, 24)]
-		var fallback_offsets: Array[Vector2] = [Vector2(-48, 0), Vector2(48, 0), Vector2(0, -48), Vector2(0, 48)]
+		var primary_offsets: Array[Vector2] = [
+			Vector2(-28, -18), Vector2(32, -10), Vector2(-20, 30), Vector2(28, 24),
+			Vector2(-60, -10), Vector2(60, -10), Vector2(-60, 20), Vector2(60, 20),
+			Vector2(0, -50), Vector2(0, 50),
+			Vector2(-40, -45), Vector2(40, -45), Vector2(-40, 45), Vector2(40, 45),
+			Vector2(-80, 0), Vector2(80, 0),
+			Vector2(-70, -35), Vector2(70, -35), Vector2(-70, 35), Vector2(70, 35),
+		]
+		var fallback_offsets: Array[Vector2] = [
+			Vector2(-48, 0), Vector2(48, 0), Vector2(0, -48), Vector2(0, 48),
+			Vector2(-96, 0), Vector2(96, 0), Vector2(0, -96), Vector2(0, 96),
+		]
 		for offset in primary_offsets:
 			var enemy_id: String = "e:%s:%03d" % [chunk_key, spawn_index]
 			var chosen_offset: Vector2 = offset
