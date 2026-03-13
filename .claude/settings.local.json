@@ -19,7 +19,12 @@
       "Bash(powershell -Command \"Get-ChildItem 'C:\\\\' -Recurse -Filter '*Godot*.exe' -ErrorAction SilentlyContinue -Depth 3 | Select-Object FullName\")",
       "Bash(powershell -Command \"Get-ChildItem 'C:\\\\tools','C:\\\\dev','C:\\\\godot' -Filter '*.exe' -ErrorAction SilentlyContinue | Select-Object FullName\")",
       "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/systems/SaveManager.gd 2>&1)",
-      "Bash(powershell.exe \"Get-ChildItem 'C:\\\\' -Recurse -Filter 'godot*.exe' -ErrorAction SilentlyContinue | Select-Object -First 5 FullName\" 2>/dev/null)"
+      "Bash(powershell.exe \"Get-ChildItem 'C:\\\\' -Recurse -Filter 'godot*.exe' -ErrorAction SilentlyContinue | Select-Object -First 5 FullName\" 2>/dev/null)",
+      "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box -type f -name \"*enemy*\" 2>/dev/null | head -20)",
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/npc/tavern_keeper.gd 2>&1 | head -40)",
+      "Bash(cd \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box\" && where godot 2>&1 || powershell -Command \"Get-Command godot -ErrorAction SilentlyContinue)",
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Users\\\\walva' -Filter 'Godot*' -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object FullName -First 5\")",
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\' -Filter 'Godot*.exe' -Recurse -Depth 5 -ErrorAction SilentlyContinue | Select-Object FullName -First 5\")"
     ]
   }
 }

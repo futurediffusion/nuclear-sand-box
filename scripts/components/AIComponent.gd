@@ -38,7 +38,7 @@ enum BowState { IDLE, CHARGING, COOLDOWN }
 @export var awake_warmup_tick_interval_min: float = 0.10
 @export var awake_warmup_tick_interval_max: float = 0.20
 
-var owner_entity: EnemyAI = null
+var owner_entity = null  # tipado suelto — acepta EnemyAI o TavernKeeper vía duck typing
 var player: CharacterBody2D = null
 var current_state: AIState = AIState.IDLE
 var sleeping: bool = false
@@ -65,7 +65,7 @@ var _is_warming_up: bool = false
 var _warmup_tick_timer: float = 0.0
 var _awaiting_first_full_tick: bool = false
 
-func setup(p_owner_entity: EnemyAI) -> void:
+func setup(p_owner_entity: Node) -> void:
 	owner_entity = p_owner_entity
 	_rng.seed = int(owner_entity.get_instance_id())
 	_lod_rng_seeded = true
@@ -161,8 +161,8 @@ func _execute_light_tick(delta: float, force_hold_override: bool = false) -> voi
 			if player == null or not is_instance_valid(player):
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 				return
-			var dir := owner_entity.global_position.direction_to(player.global_position)
-			var target_velocity := dir * owner_entity.max_speed
+			var dir: Vector2 = owner_entity.global_position.direction_to(player.global_position)
+			var target_velocity: Vector2 = dir * float(owner_entity.max_speed)
 			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 
 func is_sleeping() -> bool:
@@ -265,7 +265,7 @@ func _update_state() -> void:
 		current_state = AIState.IDLE
 		return
 
-	var distance := owner_entity.global_position.distance_to(player.global_position)
+	var distance: float = owner_entity.global_position.distance_to(player.global_position)
 	var weapon_id_for_state := _get_weapon_id_for_state_decision(distance)
 	var engage_distance := _get_engage_distance_for_weapon(weapon_id_for_state)
 	var hysteresis := maxf(engage_hysteresis, 0.0)
@@ -316,8 +316,8 @@ func _execute_state(delta: float) -> void:
 			if player == null:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 				return
-			var dir := owner_entity.global_position.direction_to(player.global_position)
-			var target_velocity := dir * owner_entity.max_speed
+			var dir: Vector2 = owner_entity.global_position.direction_to(player.global_position)
+			var target_velocity: Vector2 = dir * float(owner_entity.max_speed)
 			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 		AIState.ATTACK:
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
@@ -343,7 +343,7 @@ func _try_attack_logic(delta: float) -> void:
 	var aim_pos := player.global_position
 	ctrl.set_aim_global_position(aim_pos)
 
-	var distance := owner_entity.global_position.distance_to(aim_pos)
+	var distance: float = owner_entity.global_position.distance_to(aim_pos)
 	var weapon_selection := _update_weapon_selection(distance)
 	var weapon_id := String(weapon_selection.get("weapon_id", ""))
 	var current_weapon_id := String(weapon_selection.get("current_weapon_id", ""))
@@ -466,8 +466,8 @@ func _process_bow(ctrl: AIWeaponController, distance: float) -> void:
 func _process_melee(aim_pos: Vector2, distance: float, delta: float) -> void:
 	_release_attack_input()
 	if distance > prefer_melee_distance:
-		var dir := owner_entity.global_position.direction_to(aim_pos)
-		var target_velocity := dir * owner_entity.max_speed
+		var dir: Vector2 = owner_entity.global_position.direction_to(aim_pos)
+		var target_velocity: Vector2 = dir * float(owner_entity.max_speed)
 		owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 		return
 	if _bow_state == BowState.CHARGING:
@@ -575,7 +575,7 @@ func _compute_lod_bucket(distance: float) -> int:
 func _compute_lod_interval(distance: float) -> float:
 	if not lod_enable:
 		return 0.0
-	var detection_limit := owner_entity.detection_range if owner_entity != null else lod_far_distance
+	var detection_limit: float = float(owner_entity.detection_range) if owner_entity != null else lod_far_distance
 	var near_distance := minf(maxf(lod_near_distance, 0.0), detection_limit)
 	var mid_distance := minf(maxf(lod_mid_distance, near_distance), detection_limit)
 	var far_distance := minf(maxf(lod_far_distance, mid_distance), detection_limit)
@@ -602,7 +602,7 @@ func _lod_bucket_name(bucket: int) -> String:
 func _find_player() -> void:
 	if owner_entity == null:
 		return
-	var players := owner_entity.get_tree().get_nodes_in_group("player")
+	var players: Array = owner_entity.get_tree().get_nodes_in_group("player")
 	if players.size() > 0:
 		player = players[0] as CharacterBody2D
 
@@ -628,7 +628,7 @@ func _on_sleep_check_timeout() -> void:
 		_schedule_sleep_check()
 		return
 
-	var distance := owner_entity.global_position.distance_to(player.global_position)
+	var distance: float = owner_entity.global_position.distance_to(player.global_position)
 	var wake_distance: float = maxf(float(owner_entity.ACTIVE_RADIUS_PX - owner_entity.WAKE_HYSTERESIS_PX), 0.0)
 	if sleeping:
 		if distance <= wake_distance:

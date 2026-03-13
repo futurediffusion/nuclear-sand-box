@@ -4,6 +4,11 @@ extends "res://scripts/CharacterBase.gd"
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 const VendorComponentScript = preload("res://scripts/shop/vendor_component.gd")
 const VendorOfferScript = preload("res://scripts/shop/vendor_offer.gd")
+const AIComponentScript = preload("res://scripts/components/AIComponent.gd")
+const WeaponComponentScript = preload("res://scripts/components/WeaponComponent.gd")
+const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponController.gd")
+
+@export var slash_scene: PackedScene = preload("res://scenes/slash.tscn")
 
 # =============================================================================
 # TAVERN KEEPER NPC
@@ -34,7 +39,7 @@ const VendorOfferScript = preload("res://scripts/shop/vendor_offer.gd")
 # =============================================================================
 # ESTADO INTERNO
 # =============================================================================
-enum State { AT_COUNTER, WANDER, IDLE_WANDER }
+enum State { AT_COUNTER, WANDER, IDLE_WANDER, COMBAT }
 
 var _state: State = State.AT_COUNTER
 var _target_pos: Vector2 = Vector2.ZERO
@@ -52,8 +57,28 @@ var _state_before_shop: State = State.AT_COUNTER
 var _tilemap: TileMap = null
 
 # --- Salud ---
-
 var entity_uid: String = ""
+
+# --- Combat (duck-typing interface para AIComponent) ---
+var max_speed: float = 200.0
+var acceleration: float = 800.0
+var friction: float = 1200.0
+var detection_range: float = 400.0
+var attack_range: float = 60.0
+const ACTIVE_RADIUS_PX: float = 900.0
+const WAKE_HYSTERESIS_PX: float = 200.0
+const SLEEP_CHECK_INTERVAL: float = 0.5
+
+var _in_combat: bool = false
+var _weapon_pivot: Node2D = null
+var _ai_component_node: AIComponent = null
+var _weapon_component_node: WeaponComponent = null
+var _ai_weapon_controller_node: AIWeaponController = null
+
+var target_attack_angle: float = 0.0
+var use_left_offset: bool = false
+var angle_offset_left: float = -150.0
+var angle_offset_right: float = 150.0
 
 # =============================================================================
 func _ready() -> void:
@@ -101,6 +126,8 @@ func _connect_hurtbox() -> void:
 
 func _on_character_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
 	take_damage(dmg, from_pos)
+	if not _in_combat:
+		_enter_combat_mode()
 
 # =============================================================================
 # FÍSICA
@@ -116,6 +143,8 @@ func _physics_process(delta: float) -> void:
 	else:
 		_update_state(delta)
 	_update_animation()
+	if _in_combat:
+		_update_weapon_pivot(delta)
 	_update_interact_prompt()
 	move_and_slide()
 
@@ -147,6 +176,16 @@ func _update_state(delta: float) -> void:
 					_go_to_counter()
 				else:
 					_start_wander()
+
+		State.COMBAT:
+			if _ai_component_node != null:
+				_ai_component_node.physics_tick(delta)
+				if _ai_weapon_controller_node != null:
+					_ai_weapon_controller_node.physics_tick()
+				if _weapon_component_node != null:
+					_weapon_component_node.tick(delta)
+			else:
+				velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
 
 # =============================================================================
@@ -211,6 +250,9 @@ func _on_body_exited(body: Node) -> void:
 # PROMPT DE INTERACCIÓN
 # =============================================================================
 func _update_interact_prompt() -> void:
+	if _in_combat:
+		interact_icon.visible = false
+		return
 	# ✅ Mostrar icono SOLO si el player está dentro del área
 	interact_icon.visible = _player_nearby and (not dying)
 
@@ -335,6 +377,8 @@ func play_hurt() -> void:
 	hurt_t = 0.0
 
 func _on_before_die() -> void:
+	if _ai_component_node != null:
+		_ai_component_node.set_dead()
 	if _keeper_menu_ui != null and _keeper_menu_ui.is_owner(self):
 		_keeper_menu_ui.close_shop()
 	velocity = Vector2.ZERO
@@ -364,6 +408,132 @@ func _exit_tree() -> void:
 
 func _on_after_die() -> void:
 	queue_free()
+
+
+# =============================================================================
+# COMBAT — modo hostil activado al recibir daño
+# =============================================================================
+func _enter_combat_mode() -> void:
+	if _in_combat:
+		return
+	_in_combat = true
+	_state = State.COMBAT
+
+	if _keeper_menu_ui != null and _keeper_menu_ui.is_owner(self):
+		_keeper_menu_ui.close_shop()
+	_movement_locked_by_shop = false
+
+	# Construir jerarquía WeaponPivot
+	_weapon_pivot = Node2D.new()
+	_weapon_pivot.name = "WeaponPivot"
+	_weapon_pivot.z_index = 10
+	add_child(_weapon_pivot)
+
+	var weapon_sprite_node := Sprite2D.new()
+	weapon_sprite_node.name = "WeaponSprite"
+	weapon_sprite_node.z_index = 10
+	_weapon_pivot.add_child(weapon_sprite_node)
+
+	var slash_spawn_node := Marker2D.new()
+	slash_spawn_node.name = "SlashSpawn"
+	slash_spawn_node.position = Vector2(24.0, 0.0)
+	_weapon_pivot.add_child(slash_spawn_node)
+
+	var arrow_muzzle_node := Marker2D.new()
+	arrow_muzzle_node.name = "ArrowMuzzle"
+	arrow_muzzle_node.position = Vector2(24.0, 0.0)
+	_weapon_pivot.add_child(arrow_muzzle_node)
+
+	# Inventario de combate (separado del inventario de tienda)
+	var combat_inv := InventoryComponentScript.new()
+	combat_inv.name = "CombatInventoryComponent"
+	add_child(combat_inv)
+	combat_inv.add_item("ironpipe", 1)
+	combat_inv.add_item("bow", 1)
+
+	# WeaponComponent
+	_weapon_component_node = WeaponComponentScript.new()
+	_weapon_component_node.name = "WeaponComponent"
+	add_child(_weapon_component_node)
+	_weapon_component_node.setup_from_inventory(combat_inv)
+	if not _weapon_component_node.weapon_equipped.is_connected(_on_weapon_equipped_apply_visuals):
+		_weapon_component_node.weapon_equipped.connect(_on_weapon_equipped_apply_visuals)
+
+	var ctrl := _ensure_ai_weapon_controller()
+	_weapon_component_node.apply_visuals(self)
+	_weapon_component_node.equip_runtime_weapon(self, ctrl)
+
+	# AIComponent
+	_ai_component_node = AIComponentScript.new()
+	_ai_component_node.name = "AIComponent"
+	add_child(_ai_component_node)
+	_ai_component_node.setup(self)
+
+
+func _ensure_ai_weapon_controller() -> AIWeaponController:
+	if _ai_weapon_controller_node != null:
+		return _ai_weapon_controller_node
+	_ai_weapon_controller_node = AIWeaponControllerScript.new()
+	_ai_weapon_controller_node.name = "AIWeaponController"
+	add_child(_ai_weapon_controller_node)
+	return _ai_weapon_controller_node
+
+
+func queue_ai_attack_press(aim_global_position: Vector2) -> void:
+	var ctrl := _ensure_ai_weapon_controller()
+	ctrl.queue_attack_press_with_aim(aim_global_position)
+	ctrl.set_attack_down(false)
+	var angle_to_target := global_position.angle_to_point(aim_global_position)
+	if use_left_offset:
+		target_attack_angle = angle_to_target + deg_to_rad(angle_offset_left)
+	else:
+		target_attack_angle = angle_to_target + deg_to_rad(angle_offset_right)
+	use_left_offset = not use_left_offset
+
+
+func spawn_slash(angle: float) -> void:
+	if slash_scene == null or _weapon_pivot == null:
+		return
+	var parent := get_tree().current_scene
+	if parent == null:
+		return
+	var slash_spawn_node := _weapon_pivot.get_node_or_null("SlashSpawn")
+	if slash_spawn_node == null:
+		return
+	var s = slash_scene.instantiate()
+	s.setup(&"enemy", self)
+	s.position = parent.to_local((slash_spawn_node as Node2D).global_position)
+	s.rotation = angle
+	parent.add_child(s)
+
+
+func _on_weapon_equipped_apply_visuals(_wid: String) -> void:
+	if _weapon_component_node == null:
+		return
+	var ctrl := _ensure_ai_weapon_controller()
+	_weapon_component_node.apply_visuals(self)
+	_weapon_component_node.equip_runtime_weapon(self, ctrl)
+
+
+func _update_weapon_pivot(delta: float) -> void:
+	if _weapon_pivot == null or _ai_component_node == null:
+		return
+	var player_node := _ai_component_node.player
+	if player_node == null or not is_instance_valid(player_node):
+		return
+	var player_pos: Vector2 = (player_node as Node2D).global_position
+	var angle_to_player := global_position.angle_to_point(player_pos)
+	var weapon_sprite_node := _weapon_pivot.get_node_or_null("WeaponSprite") as Sprite2D
+
+	if _ai_component_node.current_state == AIComponent.AIState.ATTACK:
+		_weapon_pivot.rotation = lerp_angle(_weapon_pivot.rotation, target_attack_angle, 1.0 - exp(-50.0 * delta))
+	else:
+		_weapon_pivot.rotation = lerp_angle(_weapon_pivot.rotation, angle_to_player, 1.0 - exp(-25.0 * delta))
+
+	var angle := wrapf(_weapon_pivot.rotation, -PI, PI)
+	if weapon_sprite_node != null:
+		weapon_sprite_node.flip_v = abs(angle) > PI / 2.0
+	sprite.flip_h = abs(rad_to_deg(angle_to_player)) > 90.0
 
 
 # =============================================================================

@@ -56,6 +56,7 @@ var pipeline: ChunkPipeline
 var chunk_save: Dictionary = {}
 var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
+var _pending_tile_erases: Array[Vector2i] = []
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -233,8 +234,18 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_save_game"):
 		SaveManager.save_world()
 
+func _process_tile_erase_queue() -> void:
+	var budget := 2
+	while budget > 0 and not _pending_tile_erases.is_empty():
+		var cpos: Vector2i = _pending_tile_erases.pop_front()
+		if loaded_chunks.has(cpos):
+			continue  # el chunk volvió al rango antes de que borráramos — saltar
+		unload_chunk(cpos)
+		budget -= 1
+
 func _process(delta: float) -> void:
 	pipeline.process(delta)
+	_process_tile_erase_queue()
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
 	_process_chunk_perf_debug(delta)
@@ -325,10 +336,13 @@ func update_chunks(center: Vector2i) -> void:
 
 	for cpos in loaded_chunks.keys():
 		if not needed.has(cpos):
-			unload_chunk(cpos)
+			# Lógica inmediata: sacar del mapa activo y descargar entidades
+			loaded_chunks.erase(cpos)
 			entity_coordinator.unload_entities(cpos)
 			pipeline.on_chunk_unloaded(cpos)
-			loaded_chunks.erase(cpos)
+			# Erasure de tiles diferida: evita 4× erase_chunk_region por frame
+			_ground_terrain_painted_chunks.erase(_chunk_key(cpos))
+			_pending_tile_erases.append(cpos)
 
 	if pipeline.progressive_terrain_paint_enabled and pipeline.terrain_paint_center_ring0_pending == 0:
 		pipeline.is_updating = false
