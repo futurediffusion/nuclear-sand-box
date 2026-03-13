@@ -11,8 +11,8 @@ signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
 @onready var _collision_builder := CollisionBuilder.new()
 var _tile_painter := TilePainter.new()
 
-@export var width: int = 256
-@export var height: int = 256
+@export var width: int = 128
+@export var height: int = 128
 @export var chunk_size: int = 32
 @export var active_radius: int = 1
 @export var chunk_check_interval: float = 0.3
@@ -35,10 +35,21 @@ var _tile_painter := TilePainter.new()
 @export var debug_collision_cache: bool = false
 @export var autosave_interval: float = 120.0
 
+@export_group("Cliff Generation")
+@export var cliff_blob_count: int = 18
+@export var cliff_radius_min: int = 4
+@export var cliff_radius_max: int = 10
+@export var cliff_warp_strength: float = 3.5
+@export var cliff_clear_radius: int = 4
+@export var cliff_spawn_safe_radius: int = 6
+@export var cliff_collision_band: float = 0.3
+@export_group("")
+
 var _autosave_timer: float = 0.0
 var _biome_seed: int = 0
 var cliff_generator: CliffGenerator
 var _cliff_seed: int = 0
+var _cliff_screen_size: Vector2 = Vector2(1920, 1080)
 var _ground_painter := GroundPainter.new()
 var _ground_terrain_painted_chunks: Dictionary = {}
 
@@ -85,6 +96,16 @@ func _ready() -> void:
 	_biome_seed = randi()
 	_ground_painter.setup(randi(), width, height)
 	ground_tilemap.z_index = -1
+	cliffs_tilemap.z_index = 5
+	var cliff_mat := ShaderMaterial.new()
+	cliff_mat.shader = load("res://shaders/cliff_occlusion.gdshader")
+	cliff_mat.set_shader_parameter("fade_radius", 96.0)
+	cliff_mat.set_shader_parameter("alpha_hidden", 0.4)
+	cliff_mat.set_shader_parameter("is_behind", false)
+	cliff_mat.set_shader_parameter("screen_size", _cliff_screen_size)
+	cliff_mat.set_shader_parameter("player_screen_pos", _cliff_screen_size * 0.5)
+	cliffs_tilemap.material = cliff_mat
+	call_deferred("_init_cliff_screen_size")
 	tilemap.set_layer_enabled(LAYER_GROUND, false)
 	_perf_monitor.enabled = debug_chunk_perf_enabled
 	_perf_monitor.window_size = debug_chunk_perf_window_size
@@ -114,8 +135,17 @@ func _ready() -> void:
 		player.global_position = spawn_world
 
 	if _had_save and player:
-		player.global_position = SaveManager._pending_player_pos
-		current_player_chunk = world_to_chunk(SaveManager._pending_player_pos)
+		var loaded_chunk := world_to_chunk(SaveManager._pending_player_pos)
+		var max_chunk := Vector2i(width / chunk_size, height / chunk_size)
+		var in_bounds := loaded_chunk.x >= 0 and loaded_chunk.x < max_chunk.x \
+			and loaded_chunk.y >= 0 and loaded_chunk.y < max_chunk.y
+		if in_bounds:
+			player.global_position = SaveManager._pending_player_pos
+			current_player_chunk = loaded_chunk
+		else:
+			push_warning("SaveManager: posición guardada fuera del mundo actual, usando spawn.")
+			player.global_position = spawn_world
+			current_player_chunk = world_to_chunk(spawn_world)
 	else:
 		current_player_chunk = world_to_chunk(spawn_world)
 
@@ -164,6 +194,13 @@ func _ready() -> void:
 		"cliff_seed": _cliff_seed,
 		"cliffs_tilemap": cliffs_tilemap,
 		"record_stage_time": Callable(self, "_record_chunk_stage_time"),
+		"blob_count":         cliff_blob_count,
+		"radius_min":         cliff_radius_min,
+		"radius_max":         cliff_radius_max,
+		"warp_strength":      cliff_warp_strength,
+		"clear_radius":       cliff_clear_radius,
+		"spawn_safe_radius":  cliff_spawn_safe_radius,
+		"collision_band":     cliff_collision_band,
 	})
 	cliff_generator.global_phase()
 
@@ -248,6 +285,7 @@ func _process(delta: float) -> void:
 	_process_tile_erase_queue()
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
+	_update_cliff_occlusion()
 	_process_chunk_perf_debug(delta)
 	_autosave_timer += delta
 	if _autosave_timer >= autosave_interval:
@@ -602,8 +640,48 @@ func _enforce_chunk_collider_cache_limit() -> void:
 		chunk_wall_body.erase(cpos)
 		_chunk_wall_last_used.erase(key)
 
+func _init_cliff_screen_size() -> void:
+	var vp := get_viewport()
+	if vp == null:
+		return
+	_cliff_screen_size = Vector2(vp.get_visible_rect().size)
+	if cliffs_tilemap.material != null:
+		(cliffs_tilemap.material as ShaderMaterial).set_shader_parameter("screen_size", _cliff_screen_size)
+
+func _update_cliff_occlusion() -> void:
+	if player == null or cliffs_tilemap.material == null:
+		return
+	var vp := get_viewport()
+	if vp == null:
+		return
+	var mat := cliffs_tilemap.material as ShaderMaterial
+	# Actualizar screen_size si cambió el viewport (igual que OcclusionController)
+	var current_size := Vector2(vp.get_visible_rect().size)
+	if not current_size.is_equal_approx(_cliff_screen_size):
+		_cliff_screen_size = current_size
+		mat.set_shader_parameter("screen_size", _cliff_screen_size)
+	# is_behind: hay cliff en la tile del player o justo al sur (player al norte = detrás del cliff)
+	var player_tile := _world_to_tile(player.global_position)
+	var behind: bool = \
+		cliffs_tilemap.get_cell_source_id(0, player_tile) != -1 or \
+		cliffs_tilemap.get_cell_source_id(0, player_tile + Vector2i(0, 1)) != -1
+	mat.set_shader_parameter("is_behind", behind)
+	var screen_pos: Vector2 = vp.get_canvas_transform() * player.global_position
+	mat.set_shader_parameter("player_screen_pos", screen_pos)
+
 func get_spawn_world_pos() -> Vector2:
 	return _tile_to_world(spawn_tile)
+
+func teleport_to_spawn() -> void:
+	if player == null:
+		return
+	var target: Vector2 = _tile_to_world(spawn_tile)
+	player.global_position = target
+	var new_chunk := world_to_chunk(target)
+	if new_chunk != current_player_chunk:
+		current_player_chunk = new_chunk
+		await update_chunks(current_player_chunk)
+	Debug.log("spawn", "/spawn → tile=%s world=%s" % [str(spawn_tile), str(target)])
 
 func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var x0: int = chunk_pos.x * chunk_size + 4

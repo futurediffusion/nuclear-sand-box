@@ -46,6 +46,10 @@ copper_ore_scene = ExtResource("23_copper")
 bandit_camp_scene = ExtResource("24_camp")
 bandit_scene = ExtResource("25_bandit")
 tavern_keeper_scene = ExtResource("26_keeper")
+cliff_blob_count = 30
+cliff_radius_min = 3
+cliff_radius_max = 15
+cliff_warp_strength = 5.0
 
 [node name="GroundTileMap" type="TileMap" parent="World"]
 z_index = -1
