@@ -36,7 +36,8 @@
       "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box -name \"*bandit*\" -type f 2>/dev/null | head -20)",
       "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && cat scenes/bandit_camp.tscn | head -30; echo \"---\"; ls scenes/enemy* scenes/bandit* 2>/dev/null; echo \"---\"; find scripts -name \"bandit*\" -o -name \"enemy*\" 2>/dev/null | head -10)",
       "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/world/NpcSimulator.gd 2>&1; godot --path . --check-only --script scripts/systems/WorldSave.gd 2>&1; godot --path . --check-only --script scripts/systems/SpawnBudgetQueue.gd 2>&1)",
-      "Bash(where godot.exe 2>/dev/null || ls /c/Users/walva/AppData/Local/Programs/Godot/ 2>/dev/null || ls \"/c/Program Files/Godot/\" 2>/dev/null || ls \"/c/Program Files \\(x86\\)/Godot/\" 2>/dev/null || echo \"not found\")"
+      "Bash(where godot.exe 2>/dev/null || ls /c/Users/walva/AppData/Local/Programs/Godot/ 2>/dev/null || ls \"/c/Program Files/Godot/\" 2>/dev/null || ls \"/c/Program Files \\(x86\\)/Godot/\" 2>/dev/null || echo \"not found\")",
+      "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/world/CliffGenerator.gd 2>&1)"
     ]
   }
 }

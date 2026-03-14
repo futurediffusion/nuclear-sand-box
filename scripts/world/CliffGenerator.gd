@@ -24,6 +24,14 @@ var _cliffs_tilemap: TileMap = null
 var _record_stage_time: Callable
 var _cliff_collision_bodies: Dictionary = {}
 
+# ── Borde de mundo ────────────────────────────────────────────────────────────
+const FILL_SOURCE_ID: int = 3
+const FILL_ATLAS: Vector2i = Vector2i(1, 5)
+var _border_width: int = 4
+var _fill_outer_band: int = 40
+var _fill_solid_width: int = 32
+var _border_cells: Dictionary = {}
+
 # ── Estado interno ────────────────────────────────────────────────────────────
 var _cliff_blob_centers: Array[Dictionary] = []
 var _free_zone: Dictionary = {}
@@ -49,6 +57,7 @@ func setup(ctx: Dictionary) -> void:
 	_spawn_safe_radius = ctx.get("spawn_safe_radius", 5)
 	_cliff_seed = ctx.get("cliff_seed", 0)
 	_cliffs_tilemap = ctx.get("cliffs_tilemap")
+	_border_width = ctx.get("border_width", 4)
 	_record_stage_time = ctx.get("record_stage_time", Callable())
 
 	_noise = FastNoiseLite.new()
@@ -59,10 +68,12 @@ func setup(ctx: Dictionary) -> void:
 
 
 # Fase global: llama una vez en world._ready() después de setup().
-# Construye _cliff_blob_centers y _free_zone. No pinta nada.
+# Construye _cliff_blob_centers, _free_zone y borde de mundo. Pinta relleno exterior.
 func global_phase() -> void:
 	_build_free_zone()
 	_prebuild_cliff_blobs()
+	_prebuild_border_cells()
+	_paint_global_fill_tiles()
 
 
 # Pinta tiles de cliff para un chunk + margen.
@@ -104,6 +115,12 @@ func paint_chunk_cliffs(chunk_pos: Vector2i) -> void:
 				var angle_var := sin(atan2(float(y), float(x)) * 2.5 + ox * 0.005) * (radius * 0.15)
 				if dist <= float(radius) + warp + angle_var:
 					cliff_set[p] = true
+
+	# Añadir tiles del borde de mundo que caigan en el área de este chunk
+	for cell in _border_cells.keys():
+		var p: Vector2i = cell
+		if p.x >= area_x0 and p.x <= area_x1 and p.y >= area_y0 and p.y <= area_y1:
+			cliff_set[p] = true
 
 	if cliff_set.is_empty():
 		return
@@ -318,11 +335,68 @@ func _prebuild_cliff_blobs() -> void:
 		placed += 1
 
 
+func _prebuild_border_cells() -> void:
+	_border_cells.clear()
+	var x_last: int = _x_max - 1
+	var y_last: int = _y_max - 1
+	var amp: float = float(_border_width) * 0.6
+
+	for x in range(_x_min, _x_max):
+		var d_top: int = _border_width + roundi(_noise.get_noise_2d(float(x) * 0.4, 500.0) * amp)
+		d_top = clampi(d_top, 2, _border_width * 2)
+		for b in range(d_top):
+			_border_cells[Vector2i(x, _y_min + b)] = true
+
+		var d_bot: int = _border_width + roundi(_noise.get_noise_2d(float(x) * 0.4, 600.0) * amp)
+		d_bot = clampi(d_bot, 2, _border_width * 2)
+		for b in range(d_bot):
+			_border_cells[Vector2i(x, y_last - b)] = true
+
+	for y in range(_y_min, _y_max):
+		var d_left: int = _border_width + roundi(_noise.get_noise_2d(500.0, float(y) * 0.4) * amp)
+		d_left = clampi(d_left, 2, _border_width * 2)
+		for b in range(d_left):
+			_border_cells[Vector2i(_x_min + b, y)] = true
+
+		var d_right: int = _border_width + roundi(_noise.get_noise_2d(600.0, float(y) * 0.4) * amp)
+		d_right = clampi(d_right, 2, _border_width * 2)
+		for b in range(d_right):
+			_border_cells[Vector2i(x_last - b, y)] = true
+
+
+func _paint_global_fill_tiles() -> void:
+	if _cliffs_tilemap == null:
+		return
+	# Outer band: tiles justo fuera del mundo — terrain connect para que empalmen con el borde interior
+	var outer_cells: Array[Vector2i] = []
+	for i in range(1, _fill_outer_band + 1):
+		for x in range(_x_min - i, _x_max + i + 1):
+			outer_cells.append(Vector2i(x, _y_min - i))
+			outer_cells.append(Vector2i(x, _y_max - 1 + i))
+		for y in range(_y_min - i + 1, _y_max + i):
+			outer_cells.append(Vector2i(_x_min - i, y))
+			outer_cells.append(Vector2i(_x_max - 1 + i, y))
+	if not outer_cells.is_empty():
+		_cliffs_tilemap.set_cells_terrain_connect(_layer, outer_cells, _terrain_set_id, _terrain_id, false)
+	# Solid fill: tiles más alejados con set_cell directo para cubrir el vacío gris
+	var fill_start: int = _fill_outer_band + 1
+	var fill_end: int = _fill_outer_band + _fill_solid_width
+	for i in range(fill_start, fill_end + 1):
+		for x in range(_x_min - fill_end, _x_max + fill_end + 1):
+			_cliffs_tilemap.set_cell(_layer, Vector2i(x, _y_min - i), FILL_SOURCE_ID, FILL_ATLAS)
+			_cliffs_tilemap.set_cell(_layer, Vector2i(x, _y_max - 1 + i), FILL_SOURCE_ID, FILL_ATLAS)
+		for y in range(_y_min - i + 1, _y_max + i):
+			_cliffs_tilemap.set_cell(_layer, Vector2i(_x_min - i, y), FILL_SOURCE_ID, FILL_ATLAS)
+			_cliffs_tilemap.set_cell(_layer, Vector2i(_x_max - 1 + i, y), FILL_SOURCE_ID, FILL_ATLAS)
+
+
 func _is_inside_bounds(cell: Vector2i) -> bool:
 	return cell.x >= _x_min and cell.x <= _x_max and cell.y >= _y_min and cell.y <= _y_max
 
 
 func is_cliff_tile(tile_pos: Vector2i) -> bool:
+	if _border_cells.has(tile_pos):
+		return true
 	if _free_zone.has(tile_pos):
 		return false
 	if not _is_inside_bounds(tile_pos):

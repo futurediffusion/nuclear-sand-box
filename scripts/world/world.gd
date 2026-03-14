@@ -37,6 +37,7 @@ var _tile_painter := TilePainter.new()
 @export var autosave_interval: float = 120.0
 
 @export_group("Cliff Generation")
+@export var cliff_border_width: int = 4
 @export var cliff_blob_count: int = 18
 @export var cliff_radius_min: int = 4
 @export var cliff_radius_max: int = 10
@@ -203,6 +204,7 @@ func _ready() -> void:
 		"spawn_center": spawn_tile,
 		"cliff_seed": _cliff_seed,
 		"cliffs_tilemap": cliffs_tilemap,
+		"border_width": cliff_border_width,
 		"record_stage_time": Callable(self, "_record_chunk_stage_time"),
 		"blob_count":         cliff_blob_count,
 		"radius_min":         cliff_radius_min,
@@ -213,6 +215,7 @@ func _ready() -> void:
 		"collision_band":     cliff_collision_band,
 	})
 	cliff_generator.global_phase()
+	_paint_outer_ground_band()
 
 	pipeline.setup({
 		"chunk_generator": chunk_generator,
@@ -727,3 +730,18 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 	if uid == "":
 		return
 	npc_simulator.on_entity_died(uid)
+
+
+# Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.
+func _paint_outer_ground_band() -> void:
+	var band: int = 10
+	var cells: Array[Vector2i] = []
+	for i in range(1, band + 1):
+		for x in range(-band, width + band):
+			cells.append(Vector2i(x, -i))
+			cells.append(Vector2i(x, height + i - 1))
+		for y in range(-band + 1, height + band - 1):
+			cells.append(Vector2i(-i, y))
+			cells.append(Vector2i(width + i - 1, y))
+	if not cells.is_empty():
+		ground_tilemap.set_cells_terrain_connect(0, cells, 0, 1, false)
