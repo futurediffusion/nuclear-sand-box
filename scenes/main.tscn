@@ -8,7 +8,7 @@
 [ext_resource type="Script" uid="uid://dauw3snnx1ppx" path="res://scripts/ui/hud.gd" id="5_hud"]
 [ext_resource type="Script" uid="uid://bmnvtxmikdtap" path="res://scripts/ui/hearts.gd" id="6_tefeu"]
 [ext_resource type="PackedScene" uid="uid://bvaj0wallficy" path="res://scenes/tree_wood.tscn" id="6_vxglm"]
-[ext_resource type="PackedScene" path="res://scenes/grass_tuft.tscn" id="7_2f3dj"]
+[ext_resource type="PackedScene" uid="uid://diwmok7u7m525" path="res://scenes/grass_tuft.tscn" id="7_2f3dj"]
 [ext_resource type="Shader" uid="uid://xrs3c6dklfhh" path="res://shaders/wall_occlusion.gdshader" id="8_0ld40"]
 [ext_resource type="Texture2D" uid="uid://buxyqe0n15fc7" path="res://art/sprites/heart.png" id="8_85g3d"]
 [ext_resource type="Texture2D" uid="uid://bgcahwp1ti4nn" path="res://art/sprites/heart-empty.png" id="9_choun"]

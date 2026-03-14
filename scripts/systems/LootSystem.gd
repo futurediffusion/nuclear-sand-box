@@ -51,10 +51,10 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 	target_parent.add_child(drop)
 
 	if drop.has_method("throw_from"):
-		var angle := randf_range(-PI * 0.15, PI + PI * 0.15)
+		var angle := randf_range(0.0, TAU)
 		var dir := Vector2(cos(angle), sin(angle))
-		var speed := randf_range(160.0, 220.0)
-		var up_boost := randf_range(240.0, 320.0)
+		var speed := randf_range(25.0, 65.0)
+		var up_boost := randf_range(55.0, 95.0)
 		drop.throw_from(origin, dir, speed, up_boost)
 	else:
 		drop.global_position = origin

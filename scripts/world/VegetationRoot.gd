@@ -88,16 +88,16 @@ func setup(ctx: Dictionary) -> void:
 	})
 
 
-func load_chunk(chunk_coords: Vector2i) -> void:
+func load_chunk(chunk_coords: Vector2i, occupied: Dictionary = {}) -> void:
 	var rects: Array[Rect2i] = _build_exclusion_rects(chunk_coords)
 	_flower_painter.set_excluded_rects(rects)
 	_fungus_painter.set_excluded_rects(rects)
 	_sticks_painter.set_excluded_rects(rects)
 	_tiny_stones_painter.set_excluded_rects(rects)
-	_flower_painter.load_chunk(chunk_coords)
-	_fungus_painter.load_chunk(chunk_coords)
-	_sticks_painter.load_chunk(chunk_coords)
-	_tiny_stones_painter.load_chunk(chunk_coords)
+	_flower_painter.load_chunk(chunk_coords, occupied)
+	_fungus_painter.load_chunk(chunk_coords, occupied)
+	_sticks_painter.load_chunk(chunk_coords, occupied)
+	_tiny_stones_painter.load_chunk(chunk_coords, occupied)
 
 
 ## Extrae los rects de tiles excluidos (interior de taberna) del chunk_save.

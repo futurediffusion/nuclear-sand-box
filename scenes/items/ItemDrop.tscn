@@ -12,8 +12,8 @@ item_data = ExtResource("3_data")
 pickup_sfx = ExtResource("2_u8iln")
 magnet_range = 40.0
 magnet_speed = 650.0
-throw_damping = 5.0
-throw_gravity = 1000.0
+throw_damping = 12.0
+throw_gravity = 600.0
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 scale = Vector2(0.2, 0.2)

@@ -430,7 +430,7 @@ func update_chunks(center: Vector2i) -> void:
 		await chunk_generator.apply_ground_terrain_ctx(ground_to_paint, pipeline.make_ground_terrain_ctx())
 		for cpos in ground_to_paint:
 			_ground_terrain_painted_chunks[_chunk_key(cpos)] = true
-			_vegetation_root.load_chunk(cpos)
+			_vegetation_root.load_chunk(cpos, chunk_occupied_tiles.get(cpos, {}))
 
 	for cpos in loaded_chunks.keys():
 		if not needed.has(cpos):

@@ -55,6 +55,11 @@ func _ready() -> void:
 	leaves_sprite.z_as_relative = false
 	leaves_sprite.z_index = 50
 
+	# Partículas encima de todo (hojas incluidas), posicionadas en el tronco
+	hit_particles.z_as_relative = false
+	hit_particles.z_index = 60
+	hit_particles.position = Vector2(0, 14)
+
 	# Set per-tree sway phase so trees don't all move in sync
 	if leaves_sprite.material != null:
 		var phase: float = global_position.x * 0.007 + global_position.y * 0.003
@@ -96,6 +101,9 @@ func _play_hit_feedback() -> void:
 	_flash_t = hit_flash_time
 	trunk_sprite.modulate = Color(0.85, 0.75, 0.6, 1)
 	leaves_sprite.modulate = Color(0.85, 0.75, 0.6, 1)
+	if hit_particles:
+		hit_particles.restart()
+		hit_particles.emitting = true
 
 
 func _fell_tree() -> void:
@@ -117,15 +125,15 @@ func _fell_tree() -> void:
 		if spawned == null:
 			push_warning("[TREE] LootSystem no pudo crear drop")
 
-	if hit_particles:
-		hit_particles.restart()
-		hit_particles.emitting = true
+	trunk_sprite.visible = false
+	leaves_sprite.visible = false
+	$CollisionShape2D.set_deferred("disabled", true)
 
 	# Persist death immediately so tree won't respawn on next chunk load
 	WorldSave.set_entity_state(entity_cx, entity_cy, entity_uid, {"dead": true})
 
 	Debug.log("tree", "felled uid=%s dropped=%d" % [entity_uid, wood_count])
-	queue_free()
+	get_tree().create_timer(0.5).timeout.connect(queue_free)
 
 
 # Called by EntitySpawnCoordinator when a saved state exists for this tree

@@ -69,9 +69,8 @@ func hit(_by: Node) -> void:
 	if _is_dead:
 		return
 	_is_dead = true
-	sprite.modulate = Color(0.7, 1.0, 0.5, 1)
-	_shake_t = shake_duration
-	_flash_t = hit_flash_time
+	sprite.visible = false
+	$CollisionShape2D.set_deferred("disabled", true)
 
 	if hit_particles:
 		hit_particles.restart()
@@ -80,7 +79,7 @@ func hit(_by: Node) -> void:
 	# Persistir muerte
 	WorldSave.set_entity_state(entity_cx, entity_cy, entity_uid, {"dead": true})
 	Debug.log("grass", "cut uid=%s" % entity_uid)
-	queue_free()
+	get_tree().create_timer(0.5).timeout.connect(queue_free)
 
 
 func apply_save_state(state: Dictionary) -> void:

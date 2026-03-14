@@ -1,7 +1,7 @@
 [gd_scene load_steps=9 format=3 uid="uid://dfpb3gbt72wmu"]
 
 [ext_resource type="Texture2D" uid="uid://qq5bm2hdt8ef" path="res://art/sprites/stonemine.png" id="1_stone"]
-[ext_resource type="Script" path="res://scripts/resources/stone_ore.gd" id="2_stone"]
+[ext_resource type="Script" uid="uid://c7pgtdysoj8q3" path="res://scripts/resources/stone_ore.gd" id="2_stone"]
 [ext_resource type="PackedScene" uid="uid://calh2h2dc4ph3" path="res://scenes/items/ItemDrop.tscn" id="3_stone"]
 [ext_resource type="Texture2D" uid="uid://tmt0hlfwug6k" path="res://art/props/stone/stoneore.png" id="4_stone"]
 [ext_resource type="AudioStream" uid="uid://c5xw7gjl56i14" path="res://art/Sounds/pickup.ogg" id="5_stone"]
@@ -17,9 +17,10 @@ angle_max = 70.0
 direction = Vector3(0, -1, 0)
 spread = 60.0
 initial_velocity_min = 5.0
-initial_velocity_max = 60.0
+initial_velocity_max = 90.0
 gravity = Vector3(0, 280, 0)
-scale_max = 3.0
+scale_max = 4.0
+color = Color(0.661272, 0.523191, 0.395981, 1)
 
 [node name="StoneOre" type="Area2D"]
 collision_layer = 8

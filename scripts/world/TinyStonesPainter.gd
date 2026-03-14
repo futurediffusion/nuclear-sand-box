@@ -54,10 +54,10 @@ func _is_excluded(tile: Vector2i) -> bool:
 	return false
 
 
-func load_chunk(chunk_coords: Vector2i) -> void:
+func load_chunk(chunk_coords: Vector2i, occupied: Dictionary = {}) -> void:
 	var data: Array = WorldSave.get_tiny_stones_data(chunk_coords)
 	if data.is_empty():
-		data = _generate_stones(chunk_coords)
+		data = _generate_stones(chunk_coords, occupied)
 		WorldSave.set_tiny_stones_data(chunk_coords, data)
 	_build_multimesh(chunk_coords, data)
 
@@ -72,7 +72,7 @@ func unload_chunk(chunk_coords: Vector2i) -> void:
 	_active_mmis.erase(chunk_coords)
 
 
-func _generate_stones(chunk_coords: Vector2i) -> Array:
+func _generate_stones(chunk_coords: Vector2i, occupied: Dictionary = {}) -> Array:
 	var result: Array = []
 	for y in range(_chunk_size):
 		for x in range(_chunk_size):
@@ -85,6 +85,9 @@ func _generate_stones(chunk_coords: Vector2i) -> Array:
 				continue
 
 			if _is_excluded(tile_world):
+				continue
+
+			if occupied.has(tile_world):
 				continue
 
 			# Hash determinista — primo distinto a Flower / Fungus / Sticks
