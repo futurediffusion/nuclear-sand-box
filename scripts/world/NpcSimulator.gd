@@ -179,6 +179,7 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 	if node.has_method("exit_lite_mode"):
 		node.call("exit_lite_mode")
 	EnemyRegistry.register_enemy(node)
+	NpcProfileSystem.ensure_profile(enemy_id, "bandit", "soldier")
 
 # Llamado desde World._on_spawn_queue_job_skipped cuando kind == "enemy"
 func on_enemy_job_skipped(job: Dictionary) -> void:
@@ -191,6 +192,7 @@ func on_entity_died(uid: String) -> void:
 		active_enemies.erase(uid)
 		active_enemy_chunk.erase(uid)
 	spawning_enemy_ids.erase(uid)
+	NpcProfileSystem.set_status(uid, "dead")
 
 # Llamado desde World.unload_chunk_entities
 func on_chunk_unloaded(chunk_key: String) -> void:

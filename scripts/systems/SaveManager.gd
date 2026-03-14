@@ -36,6 +36,9 @@ func save_world() -> void:
 		"worldsave_enemy_state": _ser(WorldSave.enemy_state_by_chunk),
 		"worldsave_enemy_spawns": _ser(WorldSave.enemy_spawns_by_chunk),
 		"worldsave_global_flags": _ser(WorldSave.global_flags),
+		"faction_system":     FactionSystem.serialize(),
+		"site_system":        SiteSystem.serialize(),
+		"npc_profile_system": NpcProfileSystem.serialize(),
 	}
 
 	var json_str: String = JSON.stringify(data)
@@ -93,6 +96,17 @@ func load_world_save() -> bool:
 	if ws_global_flags is Dictionary:
 		WorldSave.global_flags = ws_global_flags
 
+	# Restore Faction / Site / NpcProfile systems (backward-compatible: get with empty default)
+	var fs = data.get("faction_system", {})
+	if fs is Dictionary:
+		FactionSystem.deserialize(fs)
+	var ss = data.get("site_system", {})
+	if ss is Dictionary:
+		SiteSystem.deserialize(ss)
+	var nps = data.get("npc_profile_system", {})
+	if nps is Dictionary:
+		NpcProfileSystem.deserialize(nps)
+
 	# Restore chunk_save into world's existing dict (mutate in-place so references stay valid)
 	if _world != null:
 		var cs = _des(data.get("chunk_save", {}))
@@ -113,6 +127,9 @@ func new_game() -> void:
 	WorldSave.enemy_state_by_chunk.clear()
 	WorldSave.enemy_spawns_by_chunk.clear()
 	WorldSave.global_flags.clear()
+	FactionSystem.reset()
+	SiteSystem.reset()
+	NpcProfileSystem.reset()
 	# Generar semilla aleatoria real, ignorando debug_seed
 	var new_seed := int(Time.get_unix_time_from_system()) % 2147483647
 	if new_seed <= 0:

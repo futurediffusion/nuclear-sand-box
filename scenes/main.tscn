@@ -63,6 +63,7 @@ z_index = 1
 script = ExtResource("27_vegroot")
 flower_density = 0.1
 fungus_density = 0.03
+tinystone_density = 0.1
 
 [node name="WorldTileMap" type="TileMap" parent="World"]
 tile_set = ExtResource("10_pm3ni")

@@ -313,10 +313,17 @@ func _on_job_spawned(job: Dictionary, node: Node) -> void:
 		chunk_saveables[chunk_pos] = []
 	chunk_entities[chunk_pos].append(node)
 	var kind: String = String(job.get("kind", ""))
+	var uid: String = String(job.get("uid", ""))
 	if kind == "ore" or kind == "npc_keeper":
 		chunk_saveables[chunk_pos].append(node)
 	elif kind == "enemy":
 		npc_simulator.on_enemy_job_spawned(job, node)
+	# ── Registro en sistemas de mundo (1B) ────────────────────────────────
+	if kind == "camp" and uid != "":
+		SiteSystem.ensure_site(uid, "bandit_base", "bandit")
+	elif kind == "npc_keeper" and uid != "":
+		SiteSystem.ensure_site("tavern_main", "tavern", "tavern")
+		NpcProfileSystem.ensure_profile(uid, "tavern", "keeper", "tavern_main")
 	if kind == "ore":
 		var ws: Dictionary = job.get("init_data", {}).get("worldsave", {})
 		if bool(ws.get("init_if_missing", false)) and node.has_method("get_save_state"):

@@ -271,6 +271,7 @@ func _ready() -> void:
 		"tile_size": 32,
 		"grass_source_id": 3,   # source 3 = grassautotile.png en TileMap_Ground.tres
 		"grass_terrain_id": 1,  # terrain_set_0/terrain_1 = "grass"
+		"chunk_save": chunk_save,
 	})
 
 	if GameEvents != null and not GameEvents.entity_died.is_connected(_on_entity_died):

@@ -21,6 +21,8 @@ var _grass_terrain_id: int = 1
 var _flower_density: float = 0.05
 ## Tamaño del quad de cada flor en px de mundo (half-extent = flower_size / 2).
 var _flower_size: float = 8.0
+## Rects de tiles excluidos (e.g. interior de taberna). Coordenadas de tile.
+var _excluded_rects: Array[Rect2i] = []
 
 
 func setup(ctx: Dictionary) -> void:
@@ -80,6 +82,9 @@ func _generate_flowers(chunk_coords: Vector2i) -> Array:
 			if td == null or td.terrain != _grass_terrain_id:
 				continue
 
+			if _is_excluded(tile_world):
+				continue
+
 			# Hash determinista — nunca randf()
 			var h: int = hash(chunk_coords.x * 73856093 ^ chunk_coords.y * 19349663 ^ x * 1000 ^ y)
 
@@ -99,6 +104,17 @@ func _generate_flowers(chunk_coords: Vector2i) -> Array:
 				"offset": Vector2(ox, oy)
 			})
 	return result
+
+
+func set_excluded_rects(rects: Array[Rect2i]) -> void:
+	_excluded_rects = rects
+
+
+func _is_excluded(tile: Vector2i) -> bool:
+	for r: Rect2i in _excluded_rects:
+		if r.has_point(tile):
+			return true
+	return false
 
 
 func _is_grass(src_id: int, atlas: Vector2i) -> bool:

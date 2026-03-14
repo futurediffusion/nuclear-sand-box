@@ -142,3 +142,21 @@ func set_fungus_data(chunk: Vector2i, data: Array) -> void:
 
 func get_fungus_data(chunk: Vector2i) -> Array:
 	return _fungus_data.get(chunk, []) as Array
+
+# --- Sticks data ---
+var _sticks_data: Dictionary = {}  # Vector2i -> Array
+
+func set_sticks_data(chunk: Vector2i, data: Array) -> void:
+	_sticks_data[chunk] = data
+
+func get_sticks_data(chunk: Vector2i) -> Array:
+	return _sticks_data.get(chunk, []) as Array
+
+# --- Tiny stones data ---
+var _tiny_stones_data: Dictionary = {}  # Vector2i -> Array
+
+func set_tiny_stones_data(chunk: Vector2i, data: Array) -> void:
+	_tiny_stones_data[chunk] = data
+
+func get_tiny_stones_data(chunk: Vector2i) -> Array:
+	return _tiny_stones_data.get(chunk, []) as Array
