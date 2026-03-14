@@ -11,6 +11,8 @@ var loaded_chunks: Dictionary = {}   # ref a World.loaded_chunks
 var tilemap: TileMap = null
 var copper_ore_scene: PackedScene = null
 var stone_ore_scene: PackedScene = null
+var tree_scene: PackedScene = null
+var grass_tuft_scene: PackedScene = null
 var bandit_camp_scene: PackedScene = null
 var bandit_scene: PackedScene = null
 var tavern_keeper_scene: PackedScene = null
@@ -39,6 +41,8 @@ func setup(ctx: Dictionary) -> void:
 	tilemap = ctx["tilemap"]
 	copper_ore_scene = ctx.get("copper_ore_scene")
 	stone_ore_scene = ctx.get("stone_ore_scene")
+	tree_scene = ctx.get("tree_scene")
+	grass_tuft_scene = ctx.get("grass_tuft_scene")
 	bandit_camp_scene = ctx.get("bandit_camp_scene")
 	bandit_scene = ctx.get("bandit_scene")
 	tavern_keeper_scene = ctx.get("tavern_keeper_scene")
@@ -155,7 +159,59 @@ func enqueue_entities(chunk_pos: Vector2i) -> void:
 			"uid": stone_uid,
 		})
 
-	# 3) CAMPS
+	# 3) TREES
+	for d in chunk_save[chunk_pos].get("trees", []):
+		var tpos: Vector2i = d["tile"]
+		var tree_uid: String = UID.make_uid("tree", "", tpos)
+		var tree_state = WorldSave.get_entity_state(cx, cy, tree_uid)
+		var tree_init: Dictionary = {
+			"properties": {
+				"entity_uid": tree_uid,
+				"entity_cx": cx,
+				"entity_cy": cy,
+			},
+			"worldsave": {
+				"cx": cx, "cy": cy, "uid": tree_uid,
+				"init_if_missing": tree_state == null,
+			}
+		}
+		if tree_state != null:
+			tree_init["save_state"] = tree_state
+		jobs.append({
+			"chunk_key": chunk_key, "kind": "tree",
+			"scene": tree_scene, "tile": tpos,
+			"global_position": _tile_to_world.call(tpos),
+			"init_data": tree_init, "priority": chunk_ring,
+			"uid": tree_uid,
+		})
+
+	# 4) GRASS TUFTS
+	for d in chunk_save[chunk_pos].get("grasses", []):
+		var tpos: Vector2i = d["tile"]
+		var grass_uid: String = UID.make_uid("grass", "", tpos)
+		var grass_state = WorldSave.get_entity_state(cx, cy, grass_uid)
+		var grass_init: Dictionary = {
+			"properties": {
+				"entity_uid": grass_uid,
+				"entity_cx": cx,
+				"entity_cy": cy,
+			},
+			"worldsave": {
+				"cx": cx, "cy": cy, "uid": grass_uid,
+				"init_if_missing": grass_state == null,
+			}
+		}
+		if grass_state != null:
+			grass_init["save_state"] = grass_state
+		jobs.append({
+			"chunk_key": chunk_key, "kind": "grass_tuft",
+			"scene": grass_tuft_scene, "tile": tpos,
+			"global_position": _tile_to_world.call(tpos),
+			"init_data": grass_init, "priority": chunk_ring,
+			"uid": grass_uid,
+		})
+
+	# 5) CAMPS
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
 		jobs.append({
@@ -322,6 +378,24 @@ func enqueue_prefetched_jobs(chunk_pos: Vector2i, priority_offset: int) -> void:
 			"priority": priority,
 			"uid": UID.make_uid("ore_stone", "", tpos),
 		})
+	for d in chunk_save[chunk_pos].get("trees", []):
+		var tpos: Vector2i = d["tile"]
+		jobs.append({
+			"chunk_key": chunk_key, "kind": "tree",
+			"scene": tree_scene, "tile": tpos,
+			"global_position": _tile_to_world.call(tpos),
+			"priority": priority,
+			"uid": UID.make_uid("tree", "", tpos),
+		})
+	for d in chunk_save[chunk_pos].get("grasses", []):
+		var tpos: Vector2i = d["tile"]
+		jobs.append({
+			"chunk_key": chunk_key, "kind": "grass_tuft",
+			"scene": grass_tuft_scene, "tile": tpos,
+			"global_position": _tile_to_world.call(tpos),
+			"priority": priority,
+			"uid": UID.make_uid("grass", "", tpos),
+		})
 	for p in chunk_save[chunk_pos].get("placements", []):
 		if typeof(p) != TYPE_DICTIONARY or String(p.get("kind", "")) != "prop":
 			continue
@@ -356,7 +430,7 @@ func _on_job_spawned(job: Dictionary, node: Node) -> void:
 	chunk_entities[chunk_pos].append(node)
 	var kind: String = String(job.get("kind", ""))
 	var uid: String = String(job.get("uid", ""))
-	if kind == "ore" or kind == "stone_ore" or kind == "npc_keeper":
+	if kind == "ore" or kind == "stone_ore" or kind == "tree" or kind == "grass_tuft" or kind == "npc_keeper":
 		chunk_saveables[chunk_pos].append(node)
 	elif kind == "enemy":
 		npc_simulator.on_enemy_job_spawned(job, node)
@@ -366,7 +440,7 @@ func _on_job_spawned(job: Dictionary, node: Node) -> void:
 	elif kind == "npc_keeper" and uid != "":
 		SiteSystem.ensure_site("tavern_main", "tavern", "tavern")
 		NpcProfileSystem.ensure_profile(uid, "tavern", "keeper", "tavern_main")
-	if kind == "ore" or kind == "stone_ore":
+	if kind == "ore" or kind == "stone_ore" or kind == "tree" or kind == "grass_tuft":
 		var ws: Dictionary = job.get("init_data", {}).get("worldsave", {})
 		if bool(ws.get("init_if_missing", false)) and node.has_method("get_save_state"):
 			WorldSave.set_entity_state(int(ws.get("cx", chunk_pos.x)), int(ws.get("cy", chunk_pos.y)), String(ws.get("uid", "")), node.call("get_save_state"))

@@ -1,0 +1,49 @@
+[gd_scene load_steps=7 format=3 uid="uid://grass_tuft_scene_01"]
+
+[ext_resource type="Script" path="res://scripts/resources/grass_tuft.gd" id="1_grass"]
+[ext_resource type="Texture2D" path="res://art/props/grass/grasstufst.png" id="2_grass"]
+[ext_resource type="Shader" uid="uid://bv6apvqus1dab" path="res://art/shaders/leaves_sway.gdshader" id="3_grass"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_grass"]
+shader = ExtResource("3_grass")
+shader_parameter/sway_speed = 2.0
+shader_parameter/sway_amount = 1.5
+shader_parameter/world_phase = 0.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_grass"]
+size = Vector2(10, 8)
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_grass"]
+particle_flag_disable_z = true
+angle_min = -90.0
+angle_max = 90.0
+direction = Vector3(0, -1, 0)
+spread = 80.0
+initial_velocity_min = 5.0
+initial_velocity_max = 40.0
+gravity = Vector3(0, 300, 0)
+scale_max = 2.0
+
+[node name="GrassTuft" type="Area2D"]
+collision_layer = 8
+collision_mask = 0
+script = ExtResource("1_grass")
+grass_sheet = ExtResource("2_grass")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_grass")
+texture = ExtResource("2_grass")
+region_enabled = true
+region_rect = Rect2(0, 0, 16, 16)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, 2)
+shape = SubResource("RectangleShape2D_grass")
+
+[node name="HitParticles" type="GPUParticles2D" parent="."]
+emitting = false
+amount = 8
+lifetime = 0.2
+one_shot = true
+explosiveness = 1.0
+process_material = SubResource("ParticleProcessMaterial_grass")

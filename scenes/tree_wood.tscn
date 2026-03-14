@@ -1,0 +1,64 @@
+[gd_scene load_steps=17 format=3 uid="uid://bvaj0wallficy"]
+
+[ext_resource type="Script" uid="uid://xob6thhqy13v" path="res://scripts/resources/tree_wood.gd" id="1_tree"]
+[ext_resource type="PackedScene" uid="uid://calh2h2dc4ph3" path="res://scenes/items/ItemDrop.tscn" id="2_tree"]
+[ext_resource type="Texture2D" uid="uid://brhk0ui3rq0dh" path="res://art/props/woods/treetrunk2.png" id="3_eglmg"]
+[ext_resource type="Texture2D" uid="uid://du80vqf21oian" path="res://art/props/woods/wood.png" id="3_tree"]
+[ext_resource type="Texture2D" uid="uid://ds1srrm3nmdj6" path="res://art/props/woods/treetrunk3.png" id="4_0bg2e"]
+[ext_resource type="AudioStream" uid="uid://c5xw7gjl56i14" path="res://art/Sounds/pickup.ogg" id="4_tree"]
+[ext_resource type="Texture2D" uid="uid://dgoiij03ibxt4" path="res://art/props/woods/treetrunk4.png" id="5_nvuc7"]
+[ext_resource type="Texture2D" uid="uid://dvlukuvlnakee" path="res://art/props/woods/treetrunk1.png" id="5_tree"]
+[ext_resource type="Texture2D" uid="uid://b01xi74guo7ww" path="res://art/props/woods/treeleaves1.png" id="6_tree"]
+[ext_resource type="Texture2D" uid="uid://c3h1xpfhd3bl7" path="res://art/props/woods/treeleaves2.png" id="7_ooww3"]
+[ext_resource type="Shader" uid="uid://bv6apvqus1dab" path="res://art/shaders/leaves_sway.gdshader" id="7_tree"]
+[ext_resource type="Texture2D" uid="uid://bq8p72tetl5yu" path="res://art/props/woods/treeleaves3.png" id="8_clfrf"]
+[ext_resource type="Texture2D" uid="uid://ckktg5273oihg" path="res://art/props/woods/treeleaves4.png" id="9_qehv7"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_tree"]
+shader = ExtResource("7_tree")
+shader_parameter/sway_speed = 1.5
+shader_parameter/sway_amount = 3.0
+shader_parameter/world_phase = 0.0
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_tree"]
+size = Vector2(16, 7)
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_tree"]
+particle_flag_disable_z = true
+angle_min = -70.0
+angle_max = 70.0
+direction = Vector3(0, -1, 0)
+spread = 60.0
+initial_velocity_min = 10.0
+initial_velocity_max = 80.0
+gravity = Vector3(0, 280, 0)
+scale_max = 3.0
+
+[node name="TreeWood" type="StaticBody2D"]
+collision_layer = 24
+collision_mask = 0
+script = ExtResource("1_tree")
+trunk_textures = Array[Texture2D]([ExtResource("5_tree"), ExtResource("3_eglmg"), ExtResource("4_0bg2e"), ExtResource("5_nvuc7")])
+leaves_textures = Array[Texture2D]([ExtResource("6_tree"), ExtResource("7_ooww3"), ExtResource("8_clfrf"), ExtResource("9_qehv7")])
+drop_scene = ExtResource("2_tree")
+drop_icon = ExtResource("3_tree")
+drop_pickup_sfx = ExtResource("4_tree")
+
+[node name="TrunkSprite" type="Sprite2D" parent="."]
+texture = ExtResource("5_tree")
+
+[node name="LeavesSprite" type="Sprite2D" parent="."]
+material = SubResource("ShaderMaterial_tree")
+texture = ExtResource("6_tree")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, 14.5)
+shape = SubResource("RectangleShape2D_tree")
+
+[node name="HitParticles" type="GPUParticles2D" parent="."]
+emitting = false
+amount = 12
+lifetime = 0.3
+one_shot = true
+explosiveness = 1.0
+process_material = SubResource("ParticleProcessMaterial_tree")

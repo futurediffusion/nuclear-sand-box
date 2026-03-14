@@ -19,6 +19,8 @@ var _tile_painter := TilePainter.new()
 @export var chunk_check_interval: float = 0.3
 @export var copper_ore_scene: PackedScene
 @export var stone_ore_scene: PackedScene
+@export var tree_scene: PackedScene
+@export var grass_tuft_scene: PackedScene
 @export var bandit_camp_scene: PackedScene
 @export var bandit_scene: PackedScene
 @export var tavern_keeper_scene: PackedScene
@@ -36,6 +38,25 @@ var _tile_painter := TilePainter.new()
 @export var max_cached_chunk_colliders: int = 64
 @export var debug_collision_cache: bool = false
 @export var autosave_interval: float = 120.0
+
+@export_group("Spawn Density")
+@export var copper_grass_min: int = 0
+@export var copper_grass_max: int = 1
+@export var copper_dirt_min: int = 2
+@export var copper_dirt_max: int = 5
+@export var stone_grass_min: int = 0
+@export var stone_grass_max: int = 2
+@export var stone_dirt_min: int = 4
+@export var stone_dirt_max: int = 10
+@export var tree_grass_min: int = 5
+@export var tree_grass_max: int = 10
+@export var tree_dirt_min: int = 1
+@export var tree_dirt_max: int = 3
+@export var grass_tuft_grass_min: int = 10
+@export var grass_tuft_grass_max: int = 20
+@export var grass_tuft_dirt_min: int = 2
+@export var grass_tuft_dirt_max: int = 6
+@export_group("")
 
 @export_group("Cliff Generation")
 @export var cliff_border_width: int = 4
@@ -176,6 +197,8 @@ func _ready() -> void:
 		"tilemap": tilemap,
 		"copper_ore_scene": copper_ore_scene,
 		"stone_ore_scene": stone_ore_scene,
+		"tree_scene": tree_scene,
+		"grass_tuft_scene": grass_tuft_scene,
 		"bandit_camp_scene": bandit_camp_scene,
 		"bandit_scene": bandit_scene,
 		"tavern_keeper_scene": tavern_keeper_scene,
@@ -197,6 +220,7 @@ func _ready() -> void:
 	_entity_root = Node2D.new()
 	_entity_root.name = "EntitiesRoot"
 	_entity_root.z_index = 10
+	_entity_root.y_sort_enabled = true
 	add_child(_entity_root)
 
 	cliff_generator.setup({
@@ -495,9 +519,27 @@ func _make_spawn_ctx() -> Dictionary:
 		"player_chunk": current_player_chunk,
 		"copper_ore_scene": copper_ore_scene,
 		"stone_ore_scene": stone_ore_scene,
+		"tree_scene": tree_scene,
+		"grass_tuft_scene": grass_tuft_scene,
 		"bandit_camp_scene": bandit_camp_scene,
 		"bandit_scene": bandit_scene,
 		"cliff_generator": cliff_generator,
+		"copper_grass_min": copper_grass_min,
+		"copper_grass_max": copper_grass_max,
+		"copper_dirt_min": copper_dirt_min,
+		"copper_dirt_max": copper_dirt_max,
+		"stone_grass_min": stone_grass_min,
+		"stone_grass_max": stone_grass_max,
+		"stone_dirt_min": stone_dirt_min,
+		"stone_dirt_max": stone_dirt_max,
+		"tree_grass_min": tree_grass_min,
+		"tree_grass_max": tree_grass_max,
+		"tree_dirt_min": tree_dirt_min,
+		"tree_dirt_max": tree_dirt_max,
+		"grass_tuft_grass_min": grass_tuft_grass_min,
+		"grass_tuft_grass_max": grass_tuft_grass_max,
+		"grass_tuft_dirt_min": grass_tuft_dirt_min,
+		"grass_tuft_dirt_max": grass_tuft_dirt_max,
 	}
 
 func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int, mode: String = "legacy") -> void:

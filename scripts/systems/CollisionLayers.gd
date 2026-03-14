@@ -9,3 +9,7 @@ const WORLD_WALL_LAYER_MASK: int = 1 << (WORLD_WALL_LAYER_BIT - 1)
 
 # Los colliders estáticos de muro/props solo necesitan detectar actores.
 const WORLD_WALL_COLLIDER_MASK: int = 1 << 2
+
+# Layer 4 = Resources (minerales, árboles, pasto) — detectados por slash y armas.
+const RESOURCES_LAYER_BIT: int = 4
+const RESOURCES_LAYER_MASK: int = 1 << 3

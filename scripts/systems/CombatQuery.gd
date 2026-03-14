@@ -119,7 +119,14 @@ static func shape_overlaps_wall(
 	params.exclude = _collect_excluded_rids(context, excluded_nodes)
 
 	var space_state: PhysicsDirectSpaceState2D = world_2d.direct_space_state
-	return not space_state.intersect_shape(params, 1).is_empty()
+	var results := space_state.intersect_shape(params, 32)
+	for result in results:
+		var collider: Variant = result.get("collider", null)
+		if collider is CollisionObject2D:
+			# Props destructibles (WALLPROPS + Resources) no bloquean el slash — solo muros reales
+			if not (collider as CollisionObject2D).get_collision_layer_value(CollisionLayersScript.RESOURCES_LAYER_BIT):
+				return true
+	return false
 
 static func is_wall_collider(collider: Variant) -> bool:
 	if not (collider is CollisionObject2D):

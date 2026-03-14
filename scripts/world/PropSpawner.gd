@@ -10,6 +10,10 @@ const CAMP_FOOTPRINT_RADIUS_TILES := 2
 const COPPER_MIN_DIST_TILES := 10
 const STONE_FOOTPRINT_RADIUS_TILES := 0
 const STONE_MIN_DIST_TILES := 6
+const TREE_FOOTPRINT_RADIUS_TILES := 1
+const TREE_MIN_DIST_TILES := 3
+const GRASS_FOOTPRINT_RADIUS_TILES := 0
+const GRASS_MIN_DIST_TILES := 1
 const DEBUG_SPAWN: bool = true
 const USE_WALL_TERRAIN: bool = true
 
@@ -38,6 +42,8 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		chunk_save[chunk_pos] = {
 			"ores": [],
 			"stones": [],
+			"trees": [],
+			"grasses": [],
 			"camps": [],
 			"placed_tiles": [],
 			"placements": []
@@ -45,6 +51,8 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	else:
 		if not chunk_save[chunk_pos].has("ores"): chunk_save[chunk_pos]["ores"] = []
 		if not chunk_save[chunk_pos].has("stones"): chunk_save[chunk_pos]["stones"] = []
+		if not chunk_save[chunk_pos].has("trees"): chunk_save[chunk_pos]["trees"] = []
+		if not chunk_save[chunk_pos].has("grasses"): chunk_save[chunk_pos]["grasses"] = []
 		if not chunk_save[chunk_pos].has("camps"): chunk_save[chunk_pos]["camps"] = []
 		if not chunk_save[chunk_pos].has("placed_tiles"): chunk_save[chunk_pos]["placed_tiles"] = []
 		if not chunk_save[chunk_pos].has("placements"): chunk_save[chunk_pos]["placements"] = []
@@ -71,9 +79,9 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 	var attempts := 0
 	match biome:
-		2: attempts = rng.randi_range(2, 5)   # dirt patch → densidad moderada
-		0: attempts = rng.randi_range(3, 7)   # (unused con nuevo sistema)
-		1: attempts = rng.randi_range(0, 1)   # grass → casi sin ores
+		2: attempts = rng.randi_range(ctx.get("copper_dirt_min", 2), ctx.get("copper_dirt_max", 5))
+		0: attempts = rng.randi_range(3, 7)
+		1: attempts = rng.randi_range(ctx.get("copper_grass_min", 0), ctx.get("copper_grass_max", 1))
 
 	if _is_test_density_chunk(chunk_pos, ctx):
 		attempts += max(0, int(Debug.test_density_extra_copper_per_chunk_load))
@@ -119,9 +127,9 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	if ctx.get("stone_ore_scene") != null:
 		var stone_attempts := 0
 		match biome:
-			2: stone_attempts = rng.randi_range(4, 10)
+			2: stone_attempts = rng.randi_range(ctx.get("stone_dirt_min", 4), ctx.get("stone_dirt_max", 10))
 			0: stone_attempts = rng.randi_range(0, 1)
-			1: stone_attempts = rng.randi_range(0, 2)
+			1: stone_attempts = rng.randi_range(ctx.get("stone_grass_min", 0), ctx.get("stone_grass_max", 2))
 
 		for _si in range(stone_attempts):
 			var stpos: Vector2i = _find_valid_spawn_tile(
@@ -147,6 +155,53 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 			chunk_save[chunk_pos]["stones"].append({"tile": stpos, "remaining": -1})
 			_mark_footprint_occupied(chunk_pos, stpos, STONE_FOOTPRINT_RADIUS_TILES, ctx)
+
+	# --- TREES ---
+	if ctx.get("tree_scene") != null:
+		var tree_attempts := 0
+		match biome:
+			1: tree_attempts = rng.randi_range(ctx.get("tree_grass_min", 5), ctx.get("tree_grass_max", 10))
+			2: tree_attempts = rng.randi_range(ctx.get("tree_dirt_min", 1), ctx.get("tree_dirt_max", 3))
+			0: tree_attempts = 0
+
+		for _ti in range(tree_attempts):
+			var ttpos: Vector2i = _find_valid_spawn_tile(
+				chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES,
+				SPAWN_MAX_TRIES, rng, TREE_FOOTPRINT_RADIUS_TILES, ctx
+			)
+			if ttpos == INVALID_SPAWN_TILE:
+				continue
+
+			var tdist := _tile_distance_to_spawn(ttpos, ctx)
+			var tallow_close := rng.randf() < 0.15
+			if not tallow_close and tdist < float(TREE_MIN_DIST_TILES):
+				continue
+
+			chunk_save[chunk_pos]["trees"].append({"tile": ttpos})
+			_mark_footprint_occupied(chunk_pos, ttpos, TREE_FOOTPRINT_RADIUS_TILES, ctx)
+
+	# --- GRASS TUFTS ---
+	if ctx.get("grass_tuft_scene") != null:
+		var grass_attempts := 0
+		match biome:
+			1: grass_attempts = rng.randi_range(ctx.get("grass_tuft_grass_min", 10), ctx.get("grass_tuft_grass_max", 20))
+			2: grass_attempts = rng.randi_range(ctx.get("grass_tuft_dirt_min", 2), ctx.get("grass_tuft_dirt_max", 6))
+			0: grass_attempts = 0
+
+		for _gi in range(grass_attempts):
+			var gpos: Vector2i = _find_valid_spawn_tile(
+				chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES,
+				SPAWN_MAX_TRIES, rng, GRASS_FOOTPRINT_RADIUS_TILES, ctx
+			)
+			if gpos == INVALID_SPAWN_TILE:
+				continue
+
+			var gdist := _tile_distance_to_spawn(gpos, ctx)
+			if gdist < float(GRASS_MIN_DIST_TILES):
+				continue
+
+			chunk_save[chunk_pos]["grasses"].append({"tile": gpos})
+			_mark_footprint_occupied(chunk_pos, gpos, GRASS_FOOTPRINT_RADIUS_TILES, ctx)
 
 	if ctx["bandit_camp_scene"] == null or ctx["bandit_scene"] == null:
 		return
@@ -282,6 +337,10 @@ func _rebuild_chunk_occupied_tiles(chunk_key: Vector2i, ctx: Dictionary) -> void
 		_mark_footprint_occupied(chunk_key, d["tile"], COPPER_FOOTPRINT_RADIUS_TILES, ctx)
 	for d in chunk_save[chunk_key].get("stones", []):
 		_mark_footprint_occupied(chunk_key, d["tile"], STONE_FOOTPRINT_RADIUS_TILES, ctx)
+	for d in chunk_save[chunk_key].get("trees", []):
+		_mark_footprint_occupied(chunk_key, d["tile"], TREE_FOOTPRINT_RADIUS_TILES, ctx)
+	for d in chunk_save[chunk_key].get("grasses", []):
+		_mark_footprint_occupied(chunk_key, d["tile"], GRASS_FOOTPRINT_RADIUS_TILES, ctx)
 	for c in chunk_save[chunk_key]["camps"]:
 		_mark_footprint_occupied(chunk_key, c["tile"], CAMP_FOOTPRINT_RADIUS_TILES, ctx)
 
