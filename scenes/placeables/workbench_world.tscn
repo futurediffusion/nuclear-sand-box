@@ -1,0 +1,26 @@
+[gd_scene load_steps=5 format=3 uid="uid://qlf2bj00x63j"]
+
+[ext_resource type="Script" uid="uid://b2cs6jk75yc55" path="res://scripts/placeables/WorkbenchComponent.gd" id="1_qp8k5"]
+[ext_resource type="Texture2D" uid="uid://0ov4rvcyx7yn" path="res://art/props/stations/craftingtable.png" id="2_wtylx"]
+[ext_resource type="Texture2D" uid="uid://cj70iqi85uw61" path="res://art/ui/ekey.png" id="3_t4jgo"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_oi4j1"]
+size = Vector2(76, 56)
+
+[node name="WorkbenchWorld" type="StaticBody2D" groups=["interactable", "workbench_menu_ui"]]
+script = ExtResource("1_qp8k5")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("2_wtylx")
+
+[node name="Area2D" type="Area2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+position = Vector2(0, 7)
+shape = SubResource("RectangleShape2D_oi4j1")
+
+[node name="Sprite2D2" type="Sprite2D" parent="."]
+visible = false
+position = Vector2(0, -19)
+scale = Vector2(0.36, 0.36)
+texture = ExtResource("3_t4jgo")

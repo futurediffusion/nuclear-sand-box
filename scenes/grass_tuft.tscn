@@ -42,6 +42,7 @@ position = Vector2(0, 2)
 shape = SubResource("RectangleShape2D_grass")
 
 [node name="HitParticles" type="GPUParticles2D" parent="."]
+scale = Vector2(3, 3)
 emitting = false
 amount = 10
 lifetime = 0.3

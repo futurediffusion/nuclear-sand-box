@@ -32,7 +32,8 @@ spread = 60.0
 initial_velocity_min = 10.0
 initial_velocity_max = 80.0
 gravity = Vector3(0, 280, 0)
-scale_max = 3.0
+scale_min = 3.0
+scale_max = 5.0
 color = Color(0.684233, 0.491861, 0.309313, 1)
 
 [node name="TreeWood" type="StaticBody2D"]

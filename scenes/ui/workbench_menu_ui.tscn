@@ -1,0 +1,224 @@
+[gd_scene load_steps=11 format=3 uid="uid://b2w1eue5fqx4m"]
+
+[ext_resource type="Texture2D" uid="uid://x81v4rp7i82" path="res://art/ui/craftingtable/carftingtablemainframe.png" id="1_fwrhi"]
+[ext_resource type="Texture2D" uid="uid://cscf01yr31yf1" path="res://art/ui/craftingtable/carftingtablesideframe.png" id="2_17cry"]
+[ext_resource type="Texture2D" uid="uid://w6r6p2v5kmt2" path="res://art/ui/craftingtable/tab2.png" id="3_wkdt5"]
+[ext_resource type="Texture2D" uid="uid://bioqotlb5q6xg" path="res://art/ui/craftingtable/tab1.png" id="4_15ngp"]
+[ext_resource type="Texture2D" uid="uid://dm5547fnw401k" path="res://art/ui/craftingtable/button1green.png" id="5_eeyc3"]
+[ext_resource type="Texture2D" uid="uid://bblqtr7ynoqbh" path="res://art/ui/craftingtable/button1.png" id="6_qktwj"]
+[ext_resource type="Texture2D" uid="uid://daywjo5mliqhe" path="res://art/ui/craftingtable/buttonsmall2.png" id="7_ixjfy"]
+[ext_resource type="Texture2D" uid="uid://csvrt2vnkyghl" path="res://art/ui/craftingtable/buttonsmall1.png" id="8_qt5bf"]
+[ext_resource type="Texture2D" uid="uid://b84mi2eyoo4ie" path="res://art/ui/inventory.png" id="9_ixjfy"]
+[ext_resource type="PackedScene" uid="uid://narh24whivs7" path="res://scenes/ui/inventory_panel.tscn" id="10_qt5bf"]
+
+[node name="WorkbenchMenuUi" type="CanvasLayer" groups=["workbench_menu_ui"]]
+
+[node name="Root" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -48.0
+offset_right = -48.0
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(0.35, 0.35)
+
+[node name="MainFrame" type="TextureRect" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 595.0
+offset_top = 348.0
+offset_right = 595.0
+offset_bottom = 348.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("1_fwrhi")
+
+[node name="SideFrame" type="TextureRect" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 595.0
+offset_top = 348.0
+offset_right = 595.0
+offset_bottom = 348.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("2_17cry")
+
+[node name="Tabs" type="Control" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -634.285
+offset_top = -360.0
+offset_right = -634.285
+offset_bottom = -360.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TabSurvival" type="TextureButton" parent="Root/Tabs"]
+z_index = -1
+layout_mode = 0
+offset_left = 1020.0
+offset_top = 365.714
+offset_right = 1125.0
+offset_bottom = 420.714
+texture_normal = ExtResource("3_wkdt5")
+texture_pressed = ExtResource("4_15ngp")
+texture_hover = ExtResource("3_wkdt5")
+
+[node name="TabTools" type="TextureButton" parent="Root/Tabs"]
+z_index = -1
+layout_mode = 0
+offset_left = 1128.57
+offset_top = 365.714
+offset_right = 1233.57
+offset_bottom = 420.714
+texture_normal = ExtResource("3_wkdt5")
+texture_pressed = ExtResource("4_15ngp")
+texture_hover = ExtResource("3_wkdt5")
+
+[node name="TabStations" type="TextureButton" parent="Root/Tabs"]
+z_index = -1
+layout_mode = 0
+offset_left = 1242.86
+offset_top = 365.714
+offset_right = 1347.86
+offset_bottom = 420.714
+texture_normal = ExtResource("3_wkdt5")
+texture_pressed = ExtResource("4_15ngp")
+texture_hover = ExtResource("3_wkdt5")
+
+[node name="TabTinkering" type="TextureButton" parent="Root/Tabs"]
+z_index = -1
+layout_mode = 0
+offset_left = 1357.14
+offset_top = 365.714
+offset_right = 1462.14
+offset_bottom = 420.714
+texture_normal = ExtResource("3_wkdt5")
+texture_pressed = ExtResource("4_15ngp")
+texture_hover = ExtResource("3_wkdt5")
+
+[node name="CraftArea" type="Control" parent="Root"]
+anchors_preset = 0
+offset_left = -628.572
+offset_top = -342.857
+offset_right = -588.572
+offset_bottom = -302.857
+
+[node name="RecipeGridAnchor" type="Control" parent="Root/CraftArea"]
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="IngredientsAnchor" type="Control" parent="Root/CraftArea"]
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="PreviewAnchor" type="Control" parent="Root/CraftArea"]
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="CraftButton" type="TextureButton" parent="Root/CraftArea"]
+layout_mode = 0
+offset_left = 1520.0
+offset_top = 720.0
+offset_right = 1799.0
+offset_bottom = 780.0
+texture_normal = ExtResource("5_eeyc3")
+texture_disabled = ExtResource("6_qktwj")
+
+[node name="BottomCraftButtons" type="HBoxContainer" parent="Root/CraftArea"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 1526.0
+offset_top = 786.571
+offset_right = 1754.0
+offset_bottom = 790.571
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="CraftX10Button" type="TextureButton" parent="Root/CraftArea/BottomCraftButtons"]
+layout_mode = 2
+texture_normal = ExtResource("7_ixjfy")
+texture_disabled = ExtResource("8_qt5bf")
+
+[node name="CraftAllButton" type="TextureButton" parent="Root/CraftArea/BottomCraftButtons"]
+layout_mode = 2
+texture_normal = ExtResource("7_ixjfy")
+texture_disabled = ExtResource("8_qt5bf")
+
+[node name="SidePanelArea" type="Control" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -637.143
+offset_top = -360.0
+offset_right = -637.143
+offset_bottom = -360.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="WorkbenchPreviewAnchor" type="Control" parent="Root/SidePanelArea"]
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="TierRequirementsAnchor" type="Control" parent="Root/SidePanelArea"]
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="UpgradeButton" type="TextureButton" parent="Root/SidePanelArea"]
+offset_left = 2034.29
+offset_top = 1077.14
+offset_right = 2313.29
+offset_bottom = 1137.14
+texture_normal = ExtResource("5_eeyc3")
+texture_disabled = ExtResource("6_qktwj")
+
+[node name="Playerbox" type="Control" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 331.428
+offset_top = 542.857
+offset_right = 331.428
+offset_bottom = 542.857
+grow_horizontal = 2
+grow_vertical = 2
+scale = Vector2(3.195, 3.195)
+mouse_filter = 2
+
+[node name="PlayerFrame" type="TextureRect" parent="Root/Playerbox"]
+layout_mode = 0
+offset_left = -33.0874
+offset_top = -36.6645
+offset_right = 288.748
+offset_bottom = 177.61
+scale = Vector2(1.1, 1.1)
+mouse_filter = 2
+texture = ExtResource("9_ixjfy")
+expand_mode = 2
+
+[node name="PlayerInventoryPanel" parent="Root/Playerbox" instance=ExtResource("10_qt5bf")]
+z_index = 10
+layout_mode = 2
+offset_left = -29.0
+offset_top = 41.0
+offset_right = -29.0
+offset_bottom = 41.0
+scale = Vector2(0.28, 0.28)

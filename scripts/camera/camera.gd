@@ -23,7 +23,7 @@ func _ready() -> void:
 	_target_zoom = zoom.x
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
+	if event is InputEventMouseButton and event.ctrl_pressed:
 		if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_target_zoom = clampf(_target_zoom + zoom_step, zoom_min, zoom_max)
 		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
