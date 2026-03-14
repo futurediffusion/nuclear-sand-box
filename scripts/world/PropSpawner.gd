@@ -8,6 +8,8 @@ const SPAWN_MAX_TRIES := 30
 const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
 const COPPER_MIN_DIST_TILES := 10
+const STONE_FOOTPRINT_RADIUS_TILES := 0
+const STONE_MIN_DIST_TILES := 6
 const DEBUG_SPAWN: bool = true
 const USE_WALL_TERRAIN: bool = true
 
@@ -35,12 +37,14 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	if not chunk_save.has(chunk_pos):
 		chunk_save[chunk_pos] = {
 			"ores": [],
+			"stones": [],
 			"camps": [],
 			"placed_tiles": [],
 			"placements": []
 		}
 	else:
 		if not chunk_save[chunk_pos].has("ores"): chunk_save[chunk_pos]["ores"] = []
+		if not chunk_save[chunk_pos].has("stones"): chunk_save[chunk_pos]["stones"] = []
 		if not chunk_save[chunk_pos].has("camps"): chunk_save[chunk_pos]["camps"] = []
 		if not chunk_save[chunk_pos].has("placed_tiles"): chunk_save[chunk_pos]["placed_tiles"] = []
 		if not chunk_save[chunk_pos].has("placements"): chunk_save[chunk_pos]["placements"] = []
@@ -110,6 +114,39 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		chunk_save[chunk_pos]["ores"].append({"tile": tpos, "remaining": -1})
 		_mark_footprint_occupied(chunk_pos, tpos, COPPER_FOOTPRINT_RADIUS_TILES, ctx)
 		copper_positions.append(tpos)
+
+	# --- STONES (2× copper density) ---
+	if ctx.get("stone_ore_scene") != null:
+		var stone_attempts := 0
+		match biome:
+			2: stone_attempts = rng.randi_range(4, 10)
+			0: stone_attempts = rng.randi_range(0, 1)
+			1: stone_attempts = rng.randi_range(0, 2)
+
+		for _si in range(stone_attempts):
+			var stpos: Vector2i = _find_valid_spawn_tile(
+				chunk_pos, player_tile, SAFE_PLAYER_SPAWN_RADIUS_TILES,
+				SPAWN_MAX_TRIES, rng, STONE_FOOTPRINT_RADIUS_TILES, ctx
+			)
+			if stpos == INVALID_SPAWN_TILE:
+				continue
+
+			var sdist := _tile_distance_to_spawn(stpos, ctx)
+			var sallow_close := rng.randf() < 0.15
+			if not sallow_close and sdist < float(STONE_MIN_DIST_TILES):
+				continue
+
+			var stile_biome: int = int(get_biome.call(stpos.x, stpos.y))
+			match stile_biome:
+				2:
+					if rng.randf() > 0.70: continue
+				1:
+					if rng.randf() > 0.50: continue
+				0:
+					if rng.randf() > 0.30: continue
+
+			chunk_save[chunk_pos]["stones"].append({"tile": stpos, "remaining": -1})
+			_mark_footprint_occupied(chunk_pos, stpos, STONE_FOOTPRINT_RADIUS_TILES, ctx)
 
 	if ctx["bandit_camp_scene"] == null or ctx["bandit_scene"] == null:
 		return
@@ -243,6 +280,8 @@ func _rebuild_chunk_occupied_tiles(chunk_key: Vector2i, ctx: Dictionary) -> void
 		return
 	for d in chunk_save[chunk_key]["ores"]:
 		_mark_footprint_occupied(chunk_key, d["tile"], COPPER_FOOTPRINT_RADIUS_TILES, ctx)
+	for d in chunk_save[chunk_key].get("stones", []):
+		_mark_footprint_occupied(chunk_key, d["tile"], STONE_FOOTPRINT_RADIUS_TILES, ctx)
 	for c in chunk_save[chunk_key]["camps"]:
 		_mark_footprint_occupied(chunk_key, c["tile"], CAMP_FOOTPRINT_RADIUS_TILES, ctx)
 

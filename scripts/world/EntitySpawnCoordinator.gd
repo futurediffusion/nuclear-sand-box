@@ -10,6 +10,7 @@ var chunk_save: Dictionary = {}      # ref a World.chunk_save
 var loaded_chunks: Dictionary = {}   # ref a World.loaded_chunks
 var tilemap: TileMap = null
 var copper_ore_scene: PackedScene = null
+var stone_ore_scene: PackedScene = null
 var bandit_camp_scene: PackedScene = null
 var bandit_scene: PackedScene = null
 var tavern_keeper_scene: PackedScene = null
@@ -37,6 +38,7 @@ func setup(ctx: Dictionary) -> void:
 	loaded_chunks = ctx["loaded_chunks"]
 	tilemap = ctx["tilemap"]
 	copper_ore_scene = ctx.get("copper_ore_scene")
+	stone_ore_scene = ctx.get("stone_ore_scene")
 	bandit_camp_scene = ctx.get("bandit_camp_scene")
 	bandit_scene = ctx.get("bandit_scene")
 	tavern_keeper_scene = ctx.get("tavern_keeper_scene")
@@ -129,7 +131,31 @@ func enqueue_entities(chunk_pos: Vector2i) -> void:
 			"uid": ore_uid,
 		})
 
-	# 2) CAMPS
+	# 2) STONES
+	for d in chunk_save[chunk_pos].get("stones", []):
+		var tpos: Vector2i = d["tile"]
+		var stone_uid: String = UID.make_uid("ore_stone", "", tpos)
+		var stone_state = WorldSave.get_entity_state(cx, cy, stone_uid)
+		var stone_init: Dictionary = {
+			"properties": {"entity_uid": stone_uid},
+			"worldsave": {
+				"cx": cx, "cy": cy, "uid": stone_uid,
+				"init_if_missing": stone_state == null,
+			}
+		}
+		if stone_state != null:
+			stone_init["save_state"] = stone_state
+		elif d.has("remaining") and d["remaining"] != -1:
+			stone_init["save_state"] = {"remaining": int(d["remaining"])}
+		jobs.append({
+			"chunk_key": chunk_key, "kind": "stone_ore",
+			"scene": stone_ore_scene, "tile": tpos,
+			"global_position": _tile_to_world.call(tpos),
+			"init_data": stone_init, "priority": chunk_ring,
+			"uid": stone_uid,
+		})
+
+	# 3) CAMPS
 	for c in chunk_save[chunk_pos]["camps"]:
 		var ct: Vector2i = c["tile"]
 		jobs.append({
@@ -231,10 +257,17 @@ func unload_entities(chunk_pos: Vector2i) -> void:
 
 	if chunk_save.has(chunk_pos):
 		var ore_list = chunk_save[chunk_pos]["ores"]
+		var stone_list = chunk_save[chunk_pos].get("stones", [])
 		for e in chunk_entities[chunk_pos]:
 			if is_instance_valid(e) and e is CopperOre:
 				var tile: Vector2i = _world_to_tile_local(e.global_position)
 				for d in ore_list:
+					if d["tile"] == tile:
+						d["remaining"] = int(e.get("remaining"))
+						break
+			elif is_instance_valid(e) and e is StoneOre:
+				var tile: Vector2i = _world_to_tile_local(e.global_position)
+				for d in stone_list:
 					if d["tile"] == tile:
 						d["remaining"] = int(e.get("remaining"))
 						break
@@ -280,6 +313,15 @@ func enqueue_prefetched_jobs(chunk_pos: Vector2i, priority_offset: int) -> void:
 			"priority": priority,
 			"uid": UID.make_uid("ore_copper", "", tpos),
 		})
+	for d in chunk_save[chunk_pos].get("stones", []):
+		var tpos: Vector2i = d["tile"]
+		jobs.append({
+			"chunk_key": chunk_key, "kind": "stone_ore",
+			"scene": stone_ore_scene, "tile": tpos,
+			"global_position": _tile_to_world.call(tpos),
+			"priority": priority,
+			"uid": UID.make_uid("ore_stone", "", tpos),
+		})
 	for p in chunk_save[chunk_pos].get("placements", []):
 		if typeof(p) != TYPE_DICTIONARY or String(p.get("kind", "")) != "prop":
 			continue
@@ -314,7 +356,7 @@ func _on_job_spawned(job: Dictionary, node: Node) -> void:
 	chunk_entities[chunk_pos].append(node)
 	var kind: String = String(job.get("kind", ""))
 	var uid: String = String(job.get("uid", ""))
-	if kind == "ore" or kind == "npc_keeper":
+	if kind == "ore" or kind == "stone_ore" or kind == "npc_keeper":
 		chunk_saveables[chunk_pos].append(node)
 	elif kind == "enemy":
 		npc_simulator.on_enemy_job_spawned(job, node)
@@ -324,7 +366,7 @@ func _on_job_spawned(job: Dictionary, node: Node) -> void:
 	elif kind == "npc_keeper" and uid != "":
 		SiteSystem.ensure_site("tavern_main", "tavern", "tavern")
 		NpcProfileSystem.ensure_profile(uid, "tavern", "keeper", "tavern_main")
-	if kind == "ore":
+	if kind == "ore" or kind == "stone_ore":
 		var ws: Dictionary = job.get("init_data", {}).get("worldsave", {})
 		if bool(ws.get("init_if_missing", false)) and node.has_method("get_save_state"):
 			WorldSave.set_entity_state(int(ws.get("cx", chunk_pos.x)), int(ws.get("cy", chunk_pos.y)), String(ws.get("uid", "")), node.call("get_save_state"))

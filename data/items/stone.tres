@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3 uid="uid://d2v76x60qxx2x"]
+
+[ext_resource type="Script" uid="uid://dsv8bs57w8srn" path="res://scripts/items/ItemData.gd" id="1_1"]
+[ext_resource type="Texture2D" uid="uid://tmt0hlfwug6k" path="res://art/props/stone/stoneore.png" id="1_am6s0"]
+[ext_resource type="AudioStream" uid="uid://c5xw7gjl56i14" path="res://art/Sounds/pickup.ogg" id="3_1"]
+
+[resource]
+script = ExtResource("1_1")
+id = "stone"
+display_name = "Stone"
+icon = ExtResource("1_am6s0")
+max_stack = 20
+buy_price = 4
+sell_price = 2
+tags = Array[String]([])
+weight = 0.0
+pickup_sfx = ExtResource("3_1")
+consumable = false
+heal_hp = 0

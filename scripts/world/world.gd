@@ -18,6 +18,7 @@ var _tile_painter := TilePainter.new()
 @export var active_radius: int = 1
 @export var chunk_check_interval: float = 0.3
 @export var copper_ore_scene: PackedScene
+@export var stone_ore_scene: PackedScene
 @export var bandit_camp_scene: PackedScene
 @export var bandit_scene: PackedScene
 @export var tavern_keeper_scene: PackedScene
@@ -174,6 +175,7 @@ func _ready() -> void:
 		"loaded_chunks": loaded_chunks,
 		"tilemap": tilemap,
 		"copper_ore_scene": copper_ore_scene,
+		"stone_ore_scene": stone_ore_scene,
 		"bandit_camp_scene": bandit_camp_scene,
 		"bandit_scene": bandit_scene,
 		"tavern_keeper_scene": tavern_keeper_scene,
@@ -492,6 +494,7 @@ func _make_spawn_ctx() -> Dictionary:
 		"player_tile": player_tile,
 		"player_chunk": current_player_chunk,
 		"copper_ore_scene": copper_ore_scene,
+		"stone_ore_scene": stone_ore_scene,
 		"bandit_camp_scene": bandit_camp_scene,
 		"bandit_scene": bandit_scene,
 		"cliff_generator": cliff_generator,

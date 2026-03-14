@@ -1,0 +1,45 @@
+[gd_scene load_steps=9 format=3 uid="uid://dfpb3gbt72wmu"]
+
+[ext_resource type="Texture2D" uid="uid://qq5bm2hdt8ef" path="res://art/sprites/stonemine.png" id="1_stone"]
+[ext_resource type="Script" path="res://scripts/resources/stone_ore.gd" id="2_stone"]
+[ext_resource type="PackedScene" uid="uid://calh2h2dc4ph3" path="res://scenes/items/ItemDrop.tscn" id="3_stone"]
+[ext_resource type="Texture2D" uid="uid://tmt0hlfwug6k" path="res://art/props/stone/stoneore.png" id="4_stone"]
+[ext_resource type="AudioStream" uid="uid://c5xw7gjl56i14" path="res://art/Sounds/pickup.ogg" id="5_stone"]
+[ext_resource type="Resource" uid="uid://d2v76x60qxx2x" path="res://data/items/stone.tres" id="6_stone"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_stone"]
+size = Vector2(16, 7)
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_stone"]
+particle_flag_disable_z = true
+angle_min = -70.0
+angle_max = 70.0
+direction = Vector3(0, -1, 0)
+spread = 60.0
+initial_velocity_min = 5.0
+initial_velocity_max = 60.0
+gravity = Vector3(0, 280, 0)
+scale_max = 3.0
+
+[node name="StoneOre" type="Area2D"]
+collision_layer = 8
+script = ExtResource("2_stone")
+drop_item = ExtResource("6_stone")
+drop_scene = ExtResource("3_stone")
+drop_icon = ExtResource("4_stone")
+drop_pickup_sfx = ExtResource("5_stone")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("1_stone")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, 0.5)
+shape = SubResource("RectangleShape2D_stone")
+
+[node name="HitParticles" type="GPUParticles2D" parent="."]
+emitting = false
+amount = 15
+lifetime = 0.25
+one_shot = true
+explosiveness = 1.0
+process_material = SubResource("ParticleProcessMaterial_stone")

@@ -35,6 +35,7 @@ const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponControll
 @onready var detection_area: Area2D          = $DetectionArea
 @onready var character_hurtbox: CharacterHurtbox = get_node_or_null("Hurtbox") as CharacterHurtbox
 @export var shop_copper_stock: int = 30
+@export var shop_stone_stock: int = 50
 
 # =============================================================================
 # ESTADO INTERNO
@@ -578,4 +579,9 @@ func _build_default_offers() -> Array[VendorOffer]:
 	arrow_offer.item_id = "arrow"
 	arrow_offer.mode = VendorOfferScript.OfferMode.INFINITE
 
-	return [bandage_offer, copper_offer, bow_offer, arrow_offer, ironpipe_offer]
+	var stone_offer := VendorOfferScript.new()
+	stone_offer.item_id = "stone"
+	stone_offer.mode = VendorOfferScript.OfferMode.STOCKED
+	stone_offer.base_stock = shop_stone_stock
+
+	return [bandage_offer, copper_offer, stone_offer, bow_offer, arrow_offer, ironpipe_offer]
