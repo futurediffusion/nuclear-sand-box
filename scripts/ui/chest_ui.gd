@@ -28,6 +28,8 @@ var drag_offset: Vector2 = Vector2(16, 16)
 func _ready() -> void:
 	visible = false
 	add_to_group("chest_ui")
+	if has_signal("visibility_changed"):
+		visibility_changed.connect(_on_visibility_changed)
 	if chest_grid == null:
 		push_error("[ChestUi] Missing node Root/Chest/Chestgrid")
 		return
@@ -53,12 +55,14 @@ func _input(event: InputEvent) -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_VISIBILITY_CHANGED:
-		if not is_visible_in_tree() and dragging:
-			_clear_drag_visual()
-	elif what == NOTIFICATION_EXIT_TREE:
+	if what == NOTIFICATION_EXIT_TREE:
 		if dragging:
 			_clear_drag_visual()
+
+
+func _on_visibility_changed() -> void:
+	if not visible and dragging:
+		_clear_drag_visual()
 
 
 func open_for_chest(chest_component: ChestWorld) -> void:
@@ -271,7 +275,7 @@ func _load_chest_slots_from_component() -> void:
 	var source: Array = _chest_component.stored_slots
 	var slots_array := _chest_inv.get("slots", []) as Array
 	for i in range(mini(source.size(), slots_array.size())):
-		var normalized := _normalize_slot(source[i])
+		var normalized: Variant = _normalize_slot(source[i])
 		slots_array[i] = normalized
 	_chest_inv["slots"] = slots_array
 
