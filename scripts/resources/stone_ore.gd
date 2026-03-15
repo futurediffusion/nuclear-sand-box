@@ -1,6 +1,12 @@
 class_name StoneOre
 extends Area2D
 
+const STONE_HIT_SOUNDS: Array[AudioStream] = [
+	preload("res://art/Sounds/stone1.ogg"),
+	preload("res://art/Sounds/stone 2.ogg"),
+	preload("res://art/Sounds/stone 3.ogg"),
+]
+
 signal ore_hit(item_id: String, amount: int, origin: Vector2, hitter: Node)
 signal ore_depleted(origin: Vector2)
 signal request_drop(item_id: String, amount: int, origin: Vector2, hitter: Node)
@@ -11,7 +17,7 @@ signal request_drop(item_id: String, amount: int, origin: Vector2, hitter: Node)
 @export var mining_sfx: AudioStream = preload("res://art/Sounds/mining.ogg")
 @export var use_systems: bool = true
 func get_hit_sound() -> AudioStream:
-	return mining_sfx
+	return _pick_stone_hit_sound()
 
 # --- Feedback al golpear (WorldBox vibe) ---
 @export var shake_duration: float = 0.08
@@ -84,8 +90,9 @@ func hit(by: Node) -> void:
 	var interval := _get_stone_interval(by)
 	_hit_accumulator += 1
 
-	if use_systems:
-		AudioSystem.play_2d(get_hit_sound(), global_position)
+	var hit_sfx := get_hit_sound()
+	if use_systems and hit_sfx != null:
+		AudioSystem.play_2d(hit_sfx, global_position)
 
 	if _hit_accumulator < interval:
 		return
@@ -136,6 +143,16 @@ func _play_hit_feedback() -> void:
 	_shake_t = shake_duration
 	_flash_t = hit_flash_time
 	sprite.modulate = Color(0.8, 0.8, 0.8, 1)
+
+
+func _pick_stone_hit_sound() -> AudioStream:
+	if not STONE_HIT_SOUNDS.is_empty():
+		return STONE_HIT_SOUNDS[randi() % STONE_HIT_SOUNDS.size()]
+	return mining_sfx
+
+
+func suppress_default_impact_sound() -> bool:
+	return true
 
 func _try_give_to_player(by: Node, amount: int) -> int:
 	if by != null and by.has_method("get_node_or_null"):

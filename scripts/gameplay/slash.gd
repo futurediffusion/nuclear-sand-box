@@ -122,6 +122,12 @@ func _try_damage(raw_target: Node) -> void:
 	if can_mine and target.has_method("hit"):
 		target.call("hit", owner_node)
 
+		var suppress_default_impact_sound := false
+		if target.has_method("suppress_default_impact_sound"):
+			suppress_default_impact_sound = bool(target.call("suppress_default_impact_sound"))
+		if suppress_default_impact_sound:
+			return
+
 		var s: AudioStream = null
 		if target.has_method("get_hit_sound"):
 			s = target.call("get_hit_sound")
@@ -129,7 +135,7 @@ func _try_damage(raw_target: Node) -> void:
 		if s != null:
 			impact_sound.stream = s
 			impact_sound.play()
-		elif impact_sound and impact_sound.stream:
+		elif not suppress_default_impact_sound and impact_sound and impact_sound.stream:
 			impact_sound.play()
 
 		return

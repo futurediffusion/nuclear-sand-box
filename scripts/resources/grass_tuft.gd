@@ -92,6 +92,10 @@ func hit(_by: Node) -> void:
 	get_tree().create_timer(0.5).timeout.connect(queue_free)
 
 
+func suppress_default_impact_sound() -> bool:
+	return true
+
+
 func apply_save_state(state: Dictionary) -> void:
 	if bool(state.get("dead", false)):
 		_is_dead = true

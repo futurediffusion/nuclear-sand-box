@@ -48,6 +48,7 @@ var _current_category: String = "survival"
 var _slot_nodes: Array[Control] = []
 var _connected_inventory: InventoryComponent = null
 var _tier_req_slots: Array[Dictionary] = []  # [{slot, item_id, needed}]
+var _inventory_refresh_queued: bool = false
 
 
 func _ready() -> void:
@@ -91,15 +92,17 @@ func open_menu() -> void:
 	visible = true
 	UiManager.open_ui("workbench")
 	UiManager.push_combat_block()
+	_reset_recipe_selection()
 	_connect_player_inventory()
-	_refresh_tier_requirements()
 	_populate_grid()
+	_queue_inventory_dependent_refresh()
 
 
 func close_menu() -> void:
 	if not visible:
 		return
 	_disconnect_player_inventory()
+	_reset_recipe_selection()
 	visible = false
 	UiManager.close_ui("workbench")
 	UiManager.pop_combat_block()
@@ -138,8 +141,7 @@ func _switch_tab(category: String, title: String) -> void:
 	tab_stations.button_pressed  = (category == "stations")
 	tab_tinkering.button_pressed = (category == "tinkering")
 
-	_selected_recipe = null
-	_clear_preview()
+	_reset_recipe_selection()
 	_populate_grid()
 
 
@@ -209,7 +211,7 @@ func _populate_grid() -> void:
 	for child in recipe_grid.get_children():
 		child.queue_free()
 	_slot_nodes.clear()
-	_selected_recipe = null
+	_reset_recipe_selection()
 
 	var crafting_db := get_node_or_null("/root/CraftingDB")
 	if crafting_db == null:
@@ -259,6 +261,12 @@ func _on_slot_gui_input(event: InputEvent, slot: Control) -> void:
 # ── Selección de receta ───────────────────────────────────────────────────────
 
 func _select_recipe(recipe: CraftingRecipe) -> void:
+	if recipe == null:
+		_reset_recipe_selection()
+		return
+
+	# Garantiza que el menú lea el inventario actual al momento de seleccionar.
+	_connect_player_inventory()
 	_selected_recipe = recipe
 
 	# Actualizar overlays de selección
@@ -268,8 +276,9 @@ func _select_recipe(recipe: CraftingRecipe) -> void:
 			overlay.visible = (slot.get_meta("recipe") as CraftingRecipe) == recipe
 
 	_update_result_preview(recipe)
-	_update_ingredients_panel(recipe)
-	_update_all_craft_buttons()
+	_refresh_selected_recipe_ui()
+	# Refresco diferido para cubrir cambios del inventario aplicados al final del frame.
+	_queue_inventory_dependent_refresh()
 
 
 func _update_result_preview(recipe: CraftingRecipe) -> void:
@@ -380,20 +389,52 @@ func _clear_preview() -> void:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+func _reset_recipe_selection() -> void:
+	_selected_recipe = null
+	for slot in _slot_nodes:
+		var overlay := slot.get_node_or_null("SelectedOverlay") as TextureRect
+		if overlay != null:
+			overlay.visible = false
+	_clear_preview()
+
+
+func _refresh_selected_recipe_ui() -> void:
+	if _selected_recipe != null:
+		_update_ingredients_panel(_selected_recipe)
+	_update_all_craft_buttons()
+
+
+func _queue_inventory_dependent_refresh() -> void:
+	if _inventory_refresh_queued:
+		return
+	_inventory_refresh_queued = true
+	call_deferred("_flush_inventory_dependent_refresh")
+
+
+func _flush_inventory_dependent_refresh() -> void:
+	_inventory_refresh_queued = false
+	_refresh_selected_recipe_ui()
+	_refresh_tier_requirements()
+
+
 func _connect_player_inventory() -> void:
 	var inv := _get_player_inventory()
 	if inv == _connected_inventory:
-		# Ya conectado (o ambos null) — solo refrescar panel
 		if player_panel != null and inv != null:
 			player_panel.set_inventory(inv)
+		_queue_inventory_dependent_refresh()
 		return
 	_disconnect_player_inventory()
 	_connected_inventory = inv
 	if inv == null:
+		_queue_inventory_dependent_refresh()
 		return
 	player_panel.set_inventory(inv)
 	if not inv.inventory_changed.is_connected(_on_player_inventory_changed):
 		inv.inventory_changed.connect(_on_player_inventory_changed)
+	if not inv.slot_changed.is_connected(_on_player_inventory_slot_changed):
+		inv.slot_changed.connect(_on_player_inventory_slot_changed)
+	_queue_inventory_dependent_refresh()
 
 
 func _disconnect_player_inventory() -> void:
@@ -401,14 +442,17 @@ func _disconnect_player_inventory() -> void:
 		return
 	if _connected_inventory.inventory_changed.is_connected(_on_player_inventory_changed):
 		_connected_inventory.inventory_changed.disconnect(_on_player_inventory_changed)
+	if _connected_inventory.slot_changed.is_connected(_on_player_inventory_slot_changed):
+		_connected_inventory.slot_changed.disconnect(_on_player_inventory_slot_changed)
 	_connected_inventory = null
 
 
 func _on_player_inventory_changed() -> void:
-	if _selected_recipe != null:
-		_update_ingredients_panel(_selected_recipe)
-		_update_all_craft_buttons()
-	_refresh_tier_requirements()
+	_queue_inventory_dependent_refresh()
+
+
+func _on_player_inventory_slot_changed(_slot_index: int) -> void:
+	_queue_inventory_dependent_refresh()
 
 
 func _get_player_inventory() -> InventoryComponent:
@@ -526,10 +570,7 @@ func _execute_craft(recipe: CraftingRecipe, times: int) -> bool:
 
 
 func _refresh_after_craft() -> void:
-	if _selected_recipe != null:
-		_update_ingredients_panel(_selected_recipe)
-	_update_all_craft_buttons()
-	_refresh_tier_requirements()
+	_queue_inventory_dependent_refresh()
 
 
 func _exit_tree() -> void:

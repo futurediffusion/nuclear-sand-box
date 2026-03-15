@@ -1,6 +1,11 @@
 class_name TreeWood
 extends StaticBody2D
 
+const WOOD_HIT_SOUNDS: Array[AudioStream] = [
+	preload("res://art/Sounds/wood1.ogg"),
+	preload("res://art/Sounds/wood2.ogg"),
+]
+
 # --- Textures (set in Inspector: 4 trunks + 4 leaves) ---
 @export var trunk_textures: Array[Texture2D] = []
 @export var leaves_textures: Array[Texture2D] = []
@@ -89,6 +94,11 @@ func _physics_process(delta: float) -> void:
 func hit(by: Node) -> void:
 	if _is_dead:
 		return
+
+	var hit_sfx := _pick_wood_hit_sound()
+	if hit_sfx != null:
+		AudioSystem.play_2d(hit_sfx, global_position)
+
 	_play_hit_feedback()
 	var strength := _get_hit_strength(by)
 	_hit_count += strength
@@ -130,6 +140,16 @@ func _play_hit_feedback() -> void:
 	if hit_particles:
 		hit_particles.restart()
 		hit_particles.emitting = true
+
+
+func _pick_wood_hit_sound() -> AudioStream:
+	if WOOD_HIT_SOUNDS.is_empty():
+		return null
+	return WOOD_HIT_SOUNDS[randi() % WOOD_HIT_SOUNDS.size()]
+
+
+func suppress_default_impact_sound() -> bool:
+	return true
 
 
 func _fell_tree() -> void:

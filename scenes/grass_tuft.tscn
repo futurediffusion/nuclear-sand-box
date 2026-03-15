@@ -7,8 +7,8 @@
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_grass"]
 shader = ExtResource("3_grass")
-shader_parameter/sway_speed = 2.0
-shader_parameter/sway_amount = 1.5
+shader_parameter/sway_speed = 2.8
+shader_parameter/sway_amount = 3.6
 shader_parameter/world_phase = 0.0
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_grass"]
