@@ -111,8 +111,11 @@ func _destroy() -> void:
 func _drop_internal_contents(world_node: Node, overrides: Dictionary) -> void:
 	for i in range(stored_slots.size()):
 		var slot: Dictionary = stored_slots[i]
-		var item_id := String(slot.get("item_id", ""))
-		var amount := int(slot.get("amount", 0))
+		var item_id := String(slot.get("id", ""))
+		var amount := int(slot.get("count", 0))
+		if item_id == "":
+			item_id = String(slot.get("item_id", ""))
+			amount = int(slot.get("amount", 0))
 		if item_id == "" or amount <= 0:
 			continue
 		var offset := Vector2(randf_range(-14.0, 14.0), randf_range(-8.0, 8.0))
