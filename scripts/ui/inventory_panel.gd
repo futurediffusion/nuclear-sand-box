@@ -31,6 +31,7 @@ var drag_from_count_snapshot: int = 0
 var drag_ghost: Control = null
 var drag_offset: Vector2 = Vector2(16, 16)
 var _default_drop_scene: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
+var _external_drop_handler: Callable = Callable()
 
 
 func _process(_delta: float) -> void:
@@ -101,6 +102,10 @@ func set_shop_context(vendor: VendorComponent, player_inv: InventoryComponent, m
 	_shop_player_inv = player_inv
 	_shop_mode = mode
 	_refresh()
+
+
+func set_external_drop_handler(handler: Callable) -> void:
+	_external_drop_handler = handler
 
 func _rebuild_grid() -> void:
 	if _grid == null:
@@ -461,6 +466,12 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 	print("[InventoryPanel] end_drag TARGET from=%d target=%d mouse=%s" % [from_slot, target, str(mouse)])
 
 	if target == -1:
+		if _external_drop_handler.is_valid():
+			var handled := bool(_external_drop_handler.call(from_slot, amount, mouse))
+			if handled:
+				_clear_drag_visual()
+				return
+
 		if _is_shop_click_context():
 			_clear_drag_visual()
 			return

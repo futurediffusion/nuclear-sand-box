@@ -6,13 +6,15 @@ const SLOT_SCENE: PackedScene = preload("res://scenes/ui/inventory_slot.tscn")
 @export var chest_columns: int = 5
 @export var chest_rows: int = 3
 @export var tile_size: Vector2 = Vector2(32, 32)
+@export var chest_max_slots: int = 15
+@export var chest_max_stack: int = 10
 
 @onready var chest_grid: GridContainer = $Root/Chest/Chestgrid
 @onready var player_panel: InventoryPanel = $Root/Playerbox/PlayerInventoryPanel
 
 var _chest_component: ChestWorld = null
 var _player_inv: InventoryComponent = null
-var _chest_slots: Array = []
+var _chest_inv: Dictionary = {}
 var _slot_nodes: Array[InventorySlot] = []
 
 var dragging: bool = false
@@ -67,9 +69,11 @@ func open_for_chest(chest_component: ChestWorld) -> void:
 	_chest_component = chest_component
 	_player_inv = _get_player_inventory()
 	player_panel.set_inventory(_player_inv)
+	player_panel.set_external_drop_handler(Callable(self, "_on_player_panel_drop_outside"))
 
+	_rebuild_chest_inventory_model()
 	_load_chest_slots_from_component()
-	_refresh_chest_slots()
+	_refresh_both_sides()
 
 	visible = true
 	UiManager.open_ui("chest")
@@ -84,7 +88,9 @@ func close_menu() -> void:
 	if not visible:
 		return
 	_clear_drag_visual()
-	_save_chest_slots_to_component()
+	_persist_chest_data()
+	if player_panel != null:
+		player_panel.set_external_drop_handler(Callable())
 	_chest_component = null
 	visible = false
 	UiManager.close_ui("chest")
@@ -96,9 +102,9 @@ func is_open() -> bool:
 
 
 func can_drag_slot(slot_index: int) -> bool:
-	if slot_index < 0 or slot_index >= _chest_slots.size():
+	if slot_index < 0 or slot_index >= int(_chest_inv.get("max_slots", 0)):
 		return false
-	var data = _chest_slots[slot_index]
+	var data = _chest_get_slot(slot_index)
 	if data == null:
 		return false
 	var item_id := String(data.get("id", ""))
@@ -107,31 +113,23 @@ func can_drag_slot(slot_index: int) -> bool:
 
 
 func on_slot_primary_action(slot_index: int) -> bool:
-	if slot_index < 0 or slot_index >= _chest_slots.size():
+	if slot_index < 0 or slot_index >= int(_chest_inv.get("max_slots", 0)):
 		return false
 	if _player_inv == null:
 		return false
 
-	var from_data := _chest_slots[slot_index]
-	if from_data == null:
-		return false
-	var item_id := String(from_data.get("id", ""))
-	var amount := int(from_data.get("count", 0))
-	if item_id == "" or amount <= 0:
-		return false
+	while true:
+		var remaining := _slot_count(_chest_get_slot(slot_index))
+		if remaining <= 0:
+			break
+		var moved_this_pass := false
+		for i in range(_player_inv.max_slots):
+			if _transfer_chest_to_player_slot(slot_index, i, remaining):
+				moved_this_pass = true
+				break
+		if not moved_this_pass:
+			break
 
-	var inserted := _player_inv.add_item(item_id, amount)
-	if inserted <= 0:
-		return true
-
-	amount -= inserted
-	if amount <= 0:
-		_chest_slots[slot_index] = null
-	else:
-		_chest_slots[slot_index] = {"id": item_id, "count": amount}
-
-	_save_chest_slots_to_component()
-	_refresh_chest_slot(slot_index)
 	return true
 
 
@@ -143,7 +141,7 @@ func begin_drag(slot_index: int, mouse_position: Vector2, button_index: int, shi
 	if not can_drag_slot(slot_index):
 		return
 
-	var stack = _chest_slots[slot_index]
+	var stack = _chest_get_slot(slot_index)
 	var item_id := String(stack.get("id", ""))
 	var count := int(stack.get("count", 0))
 	if item_id == "" or count <= 0:
@@ -199,7 +197,7 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 	var mouse := get_viewport().get_mouse_position()
 	var chest_target := _get_chest_slot_at_global_pos(mouse)
 	if chest_target != -1:
-		_drag_transfer_amount_chest(drag_from_slot, chest_target, drag_amount)
+		_move_inside_chest(drag_from_slot, chest_target, drag_amount)
 		_clear_drag_visual()
 		return
 
@@ -231,37 +229,45 @@ func _rebuild_chest_grid() -> void:
 		_slot_nodes.append(slot)
 
 
-func _load_chest_slots_from_component() -> void:
-	_chest_slots.clear()
-	var total := chest_columns * chest_rows
-	_chest_slots.resize(total)
-	for i in range(total):
-		_chest_slots[i] = null
+func _rebuild_chest_inventory_model() -> void:
+	var computed_slots := chest_columns * chest_rows
+	if chest_max_slots > 0:
+		computed_slots = chest_max_slots
+	_chest_inv = {
+		"max_slots": maxi(1, computed_slots),
+		"max_stack": maxi(1, chest_max_stack),
+		"slots": [],
+	}
+	(_chest_inv["slots"] as Array).resize(int(_chest_inv["max_slots"]))
+	for i in range(int(_chest_inv["max_slots"])):
+		(_chest_inv["slots"] as Array)[i] = null
 
+
+func _load_chest_slots_from_component() -> void:
 	if _chest_component == null:
 		return
 
 	var source: Array = _chest_component.stored_slots
-	for i in range(mini(source.size(), total)):
-		var raw := source[i]
-		if raw == null:
-			continue
-		var id_new := String(raw.get("id", ""))
-		var count_new := int(raw.get("count", 0))
-		if id_new == "":
-			id_new = String(raw.get("item_id", ""))
-			count_new = int(raw.get("amount", 0))
-		if id_new == "" or count_new <= 0:
-			continue
-		_chest_slots[i] = {"id": id_new, "count": count_new}
+	var slots_array := _chest_inv.get("slots", []) as Array
+	for i in range(mini(source.size(), slots_array.size())):
+		var normalized := _normalize_slot(source[i])
+		slots_array[i] = normalized
+	_chest_inv["slots"] = slots_array
 
 
-func _save_chest_slots_to_component() -> void:
+func _persist_chest_data() -> void:
 	if _chest_component == null:
 		return
-	_chest_component.stored_slots = _chest_slots.duplicate(true)
+
+	var slots_copy := (_chest_inv.get("slots", []) as Array).duplicate(true)
+	_chest_component.stored_slots = slots_copy
 	if _chest_component.has_method("sync_persistence_data"):
 		_chest_component.sync_persistence_data()
+	return
+
+
+func _refresh_both_sides() -> void:
+	_refresh_chest_slots()
 
 
 func _refresh_chest_slots() -> void:
@@ -273,7 +279,7 @@ func _refresh_chest_slot(slot_index: int) -> void:
 	if slot_index < 0 or slot_index >= _slot_nodes.size():
 		return
 	var slot := _slot_nodes[slot_index]
-	var data = _chest_slots[slot_index]
+	var data = _chest_get_slot(slot_index)
 	if data == null:
 		slot.set_empty()
 		return
@@ -285,136 +291,162 @@ func _refresh_chest_slot(slot_index: int) -> void:
 	slot.set_item(count, _get_item_icon(item_id))
 
 
-func _drag_transfer_amount_chest(from_slot: int, to_slot: int, amount: int) -> bool:
-	if from_slot < 0 or from_slot >= _chest_slots.size():
-		return false
-	if to_slot < 0 or to_slot >= _chest_slots.size():
-		return false
-	if from_slot == to_slot or amount <= 0:
-		return false
-
-	var from_stack = _chest_slots[from_slot]
-	if from_stack == null:
-		return false
-
-	var from_id := String(from_stack.get("id", ""))
-	var from_count := int(from_stack.get("count", 0))
-	if from_id == "" or from_count <= 0:
-		return false
-
-	var requested := mini(amount, from_count)
-	var to_stack = _chest_slots[to_slot]
-
-	if to_stack == null:
-		_chest_slots[to_slot] = {"id": from_id, "count": requested}
-		from_count -= requested
-		_chest_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
-		_save_chest_slots_to_component()
-		_refresh_chest_slot(from_slot)
-		_refresh_chest_slot(to_slot)
-		return true
-
-	var to_id := String(to_stack.get("id", ""))
-	var to_count := int(to_stack.get("count", 0))
-	if to_id == "" or to_count <= 0:
-		_chest_slots[to_slot] = {"id": from_id, "count": requested}
-		from_count -= requested
-		_chest_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
-		_save_chest_slots_to_component()
-		_refresh_chest_slot(from_slot)
-		_refresh_chest_slot(to_slot)
-		return true
-
-	if to_id == from_id:
-		var stack_limit := _get_stack_limit(from_id)
-		var space := stack_limit - to_count
-		var moved := mini(space, requested)
-		if moved <= 0:
-			return false
-		to_count += moved
-		from_count -= moved
-		_chest_slots[to_slot] = {"id": to_id, "count": to_count}
-		_chest_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
-		_save_chest_slots_to_component()
-		_refresh_chest_slot(from_slot)
-		_refresh_chest_slot(to_slot)
-		return true
-
-	if requested < from_count:
-		return false
-
-	_chest_slots[from_slot] = {"id": to_id, "count": to_count}
-	_chest_slots[to_slot] = {"id": from_id, "count": from_count}
-	_save_chest_slots_to_component()
-	_refresh_chest_slot(from_slot)
-	_refresh_chest_slot(to_slot)
-	return true
+func _move_inside_chest(from_slot: int, to_slot: int, amount: int) -> bool:
+	var moved := _move_between_containers(_chest_inv, from_slot, _chest_inv, to_slot, amount)
+	if moved:
+		_persist_chest_data()
+		_refresh_both_sides()
+	return moved
 
 
 func _transfer_chest_to_player_slot(from_slot: int, to_player_slot: int, amount: int) -> bool:
 	if _player_inv == null:
 		return false
-	if from_slot < 0 or from_slot >= _chest_slots.size():
+	var player_container := _as_container(_player_inv)
+	var moved := _move_between_containers(_chest_inv, from_slot, player_container, to_player_slot, amount)
+	if moved:
+		_write_back_inventory_container(_player_inv, player_container)
+		_persist_chest_data()
+		_refresh_both_sides()
+	return moved
+
+
+func _transfer_player_to_chest_slot(from_player_slot: int, to_chest_slot: int, amount: int) -> bool:
+	if _player_inv == null:
 		return false
-	if to_player_slot < 0 or to_player_slot >= _player_inv.max_slots:
+	var player_container := _as_container(_player_inv)
+	var moved := _move_between_containers(player_container, from_player_slot, _chest_inv, to_chest_slot, amount)
+	if moved:
+		_write_back_inventory_container(_player_inv, player_container)
+		_persist_chest_data()
+		_refresh_both_sides()
+	return moved
+
+
+func _move_between_containers(from_container: Dictionary, from_slot: int, to_container: Dictionary, to_slot: int, amount: int) -> bool:
+	if not _is_valid_slot(from_container, from_slot):
+		return false
+	if not _is_valid_slot(to_container, to_slot):
 		return false
 	if amount <= 0:
 		return false
+	if from_container == to_container and from_slot == to_slot:
+		return false
 
-	var from_stack = _chest_slots[from_slot]
+	var from_slots := from_container.get("slots", []) as Array
+	var to_slots := to_container.get("slots", []) as Array
+	var from_stack = _normalize_slot(from_slots[from_slot])
 	if from_stack == null:
 		return false
-	var from_id := String(from_stack.get("id", ""))
-	var from_count := int(from_stack.get("count", 0))
+
+	var from_id := _slot_id(from_stack)
+	var from_count := _slot_count(from_stack)
 	if from_id == "" or from_count <= 0:
 		return false
 
 	var requested := mini(amount, from_count)
-	var to_stack = _player_inv.slots[to_player_slot]
+	var to_stack = _normalize_slot(to_slots[to_slot])
+
 	if to_stack == null:
-		_player_inv.slots[to_player_slot] = {"id": from_id, "count": requested}
+		to_slots[to_slot] = {"id": from_id, "count": requested}
 		from_count -= requested
-		_chest_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
-		_player_inv.slot_changed.emit(to_player_slot)
-		_save_chest_slots_to_component()
-		_refresh_chest_slot(from_slot)
+		from_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
+		from_container["slots"] = from_slots
+		to_container["slots"] = to_slots
 		return true
 
-	var to_id := String(to_stack.get("id", ""))
-	var to_count := int(to_stack.get("count", 0))
+	var to_id := _slot_id(to_stack)
+	var to_count := _slot_count(to_stack)
 	if to_id == "" or to_count <= 0:
-		_player_inv.slots[to_player_slot] = {"id": from_id, "count": requested}
+		to_slots[to_slot] = {"id": from_id, "count": requested}
 		from_count -= requested
-		_chest_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
-		_player_inv.slot_changed.emit(to_player_slot)
-		_save_chest_slots_to_component()
-		_refresh_chest_slot(from_slot)
+		from_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
+		from_container["slots"] = from_slots
+		to_container["slots"] = to_slots
 		return true
 
 	if to_id == from_id:
-		var stack_limit := _get_stack_limit(from_id)
+		var stack_limit := _get_stack_limit(from_id, to_container)
 		var space := stack_limit - to_count
 		var moved := mini(space, requested)
 		if moved <= 0:
 			return false
-		to_stack["count"] = to_count + moved
-		_player_inv.slots[to_player_slot] = to_stack
+		to_slots[to_slot] = {"id": to_id, "count": to_count + moved}
 		from_count -= moved
-		_chest_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
-		_player_inv.slot_changed.emit(to_player_slot)
-		_save_chest_slots_to_component()
-		_refresh_chest_slot(from_slot)
+		from_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
+		from_container["slots"] = from_slots
+		to_container["slots"] = to_slots
 		return true
 
 	if requested < from_count:
 		return false
 
-	_player_inv.slots[to_player_slot] = {"id": from_id, "count": from_count}
-	_chest_slots[from_slot] = {"id": to_id, "count": to_count}
-	_player_inv.slot_changed.emit(to_player_slot)
-	_save_chest_slots_to_component()
-	_refresh_chest_slot(from_slot)
+	from_slots[from_slot] = {"id": to_id, "count": to_count}
+	to_slots[to_slot] = {"id": from_id, "count": from_count}
+	from_container["slots"] = from_slots
+	to_container["slots"] = to_slots
 	return true
+
+
+func _as_container(inv: InventoryComponent) -> Dictionary:
+	return {
+		"max_slots": inv.max_slots,
+		"max_stack": inv.max_stack,
+		"slots": inv.slots.duplicate(true),
+	}
+
+
+func _write_back_inventory_container(inv: InventoryComponent, container: Dictionary) -> void:
+	inv.slots = (container.get("slots", []) as Array).duplicate(true)
+	inv.inventory_changed.emit()
+	for i in range(inv.max_slots):
+		inv.slot_changed.emit(i)
+
+
+func _on_player_panel_drop_outside(from_slot: int, amount: int, mouse_global: Vector2) -> bool:
+	var chest_target := _get_chest_slot_at_global_pos(mouse_global)
+	if chest_target == -1:
+		return false
+	return _transfer_player_to_chest_slot(from_slot, chest_target, amount)
+
+
+func _normalize_slot(raw: Variant) -> Variant:
+	if raw == null:
+		return null
+	if not (raw is Dictionary):
+		return null
+	var item_id := String(raw.get("id", ""))
+	var count := int(raw.get("count", 0))
+	if item_id == "":
+		item_id = String(raw.get("item_id", ""))
+		count = int(raw.get("amount", 0))
+	if item_id == "" or count <= 0:
+		return null
+	return {"id": item_id, "count": count}
+
+
+func _slot_id(slot: Variant) -> String:
+	if slot == null:
+		return ""
+	return String((slot as Dictionary).get("id", ""))
+
+
+func _slot_count(slot: Variant) -> int:
+	if slot == null:
+		return 0
+	return int((slot as Dictionary).get("count", 0))
+
+
+func _is_valid_slot(container: Dictionary, slot_index: int) -> bool:
+	var max_slots := int(container.get("max_slots", 0))
+	return slot_index >= 0 and slot_index < max_slots
+
+
+func _chest_get_slot(slot_index: int) -> Variant:
+	var slots_array := _chest_inv.get("slots", []) as Array
+	if slot_index < 0 or slot_index >= slots_array.size():
+		return null
+	return _normalize_slot(slots_array[slot_index])
 
 
 func _get_item_icon(item_id: String) -> Texture2D:
@@ -426,13 +458,14 @@ func _get_item_icon(item_id: String) -> Texture2D:
 	return null
 
 
-func _get_stack_limit(item_id: String) -> int:
+func _get_stack_limit(item_id: String, container: Dictionary) -> int:
+	var fallback := maxi(1, int(container.get("max_stack", chest_max_stack)))
 	var item_db := get_node_or_null("/root/ItemDB")
 	if item_db == null:
-		return 10
+		return fallback
 	if item_db.has_method("get_max_stack"):
-		return maxi(1, int(item_db.get_max_stack(item_id, 10)))
-	return 10
+		return maxi(1, int(item_db.get_max_stack(item_id, fallback)))
+	return fallback
 
 
 func _get_chest_slot_at_global_pos(mouse_global: Vector2) -> int:
