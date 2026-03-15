@@ -227,14 +227,14 @@ func _spawn_placed_instance(entry: Dictionary, parent: Node) -> void:
 		push_warning("[PlacementSystem] No se pudo cargar escena: %s" % scene_path)
 		return
 	var instance := packed.instantiate()
+	# Asignar UID antes de add_child para que _ready() (ej: chest) cargue persistencia correcta.
+	if "placed_uid" in instance:
+		instance.placed_uid = String(entry.get("uid", ""))
 	parent.add_child(instance)
 	if instance is Node2D:
 		var tx: int = int(entry.get("tile_pos_x", 0))
 		var ty: int = int(entry.get("tile_pos_y", 0))
 		(instance as Node2D).position = Vector2(tx * TILE_SIZE, ty * TILE_SIZE)
-	# Asignar UID para que el nodo pueda auto-eliminarse de WorldSave al destruirse
-	if instance.has_method("get") and "placed_uid" in instance:
-		instance.placed_uid = String(entry.get("uid", ""))
 	if instance.has_method("load_persisted_data"):
 		instance.call("load_persisted_data")
 

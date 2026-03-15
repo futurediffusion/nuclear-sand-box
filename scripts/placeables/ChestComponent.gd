@@ -44,7 +44,16 @@ func _ready() -> void:
 
 	chest_area.body_entered.connect(_on_body_entered)
 	chest_area.body_exited.connect(_on_body_exited)
-	load_persisted_data()
+	if placed_uid == "":
+		stored_slots.clear()
+		return
+
+	var persisted := WorldSave.get_placed_entity_data(placed_uid)
+	if persisted.is_empty():
+		stored_slots.clear()
+		sync_persistence_data()
+		return
+	apply_persistence_data(persisted)
 
 
 func _physics_process(delta: float) -> void:
@@ -208,8 +217,11 @@ func sync_persistence_data() -> void:
 
 func load_persisted_data() -> void:
 	if placed_uid == "":
+		stored_slots.clear()
 		return
 	var persisted := WorldSave.get_placed_entity_data(placed_uid)
 	if persisted.is_empty():
+		stored_slots.clear()
+		sync_persistence_data()
 		return
 	apply_persistence_data(persisted)
