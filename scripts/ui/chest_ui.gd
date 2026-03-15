@@ -147,11 +147,17 @@ func on_slot_primary_action(slot_index: int, _shift_pressed: bool = false) -> bo
 		return false
 
 	while true:
-		var remaining := _slot_count(_chest_get_slot(slot_index))
+		var source_stack = _normalize_slot(_chest_get_slot(slot_index))
+		var remaining := _slot_count(source_stack)
 		if remaining <= 0:
+			break
+		var source_item_id := _slot_id(source_stack)
+		if source_item_id == "":
 			break
 		var moved_this_pass := false
 		for i in range(_player_inv.max_slots):
+			if not _can_auto_transfer_to_inventory_slot(source_item_id, i):
+				continue
 			if _transfer_chest_to_player_slot(slot_index, i, remaining):
 				moved_this_pass = true
 				break
@@ -378,7 +384,10 @@ func _move_between_containers(from_container: Dictionary, from_slot: int, to_con
 	if to_stack == null:
 		to_slots[to_slot] = {"id": from_id, "count": requested}
 		from_count -= requested
-		from_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
+		if from_count <= 0:
+			from_slots[from_slot] = null
+		else:
+			from_slots[from_slot] = {"id": from_id, "count": from_count}
 		from_container["slots"] = from_slots
 		to_container["slots"] = to_slots
 		return true
@@ -388,7 +397,10 @@ func _move_between_containers(from_container: Dictionary, from_slot: int, to_con
 	if to_id == "" or to_count <= 0:
 		to_slots[to_slot] = {"id": from_id, "count": requested}
 		from_count -= requested
-		from_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
+		if from_count <= 0:
+			from_slots[from_slot] = null
+		else:
+			from_slots[from_slot] = {"id": from_id, "count": from_count}
 		from_container["slots"] = from_slots
 		to_container["slots"] = to_slots
 		return true
@@ -401,7 +413,10 @@ func _move_between_containers(from_container: Dictionary, from_slot: int, to_con
 			return false
 		to_slots[to_slot] = {"id": to_id, "count": to_count + moved}
 		from_count -= moved
-		from_slots[from_slot] = null if from_count <= 0 else {"id": from_id, "count": from_count}
+		if from_count <= 0:
+			from_slots[from_slot] = null
+		else:
+			from_slots[from_slot] = {"id": from_id, "count": from_count}
 		from_container["slots"] = from_slots
 		to_container["slots"] = to_slots
 		return true
@@ -445,16 +460,18 @@ func _on_player_panel_quick_transfer(from_player_slot: int) -> bool:
 		return false
 
 	while true:
-		var stack = _player_inv.slots[from_player_slot]
-		if stack == null:
+		var source_stack = _normalize_slot(_player_inv.slots[from_player_slot])
+		if source_stack == null:
 			break
-		var item_id := String(stack.get("id", ""))
-		var remaining := int(stack.get("count", 0))
+		var item_id := _slot_id(source_stack)
+		var remaining := _slot_count(source_stack)
 		if item_id == "" or remaining <= 0:
 			break
 
 		var moved_this_pass := false
 		for chest_slot in range(int(_chest_inv.get("max_slots", 0))):
+			if not _can_auto_transfer_to_chest_slot(item_id, chest_slot):
+				continue
 			if _transfer_player_to_chest_slot(from_player_slot, chest_slot, remaining):
 				moved_this_pass = true
 				break
@@ -466,6 +483,32 @@ func _on_player_panel_quick_transfer(from_player_slot: int) -> bool:
 		return true
 	var final_count := int((final_stack as Dictionary).get("count", 0))
 	return final_count <= 0
+
+
+func _can_auto_transfer_to_inventory_slot(item_id: String, target_slot: int) -> bool:
+	if _player_inv == null:
+		return false
+	if target_slot < 0 or target_slot >= _player_inv.max_slots:
+		return false
+	var target_stack = _normalize_slot(_player_inv.slots[target_slot])
+	if target_stack == null:
+		return true
+	if _slot_id(target_stack) != item_id:
+		return false
+	var stack_limit := _get_stack_limit(item_id, _as_container(_player_inv))
+	return _slot_count(target_stack) < stack_limit
+
+
+func _can_auto_transfer_to_chest_slot(item_id: String, target_slot: int) -> bool:
+	if target_slot < 0 or target_slot >= int(_chest_inv.get("max_slots", 0)):
+		return false
+	var target_stack = _normalize_slot(_chest_get_slot(target_slot))
+	if target_stack == null:
+		return true
+	if _slot_id(target_stack) != item_id:
+		return false
+	var stack_limit := _get_stack_limit(item_id, _chest_inv)
+	return _slot_count(target_stack) < stack_limit
 
 
 func _normalize_slot(raw: Variant) -> Variant:
