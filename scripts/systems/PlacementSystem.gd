@@ -13,6 +13,7 @@ const GHOST_SCENE: PackedScene = preload("res://scenes/placement_ghost.tscn")
 ## Registry: item_id -> scene_path del objeto a instanciar en mundo.
 const PLACEABLE_SCENES: Dictionary = {
 	"workbench": "res://scenes/placeables/workbench_world.tscn",
+	"chest": "res://scenes/placeables/chest_world.tscn",
 }
 
 var _active:       bool   = false
