@@ -41,6 +41,7 @@ var _shake_t: float = 0.0
 var _flash_t: float = 0.0
 
 var entity_uid: String = ""
+var _hit_accumulator: int = 0
 
 func _ready() -> void:
 	if remaining < 0:
@@ -72,14 +73,26 @@ func _physics_process(delta: float) -> void:
 
 func hit(by: Node) -> void:
 	_play_hit_feedback()
+	if hit_particles:
+		hit_particles.restart()
+		hit_particles.emitting = true
 
 	if remaining <= 0:
 		Debug.log("stone", "agotado")
 		return
 
+	var interval := _get_stone_interval(by)
+	_hit_accumulator += 1
+
+	if use_systems:
+		AudioSystem.play_2d(get_hit_sound(), global_position)
+
+	if _hit_accumulator < interval:
+		return
+	_hit_accumulator = 0
+
 	var amount := int(round(yield_per_hit * yield_multiplier))
 	amount = clampi(amount, 1, remaining)
-
 	remaining -= amount
 
 	var resolved_item_id := give_item_id
@@ -92,7 +105,6 @@ func hit(by: Node) -> void:
 
 	if use_systems:
 		_spawn_drop(amount)
-		AudioSystem.play_2d(get_hit_sound(), global_position)
 	else:
 		_spawn_drop_legacy(amount)
 
@@ -101,9 +113,23 @@ func hit(by: Node) -> void:
 	if remaining <= 0:
 		ore_depleted.emit(origin)
 
-	if hit_particles:
-		hit_particles.restart()
-		hit_particles.emitting = true
+
+func _get_stone_interval(by: Node) -> int:
+	match _get_weapon_id(by):
+		"ironpipe":       return 5
+		"pickaxe_wood":   return 4
+		"pickaxe_stone":  return 3
+		"pickaxe_copper": return 1
+		_:                return 5
+
+
+func _get_weapon_id(by: Node) -> String:
+	if by == null:
+		return ""
+	var wc := by.get_node_or_null("WeaponComponent")
+	if wc == null or not wc.has_method("get_current_weapon_id"):
+		return ""
+	return String(wc.call("get_current_weapon_id"))
 
 
 func _play_hit_feedback() -> void:

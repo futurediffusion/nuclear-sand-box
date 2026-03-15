@@ -30,7 +30,7 @@ var entity_cx: int = 0
 var entity_cy: int = 0
 
 # --- Runtime state ---
-var _hit_count: int = 0
+var _hit_count: float = 0.0
 var _is_dead: bool = false
 var _base_pos: Vector2
 var _shake_t: float = 0.0
@@ -90,10 +90,36 @@ func hit(by: Node) -> void:
 	if _is_dead:
 		return
 	_play_hit_feedback()
-	_hit_count += 1
-	Debug.log("tree", "hit %d/%d uid=%s" % [_hit_count, max_hits, entity_uid])
+	var strength := _get_hit_strength(by)
+	_hit_count += strength
+	Debug.log("tree", "hit %.1f/%d uid=%s" % [_hit_count, max_hits, entity_uid])
 	if _hit_count >= max_hits:
 		_fell_tree()
+	else:
+		_maybe_drop_stick()
+
+
+func _get_hit_strength(by: Node) -> float:
+	if by == null:
+		return 1.0
+	var wc := by.get_node_or_null("WeaponComponent")
+	if wc == null or not wc.has_method("get_current_weapon_id"):
+		return 1.0
+	match String(wc.call("get_current_weapon_id")):
+		"axe_wood":   return float(max_hits) / 6.0
+		"axe_stone":  return float(max_hits) / 4.0
+		"axe_copper": return float(max_hits) / 2.0
+		_:            return 1.0
+
+
+func _maybe_drop_stick() -> void:
+	if drop_scene == null:
+		return
+	if randf() >= 0.5:
+		return
+	var amount := 2 if randf() < 0.3 else 1
+	var origin := global_position + Vector2(0.0, -16.0)
+	LootSystem.spawn_drop(null, "stick", amount, origin, get_parent(), {"drop_scene": drop_scene}, entity_uid + "_stick_%d" % randi())
 
 
 func _play_hit_feedback() -> void:

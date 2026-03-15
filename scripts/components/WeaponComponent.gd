@@ -32,6 +32,60 @@ const VISUALS := {
 		"slash_spawn_pos": Vector2(18, 0),
 		"scale": Vector2(0.5, 0.5),
 	},
+	"axe_wood": {
+		"sprite_path": "res://art/tools/axe-wood.png",
+		"weapon_sprite_offset": Vector2(10, -2),
+		"slash_spawn_pos": Vector2(18, 0),
+		"scale": Vector2(0.6, 0.6),
+	},
+	"axe_stone": {
+		"sprite_path": "res://art/tools/axe-stone.png",
+		"weapon_sprite_offset": Vector2(10, -2),
+		"slash_spawn_pos": Vector2(18, 0),
+		"scale": Vector2(0.6, 0.6),
+	},
+	"axe_copper": {
+		"sprite_path": "res://art/tools/axe-copper.png",
+		"weapon_sprite_offset": Vector2(10, -2),
+		"slash_spawn_pos": Vector2(18, 0),
+		"scale": Vector2(0.6, 0.6),
+	},
+	"sword_wood": {
+		"sprite_path": "res://art/weapons/sword-wood.png",
+		"weapon_sprite_offset": Vector2(12, -1),
+		"slash_spawn_pos": Vector2(20, 0),
+		"scale": Vector2(0.6, 0.6),
+	},
+	"sword_stone": {
+		"sprite_path": "res://art/weapons/sword-stone.png",
+		"weapon_sprite_offset": Vector2(12, -1),
+		"slash_spawn_pos": Vector2(20, 0),
+		"scale": Vector2(0.6, 0.6),
+	},
+	"sword_copper": {
+		"sprite_path": "res://art/weapons/sword-copper.png",
+		"weapon_sprite_offset": Vector2(12, -1),
+		"slash_spawn_pos": Vector2(20, 0),
+		"scale": Vector2(0.6, 0.6),
+	},
+	"pickaxe_wood": {
+		"sprite_path": "res://art/tools/axe-wood.png",
+		"weapon_sprite_offset": Vector2(10, -2),
+		"slash_spawn_pos": Vector2(18, 0),
+		"scale": Vector2(0.6, 0.6),
+	},
+	"pickaxe_stone": {
+		"sprite_path": "res://art/tools/axe-stone.png",
+		"weapon_sprite_offset": Vector2(10, -2),
+		"slash_spawn_pos": Vector2(18, 0),
+		"scale": Vector2(0.6, 0.6),
+	},
+	"pickaxe_copper": {
+		"sprite_path": "res://art/tools/axe-copper.png",
+		"weapon_sprite_offset": Vector2(10, -2),
+		"slash_spawn_pos": Vector2(18, 0),
+		"scale": Vector2(0.6, 0.6),
+	},
 }
 
 func setup_from_inventory(inventory: InventoryComponent) -> void:
@@ -225,6 +279,51 @@ func _make_weapon_node(weapon_id: String) -> WeaponBase:
 			return IronPipeWeapon.new()
 		"bow":
 			return BowWeapon.new()
+		"axe_wood":
+			var w := MeleeWeapon.new()
+			w.attack_cooldown = 0.35
+			w.damage_bonus = 0
+			return w
+		"axe_stone":
+			var w := MeleeWeapon.new()
+			w.attack_cooldown = 0.35
+			w.damage_bonus = 1
+			return w
+		"axe_copper":
+			var w := MeleeWeapon.new()
+			w.attack_cooldown = 0.35
+			w.damage_bonus = 2
+			return w
+		"sword_wood":
+			var w := MeleeWeapon.new()
+			w.attack_cooldown = 0.20
+			w.damage_bonus = 1
+			return w
+		"sword_stone":
+			var w := MeleeWeapon.new()
+			w.attack_cooldown = 0.20
+			w.damage_bonus = 2
+			return w
+		"sword_copper":
+			var w := MeleeWeapon.new()
+			w.attack_cooldown = 0.20
+			w.damage_bonus = 3
+			return w
+		"pickaxe_wood":
+			var w := MeleeWeapon.new()
+			w.attack_cooldown = 0.25
+			w.damage_bonus = 0
+			return w
+		"pickaxe_stone":
+			var w := MeleeWeapon.new()
+			w.attack_cooldown = 0.25
+			w.damage_bonus = 0
+			return w
+		"pickaxe_copper":
+			var w := MeleeWeapon.new()
+			w.attack_cooldown = 0.25
+			w.damage_bonus = 0
+			return w
 		_:
 			return IronPipeWeapon.new()
 

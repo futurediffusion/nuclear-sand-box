@@ -584,4 +584,8 @@ func _build_default_offers() -> Array[VendorOffer]:
 	stone_offer.mode = VendorOfferScript.OfferMode.STOCKED
 	stone_offer.base_stock = shop_stone_stock
 
-	return [bandage_offer, copper_offer, stone_offer, bow_offer, arrow_offer, ironpipe_offer]
+	var book_offer := VendorOfferScript.new()
+	book_offer.item_id = "book"
+	book_offer.mode = VendorOfferScript.OfferMode.INFINITE
+
+	return [bandage_offer, copper_offer, stone_offer, bow_offer, arrow_offer, ironpipe_offer, book_offer]

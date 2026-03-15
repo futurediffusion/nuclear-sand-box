@@ -1,6 +1,8 @@
 class_name GrassTuft
 extends Area2D
 
+const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
+
 # --- Atlas config ---
 ## Textura del sheet de grass (3 filas x 6 columnas, 16 px por celda)
 @export var grass_sheet: Texture2D
@@ -75,6 +77,10 @@ func hit(_by: Node) -> void:
 	if hit_particles:
 		hit_particles.restart()
 		hit_particles.emitting = true
+
+	# Drop fiber
+	var fiber_amount := 2 if randf() < 0.3 else 1
+	LootSystem.spawn_drop(null, "fiber", fiber_amount, global_position, get_parent(), {"drop_scene": ITEM_DROP_SCENE}, entity_uid + "_fiber")
 
 	# Persistir muerte
 	WorldSave.set_entity_state(entity_cx, entity_cy, entity_uid, {"dead": true})
