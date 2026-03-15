@@ -212,7 +212,11 @@ func get_persistence_data() -> Dictionary:
 
 
 func apply_persistence_data(data: Dictionary) -> void:
-	stored_slots = (data.get("stored_slots", []) as Array).duplicate(true)
+	stored_slots.clear()
+	var persisted_slots := data.get("stored_slots", []) as Array
+	for slot in persisted_slots:
+		if slot is Dictionary:
+			stored_slots.append((slot as Dictionary).duplicate(true))
 	_hit_count = int(data.get("hit_count", 0))
 	sync_persistence_data()
 
