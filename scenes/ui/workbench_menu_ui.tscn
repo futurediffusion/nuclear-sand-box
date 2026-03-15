@@ -118,6 +118,7 @@ texture_pressed = ExtResource("4_15ngp")
 texture_hover = ExtResource("3_wkdt5")
 
 [node name="TextureRect" type="TextureRect" parent="Root/Tabs/TabTools"]
+layout_mode = 0
 offset_left = 21.602
 offset_top = 34.229
 offset_right = 61.602
@@ -137,6 +138,7 @@ texture_pressed = ExtResource("4_15ngp")
 texture_hover = ExtResource("3_wkdt5")
 
 [node name="TextureRect" type="TextureRect" parent="Root/Tabs/TabStations"]
+layout_mode = 0
 offset_left = 31.746
 offset_top = 3.17461
 offset_right = 71.746
@@ -155,6 +157,7 @@ texture_pressed = ExtResource("4_15ngp")
 texture_hover = ExtResource("3_wkdt5")
 
 [node name="TextureRect" type="TextureRect" parent="Root/Tabs/TabTinkering"]
+layout_mode = 0
 offset_left = 21.602
 offset_top = 34.229
 offset_right = 61.602

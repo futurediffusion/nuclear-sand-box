@@ -69,19 +69,19 @@ const VISUALS := {
 		"scale": Vector2(0.6, 0.6),
 	},
 	"pickaxe_wood": {
-		"sprite_path": "res://art/tools/axe-wood.png",
+		"sprite_path": "res://art/tools/pickaxe-wood.png",
 		"weapon_sprite_offset": Vector2(10, -2),
 		"slash_spawn_pos": Vector2(18, 0),
 		"scale": Vector2(0.6, 0.6),
 	},
 	"pickaxe_stone": {
-		"sprite_path": "res://art/tools/axe-stone.png",
+		"sprite_path": "res://art/tools/pickaxe-stone.png",
 		"weapon_sprite_offset": Vector2(10, -2),
 		"slash_spawn_pos": Vector2(18, 0),
 		"scale": Vector2(0.6, 0.6),
 	},
 	"pickaxe_copper": {
-		"sprite_path": "res://art/tools/axe-copper.png",
+		"sprite_path": "res://art/tools/pickaxe-copper.png",
 		"weapon_sprite_offset": Vector2(10, -2),
 		"slash_spawn_pos": Vector2(18, 0),
 		"scale": Vector2(0.6, 0.6),

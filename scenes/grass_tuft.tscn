@@ -1,8 +1,9 @@
-[gd_scene load_steps=7 format=3 uid="uid://diwmok7u7m525"]
+[gd_scene load_steps=8 format=3 uid="uid://diwmok7u7m525"]
 
 [ext_resource type="Script" uid="uid://d1020o1m2vdvl" path="res://scripts/resources/grass_tuft.gd" id="1_grass"]
 [ext_resource type="Texture2D" uid="uid://befgem3bky132" path="res://art/props/grass/grasstufst.png" id="2_grass"]
 [ext_resource type="Shader" uid="uid://bv6apvqus1dab" path="res://art/shaders/leaves_sway.gdshader" id="3_grass"]
+[ext_resource type="AudioStream" uid="uid://jx4hpt8c2vlu" path="res://art/Sounds/grassdestroy.ogg" id="3_qpfrt"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_grass"]
 shader = ExtResource("3_grass")
@@ -22,7 +23,8 @@ spread = 80.0
 initial_velocity_min = 5.0
 initial_velocity_max = 40.0
 gravity = Vector3(0, 300, 0)
-scale_max = 1.5
+scale_min = 2.0
+scale_max = 3.5
 color = Color(4.69275e-07, 0.404452, 0.165354, 1)
 
 [node name="GrassTuft" type="Area2D"]
@@ -30,6 +32,7 @@ collision_layer = 8
 collision_mask = 0
 script = ExtResource("1_grass")
 grass_sheet = ExtResource("2_grass")
+hit_sfx = ExtResource("3_qpfrt")
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 material = SubResource("ShaderMaterial_grass")

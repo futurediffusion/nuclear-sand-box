@@ -18,6 +18,8 @@ const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 
 @onready var sprite: Sprite2D = $Sprite2D
 @onready var hit_particles: GPUParticles2D = $HitParticles
+# .. audio
+@export var hit_sfx: AudioStream
 
 # --- Persistent identity ---
 var entity_uid: String = ""
@@ -70,6 +72,10 @@ func _physics_process(delta: float) -> void:
 func hit(_by: Node) -> void:
 	if _is_dead:
 		return
+
+	if hit_sfx != null:
+		AudioSystem.play_2d(hit_sfx, global_position)
+
 	_is_dead = true
 	sprite.visible = false
 	$CollisionShape2D.set_deferred("disabled", true)
@@ -78,11 +84,9 @@ func hit(_by: Node) -> void:
 		hit_particles.restart()
 		hit_particles.emitting = true
 
-	# Drop fiber
 	var fiber_amount := 2 if randf() < 0.3 else 1
 	LootSystem.spawn_drop(null, "fiber", fiber_amount, global_position, get_parent(), {"drop_scene": ITEM_DROP_SCENE}, entity_uid + "_fiber")
 
-	# Persistir muerte
 	WorldSave.set_entity_state(entity_cx, entity_cy, entity_uid, {"dead": true})
 	Debug.log("grass", "cut uid=%s" % entity_uid)
 	get_tree().create_timer(0.5).timeout.connect(queue_free)
