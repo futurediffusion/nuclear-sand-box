@@ -1,11 +1,192 @@
-extends Node2D
+extends StaticBody2D
+class_name ChestWorld
+
+const MAX_HITS: int = 4
+const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
+const CLOSED_TEXTURE: Texture2D = preload("res://art/sprites/chestclosed.png")
+const OPEN_TEXTURE: Texture2D = preload("res://art/sprites/chestopen.png")
+
+const SHAKE_DURATION: float = 0.08
+const SHAKE_PX: float = 6.0
+const SHAKE_SPEED: float = 40.0
+const HIT_FLASH_TIME: float = 0.06
+
+@onready var chest_area: Area2D = $chestarea
+@onready var chest_sprite: Sprite2D = $chestsprite
+@onready var interact_icon: Sprite2D = $Sprite2D2
+
+var _player_inside: bool = false
+var _ui_open: bool = false
+var _hit_count: int = 0
+var _shake_t: float = 0.0
+var _flash_t: float = 0.0
+var _base_sprite_pos: Vector2
+
+## UID asignado cuando se coloca via PlacementSystem (para WorldSave).
+var placed_uid: String = ""
+
+## Hooks de persistencia por UID (contenido interno serializable).
+var stored_slots: Array[Dictionary] = []
 
 
-# Called when the node enters the scene tree for the first time.
 func _ready() -> void:
-	pass # Replace with function body.
+	add_to_group("interactable")
+	add_to_group("chest")
+	interact_icon.visible = false
+	_base_sprite_pos = chest_sprite.position
+	_set_open_visual(false)
+
+	collision_layer = CollisionLayers.WORLD_WALL_LAYER_MASK | CollisionLayers.RESOURCES_LAYER_MASK
+	collision_mask = 0
+
+	chest_area.collision_layer = CollisionLayers.RESOURCES_LAYER_MASK
+	chest_area.collision_mask = 1
+
+	chest_area.body_entered.connect(_on_body_entered)
+	chest_area.body_exited.connect(_on_body_exited)
 
 
-# Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta: float) -> void:
-	pass
+func _physics_process(delta: float) -> void:
+	if _shake_t > 0.0:
+		_shake_t -= delta
+		var off: float = sin((SHAKE_DURATION - _shake_t) * SHAKE_SPEED) * SHAKE_PX
+		chest_sprite.position = _base_sprite_pos + Vector2(off, 0.0)
+		if _shake_t <= 0.0:
+			chest_sprite.position = _base_sprite_pos
+
+	if _flash_t > 0.0:
+		_flash_t -= delta
+		if _flash_t <= 0.0:
+			chest_sprite.modulate = Color.WHITE
+
+
+func _input(event: InputEvent) -> void:
+	if not _player_inside:
+		return
+	if UiManager.is_interact_blocked():
+		return
+	if not event.is_action_pressed("interact"):
+		return
+
+	if _ui_open:
+		_close_ui()
+	else:
+		_open_ui()
+
+	UiManager.block_interact_for(150)
+	get_viewport().set_input_as_handled()
+
+
+func hit(_by: Node) -> void:
+	_hit_count += 1
+	_play_hit_feedback()
+	if _hit_count >= MAX_HITS:
+		_destroy()
+
+
+func _play_hit_feedback() -> void:
+	_shake_t = SHAKE_DURATION
+	_flash_t = HIT_FLASH_TIME
+	chest_sprite.modulate = Color(0.8, 0.8, 0.8, 1.0)
+
+
+func _destroy() -> void:
+	if _ui_open:
+		_close_ui()
+
+	var world_node := get_parent()
+	if world_node == null:
+		world_node = get_tree().current_scene
+
+	var overrides := {"drop_scene": ITEM_DROP_SCENE}
+	LootSystem.spawn_drop(null, "chest", 1, global_position, world_node, overrides)
+	_drop_internal_contents(world_node, overrides)
+
+	if placed_uid != "":
+		PlacementSystem.remove_placed_entity(placed_uid)
+
+	queue_free()
+
+
+func _drop_internal_contents(world_node: Node, overrides: Dictionary) -> void:
+	for i in range(stored_slots.size()):
+		var slot: Dictionary = stored_slots[i]
+		var item_id := String(slot.get("item_id", ""))
+		var amount := int(slot.get("amount", 0))
+		if item_id == "" or amount <= 0:
+			continue
+		var offset := Vector2(randf_range(-14.0, 14.0), randf_range(-8.0, 8.0))
+		LootSystem.spawn_drop(null, item_id, amount, global_position + offset, world_node, overrides)
+	stored_slots.clear()
+
+
+func _on_body_entered(body: Node) -> void:
+	if not body.is_in_group("player"):
+		return
+	_player_inside = true
+	interact_icon.visible = true
+
+
+func _on_body_exited(body: Node) -> void:
+	if not body.is_in_group("player"):
+		return
+	_player_inside = false
+	interact_icon.visible = false
+	if _ui_open:
+		_close_ui()
+
+
+func _open_ui() -> void:
+	var ui := _get_chest_ui()
+	if ui == null:
+		return
+	if ui.has_method("open_menu"):
+		ui.call("open_menu", self)
+	else:
+		ui.visible = true
+		UiManager.open_ui("chest")
+		UiManager.push_combat_block()
+	_ui_open = true
+	_set_open_visual(true)
+
+
+func _close_ui() -> void:
+	var ui := _get_chest_ui()
+	if ui != null:
+		if ui.has_method("close_menu"):
+			ui.call("close_menu")
+		else:
+			ui.visible = false
+			UiManager.close_ui("chest")
+			UiManager.pop_combat_block()
+	_ui_open = false
+	_set_open_visual(false)
+
+
+func _set_open_visual(is_open: bool) -> void:
+	chest_sprite.texture = OPEN_TEXTURE if is_open else CLOSED_TEXTURE
+
+
+func _get_chest_ui() -> CanvasLayer:
+	var scene := get_tree().current_scene
+	if scene != null:
+		var by_path := scene.get_node_or_null("UI/ChestUi") as CanvasLayer
+		if by_path != null:
+			return by_path
+	for node in get_tree().get_nodes_in_group("chest_ui"):
+		if node is CanvasLayer:
+			return node as CanvasLayer
+	return null
+
+
+func get_persistence_data() -> Dictionary:
+	return {
+		"uid": placed_uid,
+		"stored_slots": stored_slots.duplicate(true),
+		"hit_count": _hit_count,
+	}
+
+
+func apply_persistence_data(data: Dictionary) -> void:
+	stored_slots = (data.get("stored_slots", []) as Array).duplicate(true)
+	_hit_count = int(data.get("hit_count", 0))
