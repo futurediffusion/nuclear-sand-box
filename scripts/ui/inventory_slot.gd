@@ -192,7 +192,7 @@ func _start_drag() -> void:
 
 
 func _finish_drag() -> void:
-	if slot_index < 0 or not _can_drag_current_slot():
+	if slot_index < 0:
 		return
 	var mouse_position := get_global_mouse_position()
 	var menu := _find_inventory_menu()

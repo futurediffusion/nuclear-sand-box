@@ -183,6 +183,14 @@ func _set_open_visual(is_open: bool) -> void:
 	chest_sprite.texture = OPEN_TEXTURE if is_open else CLOSED_TEXTURE
 
 
+func on_ui_closed_from_ui_layer() -> void:
+	if not _ui_open:
+		return
+	_ui_open = false
+	_set_open_visual(false)
+	sync_persistence_data()
+
+
 func _get_chest_ui() -> CanvasLayer:
 	var scene := get_tree().current_scene
 	if scene != null:
