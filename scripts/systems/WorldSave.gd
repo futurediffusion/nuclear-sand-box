@@ -15,6 +15,7 @@ func chunk_key(cx: int, cy: int) -> String:
 
 ## Entidades colocadas manualmente por el player en mundo (mesas, etc.)
 var placed_entities: Array[Dictionary] = []
+var placed_entity_data_by_uid: Dictionary = {}  # uid(String) -> data(Dictionary)
 
 func add_placed_entity(entry: Dictionary) -> void:
 	placed_entities.append(entry.duplicate(true))
@@ -23,10 +24,34 @@ func remove_placed_entity(uid: String) -> void:
 	for i in range(placed_entities.size() - 1, -1, -1):
 		if String(placed_entities[i].get("uid", "")) == uid:
 			placed_entities.remove_at(i)
+			erase_placed_entity_data(uid)
 			return
 
 func clear_placed_entities() -> void:
 	placed_entities.clear()
+
+
+func set_placed_entity_data(uid: String, data: Dictionary) -> void:
+	if uid == "":
+		return
+	placed_entity_data_by_uid[uid] = data.duplicate(true)
+
+
+func get_placed_entity_data(uid: String) -> Dictionary:
+	if uid == "":
+		return {}
+	if not placed_entity_data_by_uid.has(uid):
+		return {}
+	var data = placed_entity_data_by_uid.get(uid, {})
+	if data is Dictionary:
+		return (data as Dictionary).duplicate(true)
+	return {}
+
+
+func erase_placed_entity_data(uid: String) -> void:
+	if uid == "":
+		return
+	placed_entity_data_by_uid.erase(uid)
 
 
 func get_chunk_save(cx: int, cy: int) -> Dictionary:
