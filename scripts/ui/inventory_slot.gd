@@ -88,7 +88,7 @@ func _click_action() -> void:
 	if slot_index < 0:
 		return
 	if _inventory_ui != null and is_instance_valid(_inventory_ui) and _inventory_ui.has_method("on_slot_primary_action"):
-		var handled := bool(_inventory_ui.call("on_slot_primary_action", slot_index))
+		var handled := bool(_inventory_ui.call("on_slot_primary_action", slot_index, press_shift))
 		if not handled and _inventory_ui.has_method("should_show_not_usable_feedback"):
 			var show_feedback := bool(_inventory_ui.call("should_show_not_usable_feedback", slot_index))
 			if show_feedback:

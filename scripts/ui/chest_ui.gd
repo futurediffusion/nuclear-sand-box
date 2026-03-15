@@ -77,6 +77,7 @@ func open_for_chest(chest_component: ChestWorld) -> void:
 	_player_inv = _get_player_inventory()
 	player_panel.set_inventory(_player_inv)
 	player_panel.set_external_drop_handler(Callable(self, "_on_player_panel_drop_outside"))
+	player_panel.set_external_quick_transfer_handler(Callable(self, "_on_player_panel_quick_transfer"))
 
 	_rebuild_chest_inventory_model()
 	_load_chest_slots_from_component()
@@ -98,6 +99,7 @@ func close_menu() -> void:
 		if player_panel.has_method("cancel_drag"):
 			player_panel.cancel_drag()
 		player_panel.set_external_drop_handler(Callable())
+		player_panel.set_external_quick_transfer_handler(Callable())
 
 	if _chest_component != null and _chest_component.has_method("on_ui_closed_from_ui_layer"):
 		_chest_component.on_ui_closed_from_ui_layer()
@@ -118,6 +120,7 @@ func _handoff_current_chest() -> void:
 		if player_panel.has_method("cancel_drag"):
 			player_panel.cancel_drag()
 		player_panel.set_external_drop_handler(Callable())
+		player_panel.set_external_quick_transfer_handler(Callable())
 	_persist_chest_data()
 	if _chest_component.has_method("on_ui_closed_from_ui_layer"):
 		_chest_component.on_ui_closed_from_ui_layer()
@@ -137,7 +140,7 @@ func can_drag_slot(slot_index: int) -> bool:
 	return item_id != "" and amount > 0
 
 
-func on_slot_primary_action(slot_index: int) -> bool:
+func on_slot_primary_action(slot_index: int, _shift_pressed: bool = false) -> bool:
 	if slot_index < 0 or slot_index >= int(_chest_inv.get("max_slots", 0)):
 		return false
 	if _player_inv == null:
@@ -433,6 +436,36 @@ func _on_player_panel_drop_outside(from_slot: int, amount: int, mouse_global: Ve
 	if chest_target == -1:
 		return false
 	return _transfer_player_to_chest_slot(from_slot, chest_target, amount)
+
+
+func _on_player_panel_quick_transfer(from_player_slot: int) -> bool:
+	if _player_inv == null:
+		return false
+	if from_player_slot < 0 or from_player_slot >= _player_inv.max_slots:
+		return false
+
+	while true:
+		var stack = _player_inv.slots[from_player_slot]
+		if stack == null:
+			break
+		var item_id := String(stack.get("id", ""))
+		var remaining := int(stack.get("count", 0))
+		if item_id == "" or remaining <= 0:
+			break
+
+		var moved_this_pass := false
+		for chest_slot in range(int(_chest_inv.get("max_slots", 0))):
+			if _transfer_player_to_chest_slot(from_player_slot, chest_slot, remaining):
+				moved_this_pass = true
+				break
+		if not moved_this_pass:
+			break
+
+	var final_stack = _player_inv.slots[from_player_slot]
+	if final_stack == null:
+		return true
+	var final_count := int((final_stack as Dictionary).get("count", 0))
+	return final_count <= 0
 
 
 func _normalize_slot(raw: Variant) -> Variant:
