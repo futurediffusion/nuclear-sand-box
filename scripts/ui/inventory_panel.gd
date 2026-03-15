@@ -32,6 +32,7 @@ var drag_ghost: Control = null
 var drag_offset: Vector2 = Vector2(16, 16)
 var _default_drop_scene: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 var _external_drop_handler: Callable = Callable()
+var _external_quick_transfer_handler: Callable = Callable()
 
 
 func _process(_delta: float) -> void:
@@ -106,6 +107,10 @@ func set_shop_context(vendor: VendorComponent, player_inv: InventoryComponent, m
 
 func set_external_drop_handler(handler: Callable) -> void:
 	_external_drop_handler = handler
+
+
+func set_external_quick_transfer_handler(handler: Callable) -> void:
+	_external_quick_transfer_handler = handler
 
 func _rebuild_grid() -> void:
 	if _grid == null:
@@ -607,7 +612,7 @@ func _is_shop_buy_mode() -> bool:
 
 
 
-func on_slot_primary_action(slot_index: int) -> bool:
+func on_slot_primary_action(slot_index: int, shift_pressed: bool = false) -> bool:
 	if slot_index < 0:
 		return false
 
@@ -617,6 +622,9 @@ func on_slot_primary_action(slot_index: int) -> bool:
 
 	if _inv == null:
 		return false
+
+	if shift_pressed and _external_quick_transfer_handler.is_valid():
+		return bool(_external_quick_transfer_handler.call(slot_index))
 
 	# Placeable items entran en placement mode en vez de "usar"
 	var slot_data = _inv.slots[slot_index]
