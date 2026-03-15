@@ -65,6 +65,9 @@ func open_for_chest(chest_component: ChestWorld) -> void:
 	if chest_component == null:
 		return
 
+	if _chest_component != null and _chest_component != chest_component:
+		_handoff_current_chest()
+
 	_close_inventory_if_open()
 	_chest_component = chest_component
 	_player_inv = _get_player_inventory()
@@ -85,17 +88,35 @@ func open_menu(chest_component: ChestWorld) -> void:
 
 
 func close_menu() -> void:
-	if not visible:
+	var was_visible := visible
+	_clear_drag_visual()
+	if player_panel != null:
+		if player_panel.has_method("cancel_drag"):
+			player_panel.cancel_drag()
+		player_panel.set_external_drop_handler(Callable())
+
+	if _chest_component != null and _chest_component.has_method("on_ui_closed_from_ui_layer"):
+		_chest_component.on_ui_closed_from_ui_layer()
+
+	_persist_chest_data()
+	_chest_component = null
+	if was_visible:
+		visible = false
+		UiManager.close_ui("chest")
+		UiManager.pop_combat_block()
+
+
+func _handoff_current_chest() -> void:
+	if _chest_component == null:
 		return
 	_clear_drag_visual()
-	_persist_chest_data()
 	if player_panel != null:
+		if player_panel.has_method("cancel_drag"):
+			player_panel.cancel_drag()
 		player_panel.set_external_drop_handler(Callable())
-	_chest_component = null
-	visible = false
-	UiManager.close_ui("chest")
-	UiManager.pop_combat_block()
-
+	_persist_chest_data()
+	if _chest_component.has_method("on_ui_closed_from_ui_layer"):
+		_chest_component.on_ui_closed_from_ui_layer()
 
 func is_open() -> bool:
 	return visible
