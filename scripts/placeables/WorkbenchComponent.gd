@@ -2,6 +2,7 @@ extends StaticBody2D
 class_name WorkbenchWorld
 
 const MAX_HITS: int = 4
+const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 
 # Shake params — same feel as stone_ore
 const SHAKE_DURATION: float = 0.08
@@ -102,7 +103,14 @@ func _destroy() -> void:
 
 	# Dropear el item workbench en la posición del nodo
 	var world_node := get_parent()
-	LootSystem.spawn_drop(null, "workbench", 1, global_position, world_node)
+	if world_node == null:
+		world_node = get_tree().current_scene
+
+	var overrides := {"drop_scene": ITEM_DROP_SCENE}
+	var spawned := LootSystem.spawn_drop(null, "workbench", 1, global_position, world_node, overrides)
+
+	if OS.is_debug_build():
+		Debug.log("workbench", "destroy uid=%s parent_ok=%s drop_spawned=%s" % [placed_uid, str(world_node != null), str(spawned != null)])
 
 	# Remover del registro de placed_entities
 	if placed_uid != "":
