@@ -90,7 +90,7 @@ func _setup_command_bar() -> void:
 	_command_input.offset_top    = 4.0
 	_command_input.offset_right  = -8.0
 	_command_input.offset_bottom = -4.0
-	_command_input.placeholder_text = "/give <item_id> <cantidad>  |  /summon enemy [n] [ox] [oy]  |  /spawn  |  /spawn_workbench"
+	_command_input.placeholder_text = "/give <item_id> <n>  |  /dog <n>  |  /summon enemy [n] [ox] [oy]  |  /spawn  |  /spawn_workbench"
 	_command_input.clear_button_enabled = true
 	_command_input.text_submitted.connect(_on_command_submitted)
 	_command_input.gui_input.connect(_on_command_gui_input)
@@ -196,6 +196,8 @@ func _execute_command(command_text: String) -> void:
 			_cmd_spawn_workbench()
 		"give":
 			_cmd_give(parts.slice(1))
+		"dog":
+			_cmd_give_gold(parts.slice(1))
 		"summon":
 			if parts.size() >= 2 and String(parts[1]).to_lower() == "enemy":
 				_cmd_summon_enemy(parts.slice(2))
@@ -226,6 +228,24 @@ func _cmd_spawn_workbench() -> void:
 	get_tree().current_scene.add_child(wb)
 	wb.global_position = (_player as Node2D).global_position + Vector2(200, 0)
 	Debug.log("commands", "Workbench spawneado en %s" % str(wb.global_position))
+
+
+## /dog <cantidad> — agrega dinero al player
+func _cmd_give_gold(raw_args: Array) -> void:
+	if raw_args.is_empty():
+		Debug.log("commands", "Uso: /dog <cantidad>")
+		return
+	var amount_text := String(raw_args[0]).strip_edges()
+	if not amount_text.is_valid_int():
+		Debug.log("commands", "cantidad inválida: %s" % amount_text)
+		return
+	var amount := maxi(1, amount_text.to_int())
+	var inventory := _get_player_inventory()
+	if inventory == null:
+		Debug.log("commands", "No se encontró InventoryComponent del jugador")
+		return
+	inventory.gold += amount
+	Debug.log("commands", "Agregado %d de dinero. Total: %d" % [amount, inventory.gold])
 
 
 ## /give <item_id> <cantidad>

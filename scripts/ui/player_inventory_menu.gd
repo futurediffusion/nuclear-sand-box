@@ -8,22 +8,37 @@ var _inv: InventoryComponent = null
 func _ready() -> void:
 	visible = false
 
+func _input(event: InputEvent) -> void:
+	if not visible:
+		return
+	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("inventory"):
+		close()
+		UiManager.block_interact_for(150)
+		get_viewport().set_input_as_handled()
+
 func toggle() -> void:
-	var next_visible := not visible
-	if not next_visible and panel != null:
-		panel.cancel_drag()
-
-	visible = next_visible
-	print("[MENU] toggle visible=", visible)
-
 	if visible:
-		_close_keeper_menu_if_open()
-		UiManager.open_ui("inventory")
-		UiManager.push_combat_block()
-		call_deferred("_bind_player_inventory")
+		close()
 	else:
-		UiManager.close_ui("inventory")
-		UiManager.pop_combat_block()
+		open()
+
+func open() -> void:
+	if visible:
+		return
+	_close_keeper_menu_if_open()
+	visible = true
+	UiManager.open_ui("inventory")
+	UiManager.push_combat_block()
+	call_deferred("_bind_player_inventory")
+
+func close() -> void:
+	if not visible:
+		return
+	if panel != null:
+		panel.cancel_drag()
+	visible = false
+	UiManager.close_ui("inventory")
+	UiManager.pop_combat_block()
 
 
 func _close_keeper_menu_if_open() -> void:
@@ -71,3 +86,14 @@ func _bind_player_inventory() -> void:
 
 	_inv = inv
 	panel.set_inventory(inv)
+	if not panel.placeable_requested.is_connected(_on_placeable_requested):
+		panel.placeable_requested.connect(_on_placeable_requested)
+
+
+func _on_placeable_requested(item_id: String) -> void:
+	var item_db := get_node_or_null("/root/ItemDB")
+	var icon: Texture2D = null
+	if item_db != null and item_db.has_method("get_icon"):
+		icon = item_db.get_icon(item_id) as Texture2D
+	close()  # cerrar inventario
+	PlacementSystem.begin_placement(item_id, icon)

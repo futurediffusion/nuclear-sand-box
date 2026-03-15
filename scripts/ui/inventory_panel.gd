@@ -2,6 +2,7 @@ extends Control
 class_name InventoryPanel
 
 signal slot_clicked(slot_index: int, button: int)
+signal placeable_requested(item_id: String)
 
 @export var slot_scene: PackedScene
 
@@ -605,7 +606,26 @@ func on_slot_primary_action(slot_index: int) -> bool:
 
 	if _inv == null:
 		return false
+
+	# Placeable items entran en placement mode en vez de "usar"
+	var slot_data = _inv.slots[slot_index]
+	if slot_data != null:
+		var item_id := String(slot_data.get("id", ""))
+		if item_id != "" and _is_placeable_item(item_id):
+			placeable_requested.emit(item_id)
+			return true
+
 	return _inv.use_slot(slot_index)
+
+
+func _is_placeable_item(item_id: String) -> bool:
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db == null:
+		return false
+	var item_data: ItemData = item_db.get_item(item_id)
+	if item_data == null:
+		return false
+	return "placeable" in item_data.tags
 
 
 func should_show_not_usable_feedback(slot_index: int) -> bool:

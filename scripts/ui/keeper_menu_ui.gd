@@ -74,7 +74,7 @@ func open_shop(owner: Node) -> void:
 func _close_inventory_if_open() -> void:
 	var inventory_menu := _get_player_inventory_menu()
 	if inventory_menu != null and inventory_menu.visible:
-		inventory_menu.toggle()
+		inventory_menu.close()
 
 
 func _get_player_inventory_menu() -> PlayerInventoryMenu:

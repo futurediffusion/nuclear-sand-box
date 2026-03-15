@@ -36,6 +36,7 @@ func save_world() -> void:
 		"worldsave_enemy_state": _ser(WorldSave.enemy_state_by_chunk),
 		"worldsave_enemy_spawns": _ser(WorldSave.enemy_spawns_by_chunk),
 		"worldsave_global_flags": _ser(WorldSave.global_flags),
+		"placed_entities": _ser(WorldSave.placed_entities),
 		"faction_system":     FactionSystem.serialize(),
 		"site_system":        SiteSystem.serialize(),
 		"npc_profile_system": NpcProfileSystem.serialize(),
@@ -96,6 +97,14 @@ func load_world_save() -> bool:
 	if ws_global_flags is Dictionary:
 		WorldSave.global_flags = ws_global_flags
 
+	# Restore placed entities (backward-compatible: defaults to empty array)
+	var placed_raw = _des(data.get("placed_entities", []))
+	WorldSave.placed_entities.clear()
+	if placed_raw is Array:
+		for entry in placed_raw:
+			if entry is Dictionary:
+				WorldSave.placed_entities.append(entry)
+
 	# Restore Faction / Site / NpcProfile systems (backward-compatible: get with empty default)
 	var fs = data.get("faction_system", {})
 	if fs is Dictionary:
@@ -127,6 +136,7 @@ func new_game() -> void:
 	WorldSave.enemy_state_by_chunk.clear()
 	WorldSave.enemy_spawns_by_chunk.clear()
 	WorldSave.global_flags.clear()
+	WorldSave.clear_placed_entities()
 	FactionSystem.reset()
 	SiteSystem.reset()
 	NpcProfileSystem.reset()

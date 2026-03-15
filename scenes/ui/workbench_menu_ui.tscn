@@ -243,6 +243,15 @@ offset_bottom = 799.865
 texture_normal = ExtResource("5_eeyc3")
 texture_disabled = ExtResource("6_qktwj")
 
+[node name="CraftLabel" type="Label" parent="Root/CraftArea"]
+layout_mode = 0
+offset_left = 1611.85
+offset_top = 743.87
+offset_right = 1660.85
+offset_bottom = 766.87
+scale = Vector2(2, 2)
+text = "CRAFT"
+
 [node name="BottomCraftButtons" type="HBoxContainer" parent="Root/CraftArea"]
 layout_mode = 1
 anchors_preset = 15
@@ -260,10 +269,28 @@ layout_mode = 2
 texture_normal = ExtResource("7_ixjfy")
 texture_disabled = ExtResource("8_qt5bf")
 
+[node name="X10Label" type="Label" parent="Root/CraftArea/BottomCraftButtons/CraftX10Button"]
+layout_mode = 0
+offset_left = 38.334
+offset_top = -2.43555
+offset_right = 87.334
+offset_bottom = 20.5645
+scale = Vector2(2, 2)
+text = "X10"
+
 [node name="CraftAllButton" type="TextureButton" parent="Root/CraftArea/BottomCraftButtons"]
 layout_mode = 2
 texture_normal = ExtResource("7_ixjfy")
 texture_disabled = ExtResource("8_qt5bf")
+
+[node name="AllLabel" type="Label" parent="Root/CraftArea/BottomCraftButtons/CraftAllButton"]
+layout_mode = 0
+offset_left = 35.6672
+offset_top = -2.43561
+offset_right = 84.6672
+offset_bottom = 20.5644
+scale = Vector2(2, 2)
+text = "ALL"
 
 [node name="SidePanelArea" type="Control" parent="Root"]
 layout_mode = 1
@@ -361,6 +388,15 @@ offset_right = 2313.29
 offset_bottom = 1137.14
 texture_normal = ExtResource("5_eeyc3")
 texture_disabled = ExtResource("6_qktwj")
+
+[node name="AllLabel2" type="Label" parent="Root/SidePanelArea/UpgradeButton"]
+layout_mode = 0
+offset_left = 65.5991
+offset_top = 2.7648
+offset_right = 140.599
+offset_bottom = 25.7648
+scale = Vector2(2, 2)
+text = "UPGRADE"
 
 [node name="Playerbox" type="Control" parent="Root"]
 z_index = -1

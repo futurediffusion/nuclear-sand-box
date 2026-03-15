@@ -220,14 +220,9 @@ func _grant_starting_loadout() -> void:
 	if inventory_component == null:
 		return
 
-	if inventory_component.get_total("bow") <= 0:
-		inventory_component.add_item("bow", 1)
-		Debug.log("inv", "[INV] loadout inicial agregado: bow")
-
-	var current_arrows := inventory_component.get_total("arrow")
-	if current_arrows < 100:
-		inventory_component.add_item("arrow", 100 - current_arrows)
-		Debug.log("inv", "[INV] loadout inicial ajustado: arrows=%d" % 100)
+	if inventory_component.get_total("ironpipe") <= 0:
+		inventory_component.add_item("ironpipe", 1)
+		Debug.log("inv", "[INV] loadout inicial agregado: ironpipe")
 
 func _setup_weapon_component() -> void:
 	if weapon_component == null:

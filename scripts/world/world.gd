@@ -303,6 +303,11 @@ func _ready() -> void:
 	if GameEvents != null and not GameEvents.entity_died.is_connected(_on_entity_died):
 		GameEvents.entity_died.connect(_on_entity_died)
 	await update_chunks(current_player_chunk)
+	_restore_placed_entities()
+
+
+func _restore_placed_entities() -> void:
+	PlacementSystem.restore_placed_entities(self)
 
 func _clear_chunk_wall_runtime_cache() -> void:
 	for cpos in chunk_wall_body.keys():

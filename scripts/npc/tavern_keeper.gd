@@ -588,4 +588,8 @@ func _build_default_offers() -> Array[VendorOffer]:
 	book_offer.item_id = "book"
 	book_offer.mode = VendorOfferScript.OfferMode.INFINITE
 
-	return [bandage_offer, copper_offer, stone_offer, bow_offer, arrow_offer, ironpipe_offer, book_offer]
+	var workbench_offer := VendorOfferScript.new()
+	workbench_offer.item_id = "workbench"
+	workbench_offer.mode = VendorOfferScript.OfferMode.INFINITE
+
+	return [bandage_offer, copper_offer, stone_offer, bow_offer, arrow_offer, ironpipe_offer, book_offer, workbench_offer]

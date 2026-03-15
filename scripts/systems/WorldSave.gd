@@ -13,6 +13,22 @@ var global_flags: Dictionary = {}  # flags globales del mundo (ej: "global_camp_
 func chunk_key(cx: int, cy: int) -> String:
 	return "%d,%d" % [cx, cy]
 
+## Entidades colocadas manualmente por el player en mundo (mesas, etc.)
+var placed_entities: Array[Dictionary] = []
+
+func add_placed_entity(entry: Dictionary) -> void:
+	placed_entities.append(entry.duplicate(true))
+
+func remove_placed_entity(uid: String) -> void:
+	for i in range(placed_entities.size() - 1, -1, -1):
+		if String(placed_entities[i].get("uid", "")) == uid:
+			placed_entities.remove_at(i)
+			return
+
+func clear_placed_entities() -> void:
+	placed_entities.clear()
+
+
 func get_chunk_save(cx: int, cy: int) -> Dictionary:
 	var k := chunk_key(cx, cy)
 	if not chunks.has(k):

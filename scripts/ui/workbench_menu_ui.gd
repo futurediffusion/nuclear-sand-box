@@ -60,6 +60,10 @@ func _ready() -> void:
 	craft_all_button.disabled = true
 	upgrade_button.disabled   = true
 
+	craft_button.pressed.connect(_try_craft_one)
+	craft_x10_button.pressed.connect(_try_craft_x10)
+	craft_all_button.pressed.connect(_try_craft_all)
+
 	_setup_tabs()
 	_setup_side_panel()
 
@@ -265,7 +269,7 @@ func _select_recipe(recipe: CraftingRecipe) -> void:
 
 	_update_result_preview(recipe)
 	_update_ingredients_panel(recipe)
-	_update_craft_button_state()
+	_update_all_craft_buttons()
 
 
 func _update_result_preview(recipe: CraftingRecipe) -> void:
@@ -317,16 +321,51 @@ func _update_ingredients_panel(recipe: CraftingRecipe) -> void:
 
 
 func _update_craft_button_state() -> void:
+	_update_all_craft_buttons()
+
+
+func _update_all_craft_buttons() -> void:
 	if _selected_recipe == null:
-		craft_button.disabled = true
+		craft_button.disabled     = true
+		craft_x10_button.disabled = true
+		craft_all_button.disabled = true
 		return
 	var inventory := _get_player_inventory()
-	var can_craft := true
-	for ing in _selected_recipe.get_ingredients():
-		if _count_in_inventory(inventory, String(ing["item_id"])) < int(ing["amount"]):
-			can_craft = false
-			break
-	craft_button.disabled = not can_craft
+	var max_n := _max_craftable(_selected_recipe, inventory)
+	craft_button.disabled     = max_n < 1
+	craft_x10_button.disabled = max_n < 10
+	craft_all_button.disabled = max_n < 1
+
+
+func _max_craftable(recipe: CraftingRecipe, inventory: InventoryComponent) -> int:
+	if inventory == null or recipe == null:
+		return 0
+	var max_n := 9999
+	for ing in recipe.get_ingredients():
+		var item_id: String = String(ing["item_id"])
+		var needed:  int    = int(ing["amount"])
+		if needed <= 0:
+			continue
+		var has: int = _count_in_inventory(inventory, item_id)
+		max_n = mini(max_n, has / needed)
+	if max_n <= 0:
+		return 0
+	if not inventory.has_method("has_space_for"):
+		return max_n
+	# Check if all results fit; binary search if not
+	if bool(inventory.call("has_space_for", recipe.result_item_id, recipe.result_count * max_n)):
+		return max_n
+	var lo := 1
+	var hi := max_n - 1
+	var best := 0
+	while lo <= hi:
+		var mid := (lo + hi) / 2
+		if bool(inventory.call("has_space_for", recipe.result_item_id, recipe.result_count * mid)):
+			best = mid
+			lo = mid + 1
+		else:
+			hi = mid - 1
+	return best
 
 
 func _clear_preview() -> void:
@@ -334,7 +373,9 @@ func _clear_preview() -> void:
 	result_icon.texture  = null
 	for child in ingredients_vbox.get_children():
 		child.queue_free()
-	craft_button.disabled = true
+	craft_button.disabled     = true
+	craft_x10_button.disabled = true
+	craft_all_button.disabled = true
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -366,7 +407,7 @@ func _disconnect_player_inventory() -> void:
 func _on_player_inventory_changed() -> void:
 	if _selected_recipe != null:
 		_update_ingredients_panel(_selected_recipe)
-		_update_craft_button_state()
+		_update_all_craft_buttons()
 	_refresh_tier_requirements()
 
 
@@ -402,7 +443,7 @@ func _get_item_display_name(item_id: String) -> String:
 func _close_inventory_if_open() -> void:
 	var inv_menu := _get_player_inventory_menu()
 	if inv_menu != null and inv_menu.visible:
-		inv_menu.toggle()
+		inv_menu.close()
 
 
 func _get_player_inventory_menu() -> PlayerInventoryMenu:
@@ -415,6 +456,80 @@ func _get_player_inventory_menu() -> PlayerInventoryMenu:
 		if node is PlayerInventoryMenu:
 			return node as PlayerInventoryMenu
 	return null
+
+
+func _try_craft_one() -> void:
+	if _execute_craft(_selected_recipe, 1):
+		_refresh_after_craft()
+
+
+func _try_craft_x10() -> void:
+	if _execute_craft(_selected_recipe, 10):
+		_refresh_after_craft()
+
+
+func _try_craft_all() -> void:
+	var inventory := _get_player_inventory()
+	var max_n := _max_craftable(_selected_recipe, inventory)
+	if max_n <= 0:
+		return
+	if _execute_craft(_selected_recipe, max_n):
+		_refresh_after_craft()
+
+
+func _execute_craft(recipe: CraftingRecipe, times: int) -> bool:
+	if recipe == null or times <= 0:
+		return false
+	var inventory := _get_player_inventory()
+	if inventory == null:
+		return false
+
+	# Pre-validate: enough materials and output space
+	if _max_craftable(recipe, inventory) < times:
+		return false
+
+	# Atomic transaction
+	if inventory.has_method("begin_batch"):
+		inventory.call("begin_batch")
+
+	var removed: Array[Dictionary] = []
+	var ok := true
+	for ing in recipe.get_ingredients():
+		var item_id: String = String(ing["item_id"])
+		var needed:  int    = int(ing["amount"]) * times
+		var actually_removed: int = 0
+		if inventory.has_method("remove_item"):
+			actually_removed = int(inventory.call("remove_item", item_id, needed))
+		if actually_removed < needed:
+			ok = false
+			removed.append({"item_id": item_id, "amount": actually_removed})
+			break
+		removed.append({"item_id": item_id, "amount": actually_removed})
+
+	if ok:
+		var total_result := recipe.result_count * times
+		var added: int = 0
+		if inventory.has_method("add_item"):
+			added = int(inventory.call("add_item", recipe.result_item_id, total_result))
+		if added < total_result:
+			ok = false
+
+	if not ok:
+		for entry in removed:
+			if inventory.has_method("add_item"):
+				inventory.call("add_item", String(entry["item_id"]), int(entry["amount"]))
+
+	if inventory.has_method("end_batch"):
+		inventory.call("end_batch")
+
+	return ok
+
+
+func _refresh_after_craft() -> void:
+	if _selected_recipe != null:
+		_update_ingredients_panel(_selected_recipe)
+	_update_all_craft_buttons()
+	_refresh_tier_requirements()
 
 
 func _exit_tree() -> void:
