@@ -1,14 +1,17 @@
-[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3]
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3 uid="uid://ddvaihkijw74b"]
 
-[ext_resource type="Script" path="res://scripts/items/ItemData.gd" id="1_1"]
-[ext_resource type="Texture2D" path="res://art/tools/axe-wood.png" id="2_1"]
+[ext_resource type="Script" uid="uid://dsv8bs57w8srn" path="res://scripts/items/ItemData.gd" id="1_1"]
+[ext_resource type="Texture2D" uid="uid://5camgrw45r6f" path="res://art/tools/pickaxe-wood.png" id="1_4myln"]
 
 [resource]
 script = ExtResource("1_1")
 id = "pickaxe_wood"
 display_name = "Wood Pickaxe"
-icon = ExtResource("2_1")
+icon = ExtResource("1_4myln")
 max_stack = 1
-tags = Array[String](["weapon", "melee", "pickaxe"])
 buy_price = 30
 sell_price = 10
+tags = Array[String](["weapon", "melee", "pickaxe"])
+weight = 0.0
+consumable = false
+heal_hp = 0

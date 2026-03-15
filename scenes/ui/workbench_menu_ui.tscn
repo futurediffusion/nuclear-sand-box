@@ -1,15 +1,19 @@
-[gd_scene load_steps=15 format=3 uid="uid://b2w1eue5fqx4m"]
+[gd_scene load_steps=19 format=3 uid="uid://b2w1eue5fqx4m"]
 
 [ext_resource type="Texture2D" uid="uid://x81v4rp7i82" path="res://art/ui/craftingtable/carftingtablemainframe.png" id="1_fwrhi"]
-[ext_resource type="Script" path="res://scripts/ui/workbench_menu_ui.gd" id="1_wbscript"]
+[ext_resource type="Script" uid="uid://dl18ndsc43x21" path="res://scripts/ui/workbench_menu_ui.gd" id="1_wbscript"]
 [ext_resource type="Texture2D" uid="uid://cscf01yr31yf1" path="res://art/ui/craftingtable/carftingtablesideframe.png" id="2_17cry"]
 [ext_resource type="Texture2D" uid="uid://w6r6p2v5kmt2" path="res://art/ui/craftingtable/tab2.png" id="3_wkdt5"]
 [ext_resource type="Texture2D" uid="uid://bioqotlb5q6xg" path="res://art/ui/craftingtable/tab1.png" id="4_15ngp"]
 [ext_resource type="Texture2D" uid="uid://dm5547fnw401k" path="res://art/ui/craftingtable/button1green.png" id="5_eeyc3"]
 [ext_resource type="Texture2D" uid="uid://bh7h8rjb14k72" path="res://art/ui/craftingtable/resultslot.png" id="6_0xc2j"]
+[ext_resource type="Texture2D" uid="uid://cwp2lnx4uaglv" path="res://art/weapons/sword-stone.png" id="6_81yhj"]
 [ext_resource type="Texture2D" uid="uid://bblqtr7ynoqbh" path="res://art/ui/craftingtable/button1.png" id="6_qktwj"]
 [ext_resource type="Texture2D" uid="uid://daywjo5mliqhe" path="res://art/ui/craftingtable/buttonsmall2.png" id="7_ixjfy"]
+[ext_resource type="Texture2D" uid="uid://c76fdjaou3jft" path="res://art/tools/axe-stone.png" id="7_yn3r1"]
+[ext_resource type="Texture2D" uid="uid://0ov4rvcyx7yn" path="res://art/props/stations/craftingtable.png" id="8_ev1e2"]
 [ext_resource type="Texture2D" uid="uid://csvrt2vnkyghl" path="res://art/ui/craftingtable/buttonsmall1.png" id="8_qt5bf"]
+[ext_resource type="Texture2D" uid="uid://bqt7a2ai01x8" path="res://art/items/bandages.png" id="9_b5q6a"]
 [ext_resource type="Texture2D" uid="uid://b84mi2eyoo4ie" path="res://art/ui/inventory.png" id="9_ixjfy"]
 [ext_resource type="PackedScene" uid="uid://narh24whivs7" path="res://scenes/ui/inventory_panel.tscn" id="10_qt5bf"]
 [ext_resource type="Texture2D" uid="uid://laiuybevhqv4" path="res://art/sprites/chestclosed.png" id="11_ap6av"]
@@ -93,6 +97,15 @@ texture_normal = ExtResource("3_wkdt5")
 texture_pressed = ExtResource("4_15ngp")
 texture_hover = ExtResource("3_wkdt5")
 
+[node name="TextureRect" type="TextureRect" parent="Root/Tabs/TabSurvival"]
+layout_mode = 0
+offset_left = 21.602
+offset_top = 34.229
+offset_right = 61.602
+offset_bottom = 74.229
+rotation = -0.968658
+texture = ExtResource("6_81yhj")
+
 [node name="TabTools" type="TextureButton" parent="Root/Tabs"]
 z_index = -1
 layout_mode = 0
@@ -103,6 +116,14 @@ offset_bottom = 420.714
 texture_normal = ExtResource("3_wkdt5")
 texture_pressed = ExtResource("4_15ngp")
 texture_hover = ExtResource("3_wkdt5")
+
+[node name="TextureRect" type="TextureRect" parent="Root/Tabs/TabTools"]
+offset_left = 21.602
+offset_top = 34.229
+offset_right = 61.602
+offset_bottom = 74.229
+rotation = -0.968658
+texture = ExtResource("7_yn3r1")
 
 [node name="TabStations" type="TextureButton" parent="Root/Tabs"]
 z_index = -1
@@ -115,6 +136,13 @@ texture_normal = ExtResource("3_wkdt5")
 texture_pressed = ExtResource("4_15ngp")
 texture_hover = ExtResource("3_wkdt5")
 
+[node name="TextureRect" type="TextureRect" parent="Root/Tabs/TabStations"]
+offset_left = 31.746
+offset_top = 3.17461
+offset_right = 71.746
+offset_bottom = 43.1746
+texture = ExtResource("8_ev1e2")
+
 [node name="TabTinkering" type="TextureButton" parent="Root/Tabs"]
 z_index = -1
 layout_mode = 0
@@ -125,6 +153,14 @@ offset_bottom = 420.714
 texture_normal = ExtResource("3_wkdt5")
 texture_pressed = ExtResource("4_15ngp")
 texture_hover = ExtResource("3_wkdt5")
+
+[node name="TextureRect" type="TextureRect" parent="Root/Tabs/TabTinkering"]
+offset_left = 21.602
+offset_top = 34.229
+offset_right = 61.602
+offset_bottom = 74.229
+rotation = -0.968658
+texture = ExtResource("9_b5q6a")
 
 [node name="CraftArea" type="Control" parent="Root"]
 anchors_preset = 0
@@ -143,20 +179,23 @@ grow_vertical = 2
 
 [node name="RecipeScroll" type="ScrollContainer" parent="Root/CraftArea/RecipeGridAnchor"]
 layout_mode = 0
-offset_left = 1683.0
-offset_top = 840.0
-offset_right = 1932.0
-offset_bottom = 1188.0
+offset_left = 1041.73
+offset_top = 484.445
+offset_right = 1290.73
+offset_bottom = 832.445
 horizontal_scroll_mode = 0
 
 [node name="RecipeGrid" type="GridContainer" parent="Root/CraftArea/RecipeGridAnchor/RecipeScroll"]
 layout_mode = 2
+size_flags_stretch_ratio = 0.1
 columns = 3
 
 [node name="IngredientsAnchor" type="Control" parent="Root/CraftArea"]
 anchors_preset = 0
-offset_right = 40.0
-offset_bottom = 40.0
+offset_left = 1351.64
+offset_top = 484.349
+offset_right = 1391.64
+offset_bottom = 524.349
 
 [node name="VBoxContainer" type="VBoxContainer" parent="Root/CraftArea/IngredientsAnchor"]
 layout_mode = 0
@@ -306,10 +345,13 @@ offset_right = 2339.0
 offset_bottom = 1030.43
 texture = ExtResource("12_2ar0q")
 
-[node name="HBoxContainer" type="HBoxContainer" parent="Root/SidePanelArea/TierRequirementsAnchor"]
+[node name="TierRequirementsList" type="HBoxContainer" parent="Root/SidePanelArea/TierRequirementsAnchor"]
 layout_mode = 0
-offset_right = 40.0
-offset_bottom = 40.0
+offset_left = 2023.7
+offset_top = 918.0
+offset_right = 2063.7
+offset_bottom = 958.0
+scale = Vector2(2, 2)
 
 [node name="UpgradeButton" type="TextureButton" parent="Root/SidePanelArea"]
 layout_mode = 0
@@ -349,8 +391,8 @@ expand_mode = 2
 [node name="PlayerInventoryPanel" parent="Root/Playerbox" instance=ExtResource("10_qt5bf")]
 z_index = 10
 layout_mode = 2
-offset_left = -29.0
-offset_top = 41.0
-offset_right = -29.0
-offset_bottom = 41.0
-scale = Vector2(0.28, 0.28)
+offset_left = -4.60535
+offset_top = -4.50104
+offset_right = -4.60535
+offset_bottom = -4.50104
+scale = Vector2(0.23, 0.23)
