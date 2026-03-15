@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3 uid="uid://bvaj0wallficy"]
+[gd_scene load_steps=19 format=3 uid="uid://bvaj0wallficy"]
 
 [ext_resource type="Script" uid="uid://xob6thhqy13v" path="res://scripts/resources/tree_wood.gd" id="1_tree"]
 [ext_resource type="PackedScene" uid="uid://calh2h2dc4ph3" path="res://scenes/items/ItemDrop.tscn" id="2_tree"]
@@ -13,12 +13,16 @@
 [ext_resource type="Shader" uid="uid://bv6apvqus1dab" path="res://art/shaders/leaves_sway.gdshader" id="7_tree"]
 [ext_resource type="Texture2D" uid="uid://bq8p72tetl5yu" path="res://art/props/woods/treeleaves3.png" id="8_clfrf"]
 [ext_resource type="Texture2D" uid="uid://ckktg5273oihg" path="res://art/props/woods/treeleaves4.png" id="9_qehv7"]
+[ext_resource type="AudioStream" uid="uid://cjb6173tpnyar" path="res://art/Sounds/windsound.ogg" id="10_wind"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_tree"]
 shader = ExtResource("7_tree")
 shader_parameter/sway_speed = 1.5
 shader_parameter/sway_amount = 3.0
+shader_parameter/sway_base_lock = 0.0
 shader_parameter/world_phase = 0.0
+shader_parameter/touch_offset = 0.0
+shader_parameter/touch_profile_exp = 2.0
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_tree"]
 size = Vector2(16, 7)
@@ -35,6 +39,9 @@ gravity = Vector3(0, 280, 0)
 scale_min = 3.0
 scale_max = 5.0
 color = Color(0.684233, 0.491861, 0.309313, 1)
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_wind"]
+radius = 64.0
 
 [node name="TreeWood" type="StaticBody2D"]
 collision_layer = 24
@@ -64,3 +71,14 @@ lifetime = 0.3
 one_shot = true
 explosiveness = 1.0
 process_material = SubResource("ParticleProcessMaterial_tree")
+
+[node name="WindRange" type="Area2D" parent="."]
+collision_layer = 0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="WindRange"]
+shape = SubResource("CircleShape2D_wind")
+
+[node name="WindLoop" type="AudioStreamPlayer2D" parent="."]
+stream = ExtResource("10_wind")
+volume_db = -6.0
+bus = &"SFX"

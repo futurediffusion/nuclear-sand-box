@@ -3,6 +3,8 @@ class_name BowWeapon
 
 const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
+const BOW_DRAW_SFX: AudioStream = preload("res://art/Sounds/bow1.ogg")
+const BOW_RELEASE_SFX: AudioStream = preload("res://art/Sounds/bow2.ogg")
 
 @export var max_draw_time: float = 1.2
 @export var stamina_drain_per_sec: float = 8.0
@@ -25,6 +27,13 @@ const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
 @export var trajectory_update_interval: float = 0.05
 @export var trajectory_aim_significant_delta: float = 8.0
 @export var consume_arrows: bool = true
+@export_range(-40.0, 12.0, 0.5, "suffix:dB") var bow_draw_volume_db: float = 0.0
+@export_range(-40.0, 12.0, 0.5, "suffix:dB") var bow_release_volume_db: float = 0.0
+@export_range(0.2, 4.0, 0.01) var bow_draw_pitch_min: float = 0.2
+@export_range(0.2, 4.0, 0.01) var bow_draw_pitch_max: float = 4.0
+@export_range(0.2, 4.0, 0.01) var bow_release_pitch_min: float = 0.2
+@export_range(0.2, 4.0, 0.01) var bow_release_pitch_max: float = 4.0
+@export var bow_audio_debug: bool = false
 
 var is_drawing: bool = false
 var draw_time: float = 0.0
@@ -32,6 +41,10 @@ var _drain_log_accum: float = 0.0
 var _aim_trajectory_line: Line2D
 var _last_trajectory_update_time: float = -INF
 var _last_trajectory_aim_global: Vector2 = Vector2.INF
+var _draw_sfx_player: AudioStreamPlayer2D = null
+var _release_sfx_player: AudioStreamPlayer2D = null
+var _bow_draw_length_sec: float = 0.0
+var _bow_release_length_sec: float = 0.0
 
 func on_equipped(p_owner: Node, p_controller: WeaponController = null) -> void:
 	super.on_equipped(p_owner, p_controller)
@@ -39,9 +52,13 @@ func on_equipped(p_owner: Node, p_controller: WeaponController = null) -> void:
 		_aim_trajectory_line = owner_entity.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
 	else:
 		_aim_trajectory_line = null
+	_cache_bow_audio_lengths()
+	_ensure_audio_players()
 	_cancel_draw()
 
 func on_unequipped() -> void:
+	_stop_draw_sfx()
+	_cleanup_audio_players()
 	_update_draw_visuals(true)
 	_cancel_draw()
 	_aim_trajectory_line = null
@@ -72,6 +89,7 @@ func tick(delta: float) -> void:
 		draw_time = min(draw_time + delta, max_draw_time)
 		_update_draw_visuals()
 		_hold_draw(delta)
+		_update_draw_sfx_timing()
 
 	# Release
 	if is_drawing and controller.is_attack_just_released():
@@ -83,6 +101,7 @@ func _start_draw() -> void:
 	_drain_log_accum = 0.0
 	_update_draw_visuals()
 	_set_stamina_regen_block(true)
+	_play_draw_sfx()
 	if debug_stamina_logs:
 		print("[BowWeapon] enter charging")
 
@@ -130,13 +149,16 @@ func _release(inventory: Node) -> void:
 	if consume_arrows and inventory != null and inventory.has_method("remove_item"):
 		inventory.remove_item("arrow", 1)
 
-	_fire_arrow(ratio)
+	var flight_duration := _fire_arrow(ratio)
+	if flight_duration > 0.0:
+		_play_release_sfx_synced(flight_duration)
 	_update_draw_visuals(true)
 
 	# Reset draw
 	_cancel_draw()
 
 func _cancel_draw() -> void:
+	_stop_draw_sfx()
 	is_drawing = false
 	draw_time = 0.0
 	_drain_log_accum = 0.0
@@ -249,23 +271,23 @@ func _update_trajectory_visuals(ratio: float, reset: bool = false) -> void:
 	_last_trajectory_update_time = now_sec
 	_last_trajectory_aim_global = aim_global
 
-func _fire_arrow(ratio: float) -> void:
+func _fire_arrow(ratio: float) -> float:
 	if owner_entity == null:
-		return
+		return 0.0
 
 	var owner_entity_node := _get_owner_node2d()
 	if owner_entity_node == null:
-		return
+		return 0.0
 
 	var aim_global := _get_aim_global_position()
 	if aim_global == Vector2.ZERO:
-		return
+		return 0.0
 	if owner_entity_node.global_position.distance_squared_to(aim_global) < 0.0001:
-		return
+		return 0.0
 
 	var shot := _build_arrow_shot(ratio)
 	if shot.is_empty():
-		return
+		return 0.0
 
 	var aim_dir: Vector2 = shot["aim_dir"]
 	var ground_velocity: Vector2 = shot["ground_velocity"]
@@ -276,7 +298,7 @@ func _fire_arrow(ratio: float) -> void:
 
 	var arrow := ARROW_SCENE.instantiate() as ArrowProjectile
 	if arrow == null:
-		return
+		return 0.0
 
 	var launch := _resolve_arrow_launch(owner_entity_node, aim_dir, arrow)
 
@@ -302,6 +324,7 @@ func _fire_arrow(ratio: float) -> void:
 		arrow.embed_in_world(launch["spawn_pos"], aim_dir)
 	else:
 		arrow.call_deferred("validate_spawn_position")
+	return flight_duration
 
 func _build_arrow_shot(ratio: float) -> Dictionary:
 	var owner_entity_node := _get_owner_node2d()
@@ -442,3 +465,94 @@ func _resolve_arrow_launch(owner_entity_node: Node2D, dir: Vector2, arrow: Arrow
 		"blocked": false,
 		"spawn_pos": muzzle + dir * minf(arrow_spawn_offset, available_center_distance),
 	}
+
+
+func _cache_bow_audio_lengths() -> void:
+	_bow_draw_length_sec = _get_stream_length_sec(BOW_DRAW_SFX)
+	_bow_release_length_sec = _get_stream_length_sec(BOW_RELEASE_SFX)
+	if bow_audio_debug:
+		print("[BowWeapon] bow1 length=", _bow_draw_length_sec, "s | bow2 length=", _bow_release_length_sec, "s")
+
+
+func _get_stream_length_sec(stream: AudioStream) -> float:
+	if stream == null:
+		return 0.0
+	return maxf(float(stream.get_length()), 0.0)
+
+
+func _ensure_audio_players() -> void:
+	if owner_entity == null:
+		return
+	var owner_2d := _get_owner_node2d()
+	if owner_2d == null:
+		return
+	var host: Node = owner_entity.get_node_or_null("WeaponPivot")
+	if host == null:
+		host = owner_2d
+	if _draw_sfx_player == null or not is_instance_valid(_draw_sfx_player):
+		_draw_sfx_player = host.get_node_or_null("BowDrawSfx") as AudioStreamPlayer2D
+		if _draw_sfx_player == null:
+			_draw_sfx_player = AudioStreamPlayer2D.new()
+			_draw_sfx_player.name = "BowDrawSfx"
+			host.add_child(_draw_sfx_player)
+		_draw_sfx_player.bus = &"SFX"
+	if _release_sfx_player == null or not is_instance_valid(_release_sfx_player):
+		_release_sfx_player = host.get_node_or_null("BowReleaseSfx") as AudioStreamPlayer2D
+		if _release_sfx_player == null:
+			_release_sfx_player = AudioStreamPlayer2D.new()
+			_release_sfx_player.name = "BowReleaseSfx"
+			host.add_child(_release_sfx_player)
+		_release_sfx_player.bus = &"SFX"
+
+
+func _cleanup_audio_players() -> void:
+	if _draw_sfx_player != null and is_instance_valid(_draw_sfx_player):
+		_draw_sfx_player.queue_free()
+	if _release_sfx_player != null and is_instance_valid(_release_sfx_player):
+		_release_sfx_player.queue_free()
+	_draw_sfx_player = null
+	_release_sfx_player = null
+
+
+func _play_draw_sfx() -> void:
+	_ensure_audio_players()
+	if _draw_sfx_player == null or BOW_DRAW_SFX == null:
+		return
+	_draw_sfx_player.stream = BOW_DRAW_SFX
+	_draw_sfx_player.volume_db = bow_draw_volume_db
+	var target_duration := maxf(max_draw_time, 0.01)
+	_draw_sfx_player.pitch_scale = _calc_pitch_for_target_duration(_bow_draw_length_sec, target_duration, bow_draw_pitch_min, bow_draw_pitch_max)
+	_draw_sfx_player.play()
+
+
+func _update_draw_sfx_timing() -> void:
+	if _draw_sfx_player == null or not is_instance_valid(_draw_sfx_player):
+		return
+	if not _draw_sfx_player.playing:
+		return
+	var remaining_charge := maxf(max_draw_time - draw_time, 0.01)
+	var played := _draw_sfx_player.get_playback_position()
+	var remaining_stream := maxf(_bow_draw_length_sec - played, 0.01)
+	_draw_sfx_player.pitch_scale = _calc_pitch_for_target_duration(remaining_stream, remaining_charge, bow_draw_pitch_min, bow_draw_pitch_max)
+
+
+func _stop_draw_sfx() -> void:
+	if _draw_sfx_player != null and is_instance_valid(_draw_sfx_player) and _draw_sfx_player.playing:
+		_draw_sfx_player.stop()
+
+
+func _play_release_sfx_synced(target_duration: float) -> void:
+	_ensure_audio_players()
+	if _release_sfx_player == null or BOW_RELEASE_SFX == null:
+		return
+	_release_sfx_player.stream = BOW_RELEASE_SFX
+	_release_sfx_player.volume_db = bow_release_volume_db
+	_release_sfx_player.pitch_scale = _calc_pitch_for_target_duration(_bow_release_length_sec, maxf(target_duration, 0.01), bow_release_pitch_min, bow_release_pitch_max)
+	_release_sfx_player.play()
+
+
+func _calc_pitch_for_target_duration(stream_duration: float, target_duration: float, min_pitch: float, max_pitch: float) -> float:
+	if stream_duration <= 0.0 or target_duration <= 0.0:
+		return 1.0
+	var raw_pitch := stream_duration / target_duration
+	return clampf(raw_pitch, min_pitch, max_pitch)

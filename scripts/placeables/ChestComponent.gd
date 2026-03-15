@@ -3,13 +3,18 @@ class_name ChestWorld
 
 const MAX_HITS: int = 4
 const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
-const CLOSED_TEXTURE: Texture2D = preload("res://art/sprites/chestclosed.png")
-const OPEN_TEXTURE: Texture2D = preload("res://art/sprites/chestopen.png")
+const DEFAULT_CLOSED_TEXTURE: Texture2D = preload("res://art/sprites/chestclosed.png")
+const DEFAULT_OPEN_TEXTURE: Texture2D = preload("res://art/sprites/chestopen.png")
 
 const SHAKE_DURATION: float = 0.08
 const SHAKE_PX: float = 6.0
 const SHAKE_SPEED: float = 40.0
 const HIT_FLASH_TIME: float = 0.06
+
+@export var closed_texture: Texture2D = DEFAULT_CLOSED_TEXTURE
+@export var open_texture: Texture2D = DEFAULT_OPEN_TEXTURE
+@export var drop_item_id: String = "chest"
+@export var container_group: StringName = &"chest"
 
 @onready var chest_area: Area2D = $chestarea
 @onready var chest_sprite: Sprite2D = $chestsprite
@@ -31,7 +36,8 @@ var stored_slots: Array = []
 
 func _ready() -> void:
 	add_to_group("interactable")
-	add_to_group("chest")
+	if String(container_group) != "":
+		add_to_group(container_group)
 	interact_icon.visible = false
 	_base_sprite_pos = chest_sprite.position
 	_set_open_visual(false)
@@ -109,7 +115,10 @@ func _destroy() -> void:
 		world_node = get_tree().current_scene
 
 	var overrides := {"drop_scene": ITEM_DROP_SCENE}
-	LootSystem.spawn_drop(null, "chest", 1, global_position, world_node, overrides)
+	var resolved_drop_item_id := drop_item_id.strip_edges()
+	if resolved_drop_item_id == "":
+		resolved_drop_item_id = "chest"
+	LootSystem.spawn_drop(null, resolved_drop_item_id, 1, global_position, world_node, overrides)
 	_drop_internal_contents(world_node, overrides)
 
 	if placed_uid != "":
@@ -183,7 +192,9 @@ func _close_ui() -> void:
 
 
 func _set_open_visual(is_open: bool) -> void:
-	chest_sprite.texture = OPEN_TEXTURE if is_open else CLOSED_TEXTURE
+	var closed_tex := closed_texture if closed_texture != null else DEFAULT_CLOSED_TEXTURE
+	var open_tex := open_texture if open_texture != null else closed_tex
+	chest_sprite.texture = open_tex if is_open else closed_tex
 
 
 func on_ui_closed_from_ui_layer() -> void:

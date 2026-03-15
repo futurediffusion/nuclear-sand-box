@@ -16,6 +16,9 @@ const GRASS_FOOTPRINT_RADIUS_TILES := 0
 const GRASS_MIN_DIST_TILES := 1
 const DEBUG_SPAWN: bool = true
 const USE_WALL_TERRAIN: bool = true
+const TAVERN_BARREL_SEED_FLAG: String = "tavern_barrels_seeded_v1"
+const TAVERN_BARREL_SCENE_PATH: String = "res://scenes/placeables/barrel_world.tscn"
+const TAVERN_BARREL_ITEM_ID: String = "barrel"
 
 const LAYER_FLOOR: int = 1
 const LAYER_WALLS: int = 2
@@ -388,6 +391,9 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 		chunk_save[chunk_pos]["placements"] = []
 
 	var data := _structure_gen.generate_tavern(chunk_pos, int(ctx["chunk_size"]))
+	_align_existing_tavern_barrels_to_structure(data.placements)
+	_seed_tavern_barrels_as_placeables(data.placements)
+	_remove_legacy_tavern_barrel_props(chunk_pos, ctx)
 	var bounds: Rect2i = data.bounds
 	var x0: int = bounds.position.x
 	var y0: int = bounds.position.y
@@ -431,6 +437,8 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 			_place_tile_persistent(chunk_pos, LAYER_WALLS, cell, SRC_WALLS, atlas, ctx)
 
 	for p in data.placements:
+		if _is_tavern_barrel_placement(p):
+			continue
 		var exists := false
 		var site_id := String(p.get("site_id", ""))
 		if site_id != "":
@@ -484,6 +492,97 @@ func _ensure_chunk_save_key(chunk_key: Vector2i, ctx: Dictionary) -> void:
 	if not chunk_save[chunk_key].has("placements"):
 		chunk_save[chunk_key]["placements"] = []
 
+func _is_tavern_barrel_placement(raw: Variant) -> bool:
+	if typeof(raw) != TYPE_DICTIONARY:
+		return false
+	var p := raw as Dictionary
+	return String(p.get("kind", "")) == "prop" and String(p.get("prop_id", "")) == "barrel"
+
+func _remove_legacy_tavern_barrel_props(chunk_key: Vector2i, ctx: Dictionary) -> void:
+	var chunk_save: Dictionary = ctx["chunk_save"]
+	if not chunk_save.has(chunk_key):
+		return
+	var placements_raw: Variant = chunk_save[chunk_key].get("placements", null)
+	if not (placements_raw is Array):
+		return
+	var placements: Array = placements_raw
+	var filtered: Array = []
+	for raw in placements:
+		if _is_tavern_barrel_placement(raw):
+			continue
+		filtered.append(raw)
+	chunk_save[chunk_key]["placements"] = filtered
+
+func _seed_tavern_barrels_as_placeables(placements: Array[Dictionary]) -> void:
+	if bool(WorldSave.global_flags.get(TAVERN_BARREL_SEED_FLAG, false)):
+		return
+
+	for p in placements:
+		if not _is_tavern_barrel_placement(p):
+			continue
+		var cell_raw: Array = p.get("cell", []) as Array
+		if cell_raw.size() < 2:
+			continue
+		var cell := Vector2i(int(cell_raw[0]), int(cell_raw[1]))
+		var site_id := String(p.get("site_id", ""))
+		var uid := UID.make_uid("placed_barrel", site_id, cell if site_id == "" else Vector2i(-1, -1))
+		if _placed_entity_uid_exists(uid):
+			continue
+		WorldSave.add_placed_entity({
+			"uid": uid,
+			"scene": TAVERN_BARREL_SCENE_PATH,
+			"tile_pos_x": cell.x,
+			"tile_pos_y": cell.y,
+			"tier": 1,
+			"item_id": TAVERN_BARREL_ITEM_ID,
+		})
+
+	WorldSave.global_flags[TAVERN_BARREL_SEED_FLAG] = true
+
+func _align_existing_tavern_barrels_to_structure(placements: Array[Dictionary]) -> void:
+	var expected_cells_by_uid: Dictionary = {}
+	for p in placements:
+		if not _is_tavern_barrel_placement(p):
+			continue
+		var cell_raw: Array = p.get("cell", []) as Array
+		if cell_raw.size() < 2:
+			continue
+		var cell := Vector2i(int(cell_raw[0]), int(cell_raw[1]))
+		var site_id := String(p.get("site_id", ""))
+		var uid := UID.make_uid("placed_barrel", site_id, cell if site_id == "" else Vector2i(-1, -1))
+		expected_cells_by_uid[uid] = cell
+
+	if expected_cells_by_uid.is_empty():
+		return
+
+	for i in range(WorldSave.placed_entities.size()):
+		var raw := WorldSave.placed_entities[i]
+		if not (raw is Dictionary):
+			continue
+		var entry := (raw as Dictionary).duplicate(true)
+		var uid := String(entry.get("uid", ""))
+		if not expected_cells_by_uid.has(uid):
+			continue
+		var expected_cell_raw: Variant = expected_cells_by_uid[uid]
+		if not (expected_cell_raw is Vector2i):
+			continue
+		var expected_cell: Vector2i = expected_cell_raw
+		var tx: int = int(entry.get("tile_pos_x", 0))
+		var ty: int = int(entry.get("tile_pos_y", 0))
+		if tx == expected_cell.x and ty == expected_cell.y:
+			continue
+		entry["tile_pos_x"] = expected_cell.x
+		entry["tile_pos_y"] = expected_cell.y
+		WorldSave.placed_entities[i] = entry
+
+func _placed_entity_uid_exists(uid: String) -> bool:
+	for entry in WorldSave.placed_entities:
+		if not (entry is Dictionary):
+			continue
+		if String((entry as Dictionary).get("uid", "")) == uid:
+			return true
+	return false
+
 func add_prop_placement(chunk_key: Vector2i, prop_id: String, site_id: String, cell: Vector2i, ctx: Dictionary) -> void:
 	var chunk_save: Dictionary = ctx["chunk_save"]
 	_ensure_chunk_save_key(chunk_key, ctx)
@@ -532,12 +631,17 @@ func generate_tavern_furniture_simple(chunk_key: Vector2i, inner_min: Vector2i, 
 			placed_tables += 1
 			add_prop_placement(chunk_key, "table", "tavern_table_%02d" % placed_tables, pos, ctx)
 
+	var left_x: int = mini(inner_min.x + 1, inner_max.x)
+	var right_x: int = maxi(inner_max.x - 1, inner_min.x)
+	var top_y: int = mini(inner_min.y + 1, inner_max.y)
+	var bottom_y: int = maxi(inner_max.y - 1, inner_min.y)
 	var corners: Array[Vector2i] = [
-		Vector2i(inner_min.x, inner_min.y + 1),
-		Vector2i(inner_max.x, inner_min.y + 1),
-		Vector2i(inner_min.x, inner_max.y),
-		Vector2i(inner_max.x, inner_max.y),
+		Vector2i(left_x, top_y),
+		Vector2i(right_x, top_y),
+		Vector2i(left_x, bottom_y),
+		Vector2i(right_x, bottom_y),
 	]
+	var barrel_seed_placements: Array[Dictionary] = []
 	var barrel_count: int = 0
 	for c in corners:
 		if barrel_count >= 4:
@@ -545,7 +649,14 @@ func generate_tavern_furniture_simple(chunk_key: Vector2i, inner_min: Vector2i, 
 		if _is_free(occupied, c):
 			occupied[c] = true
 			barrel_count += 1
-			add_prop_placement(chunk_key, "barrel", "tavern_barrel_%02d" % barrel_count, c, ctx)
+			barrel_seed_placements.append({
+				"kind": "prop",
+				"prop_id": "barrel",
+				"site_id": "tavern_barrel_%02d" % barrel_count,
+				"cell": [c.x, c.y],
+			})
+	if not barrel_seed_placements.is_empty():
+		_seed_tavern_barrels_as_placeables(barrel_seed_placements)
 
 	_ensure_chunk_save_key(chunk_key, ctx)
 	for p in chunk_save[chunk_key]["placements"]:

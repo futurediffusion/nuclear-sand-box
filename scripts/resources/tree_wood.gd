@@ -6,6 +6,9 @@ const WOOD_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood2.ogg"),
 ]
 
+# Ambient wind near trees
+const DEFAULT_WIND_SFX: AudioStream = preload("res://art/Sounds/windsound.ogg")
+
 # --- Textures (set in Inspector: 4 trunks + 4 leaves) ---
 @export var trunk_textures: Array[Texture2D] = []
 @export var leaves_textures: Array[Texture2D] = []
@@ -24,10 +27,18 @@ const WOOD_HIT_SOUNDS: Array[AudioStream] = [
 @export var shake_px: float = 5.0
 @export var shake_speed: float = 40.0
 @export var hit_flash_time: float = 0.06
+@export var wind_sfx: AudioStream = DEFAULT_WIND_SFX
+@export var wind_range_multiplier: float = 2.0
+@export var wind_min_radius: float = 32.0
+@export var wind_volume_db: float = -6.0
 
 @onready var trunk_sprite: Sprite2D = $TrunkSprite
 @onready var leaves_sprite: Sprite2D = $LeavesSprite
 @onready var hit_particles: GPUParticles2D = $HitParticles
+@onready var trunk_collision: CollisionShape2D = $CollisionShape2D
+@onready var wind_range: Area2D = $WindRange
+@onready var wind_range_shape: CollisionShape2D = $WindRange/CollisionShape2D
+@onready var wind_player: AudioStreamPlayer2D = $WindLoop
 
 # --- Persistent identity (set at spawn time via init_data properties) ---
 var entity_uid: String = ""
@@ -40,6 +51,7 @@ var _is_dead: bool = false
 var _base_pos: Vector2
 var _shake_t: float = 0.0
 var _flash_t: float = 0.0
+var _player_in_wind_range: bool = false
 
 
 func _ready() -> void:
@@ -69,6 +81,9 @@ func _ready() -> void:
 	if leaves_sprite.material != null:
 		var phase: float = global_position.x * 0.007 + global_position.y * 0.003
 		(leaves_sprite.material as ShaderMaterial).set_shader_parameter("world_phase", phase)
+
+	_setup_wind_range()
+	_setup_wind_audio()
 
 
 func _physics_process(delta: float) -> void:
@@ -152,8 +167,85 @@ func suppress_default_impact_sound() -> bool:
 	return true
 
 
+func _setup_wind_range() -> void:
+	if wind_range == null or wind_range_shape == null:
+		return
+	wind_range.collision_layer = 0
+	wind_range.collision_mask = 1  # player layer
+	if trunk_collision != null:
+		wind_range.position = trunk_collision.position
+
+	var circle := wind_range_shape.shape as CircleShape2D
+	if circle == null:
+		circle = CircleShape2D.new()
+		wind_range_shape.shape = circle
+	circle.radius = _compute_wind_radius()
+
+	if not wind_range.body_entered.is_connected(_on_wind_range_body_entered):
+		wind_range.body_entered.connect(_on_wind_range_body_entered)
+	if not wind_range.body_exited.is_connected(_on_wind_range_body_exited):
+		wind_range.body_exited.connect(_on_wind_range_body_exited)
+
+
+func _setup_wind_audio() -> void:
+	if wind_player == null:
+		return
+	wind_player.stream = wind_sfx
+	wind_player.volume_db = wind_volume_db
+	wind_player.bus = &"SFX"
+	if not wind_player.finished.is_connected(_on_wind_loop_finished):
+		wind_player.finished.connect(_on_wind_loop_finished)
+
+
+func _compute_wind_radius() -> float:
+	var tree_size: float = 0.0
+	if trunk_sprite != null and trunk_sprite.texture != null:
+		var tsize := trunk_sprite.texture.get_size() * trunk_sprite.scale.abs()
+		tree_size = maxf(tree_size, maxf(tsize.x, tsize.y))
+	if leaves_sprite != null and leaves_sprite.texture != null:
+		var lsize := leaves_sprite.texture.get_size() * leaves_sprite.scale.abs()
+		tree_size = maxf(tree_size, maxf(lsize.x, lsize.y))
+	if tree_size <= 0.0 and trunk_collision != null and trunk_collision.shape is RectangleShape2D:
+		var rect := trunk_collision.shape as RectangleShape2D
+		tree_size = maxf(rect.size.x, rect.size.y)
+	return maxf(wind_min_radius, tree_size * maxf(1.0, wind_range_multiplier))
+
+
+func _on_wind_range_body_entered(body: Node) -> void:
+	if _is_dead:
+		return
+	if not body.is_in_group("player"):
+		return
+	_player_in_wind_range = true
+	_play_wind_if_needed()
+
+
+func _on_wind_range_body_exited(body: Node) -> void:
+	if not body.is_in_group("player"):
+		return
+	_player_in_wind_range = false
+	if wind_player != null:
+		wind_player.stop()
+
+
+func _on_wind_loop_finished() -> void:
+	if _player_in_wind_range and not _is_dead:
+		_play_wind_if_needed()
+
+
+func _play_wind_if_needed() -> void:
+	if wind_player == null or wind_player.stream == null:
+		return
+	if wind_player.playing:
+		return
+	wind_player.play()
+
+
 func _fell_tree() -> void:
 	_is_dead = true
+	_player_in_wind_range = false
+	if wind_player != null:
+		wind_player.stop()
 
 	# Drop 3–6 wood, biased toward lower values (take min of two dice)
 	var raw: int = mini(randi_range(1, 6), randi_range(1, 6)) + 2

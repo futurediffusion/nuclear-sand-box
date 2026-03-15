@@ -301,6 +301,7 @@ Implementado:
 - ✅ Bloqueo direccional.
 - ✅ Stamina.
 - ✅ Inventario básico.
+- ✅ Barriles como contenedor placeable (mismo sistema de chest) con persistencia por `PlacementSystem` y spawn inicial en taberna.
 - ✅ HUD funcional.
 - ✅ Game Over desacoplado.
 - ✅ Colisiones de paredes y ajuste visual de transparencia por oclusión.

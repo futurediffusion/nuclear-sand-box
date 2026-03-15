@@ -7,9 +7,12 @@
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_grass"]
 shader = ExtResource("3_grass")
-shader_parameter/sway_speed = 2.8
-shader_parameter/sway_amount = 3.6
+shader_parameter/sway_speed = 1.9
+shader_parameter/sway_amount = 5.2
+shader_parameter/sway_base_lock = 0.18
 shader_parameter/world_phase = 0.0
+shader_parameter/touch_offset = 0.0
+shader_parameter/touch_profile_exp = 1.9
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_grass"]
 size = Vector2(10, 8)
@@ -29,10 +32,10 @@ color = Color(4.69275e-07, 0.404452, 0.165354, 1)
 
 [node name="GrassTuft" type="Area2D"]
 collision_layer = 8
-collision_mask = 0
 script = ExtResource("1_grass")
 grass_sheet = ExtResource("2_grass")
 hit_sfx = ExtResource("3_qpfrt")
+touch_sfx_volume_db = 7.5
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
 material = SubResource("ShaderMaterial_grass")

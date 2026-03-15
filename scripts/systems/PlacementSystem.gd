@@ -14,6 +14,7 @@ const GHOST_SCENE: PackedScene = preload("res://scenes/placement_ghost.tscn")
 const PLACEABLE_SCENES: Dictionary = {
 	"workbench": "res://scenes/placeables/workbench_world.tscn",
 	"chest": "res://scenes/placeables/chest_world.tscn",
+	"barrel": "res://scenes/placeables/barrel_world.tscn",
 }
 
 var _active:       bool   = false

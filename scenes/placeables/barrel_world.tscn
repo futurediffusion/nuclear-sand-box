@@ -1,0 +1,39 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Texture2D" path="res://art/props/barrel.png" id="1_barreltex"]
+[ext_resource type="Script" path="res://scripts/placeables/ChestComponent.gd" id="2_script"]
+[ext_resource type="Texture2D" path="res://art/ui/ekey.png" id="3_ekey"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(22, 12)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_area"]
+size = Vector2(44, 34)
+
+[node name="BarrelWorld" type="StaticBody2D"]
+z_index = 12
+script = ExtResource("2_script")
+closed_texture = ExtResource("1_barreltex")
+open_texture = ExtResource("1_barreltex")
+drop_item_id = "barrel"
+container_group = &"barrel"
+
+[node name="chestcollision" type="CollisionShape2D" parent="."]
+position = Vector2(0, 10)
+shape = SubResource("RectangleShape2D_body")
+
+[node name="chestsprite" type="Sprite2D" parent="."]
+texture = ExtResource("1_barreltex")
+
+[node name="chestarea" type="Area2D" parent="."]
+position = Vector2(0, 2)
+
+[node name="chestareacollision" type="CollisionShape2D" parent="chestarea"]
+position = Vector2(0, 3)
+shape = SubResource("RectangleShape2D_area")
+
+[node name="Sprite2D2" type="Sprite2D" parent="."]
+visible = false
+position = Vector2(0, -19)
+scale = Vector2(0.36, 0.36)
+texture = ExtResource("3_ekey")

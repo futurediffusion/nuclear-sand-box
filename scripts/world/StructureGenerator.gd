@@ -107,11 +107,15 @@ func _generate_furniture(inner_min: Vector2i, inner_max: Vector2i, door_cell: Ve
 				"cell": [pos.x, pos.y]
 			})
 
+	var left_x: int = mini(inner_min.x + 1, inner_max.x)
+	var right_x: int = maxi(inner_max.x - 1, inner_min.x)
+	var top_y: int = mini(inner_min.y + 1, inner_max.y)
+	var bottom_y: int = maxi(inner_max.y - 1, inner_min.y)
 	var corners: Array[Vector2i] = [
-		Vector2i(inner_min.x, inner_min.y + 1),
-		Vector2i(inner_max.x, inner_min.y + 1),
-		Vector2i(inner_min.x, inner_max.y),
-		Vector2i(inner_max.x, inner_max.y),
+		Vector2i(left_x, top_y),
+		Vector2i(right_x, top_y),
+		Vector2i(left_x, bottom_y),
+		Vector2i(right_x, bottom_y),
 	]
 	var barrel_count: int = 0
 	for c in corners:
