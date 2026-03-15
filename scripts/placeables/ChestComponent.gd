@@ -26,7 +26,7 @@ var _base_sprite_pos: Vector2
 var placed_uid: String = ""
 
 ## Hooks de persistencia por UID (contenido interno serializable).
-var stored_slots: Array[Dictionary] = []
+var stored_slots: Array = []
 
 
 func _ready() -> void:
@@ -121,7 +121,10 @@ func _destroy() -> void:
 
 func _drop_internal_contents(world_node: Node, overrides: Dictionary) -> void:
 	for i in range(stored_slots.size()):
-		var slot: Dictionary = stored_slots[i]
+		var raw_slot: Variant = stored_slots[i]
+		if not (raw_slot is Dictionary):
+			continue
+		var slot := raw_slot as Dictionary
 		var item_id := String(slot.get("id", ""))
 		var amount := int(slot.get("count", 0))
 		if item_id == "":
@@ -217,6 +220,8 @@ func apply_persistence_data(data: Dictionary) -> void:
 	for slot in persisted_slots:
 		if slot is Dictionary:
 			stored_slots.append((slot as Dictionary).duplicate(true))
+		elif slot == null:
+			stored_slots.append(null)
 	_hit_count = int(data.get("hit_count", 0))
 	sync_persistence_data()
 
