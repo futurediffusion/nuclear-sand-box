@@ -1,25 +1,35 @@
-[gd_scene load_steps=11 format=3 uid="uid://b2w1eue5fqx4m"]
+[gd_scene load_steps=15 format=3 uid="uid://b2w1eue5fqx4m"]
 
 [ext_resource type="Texture2D" uid="uid://x81v4rp7i82" path="res://art/ui/craftingtable/carftingtablemainframe.png" id="1_fwrhi"]
+[ext_resource type="Script" path="res://scripts/ui/workbench_menu_ui.gd" id="1_wbscript"]
 [ext_resource type="Texture2D" uid="uid://cscf01yr31yf1" path="res://art/ui/craftingtable/carftingtablesideframe.png" id="2_17cry"]
 [ext_resource type="Texture2D" uid="uid://w6r6p2v5kmt2" path="res://art/ui/craftingtable/tab2.png" id="3_wkdt5"]
 [ext_resource type="Texture2D" uid="uid://bioqotlb5q6xg" path="res://art/ui/craftingtable/tab1.png" id="4_15ngp"]
 [ext_resource type="Texture2D" uid="uid://dm5547fnw401k" path="res://art/ui/craftingtable/button1green.png" id="5_eeyc3"]
+[ext_resource type="Texture2D" uid="uid://bh7h8rjb14k72" path="res://art/ui/craftingtable/resultslot.png" id="6_0xc2j"]
 [ext_resource type="Texture2D" uid="uid://bblqtr7ynoqbh" path="res://art/ui/craftingtable/button1.png" id="6_qktwj"]
 [ext_resource type="Texture2D" uid="uid://daywjo5mliqhe" path="res://art/ui/craftingtable/buttonsmall2.png" id="7_ixjfy"]
 [ext_resource type="Texture2D" uid="uid://csvrt2vnkyghl" path="res://art/ui/craftingtable/buttonsmall1.png" id="8_qt5bf"]
 [ext_resource type="Texture2D" uid="uid://b84mi2eyoo4ie" path="res://art/ui/inventory.png" id="9_ixjfy"]
 [ext_resource type="PackedScene" uid="uid://narh24whivs7" path="res://scenes/ui/inventory_panel.tscn" id="10_qt5bf"]
+[ext_resource type="Texture2D" uid="uid://laiuybevhqv4" path="res://art/sprites/chestclosed.png" id="11_ap6av"]
+[ext_resource type="Texture2D" uid="uid://v810mre770j" path="res://art/ui/craftingtable/requirementscontainerbg.png" id="12_2ar0q"]
 
 [node name="WorkbenchMenuUi" type="CanvasLayer" groups=["workbench_menu_ui"]]
+offset = Vector2(20.235, 9.83)
+scale = Vector2(0.9, 0.9)
+transform = Transform2D(0.9, 0, 0, 0.9, 20.235, 9.83)
+script = ExtResource("1_wbscript")
 
 [node name="Root" type="Control" parent="."]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = -48.0
-offset_right = -48.0
+offset_left = 9.99999
+offset_top = 36.0
+offset_right = 10.0
+offset_bottom = 36.0
 grow_horizontal = 2
 grow_vertical = 2
 scale = Vector2(0.35, 0.35)
@@ -61,6 +71,16 @@ offset_right = -634.285
 offset_bottom = -360.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="TabTitle" type="Label" parent="Root/Tabs"]
+layout_mode = 0
+offset_left = 1030.09
+offset_top = 418.87
+offset_right = 1092.09
+offset_bottom = 441.87
+scale = Vector2(1.5, 1.5)
+theme_override_colors/font_color = Color(0.964706, 0.788235, 0, 1)
+text = "Survival"
 
 [node name="TabSurvival" type="TextureButton" parent="Root/Tabs"]
 z_index = -1
@@ -109,31 +129,78 @@ texture_hover = ExtResource("3_wkdt5")
 [node name="CraftArea" type="Control" parent="Root"]
 anchors_preset = 0
 offset_left = -628.572
-offset_top = -342.857
+offset_top = -348.571
 offset_right = -588.572
-offset_bottom = -302.857
+offset_bottom = -308.571
 
 [node name="RecipeGridAnchor" type="Control" parent="Root/CraftArea"]
-anchors_preset = 0
-offset_right = 40.0
-offset_bottom = 40.0
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="RecipeScroll" type="ScrollContainer" parent="Root/CraftArea/RecipeGridAnchor"]
+layout_mode = 0
+offset_left = 1683.0
+offset_top = 840.0
+offset_right = 1932.0
+offset_bottom = 1188.0
+horizontal_scroll_mode = 0
+
+[node name="RecipeGrid" type="GridContainer" parent="Root/CraftArea/RecipeGridAnchor/RecipeScroll"]
+layout_mode = 2
+columns = 3
 
 [node name="IngredientsAnchor" type="Control" parent="Root/CraftArea"]
 anchors_preset = 0
 offset_right = 40.0
 offset_bottom = 40.0
 
-[node name="PreviewAnchor" type="Control" parent="Root/CraftArea"]
-anchors_preset = 0
+[node name="VBoxContainer" type="VBoxContainer" parent="Root/CraftArea/IngredientsAnchor"]
+layout_mode = 0
 offset_right = 40.0
 offset_bottom = 40.0
+
+[node name="PreviewAnchor" type="Control" parent="Root/CraftArea"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ResultTitleLabel" type="Label" parent="Root/CraftArea/PreviewAnchor"]
+layout_mode = 0
+offset_left = 1533.72
+offset_top = 461.59
+offset_right = 1595.72
+offset_bottom = 484.59
+scale = Vector2(1.5, 1.5)
+text = "Dummy"
+
+[node name="ResultSlotBg" type="TextureRect" parent="Root/CraftArea/PreviewAnchor"]
+layout_mode = 0
+offset_left = 1531.71
+offset_top = 496.335
+offset_right = 1782.71
+offset_bottom = 733.335
+texture = ExtResource("6_0xc2j")
+
+[node name="ResultIcon" type="TextureRect" parent="Root/CraftArea/PreviewAnchor"]
+layout_mode = 0
+offset_left = 1546.0
+offset_top = 496.335
+offset_right = 1769.0
+offset_bottom = 704.335
 
 [node name="CraftButton" type="TextureButton" parent="Root/CraftArea"]
 layout_mode = 0
 offset_left = 1520.0
-offset_top = 720.0
+offset_top = 739.865
 offset_right = 1799.0
-offset_bottom = 780.0
+offset_bottom = 799.865
 texture_normal = ExtResource("5_eeyc3")
 texture_disabled = ExtResource("6_qktwj")
 
@@ -143,9 +210,9 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = 1526.0
-offset_top = 786.571
+offset_top = 804.245
 offset_right = 1754.0
-offset_bottom = 790.571
+offset_bottom = 808.245
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -176,12 +243,76 @@ anchors_preset = 0
 offset_right = 40.0
 offset_bottom = 40.0
 
+[node name="WorkbenchTierLabe" type="Label" parent="Root/SidePanelArea/WorkbenchPreviewAnchor"]
+layout_mode = 0
+offset_left = 2133.18
+offset_top = 523.621
+offset_right = 2176.18
+offset_bottom = 546.621
+scale = Vector2(1.5, 1.5)
+text = "Tier 1"
+
+[node name="WorkbenchSlotBg" type="TextureRect" parent="Root/SidePanelArea/WorkbenchPreviewAnchor"]
+layout_mode = 0
+offset_left = 2048.14
+offset_top = 563.0
+offset_right = 2285.14
+offset_bottom = 787.0
+texture = ExtResource("6_0xc2j")
+
+[node name="WorkbenchIcon" type="TextureRect" parent="Root/SidePanelArea/WorkbenchPreviewAnchor"]
+layout_mode = 0
+offset_left = 2060.0
+offset_top = 574.0
+offset_right = 2274.0
+offset_bottom = 780.0
+
+[node name="Label" type="Label" parent="Root/SidePanelArea/WorkbenchPreviewAnchor"]
+layout_mode = 0
+offset_left = 2145.71
+offset_top = 788.571
+offset_right = 2188.71
+offset_bottom = 811.571
+text = "99/99"
+
+[node name="AccessIcon" type="TextureRect" parent="Root/SidePanelArea/WorkbenchPreviewAnchor"]
+layout_mode = 0
+offset_left = 2111.69
+offset_top = 783.605
+offset_right = 2151.69
+offset_bottom = 823.605
+scale = Vector2(0.7, 0.7)
+texture = ExtResource("11_ap6av")
+
 [node name="TierRequirementsAnchor" type="Control" parent="Root/SidePanelArea"]
 anchors_preset = 0
 offset_right = 40.0
 offset_bottom = 40.0
 
+[node name="TierRequirementsTitleLabel" type="Label" parent="Root/SidePanelArea/TierRequirementsAnchor"]
+layout_mode = 0
+offset_left = 2049.94
+offset_top = 840.0
+offset_right = 2206.94
+offset_bottom = 863.0
+scale = Vector2(1.5, 1.5)
+text = "Tier 1 Requirements"
+
+[node name="RequirementsContainerBg" type="TextureRect" parent="Root/SidePanelArea/TierRequirementsAnchor"]
+layout_mode = 0
+offset_left = 2000.0
+offset_top = 891.429
+offset_right = 2339.0
+offset_bottom = 1030.43
+texture = ExtResource("12_2ar0q")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="Root/SidePanelArea/TierRequirementsAnchor"]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
 [node name="UpgradeButton" type="TextureButton" parent="Root/SidePanelArea"]
+layout_mode = 0
 offset_left = 2034.29
 offset_top = 1077.14
 offset_right = 2313.29
@@ -190,14 +321,15 @@ texture_normal = ExtResource("5_eeyc3")
 texture_disabled = ExtResource("6_qktwj")
 
 [node name="Playerbox" type="Control" parent="Root"]
+z_index = -1
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = 331.428
-offset_top = 542.857
+offset_top = 505.714
 offset_right = 331.428
-offset_bottom = 542.857
+offset_bottom = 505.714
 grow_horizontal = 2
 grow_vertical = 2
 scale = Vector2(3.195, 3.195)

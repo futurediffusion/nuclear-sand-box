@@ -40,7 +40,9 @@
       "Bash(cd \"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\" && godot --path . --check-only --script scripts/world/CliffGenerator.gd 2>&1)",
       "Bash(find \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts\" -type f -name \"*.gd\" 2>/dev/null | sort)",
       "Bash(find /c/Users/walva/OneDrive/Documentos/nuclear-sand-box -name \"*.gd\" -type f | xargs grep -l \"class_name CharacterBase\" | head -5)",
-      "Bash(cd \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box\" && godot --path . --check-only --script scripts/resources/stone_ore.gd 2>&1)"
+      "Bash(cd \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box\" && godot --path . --check-only --script scripts/resources/stone_ore.gd 2>&1)",
+      "Bash(find:*)",
+      "Bash(cat:*)"
     ]
   }
 }

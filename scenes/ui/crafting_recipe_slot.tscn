@@ -1,0 +1,45 @@
+[gd_scene load_steps=3 format=3 uid="uid://b1b7wthj2nlxu"]
+
+[ext_resource type="Texture2D" uid="uid://d338uwy8buigt" path="res://art/ui/craftingtable/slot.png" id="1_qsiyg"]
+[ext_resource type="Texture2D" uid="uid://dg3t562ns3llr" path="res://art/ui/craftingtable/slotselectedoverlay.png" id="2_l6ch1"]
+
+[node name="CraftingRecipeSlot" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 3.0
+offset_right = 3.0
+
+[node name="TextureRect" type="TextureRect" parent="."]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 40.0
+texture = ExtResource("1_qsiyg")
+
+[node name="Icon" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = 1.0
+offset_top = 1.0
+offset_right = 63.0
+offset_bottom = 63.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="CountLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 42.0
+offset_right = 90.0
+offset_bottom = 65.0
+text = "99"
+
+[node name="SelectedOverlay" type="TextureRect" parent="."]
+visible = false
+layout_mode = 0
+offset_right = 62.0
+offset_bottom = 62.0
+texture = ExtResource("2_l6ch1")

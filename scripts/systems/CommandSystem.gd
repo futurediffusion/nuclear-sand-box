@@ -5,7 +5,8 @@ class_name CommandSystem
 ## Maneja la UI de la barra de comandos y la ejecución de todos los comandos /xxx.
 ## Se instancia desde main.gd vía setup().
 
-const ENEMY_SCENE: PackedScene = preload("res://scenes/enemy.tscn")
+const ENEMY_SCENE: PackedScene      = preload("res://scenes/enemy.tscn")
+const WORKBENCH_SCENE: PackedScene  = preload("res://scenes/placeables/workbench_world.tscn")
 
 const COMMAND_PREFIX          := "/"
 const COMMAND_BAR_HEIGHT      := 34.0
@@ -89,7 +90,7 @@ func _setup_command_bar() -> void:
 	_command_input.offset_top    = 4.0
 	_command_input.offset_right  = -8.0
 	_command_input.offset_bottom = -4.0
-	_command_input.placeholder_text = "/give <item_id> <cantidad>  |  /summon enemy [n] [ox] [oy]  |  /spawn"
+	_command_input.placeholder_text = "/give <item_id> <cantidad>  |  /summon enemy [n] [ox] [oy]  |  /spawn  |  /spawn_workbench"
 	_command_input.clear_button_enabled = true
 	_command_input.text_submitted.connect(_on_command_submitted)
 	_command_input.gui_input.connect(_on_command_gui_input)
@@ -191,6 +192,8 @@ func _execute_command(command_text: String) -> void:
 	match base_command:
 		"spawn":
 			_cmd_spawn()
+		"spawn_workbench":
+			_cmd_spawn_workbench()
 		"give":
 			_cmd_give(parts.slice(1))
 		"summon":
@@ -212,6 +215,17 @@ func _cmd_spawn() -> void:
 		Debug.log("commands", "/spawn: world no disponible")
 		return
 	_world.call("teleport_to_spawn")
+
+
+## /spawn_workbench — spawna una crafting table 2 tiles a la derecha del player
+func _cmd_spawn_workbench() -> void:
+	if _player == null:
+		Debug.log("commands", "/spawn_workbench: player no disponible")
+		return
+	var wb := WORKBENCH_SCENE.instantiate()
+	get_tree().current_scene.add_child(wb)
+	wb.global_position = (_player as Node2D).global_position + Vector2(200, 0)
+	Debug.log("commands", "Workbench spawneado en %s" % str(wb.global_position))
 
 
 ## /give <item_id> <cantidad>

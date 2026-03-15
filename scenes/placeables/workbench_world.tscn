@@ -7,10 +7,11 @@
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_oi4j1"]
 size = Vector2(76, 56)
 
-[node name="WorkbenchWorld" type="StaticBody2D" groups=["interactable", "workbench_menu_ui"]]
+[node name="WorkbenchWorld" type="StaticBody2D" groups=["interactable", "workbench"]]
 script = ExtResource("1_qp8k5")
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
+z_index = 3
 texture = ExtResource("2_wtylx")
 
 [node name="Area2D" type="Area2D" parent="."]
