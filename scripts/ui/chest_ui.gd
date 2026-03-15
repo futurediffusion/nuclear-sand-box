@@ -260,6 +260,8 @@ func _save_chest_slots_to_component() -> void:
 	if _chest_component == null:
 		return
 	_chest_component.stored_slots = _chest_slots.duplicate(true)
+	if _chest_component.has_method("sync_persistence_data"):
+		_chest_component.sync_persistence_data()
 
 
 func _refresh_chest_slots() -> void:

@@ -235,6 +235,8 @@ func _spawn_placed_instance(entry: Dictionary, parent: Node) -> void:
 	# Asignar UID para que el nodo pueda auto-eliminarse de WorldSave al destruirse
 	if instance.has_method("get") and "placed_uid" in instance:
 		instance.placed_uid = String(entry.get("uid", ""))
+	if instance.has_method("load_persisted_data"):
+		instance.call("load_persisted_data")
 
 
 func _cleanup() -> void:

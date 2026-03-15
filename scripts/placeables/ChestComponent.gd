@@ -44,6 +44,7 @@ func _ready() -> void:
 
 	chest_area.body_entered.connect(_on_body_entered)
 	chest_area.body_exited.connect(_on_body_exited)
+	load_persisted_data()
 
 
 func _physics_process(delta: float) -> void:
@@ -103,6 +104,7 @@ func _destroy() -> void:
 	_drop_internal_contents(world_node, overrides)
 
 	if placed_uid != "":
+		WorldSave.erase_placed_entity_data(placed_uid)
 		PlacementSystem.remove_placed_entity(placed_uid)
 
 	queue_free()
@@ -151,6 +153,7 @@ func _open_ui() -> void:
 		UiManager.push_combat_block()
 	_ui_open = true
 	_set_open_visual(true)
+	sync_persistence_data()
 
 
 func _close_ui() -> void:
@@ -164,6 +167,7 @@ func _close_ui() -> void:
 			UiManager.pop_combat_block()
 	_ui_open = false
 	_set_open_visual(false)
+	sync_persistence_data()
 
 
 func _set_open_visual(is_open: bool) -> void:
@@ -193,3 +197,19 @@ func get_persistence_data() -> Dictionary:
 func apply_persistence_data(data: Dictionary) -> void:
 	stored_slots = (data.get("stored_slots", []) as Array).duplicate(true)
 	_hit_count = int(data.get("hit_count", 0))
+	sync_persistence_data()
+
+
+func sync_persistence_data() -> void:
+	if placed_uid == "":
+		return
+	WorldSave.set_placed_entity_data(placed_uid, get_persistence_data())
+
+
+func load_persisted_data() -> void:
+	if placed_uid == "":
+		return
+	var persisted := WorldSave.get_placed_entity_data(placed_uid)
+	if persisted.is_empty():
+		return
+	apply_persistence_data(persisted)
