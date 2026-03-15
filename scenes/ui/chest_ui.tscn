@@ -2,8 +2,7 @@
 
 [ext_resource type="Texture2D" uid="uid://b84mi2eyoo4ie" path="res://art/ui/inventory.png" id="1_no6b6"]
 [ext_resource type="PackedScene" uid="uid://narh24whivs7" path="res://scenes/ui/inventory_panel.tscn" id="2_tat6c"]
-
-[ext_resource type="Script" path="res://scripts/ui/chest_ui.gd" id="3_chest_ui"]
+[ext_resource type="Script" uid="uid://dvn7xvlw6hs7j" path="res://scripts/ui/chest_ui.gd" id="3_chest_ui"]
 
 [node name="ChestUi" type="CanvasLayer"]
 script = ExtResource("3_chest_ui")
@@ -39,8 +38,11 @@ texture = ExtResource("1_no6b6")
 
 [node name="Chestgrid" type="GridContainer" parent="Root/Chest"]
 layout_mode = 0
-offset_right = 40.0
-offset_bottom = 40.0
+offset_left = 673.58
+offset_top = 440.0
+offset_right = 1545.58
+offset_bottom = 920.0
+scale = Vector2(4.8, 4.5)
 columns = 5
 
 [node name="Playerbox" type="Control" parent="Root"]

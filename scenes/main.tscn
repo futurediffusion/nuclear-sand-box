@@ -1,4 +1,4 @@
-[gd_scene load_steps=32 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=33 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
@@ -29,6 +29,7 @@
 [ext_resource type="PackedScene" uid="uid://c1eimnkv5d2r2" path="res://scenes/tavern_keeper.tscn" id="26_keeper"]
 [ext_resource type="Script" uid="uid://cr51wiqhvam4b" path="res://scripts/world/VegetationRoot.gd" id="27_vegroot"]
 [ext_resource type="PackedScene" uid="uid://b2w1eue5fqx4m" path="res://scenes/ui/workbench_menu_ui.tscn" id="28_yq6so"]
+[ext_resource type="PackedScene" uid="uid://cccpmg7n24spe" path="res://scenes/ui/chest_ui.tscn" id="29_tel4y"]
 [ext_resource type="PackedScene" uid="uid://qlf2bj00x63j" path="res://scenes/placeables/workbench_world.tscn" id="29_wbworld"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0ld40"]
@@ -216,6 +217,8 @@ text = "QUIT"
 layer = 50
 
 [node name="WorkbenchMenuUi" parent="UI" instance=ExtResource("28_yq6so")]
+
+[node name="ChestUi" parent="UI" instance=ExtResource("29_tel4y")]
 
 [node name="WorkbenchWorld" parent="." instance=ExtResource("29_wbworld")]
 position = Vector2(4640, 4320)
