@@ -108,6 +108,7 @@ var _pending_tile_erases: Array[Vector2i] = []
 var _player_wall_hit_sounds: Array[AudioStream] = []
 var _player_wall_hit_volume_db_runtime: float = 0.0
 var _player_wall_system: PlayerWallSystem
+var _chunk_wall_collider_cache: ChunkWallColliderCache
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -131,6 +132,7 @@ const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 ]
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
+const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -148,7 +150,24 @@ const BIOME_ID_GRASSLAND: int = 1
 const BIOME_ID_DENSE_GRASS: int = 2
 
 func _ready() -> void:
-	_clear_chunk_wall_runtime_cache()
+	_chunk_wall_collider_cache = ChunkWallColliderCacheScript.new()
+	_chunk_wall_collider_cache.setup({
+		"walls_tilemap": walls_tilemap,
+		"collision_builder": _collision_builder,
+		"chunk_size": chunk_size,
+		"walls_map_layer": WALLS_MAP_LAYER,
+		"src_walls": SRC_WALLS,
+		"max_cached_chunk_colliders": max_cached_chunk_colliders,
+		"debug_collision_cache": debug_collision_cache,
+		"loaded_chunks": loaded_chunks,
+		"current_player_chunk_getter": Callable(self, "_get_current_player_chunk"),
+		"chunk_key": Callable(self, "_chunk_key"),
+		"is_chunk_in_active_window": Callable(self, "_is_chunk_in_active_window"),
+		"record_stage_time": Callable(self, "_record_chunk_stage_time"),
+		"chunk_perf_stage_collider_build": CHUNK_PERF_STAGE_COLLIDER_BUILD,
+		"owner": self,
+	})
+	_chunk_wall_collider_cache.clear_all()
 	add_to_group("world")
 	get_tree().set_auto_accept_quit(false)
 	_player_wall_hit_sounds = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)
@@ -389,13 +408,8 @@ func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
 		_player_wall_system.apply_saved_walls_for_chunk(chunk_pos)
 
 func _clear_chunk_wall_runtime_cache() -> void:
-	for cpos in chunk_wall_body.keys():
-		var body: StaticBody2D = chunk_wall_body[cpos]
-		if body != null and is_instance_valid(body):
-			body.queue_free()
-	chunk_wall_body.clear()
-	_chunk_wall_last_used.clear()
-	_chunk_wall_use_counter = 0
+	if _chunk_wall_collider_cache != null:
+		_chunk_wall_collider_cache.clear_all()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
@@ -571,9 +585,6 @@ func get_spawn_biome(x: int, y: int) -> int:
 	return BIOME_ID_GRASSLAND  # grass → baja densidad
 
 var chunk_occupied_tiles: Dictionary = {}
-var chunk_wall_body: Dictionary = {}
-var _chunk_wall_last_used: Dictionary = {}
-var _chunk_wall_use_counter: int = 0
 
 const DEBUG_SPAWN: bool = true
 
@@ -647,13 +658,11 @@ func _debug_check_player_chunk(player_global: Vector2) -> void:
 func unload_chunk_entities(chunk_pos: Vector2i) -> void:
 	pipeline.on_chunk_unloaded(chunk_pos)
 	entity_coordinator.unload_entities(chunk_pos)
+	if _chunk_wall_collider_cache != null:
+		_chunk_wall_collider_cache.on_chunk_unloaded(chunk_pos)
 
-	if chunk_wall_body.has(chunk_pos):
-		var body: StaticBody2D = chunk_wall_body[chunk_pos]
-		if is_instance_valid(body):
-			_collision_builder.set_chunk_collider_enabled(body, false)
-			_touch_chunk_wall_usage(chunk_pos)
-	_enforce_chunk_collider_cache_limit()
+func _get_current_player_chunk() -> Vector2i:
+	return current_player_chunk
 
 func _chunk_key(chunk_pos: Vector2i) -> String:
 	return "%d,%d" % [chunk_pos.x, chunk_pos.y]
@@ -720,145 +729,22 @@ func _apply_player_walls_for_chunk(chunk_pos: Vector2i) -> void:
 	if _player_wall_system != null:
 		_player_wall_system.apply_saved_walls_for_chunk(chunk_pos)
 
+func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) -> void:
+	var chunks_to_refresh: Dictionary = {}
+	for tile_pos in tile_positions:
+		var cpos: Vector2i = _tile_to_chunk(tile_pos)
+		mark_chunk_walls_dirty(cpos.x, cpos.y)
+		chunks_to_refresh[cpos] = true
+	for cpos in chunks_to_refresh.keys():
+		_ensure_chunk_wall_collision(cpos as Vector2i)
+
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
-	WorldSave.set_chunk_flag(cx, cy, "walls_dirty", true)
+	if _chunk_wall_collider_cache != null:
+		_chunk_wall_collider_cache.mark_dirty(cx, cy)
 
 func _ensure_chunk_wall_collision(chunk_pos: Vector2i) -> void:
-	var collider_start_us: int = Time.get_ticks_usec()
-	var cx: int = chunk_pos.x
-	var cy: int = chunk_pos.y
-	var chunk_key: String = _chunk_key(chunk_pos)
-	var dirty: bool = WorldSave.get_chunk_flag(cx, cy, "walls_dirty") == true
-	var saved_hash = WorldSave.get_chunk_flag(cx, cy, "walls_hash")
-	var collider_exists: bool = _has_valid_chunk_wall_body(chunk_pos)
-
-	# Fast-path: collider fresco, no dirty, hash ya guardado → el hash no puede haber cambiado.
-	# Saltar _compute_walls_hash (3072 llamadas TileMap) y reutilizar directamente.
-	if collider_exists and not dirty and saved_hash != null:
-		var cached_body: StaticBody2D = chunk_wall_body[chunk_pos]
-		_collision_builder.set_chunk_collider_enabled(cached_body, true)
-		_touch_chunk_wall_usage(chunk_pos)
-		if debug_collision_cache:
-			Debug.log("chunk", "REUSE walls collider chunk=%s hash=%d (fast-path)" % [chunk_key, int(saved_hash)])
-		_record_chunk_stage_time(CHUNK_PERF_STAGE_COLLIDER_BUILD, chunk_pos, float(Time.get_ticks_usec() - collider_start_us) / 1000.0)
-		return
-
-	var current_hash: int = _compute_walls_hash(chunk_pos)
-	var must_rebuild: bool = dirty or saved_hash == null or int(saved_hash) != current_hash or not collider_exists
-	if must_rebuild:
-		if collider_exists:
-			var old_body: StaticBody2D = chunk_wall_body[chunk_pos]
-			if is_instance_valid(old_body):
-				old_body.queue_free()
-		chunk_wall_body.erase(chunk_pos)
-		_chunk_wall_last_used.erase(chunk_key)
-
-		var body: StaticBody2D = _collision_builder.build_chunk_walls(
-			walls_tilemap, chunk_pos, chunk_size, WALLS_MAP_LAYER, SRC_WALLS
-		)
-		if body != null:
-			walls_tilemap.add_child(body)
-			chunk_wall_body[chunk_pos] = body
-			_collision_builder.set_chunk_collider_enabled(body, true)
-			_touch_chunk_wall_usage(chunk_pos)
-
-		WorldSave.set_chunk_flag(cx, cy, "walls_hash", current_hash)
-		WorldSave.set_chunk_flag(cx, cy, "walls_dirty", false)
-		if debug_collision_cache:
-			var reason: String = ""
-			if dirty:
-				reason = "dirty"
-			elif saved_hash == null:
-				reason = "missing_hash"
-			elif not collider_exists:
-				reason = "missing_collider"
-			else:
-				reason = "hash_changed"
-			Debug.log("chunk", "REBUILD walls collider chunk=%s reason=%s hash=%d" % [chunk_key, reason, current_hash])
-		_record_chunk_stage_time(CHUNK_PERF_STAGE_COLLIDER_BUILD, chunk_pos, float(Time.get_ticks_usec() - collider_start_us) / 1000.0)
-		return
-
-	var cached_body: StaticBody2D = chunk_wall_body[chunk_pos]
-	_collision_builder.set_chunk_collider_enabled(cached_body, true)
-	_touch_chunk_wall_usage(chunk_pos)
-	if debug_collision_cache:
-		Debug.log("chunk", "REUSE walls collider chunk=%s hash=%d" % [chunk_key, current_hash])
-	_record_chunk_stage_time(CHUNK_PERF_STAGE_COLLIDER_BUILD, chunk_pos, float(Time.get_ticks_usec() - collider_start_us) / 1000.0)
-
-func _has_valid_chunk_wall_body(chunk_pos: Vector2i) -> bool:
-	if not chunk_wall_body.has(chunk_pos):
-		return false
-	var body: StaticBody2D = chunk_wall_body[chunk_pos]
-	if body == null or not is_instance_valid(body):
-		chunk_wall_body.erase(chunk_pos)
-		_chunk_wall_last_used.erase(_chunk_key(chunk_pos))
-		return false
-	return true
-
-func _compute_walls_hash(chunk_pos: Vector2i) -> int:
-	var start_x: int = chunk_pos.x * chunk_size
-	var start_y: int = chunk_pos.y * chunk_size
-	var end_x: int = start_x + chunk_size
-	var end_y: int = start_y + chunk_size
-	var h: int = 2166136261
-	for y in range(start_y, end_y):
-		for x in range(start_x, end_x):
-			var cell := Vector2i(x, y)
-			var source_id: int = walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, cell)
-			if source_id == -1:
-				continue
-			var atlas: Vector2i = walls_tilemap.get_cell_atlas_coords(WALLS_MAP_LAYER, cell)
-			var alt: int = walls_tilemap.get_cell_alternative_tile(WALLS_MAP_LAYER, cell)
-			h = _fnv1a_mix_int(h, x)
-			h = _fnv1a_mix_int(h, y)
-			h = _fnv1a_mix_int(h, source_id)
-			h = _fnv1a_mix_int(h, atlas.x)
-			h = _fnv1a_mix_int(h, atlas.y)
-			h = _fnv1a_mix_int(h, alt)
-	return h
-
-func _fnv1a_mix_int(h: int, value: int) -> int:
-	var n: int = value
-	h = int((h ^ n) * 16777619)
-	return h
-
-func _touch_chunk_wall_usage(chunk_pos: Vector2i) -> void:
-	_chunk_wall_use_counter += 1
-	_chunk_wall_last_used[_chunk_key(chunk_pos)] = _chunk_wall_use_counter
-
-func _enforce_chunk_collider_cache_limit() -> void:
-	if max_cached_chunk_colliders <= 0:
-		return
-	if chunk_wall_body.size() <= max_cached_chunk_colliders:
-		return
-
-	var candidates: Array[Dictionary] = []
-	for cpos in chunk_wall_body.keys():
-		if _is_chunk_in_active_window(cpos, current_player_chunk):
-			continue
-		if loaded_chunks.has(cpos):
-			continue
-		var key: String = _chunk_key(cpos)
-		var used_at: int = int(_chunk_wall_last_used.get(key, -1))
-		candidates.append({"chunk_pos": cpos, "used_at": used_at})
-
-	if candidates.is_empty():
-		return
-
-	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return int(a.get("used_at", -1)) < int(b.get("used_at", -1))
-	)
-
-	for candidate in candidates:
-		if chunk_wall_body.size() <= max_cached_chunk_colliders:
-			break
-		var cpos: Vector2i = candidate["chunk_pos"]
-		var key: String = _chunk_key(cpos)
-		var body: StaticBody2D = chunk_wall_body.get(cpos, null)
-		if body != null and is_instance_valid(body):
-			body.queue_free()
-		chunk_wall_body.erase(cpos)
-		_chunk_wall_last_used.erase(key)
+	if _chunk_wall_collider_cache != null:
+		_chunk_wall_collider_cache.ensure_for_chunk(chunk_pos)
 
 func _init_cliff_screen_size() -> void:
 	var vp := get_viewport()

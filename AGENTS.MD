@@ -55,6 +55,7 @@ Script orquestador: `scripts/world/world.gd`
 | `EntitySpawnCoordinator` | Node | `scripts/world/EntitySpawnCoordinator.gd` | Spawn jobs via `SpawnBudgetQueue`, ciclo de vida de entidades por chunk |
 | `NpcSimulator` | Node | `scripts/world/NpcSimulator.gd` | Tracking de enemigos activos, lite-mode (AI on/off por distancia), simulación data-only |
 | `ChunkPerfMonitor` | RefCounted | `scripts/world/ChunkPerfMonitor.gd` | Timings por stage, percentiles, auto-calibración de budgets |
+| `ChunkWallColliderCache` | RefCounted | `scripts/world/ChunkWallColliderCache.gd` | Caché de colliders de walls por chunk (dirty/hash/reuse/eviction) |
 | `ChunkGenerator` | RefCounted | `scripts/world/chunk_generator.gd` | Datos procedurales de tiles via `FastNoiseLite`; `apply_ground_terrain_ctx` |
 | `GroundPainter` | RefCounted | — | Terreno de GroundTileMap (dirt/grass) |
 | `CollisionBuilder` | RefCounted | — | `StaticBody2D` de muros por chunk, caché por hash |
