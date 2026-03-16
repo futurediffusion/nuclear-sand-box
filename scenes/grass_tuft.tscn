@@ -15,7 +15,7 @@ shader_parameter/touch_offset = 0.0
 shader_parameter/touch_profile_exp = 1.9
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_grass"]
-size = Vector2(10, 8)
+size = Vector2(17, 11.5)
 
 [sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_grass"]
 particle_flag_disable_z = true
@@ -44,7 +44,7 @@ region_enabled = true
 region_rect = Rect2(0, 0, 16, 16)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-position = Vector2(0, 2)
+position = Vector2(1.5, 1.75)
 shape = SubResource("RectangleShape2D_grass")
 
 [node name="HitParticles" type="GPUParticles2D" parent="."]

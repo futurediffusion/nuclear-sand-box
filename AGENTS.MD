@@ -203,6 +203,18 @@ Rol:
 - Evita números mágicos duplicados entre `CharacterBase`, `Player` y `CollisionBuilder`.
 - Permite que la política personaje-vs-mundo se aplique de forma consistente en todos los derivados.
 
+### 🫨 TILE HIT FEEDBACK (Utility)
+
+Ubicación:
+
+- `scripts/systems/TileHitFeedback.gd`
+
+Rol:
+
+- Helper reutilizable para feedback de golpe en tiles (`shake` + `flash`) usando `Sprite2D` temporal.
+- Consume `source_id`, `atlas_coords` y `alternative_tile` del tile golpeado para reflejar el look actual.
+- Diseñado para uso en `world.gd` (pared `wallwood`) y para extenderse luego a otros tiles golpeables.
+
 ### 🔥 WARMUP MANAGER
 
 Ubicación:

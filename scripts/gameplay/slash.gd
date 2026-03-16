@@ -224,14 +224,15 @@ func _try_damage_player_wall_once() -> void:
 	if owner_node != null:
 		excluded.append(owner_node)
 	var wall_hit := CombatQueryScript.find_first_wall_hit(self, owner_pos, global_position, excluded, true)
+	var has_confirmed_wall_contact: bool = (not wall_hit.is_empty()) or _is_slash_overlapping_wall()
 	var hit_pos := global_position
 	if not wall_hit.is_empty():
 		hit_pos = wall_hit.get("position", global_position)
 
 	if can_hit_wall:
-		damaged = bool(world.call("hit_wall_at_world_pos", hit_pos, amount, radius))
+		damaged = bool(world.call("hit_wall_at_world_pos", hit_pos, amount, radius, has_confirmed_wall_contact))
 		if not damaged and hit_pos != global_position:
-			damaged = bool(world.call("hit_wall_at_world_pos", global_position, amount, radius))
+			damaged = bool(world.call("hit_wall_at_world_pos", global_position, amount, radius, has_confirmed_wall_contact))
 		if damaged:
 			_hit_player_wall_this_swing = true
 			return

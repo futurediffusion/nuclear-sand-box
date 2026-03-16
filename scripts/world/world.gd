@@ -40,7 +40,7 @@ var _tile_painter := TilePainter.new()
 @export var autosave_interval: float = 120.0
 
 @export_group("Player Walls")
-@export var player_wallwood_max_hp: int = 10
+@export var player_wallwood_max_hp: int = 3
 @export var player_wall_drop_enabled: bool = true
 @export var player_wall_drop_item_id: String = "wallwood"
 @export var player_wall_drop_amount: int = 1
@@ -127,6 +127,7 @@ const PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
 ]
+const TileHitFeedbackScript := preload("res://scripts/systems/TileHitFeedback.gd")
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
@@ -650,10 +651,14 @@ func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> boo
 		return false
 	if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, tile_pos) != SRC_WALLS:
 		return false
-	var final_hp := hp_override if hp_override > 0 else player_wallwood_max_hp
+	var configured_max_hp: int = maxi(1, player_wallwood_max_hp)
+	var final_hp := hp_override if hp_override > 0 else configured_max_hp
+	final_hp = clampi(final_hp, 1, configured_max_hp)
 	var cpos := _tile_to_chunk(tile_pos)
 	WorldSave.set_player_wall(cpos.x, cpos.y, tile_pos, final_hp)
-	_mark_walls_dirty_and_refresh_for_tiles(_collect_reconnect_neighborhood(tile_pos))
+	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
+	_reconcile_wall_ownership_in_scope(reconnect_scope)
+	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	return true
 
 func damage_player_wall_at_world_pos(world_pos: Vector2, amount: int = 1) -> bool:
@@ -722,7 +727,12 @@ func damage_player_wall_in_circle(world_center: Vector2, world_radius: float, am
 		return false
 	return damage_player_wall_at_tile(best_tile, amount)
 
-func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 20.0) -> bool:
+func hit_wall_at_world_pos(
+		world_pos: Vector2,
+		amount: int = 1,
+		radius: float = 20.0,
+		allow_structural_feedback: bool = true
+	) -> bool:
 	var hit_amount: int = maxi(1, amount)
 	var hit_radius: float = maxf(radius, 0.0)
 	var hit_player_wall: bool = false
@@ -733,6 +743,8 @@ func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 
 		hit_player_wall = damage_player_wall_at_world_pos(world_pos, hit_amount)
 	if hit_player_wall:
 		return true
+	if not allow_structural_feedback:
+		return false
 
 	var structural_tile: Vector2i = _find_nearest_structural_wall_tile(world_pos, hit_radius)
 	if structural_tile.x < 0 or structural_tile.y < 0:
@@ -788,7 +800,12 @@ func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	if data.is_empty():
 		return false
 	_play_player_wall_hit_feedback(tile_pos)
-	var current_hp := int(data.get(WorldSave.PLAYER_WALL_HP_KEY, player_wallwood_max_hp))
+	var configured_max_hp: int = maxi(1, player_wallwood_max_hp)
+	var current_hp := int(data.get(WorldSave.PLAYER_WALL_HP_KEY, configured_max_hp))
+	var normalized_hp: int = clampi(current_hp, 1, configured_max_hp)
+	if normalized_hp != current_hp:
+		WorldSave.set_player_wall(cpos.x, cpos.y, tile_pos, normalized_hp)
+	current_hp = normalized_hp
 	var new_hp := current_hp - amount
 	if new_hp > 0:
 		WorldSave.set_player_wall(cpos.x, cpos.y, tile_pos, new_hp)
@@ -803,7 +820,9 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 	WorldSave.remove_player_wall(cpos.x, cpos.y, tile_pos)
 	var reconnect_neighbors := _collect_existing_wall_neighbors(tile_pos)
 	_apply_wall_terrain_connect(reconnect_neighbors)
-	_mark_walls_dirty_and_refresh_for_tiles(_collect_reconnect_neighborhood(tile_pos))
+	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
+	_reconcile_wall_ownership_in_scope(reconnect_scope)
+	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	if drop_item and player_wall_drop_enabled and player_wall_drop_amount > 0:
 		_spawn_player_wall_drop(tile_pos)
 	return true
@@ -830,48 +849,25 @@ func _spawn_player_wall_hit_shake(tile_pos: Vector2i) -> void:
 	var atlas_coords: Vector2i = walls_tilemap.get_cell_atlas_coords(WALLS_MAP_LAYER, tile_pos)
 	if atlas_coords.x < 0 or atlas_coords.y < 0:
 		atlas_coords = PLAYER_WALL_FALLBACK_ATLAS
-
-	var ts: TileSet = walls_tilemap.tile_set
-	if ts == null:
-		return
-	var atlas_source := ts.get_source(source_id) as TileSetAtlasSource
-	if atlas_source == null or atlas_source.texture == null:
-		return
-
-	var region_size: Vector2 = Vector2(atlas_source.texture_region_size)
-	if region_size.x <= 0.0 or region_size.y <= 0.0:
-		region_size = Vector2(32.0, 32.0)
-	var region_pos: Vector2 = Vector2(atlas_coords * Vector2i(region_size))
-
-	var ghost := Sprite2D.new()
-	ghost.texture = atlas_source.texture
-	ghost.region_enabled = true
-	ghost.region_rect = Rect2(region_pos, region_size)
-	ghost.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	ghost.z_as_relative = false
-	ghost.z_index = max(walls_tilemap.z_index + 2, 7)
-	ghost.global_position = _tile_to_world(tile_pos)
-	ghost.modulate = PLAYER_WALL_HIT_TINT
-	add_child(ghost)
-
-	var shake_duration := maxf(player_wall_hit_shake_duration, 0.01)
-	var shake_speed := maxf(player_wall_hit_shake_speed, 0.01)
-	var shake_px := maxf(player_wall_hit_shake_px, 0.0)
-	var base_pos := ghost.global_position
-
-	var shake_tween := create_tween()
-	var shake_updater := func(phase: float) -> void:
-		if is_instance_valid(ghost):
-			ghost.global_position = base_pos + Vector2(sin(phase) * shake_px, 0.0)
-	shake_tween.tween_method(shake_updater, 0.0, shake_speed, shake_duration)
-	shake_tween.finished.connect(func() -> void:
-		if is_instance_valid(ghost):
-			ghost.global_position = base_pos
-			ghost.queue_free()
+	var alternative_tile: int = walls_tilemap.get_cell_alternative_tile(WALLS_MAP_LAYER, tile_pos)
+	TileHitFeedbackScript.spawn_tile_hit_feedback(
+		self,
+		walls_tilemap,
+		WALLS_MAP_LAYER,
+		tile_pos,
+		{
+			"source_id": source_id,
+			"atlas_coords": atlas_coords,
+			"alternative_tile": alternative_tile,
+			"fallback_atlas": PLAYER_WALL_FALLBACK_ATLAS,
+			"shake_duration": player_wall_hit_shake_duration,
+			"shake_speed": player_wall_hit_shake_speed,
+			"shake_px": player_wall_hit_shake_px,
+			"flash_time": player_wall_hit_flash_time,
+			"tint": PLAYER_WALL_HIT_TINT,
+			"z_index": max(walls_tilemap.z_index + 2, 7),
+		}
 	)
-
-	var flash_tween := create_tween()
-	flash_tween.tween_property(ghost, "modulate", Color.WHITE, maxf(player_wall_hit_flash_time, 0.01))
 
 func _apply_player_walls_for_chunk(chunk_pos: Vector2i) -> void:
 	if not loaded_chunks.has(chunk_pos):
@@ -941,16 +937,29 @@ func _collect_scope_for_cells(base_cells: Array[Vector2i]) -> Array[Vector2i]:
 				out[probe] = true
 	return _dict_keys_to_vector2i_array(out)
 
-func _capture_existing_walls_in_cells(cells: Array[Vector2i]) -> Dictionary:
+func _capture_existing_player_walls_in_cells(cells: Array[Vector2i]) -> Dictionary:
 	var out: Dictionary = {}
 	for cell in cells:
 		if not _is_valid_world_tile(cell):
 			continue
-		if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, cell) == SRC_WALLS:
+		if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, cell) != SRC_WALLS:
+			continue
+		if _is_player_wall_tile(cell):
 			out[cell] = true
 	return out
 
-func _sanitize_unexpected_walls(scope_cells: Array[Vector2i], allowed_cells: Dictionary) -> bool:
+func _capture_existing_structural_walls_in_cells(cells: Array[Vector2i]) -> Dictionary:
+	var out: Dictionary = {}
+	for cell in cells:
+		if not _is_valid_world_tile(cell):
+			continue
+		if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, cell) != SRC_WALLS:
+			continue
+		if _is_structural_wall_tile(cell):
+			out[cell] = true
+	return out
+
+func _sanitize_unexpected_walls(scope_cells: Array[Vector2i], allowed_cells: Dictionary, keep_structural: bool = false) -> bool:
 	var removed_any := false
 	for cell in scope_cells:
 		if not _is_valid_world_tile(cell):
@@ -958,6 +967,8 @@ func _sanitize_unexpected_walls(scope_cells: Array[Vector2i], allowed_cells: Dic
 		if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, cell) != SRC_WALLS:
 			continue
 		if allowed_cells.has(cell):
+			continue
+		if keep_structural and _is_structural_wall_tile(cell):
 			continue
 		walls_tilemap.erase_cell(WALLS_MAP_LAYER, cell)
 		removed_any = true
@@ -974,33 +985,92 @@ func _apply_player_wall_tiles_strict(player_tiles: Array[Vector2i]) -> bool:
 	if valid_tiles.is_empty():
 		return false
 	var scope_cells: Array[Vector2i] = _collect_scope_for_cells(valid_tiles)
-	var protected_existing: Dictionary = _capture_existing_walls_in_cells(scope_cells)
-	var allowed_cells: Dictionary = protected_existing.duplicate(true)
+	var existing_player_walls: Dictionary = _capture_existing_player_walls_in_cells(scope_cells)
+	var protected_structural_cells: Dictionary = _capture_existing_structural_walls_in_cells(scope_cells)
+	var player_connect_cells: Dictionary = existing_player_walls.duplicate(true)
 	for tile_pos in valid_tiles:
-		allowed_cells[tile_pos] = true
-	var allowed_list: Array[Vector2i] = _dict_keys_to_vector2i_array(allowed_cells)
-	var protected_existing_list: Array[Vector2i] = _dict_keys_to_vector2i_array(protected_existing)
+		player_connect_cells[tile_pos] = true
+	var player_connect_list: Array[Vector2i] = _dict_keys_to_vector2i_array(player_connect_cells)
+	var allowed_cells: Dictionary = player_connect_cells.duplicate(true)
+	for structural_cell in protected_structural_cells.keys():
+		if structural_cell is Vector2i:
+			allowed_cells[structural_cell] = true
 
-	if allowed_list.size() <= 1:
-		return _ensure_wall_cells_exist(valid_tiles)
-
-	_apply_wall_terrain_connect(allowed_list)
-	if not _ensure_wall_cells_exist(valid_tiles):
-		return false
-	if not _ensure_wall_cells_exist(protected_existing_list):
-		return false
-
-	if _sanitize_unexpected_walls(scope_cells, allowed_cells):
-		_apply_wall_terrain_connect(allowed_list)
-		_sanitize_unexpected_walls(scope_cells, allowed_cells)
+	if player_connect_list.size() <= 1:
 		if not _ensure_wall_cells_exist(valid_tiles):
 			return false
-		if not _ensure_wall_cells_exist(protected_existing_list):
+		_reconcile_wall_ownership_in_scope(scope_cells, valid_tiles_dict)
+		return true
+
+	_apply_wall_terrain_connect(player_connect_list)
+	if not _ensure_wall_cells_exist(player_connect_list):
+		return false
+
+	if _sanitize_unexpected_walls(scope_cells, allowed_cells, true):
+		_apply_wall_terrain_connect(player_connect_list)
+		_sanitize_unexpected_walls(scope_cells, allowed_cells, true)
+		if not _ensure_wall_cells_exist(player_connect_list):
 			return false
+
+	_reconcile_wall_ownership_in_scope(scope_cells, valid_tiles_dict)
 
 	for tile_pos in valid_tiles:
 		if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, tile_pos) != SRC_WALLS:
 			return false
+	return true
+
+func _is_player_wall_tile(tile_pos: Vector2i) -> bool:
+	var cpos := _tile_to_chunk(tile_pos)
+	return WorldSave.has_player_wall(cpos.x, cpos.y, tile_pos)
+
+func _is_structural_wall_tile(tile_pos: Vector2i) -> bool:
+	var cpos := _tile_to_chunk(tile_pos)
+	if not chunk_save.has(cpos):
+		return false
+	var chunk_data: Variant = chunk_save[cpos]
+	if typeof(chunk_data) != TYPE_DICTIONARY:
+		return false
+	var placed_tiles: Array = (chunk_data as Dictionary).get("placed_tiles", [])
+	for raw_tile in placed_tiles:
+		if typeof(raw_tile) != TYPE_DICTIONARY:
+			continue
+		var tile_data: Dictionary = raw_tile as Dictionary
+		var source_id: int = int(tile_data.get("source", 0))
+		if source_id != -1 and source_id != SRC_WALLS:
+			continue
+		var saved_tile: Variant = tile_data.get("tile", Vector2i(-1, -1))
+		if saved_tile is Vector2i and (saved_tile as Vector2i) == tile_pos:
+			return true
+	return false
+
+func _reconcile_wall_ownership_in_scope(scope_cells: Array[Vector2i], keep_tiles: Dictionary = {}) -> bool:
+	var removed_any: bool = false
+	for cell in scope_cells:
+		if not _is_valid_world_tile(cell):
+			continue
+		if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, cell) != SRC_WALLS:
+			continue
+		if keep_tiles.has(cell):
+			continue
+		if _is_player_wall_tile(cell):
+			continue
+		if _is_structural_wall_tile(cell):
+			continue
+		walls_tilemap.erase_cell(WALLS_MAP_LAYER, cell)
+		removed_any = true
+
+	if not removed_any:
+		return false
+
+	var survivor_cells_dict: Dictionary = {}
+	for cell in scope_cells:
+		if not _is_valid_world_tile(cell):
+			continue
+		if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, cell) == SRC_WALLS:
+			survivor_cells_dict[cell] = true
+	var survivor_cells: Array[Vector2i] = _dict_keys_to_vector2i_array(survivor_cells_dict)
+	if not survivor_cells.is_empty():
+		_apply_wall_terrain_connect(survivor_cells)
 	return true
 
 func _ensure_wall_cells_exist(cells: Array[Vector2i]) -> bool:
