@@ -1,8 +1,10 @@
 extends RefCounted
 class_name PlayerWallSystem
 
-const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
-const TileHitFeedbackScript := preload("res://scripts/systems/TileHitFeedback.gd")
+signal player_wall_hit(tile_pos: Vector2i)
+signal structural_wall_hit(tile_pos: Vector2i)
+signal player_wall_drop(tile_pos: Vector2i, item_id: String, amount: int)
+
 const WallTileResolverScript := preload("res://scripts/world/WallTileResolver.gd")
 const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
@@ -49,6 +51,8 @@ var tile_to_chunk_cb: Callable
 var mark_chunk_walls_dirty_and_refresh_for_tiles_cb: Callable
 
 var owner: Node
+var feedback: WallFeedback
+var sound_panel_getter_cb: Callable
 
 func setup(ctx: Dictionary) -> void:
 	walls_tilemap = ctx.get("walls_tilemap")
@@ -89,6 +93,8 @@ func setup(ctx: Dictionary) -> void:
 	tile_to_chunk_cb = ctx.get("tile_to_chunk", Callable())
 	mark_chunk_walls_dirty_and_refresh_for_tiles_cb = ctx.get("mark_chunk_walls_dirty_and_refresh_for_tiles", Callable())
 	owner = ctx.get("owner")
+	feedback = ctx.get("feedback")
+	sound_panel_getter_cb = ctx.get("sound_panel_getter", Callable())
 
 	var legacy_audio_config: Dictionary = {}
 	if ctx.has("player_wall_hit_sounds"):
@@ -108,13 +114,14 @@ func configure_audio(config: Dictionary = {}) -> void:
 	if config.has("player_wall_hit_volume_db"):
 		resolved_volume_db = float(config.get("player_wall_hit_volume_db", resolved_volume_db))
 
-	var panel: Node = AudioSystem.get_sound_panel()
-	if panel is SoundPanel:
-		var sound_panel := panel as SoundPanel
-		var panel_sounds: Array[AudioStream] = _to_valid_sound_pool(sound_panel.get_player_wall_hit_sfx_pool())
-		if not panel_sounds.is_empty():
-			resolved_sounds = panel_sounds
-		resolved_volume_db = sound_panel.player_wall_hit_volume_db
+	if sound_panel_getter_cb.is_valid():
+		var panel: Variant = sound_panel_getter_cb.call()
+		if panel is SoundPanel:
+			var sound_panel := panel as SoundPanel
+			var panel_sounds: Array[AudioStream] = _to_valid_sound_pool(sound_panel.get_player_wall_hit_sfx_pool())
+			if not panel_sounds.is_empty():
+				resolved_sounds = panel_sounds
+			resolved_volume_db = sound_panel.player_wall_hit_volume_db
 
 	player_wall_hit_sounds = resolved_sounds
 	player_wall_hit_volume_db = resolved_volume_db
@@ -261,7 +268,7 @@ func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 
 	var structural_tile: Vector2i = WallTileResolverScript.find_nearest_structural_wall_tile(world_pos, hit_radius, Callable(self, "_world_to_tile"), Callable(self, "_is_valid_world_tile"), Callable(self, "_is_structural_wall_tile"), Callable(self, "_tile_to_world"), _get_wall_tile_size_vec())
 	if structural_tile.x < 0 or structural_tile.y < 0:
 		return false
-	_play_structural_wall_hit_feedback(structural_tile)
+	_emit_structural_wall_hit(structural_tile)
 	return true
 
 func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
@@ -271,7 +278,7 @@ func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	var data := WorldSave.get_player_wall(cpos.x, cpos.y, tile_pos)
 	if data.is_empty():
 		return false
-	_play_player_wall_hit_feedback(tile_pos)
+	_emit_player_wall_hit(tile_pos)
 	var configured_max_hp: int = maxi(1, player_wallwood_max_hp)
 	var current_hp := int(data.get(WorldSave.PLAYER_WALL_HP_KEY, configured_max_hp))
 	var normalized_hp: int = clampi(current_hp, 1, configured_max_hp)
@@ -300,7 +307,7 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 		_enforce_removed_wall_tile_cleared(tile_pos)
 	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	if drop_item and player_wall_drop_enabled and player_wall_drop_amount > 0:
-		_spawn_player_wall_drop(tile_pos)
+		_emit_player_wall_drop(tile_pos)
 	return true
 
 func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
@@ -339,69 +346,31 @@ func _enforce_removed_wall_tile_cleared(tile_pos: Vector2i) -> bool:
 	walls_tilemap.erase_cell(walls_map_layer, tile_pos)
 	return true
 
-func _play_player_wall_hit_feedback(tile_pos: Vector2i) -> void:
-	_play_player_wall_hit_sfx(tile_pos)
-	_spawn_player_wall_hit_shake(tile_pos)
-
-func _play_structural_wall_hit_feedback(tile_pos: Vector2i) -> void:
-	_play_player_wall_hit_sfx(tile_pos)
-
-func _play_player_wall_hit_sfx(tile_pos: Vector2i) -> void:
-	var sfx := _pick_player_wall_hit_sound()
-	if sfx == null:
+func _emit_player_wall_hit(tile_pos: Vector2i) -> void:
+	emit_signal("player_wall_hit", tile_pos)
+	if feedback == null:
 		return
-	AudioSystem.play_2d(sfx, _tile_to_world(tile_pos), owner, &"SFX", player_wall_hit_volume_db)
+	var audio_ctx := {
+		"player_wall_hit_sounds": player_wall_hit_sounds,
+		"player_wall_hit_volume_db": player_wall_hit_volume_db,
+	}
+	feedback.play_player_wall_hit_feedback(tile_pos, audio_ctx)
 
-func _pick_player_wall_hit_sound() -> AudioStream:
-	if player_wall_hit_sounds.is_empty():
-		return null
-	return player_wall_hit_sounds[randi() % player_wall_hit_sounds.size()]
-
-func _to_valid_sound_pool(pool: Array) -> Array[AudioStream]:
-	var valid: Array[AudioStream] = []
-	for stream in pool:
-		if stream is AudioStream and stream != null:
-			valid.append(stream as AudioStream)
-	return valid
-
-func _spawn_player_wall_hit_shake(tile_pos: Vector2i) -> void:
-	var source_id: int = walls_tilemap.get_cell_source_id(walls_map_layer, tile_pos)
-	var atlas_coords: Vector2i = walls_tilemap.get_cell_atlas_coords(walls_map_layer, tile_pos)
-	if atlas_coords.x < 0 or atlas_coords.y < 0:
-		atlas_coords = player_wall_fallback_atlas
-	var alternative_tile: int = walls_tilemap.get_cell_alternative_tile(walls_map_layer, tile_pos)
-	var feedback_result: Dictionary = TileHitFeedbackScript.spawn_tile_hit_feedback(
-		owner,
-		walls_tilemap,
-		walls_map_layer,
-		tile_pos,
-		{
-			"source_id": source_id,
-			"fallback_source_id": src_walls,
-			"atlas_coords": atlas_coords,
-			"alternative_tile": alternative_tile,
-			"fallback_atlas": player_wall_fallback_atlas,
-			"fallback_alternative_tile": player_wall_fallback_alt,
-			"shake_duration": player_wall_hit_shake_duration,
-			"shake_speed": player_wall_hit_shake_speed,
-			"shake_px": player_wall_hit_shake_px,
-			"flash_time": player_wall_hit_flash_time,
-			"tint": player_wall_hit_tint,
-			"z_index": max(walls_tilemap.z_index + 2, 7),
-		}
-	)
-	if bool(feedback_result.get("ok", false)):
+func _emit_structural_wall_hit(tile_pos: Vector2i) -> void:
+	emit_signal("structural_wall_hit", tile_pos)
+	if feedback == null:
 		return
-	if Debug.is_enabled("wall"):
-		var reason: String = String(feedback_result.get("reason", "unknown"))
-		Debug.log("wall", "wallwood shake skipped at %s reason=%s" % [str(tile_pos), reason])
+	var audio_ctx := {
+		"player_wall_hit_sounds": player_wall_hit_sounds,
+		"player_wall_hit_volume_db": player_wall_hit_volume_db,
+	}
+	feedback.play_structural_wall_hit_feedback(tile_pos, audio_ctx)
 
-func _spawn_player_wall_drop(tile_pos: Vector2i) -> void:
-	if player_wall_drop_item_id == "":
+func _emit_player_wall_drop(tile_pos: Vector2i) -> void:
+	emit_signal("player_wall_drop", tile_pos, player_wall_drop_item_id, player_wall_drop_amount)
+	if feedback == null:
 		return
-	var origin := _tile_to_world(tile_pos) + Vector2(0.0, -10.0)
-	var overrides := {"drop_scene": ITEM_DROP_SCENE}
-	LootSystem.spawn_drop(null, player_wall_drop_item_id, player_wall_drop_amount, origin, owner, overrides)
+	feedback.play_player_wall_drop_feedback(tile_pos, player_wall_drop_item_id, player_wall_drop_amount)
 
 func _collect_wall_connect_cells_for_placement(tile_pos: Vector2i) -> Array[Vector2i]:
 	var out: Dictionary = {}
