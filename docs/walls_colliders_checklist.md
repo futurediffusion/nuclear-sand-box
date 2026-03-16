@@ -51,7 +51,7 @@
 - **Resultado esperado:** Collider se reconstruye/reutiliza correctamente; no bloqueos fantasmas.
 - **Criterio de aceptación:** `PASS` si el movimiento del player/NPC coincide con geometría actual sin desincronización.
 
-### 6) No regresión: `doorwood`, `woodfloor`, `chest`, `barrel`, `workbench`
+### 6) No regresión: `doorwood`, `floorwood`, `chest`, `barrel`, `workbench`
 - **Precondición:** Registro de placeables activo en `PlacementSystem`.
 - **Pasos:**
   1. Verificar que cada item esté mapeado a una escena válida.

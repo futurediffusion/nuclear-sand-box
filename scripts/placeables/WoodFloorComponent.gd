@@ -10,7 +10,7 @@ const SHAKE_PX: float = 6.0
 const SHAKE_SPEED: float = 40.0
 const HIT_FLASH_TIME: float = 0.06
 
-@export var drop_item_id: String = "woodfloor"
+@export var drop_item_id: String = "floorwood"
 
 @onready var floor_sprite: Sprite2D = $floorsprite
 @onready var hit_area: Area2D = $hitarea
@@ -87,7 +87,7 @@ func _destroy() -> void:
 	var overrides := {"drop_scene": ITEM_DROP_SCENE}
 	var resolved_drop_item_id := drop_item_id.strip_edges()
 	if resolved_drop_item_id == "":
-		resolved_drop_item_id = "woodfloor"
+		resolved_drop_item_id = "floorwood"
 	LootSystem.spawn_drop(null, resolved_drop_item_id, 1, global_position, world_node, overrides)
 
 	if placed_uid != "":
@@ -125,3 +125,7 @@ func load_persisted_data() -> void:
 		sync_persistence_data()
 		return
 	apply_persistence_data(persisted)
+
+
+func suppress_default_impact_sound() -> bool:
+	return true

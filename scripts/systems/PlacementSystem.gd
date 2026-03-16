@@ -29,7 +29,7 @@ const WALLWOOD_PLACE_SFX: AudioStream = preload("res://art/Sounds/woodwallplace.
 const WORKBENCH_PLACE_SFX: AudioStream = preload("res://art/Sounds/workbenchplace.ogg")
 const CHEST_PLACE_SFX: AudioStream = preload("res://art/Sounds/chestplace.ogg")
 const DOOR_PLACE_SFX: AudioStream = preload("res://art/Sounds/doorplace.ogg")
-const WOODFLOOR_PLACE_SFX: AudioStream = preload("res://art/Sounds/placewoodfloor.ogg")
+const FLOORWOOD_PLACE_SFX: AudioStream = preload("res://art/Sounds/placewoodfloor.ogg")
 
 var _active:       bool   = false
 var _item_id:      String = ""
@@ -247,7 +247,7 @@ func _play_tile_wall_place_sfx(tile: Vector2i) -> void:
 func _play_scene_place_sfx(item_id: String, tile: Vector2i) -> void:
 	var stream: AudioStream = null
 	var volume_db: float = 0.0
-	match item_id:
+	match PlacementCatalog.normalize_item_id(item_id):
 		"workbench":
 			stream = WORKBENCH_PLACE_SFX
 		"chest":
@@ -255,8 +255,8 @@ func _play_scene_place_sfx(item_id: String, tile: Vector2i) -> void:
 		"doorwood":
 			stream = _resolve_door_place_sfx()
 			volume_db = _resolve_door_place_volume_db()
-		"woodfloor":
-			stream = WOODFLOOR_PLACE_SFX
+		"floorwood":
+			stream = FLOORWOOD_PLACE_SFX
 		_:
 			return
 	_play_placement_sfx_at_tile(stream, tile, volume_db)
@@ -321,7 +321,8 @@ func _do_place() -> void:
 		return
 
 	# UID simple basado en tiempo + item_id
-	var uid := "%s_%d" % [_item_id, Time.get_ticks_msec()]
+	var placed_id := PlacementCatalog.normalize_item_id(_item_id)
+	var uid := "%s_%d" % [placed_id, Time.get_ticks_msec()]
 
 	var entry: Dictionary = {
 		"uid":       uid,
@@ -329,7 +330,7 @@ func _do_place() -> void:
 		"tile_pos_x": tile.x,
 		"tile_pos_y": tile.y,
 		"tier":      1,
-		"item_id":   _item_id,
+		"item_id":   placed_id,
 	}
 	WorldSave.add_placed_entity(entry)
 
@@ -337,13 +338,14 @@ func _do_place() -> void:
 	var parent: Node = world if world != null else get_tree().current_scene
 	_spawn_placed_instance(entry, parent)
 
-	var placed_id := _item_id
 	_play_scene_place_sfx(placed_id, tile)
 	placement_completed.emit(placed_id, tile)
 	if PlacementCatalog.is_repeat_scene_item(placed_id):
 		var remaining_scene: int = 0
 		if inv.has_method("get_total"):
-			remaining_scene = int(inv.call("get_total", placed_id))
+			remaining_scene = int(inv.call("get_total", _item_id))
+			if placed_id != _item_id:
+				remaining_scene += int(inv.call("get_total", placed_id))
 		if remaining_scene <= 0:
 			_cleanup()
 		else:
@@ -437,7 +439,7 @@ func _can_share_tile_with_existing(existing_item_id: String) -> bool:
 
 
 func _is_physics_hit_blocking_for_item(collider: Variant) -> bool:
-	if _item_id != "woodfloor":
+	if not PlacementCatalog.is_floorwood_item(_item_id):
 		return true
 	if collider is Node:
 		var node := collider as Node

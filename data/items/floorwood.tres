@@ -5,7 +5,7 @@
 
 [resource]
 script = ExtResource("1_script")
-id = "woodfloor"
+id = "floorwood"
 display_name = "Wood Floor"
 icon = ExtResource("2_icon")
 max_stack = 64

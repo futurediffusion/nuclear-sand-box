@@ -4,6 +4,9 @@ extends Node
 
 var items: Dictionary = {}
 const DEFAULT_PICKUP_SFX: AudioStream = preload("res://art/Sounds/pickup.ogg")
+const ITEM_ID_ALIASES: Dictionary = {
+	"woodfloor": "floorwood",
+}
 
 func _ready() -> void:
 	for data in item_list:
@@ -36,9 +39,10 @@ func register_item(data: ItemData) -> void:
 	items[data.id] = data
 
 func get_item(id: String) -> ItemData:
-	if id == "":
+	var normalized_id := _normalize_item_id(id)
+	if normalized_id == "":
 		return null
-	return items.get(id, null) as ItemData
+	return items.get(normalized_id, null) as ItemData
 
 func get_max_stack(id: String, fallback: int) -> int:
 	var data := get_item(id)
@@ -91,3 +95,10 @@ func _auto_register_from_folder(path: String) -> void:
 		if res is ItemData:
 			register_item(res as ItemData)
 	dir.list_dir_end()
+
+
+func _normalize_item_id(id: String) -> String:
+	var normalized := id.strip_edges()
+	if normalized == "":
+		return ""
+	return String(ITEM_ID_ALIASES.get(normalized, normalized))
