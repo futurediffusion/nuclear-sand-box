@@ -661,6 +661,87 @@ func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> boo
 	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	return true
 
+func damage_player_wall_from_contact(hit_pos: Vector2, hit_normal: Vector2, amount: int = 1) -> bool:
+	if amount <= 0:
+		amount = 1
+	var resolved_tile: Vector2i = _resolve_player_wall_tile_from_contact(hit_pos, hit_normal)
+	if resolved_tile.x < 0 or resolved_tile.y < 0:
+		return false
+	return damage_player_wall_at_tile(resolved_tile, amount)
+
+func damage_player_wall_near_world_pos(world_pos: Vector2, amount: int = 1) -> bool:
+	if amount <= 0:
+		amount = 1
+	var center_tile: Vector2i = _world_to_tile(world_pos)
+	var resolved_tile: Vector2i = _find_nearest_player_wall_tile_in_neighborhood(world_pos, center_tile, 1)
+	if resolved_tile.x < 0 or resolved_tile.y < 0:
+		return false
+	return damage_player_wall_at_tile(resolved_tile, amount)
+
+func _resolve_player_wall_tile_from_contact(hit_pos: Vector2, hit_normal: Vector2) -> Vector2i:
+	var contact_tile: Vector2i = _world_to_tile(hit_pos)
+	if _is_valid_world_tile(contact_tile) and _is_player_wall_tile(contact_tile):
+		return contact_tile
+
+	var inward: Vector2 = -hit_normal
+	if inward.length_squared() > 0.000001:
+		inward = inward.normalized()
+		var probe_offsets: Array[float] = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0]
+		for offset in probe_offsets:
+			var probe_pos: Vector2 = hit_pos + inward * offset
+			var probe_tile: Vector2i = _world_to_tile(probe_pos)
+			if not _is_valid_world_tile(probe_tile):
+				continue
+			if _is_player_wall_tile(probe_tile):
+				return probe_tile
+
+	return _find_nearest_player_wall_tile_in_neighborhood(hit_pos, contact_tile, 1)
+
+func _find_nearest_player_wall_tile_in_neighborhood(world_center: Vector2, center_tile: Vector2i, tile_radius: int = 1) -> Vector2i:
+	var radius: int = maxi(0, tile_radius)
+	var best_tile: Vector2i = Vector2i(-1, -1)
+	var best_dist_sq: float = 1.0e30
+	var found: bool = false
+	var tile_size_vec: Vector2 = Vector2(32.0, 32.0)
+	if walls_tilemap != null and walls_tilemap.tile_set != null:
+		tile_size_vec = Vector2(walls_tilemap.tile_set.tile_size)
+
+	for oy in range(-radius, radius + 1):
+		for ox in range(-radius, radius + 1):
+			var candidate: Vector2i = center_tile + Vector2i(ox, oy)
+			if not _is_valid_world_tile(candidate):
+				continue
+			if not _is_player_wall_tile(candidate):
+				continue
+			var dist_sq: float = _distance_sq_to_tile_bounds(world_center, candidate, tile_size_vec)
+			var better: bool = false
+			if not found:
+				better = true
+			elif dist_sq < best_dist_sq - 0.0001:
+				better = true
+			elif absf(dist_sq - best_dist_sq) <= 0.0001:
+				better = candidate.y < best_tile.y or (candidate.y == best_tile.y and candidate.x < best_tile.x)
+			if not better:
+				continue
+			found = true
+			best_dist_sq = dist_sq
+			best_tile = candidate
+
+	if found:
+		return best_tile
+	return Vector2i(-1, -1)
+
+func _distance_sq_to_tile_bounds(world_pos: Vector2, tile_pos: Vector2i, tile_size_vec: Vector2) -> float:
+	var tile_center: Vector2 = _tile_to_world(tile_pos)
+	var half_ext: Vector2 = tile_size_vec * 0.5
+	var min_p: Vector2 = tile_center - half_ext
+	var max_p: Vector2 = tile_center + half_ext
+	var closest: Vector2 = Vector2(
+		clampf(world_pos.x, min_p.x, max_p.x),
+		clampf(world_pos.y, min_p.y, max_p.y)
+	)
+	return world_pos.distance_squared_to(closest)
+
 func damage_player_wall_at_world_pos(world_pos: Vector2, amount: int = 1) -> bool:
 	var tile_pos := _world_to_tile(world_pos)
 	if damage_player_wall_at_tile(tile_pos, amount):
@@ -822,9 +903,25 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 	_apply_wall_terrain_connect(reconnect_neighbors)
 	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
 	_reconcile_wall_ownership_in_scope(reconnect_scope)
+	if _enforce_removed_wall_tile_cleared(tile_pos):
+		reconnect_neighbors = _collect_existing_wall_neighbors(tile_pos)
+		_apply_wall_terrain_connect(reconnect_neighbors)
+		_enforce_removed_wall_tile_cleared(tile_pos)
 	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	if drop_item and player_wall_drop_enabled and player_wall_drop_amount > 0:
 		_spawn_player_wall_drop(tile_pos)
+	return true
+
+func _enforce_removed_wall_tile_cleared(tile_pos: Vector2i) -> bool:
+	if not _is_valid_world_tile(tile_pos):
+		return false
+	if _is_player_wall_tile(tile_pos):
+		return false
+	if _is_structural_wall_tile(tile_pos):
+		return false
+	if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, tile_pos) == -1:
+		return false
+	walls_tilemap.erase_cell(WALLS_MAP_LAYER, tile_pos)
 	return true
 
 func _play_player_wall_hit_feedback(tile_pos: Vector2i) -> void:
@@ -1044,6 +1141,24 @@ func _is_structural_wall_tile(tile_pos: Vector2i) -> bool:
 	return false
 
 func _reconcile_wall_ownership_in_scope(scope_cells: Array[Vector2i], keep_tiles: Dictionary = {}) -> bool:
+	var removed_any: bool = _erase_unowned_walls_in_scope(scope_cells, keep_tiles)
+	if not removed_any:
+		return false
+
+	var survivor_cells: Array[Vector2i] = _collect_scope_wall_cells(scope_cells)
+	if survivor_cells.is_empty():
+		return true
+	_apply_wall_terrain_connect(survivor_cells)
+
+	# set_cells_terrain_connect puede recrear tiles vecinos no deseados.
+	var removed_after_connect: bool = _erase_unowned_walls_in_scope(scope_cells, keep_tiles)
+	if removed_after_connect:
+		survivor_cells = _collect_scope_wall_cells(scope_cells)
+		if not survivor_cells.is_empty():
+			_apply_wall_terrain_connect(survivor_cells)
+	return true
+
+func _erase_unowned_walls_in_scope(scope_cells: Array[Vector2i], keep_tiles: Dictionary = {}) -> bool:
 	var removed_any: bool = false
 	for cell in scope_cells:
 		if not _is_valid_world_tile(cell):
@@ -1058,20 +1173,16 @@ func _reconcile_wall_ownership_in_scope(scope_cells: Array[Vector2i], keep_tiles
 			continue
 		walls_tilemap.erase_cell(WALLS_MAP_LAYER, cell)
 		removed_any = true
+	return removed_any
 
-	if not removed_any:
-		return false
-
+func _collect_scope_wall_cells(scope_cells: Array[Vector2i]) -> Array[Vector2i]:
 	var survivor_cells_dict: Dictionary = {}
 	for cell in scope_cells:
 		if not _is_valid_world_tile(cell):
 			continue
 		if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, cell) == SRC_WALLS:
 			survivor_cells_dict[cell] = true
-	var survivor_cells: Array[Vector2i] = _dict_keys_to_vector2i_array(survivor_cells_dict)
-	if not survivor_cells.is_empty():
-		_apply_wall_terrain_connect(survivor_cells)
-	return true
+	return _dict_keys_to_vector2i_array(survivor_cells_dict)
 
 func _ensure_wall_cells_exist(cells: Array[Vector2i]) -> bool:
 	for tile_pos in cells:

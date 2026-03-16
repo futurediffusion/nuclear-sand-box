@@ -210,12 +210,12 @@ func _try_damage_player_wall_once() -> void:
 	var world := _get_world_node()
 	if world == null:
 		return
-	var can_hit_wall: bool = world.has_method("hit_wall_at_world_pos")
+	var can_exact_contact: bool = world.has_method("damage_player_wall_from_contact")
+	var can_exact_near: bool = world.has_method("damage_player_wall_near_world_pos")
 	var can_damage_wall_legacy: bool = world.has_method("damage_player_wall_at_world_pos")
-	if not can_hit_wall and not can_damage_wall_legacy:
+	if not can_exact_contact and not can_exact_near and not can_damage_wall_legacy:
 		return
 	var amount: int = maxi(1, damage)
-	var radius := _estimate_wall_hit_radius_world()
 	var damaged := false
 	var owner_pos := global_position
 	if owner_node is Node2D:
@@ -224,22 +224,34 @@ func _try_damage_player_wall_once() -> void:
 	if owner_node != null:
 		excluded.append(owner_node)
 	var wall_hit := CombatQueryScript.find_first_wall_hit(self, owner_pos, global_position, excluded, true)
-	var has_confirmed_wall_contact: bool = (not wall_hit.is_empty()) or _is_slash_overlapping_wall()
+	var has_ray_wall_hit: bool = not wall_hit.is_empty()
 	var hit_pos := global_position
-	if not wall_hit.is_empty():
+	var hit_normal: Vector2 = Vector2.ZERO
+	if has_ray_wall_hit:
 		hit_pos = wall_hit.get("position", global_position)
+		hit_normal = wall_hit.get("normal", Vector2.ZERO)
 
-	if can_hit_wall:
-		damaged = bool(world.call("hit_wall_at_world_pos", hit_pos, amount, radius, has_confirmed_wall_contact))
-		if not damaged and hit_pos != global_position:
-			damaged = bool(world.call("hit_wall_at_world_pos", global_position, amount, radius, has_confirmed_wall_contact))
+	if has_ray_wall_hit and can_exact_contact:
+		damaged = bool(world.call("damage_player_wall_from_contact", hit_pos, hit_normal, amount))
 		if damaged:
 			_hit_player_wall_this_swing = true
 			return
 
+	# Exact fallback only for overlap cases without ray hit.
+	if not has_ray_wall_hit and can_exact_near and _is_slash_overlapping_wall():
+		damaged = bool(world.call("damage_player_wall_near_world_pos", global_position, amount))
+		if damaged:
+			_hit_player_wall_this_swing = true
+			return
+
+	# If world exposes exact wall-hit API, skip radius fallback.
+	if can_exact_contact or can_exact_near:
+		return
+
 	if not can_damage_wall_legacy:
 		return
 
+	var radius := _estimate_wall_hit_radius_world()
 	if world.has_method("damage_player_wall_in_circle"):
 		damaged = bool(world.call("damage_player_wall_in_circle", global_position, radius, amount))
 		if damaged:
