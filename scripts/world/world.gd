@@ -48,7 +48,6 @@ var _tile_painter := TilePainter.new()
 @export var player_wall_hit_shake_px: float = 5.0
 @export var player_wall_hit_shake_speed: float = 40.0
 @export var player_wall_hit_flash_time: float = 0.06
-@export var player_wall_hit_sfx_volume_db: float = 0.0
 @export_group("")
 
 @export_group("Spawn Density")
@@ -105,8 +104,6 @@ var chunk_save: Dictionary = {}
 var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
-var _player_wall_hit_sounds: Array[AudioStream] = []
-var _player_wall_hit_volume_db_runtime: float = 0.0
 var _player_wall_system: PlayerWallSystem
 var _chunk_wall_collider_cache: ChunkWallColliderCache
 
@@ -126,10 +123,6 @@ const SRC_WALLS: int = 2
 const FLOOR_WOOD: Vector2i = Vector2i(0, 0)
 const PLAYER_WALL_FALLBACK_ATLAS: Vector2i = Vector2i(0, 0)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
-const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
-	preload("res://art/Sounds/wood1.ogg"),
-	preload("res://art/Sounds/wood2.ogg"),
-]
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
 const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
@@ -169,10 +162,8 @@ func _ready() -> void:
 	_chunk_wall_collider_cache.clear_all()
 	add_to_group("world")
 	get_tree().set_auto_accept_quit(false)
-	_player_wall_hit_sounds = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)
-	_player_wall_hit_volume_db_runtime = player_wall_hit_sfx_volume_db
-	_apply_sound_panel_overrides()
 	_player_wall_system = PlayerWallSystemScript.new()
+	# Nota de migración: world.gd no define audio de walls; PlayerWallSystem resuelve defaults/overrides internos.
 	_player_wall_system.setup({
 		"owner": self,
 		"walls_tilemap": walls_tilemap,
@@ -201,8 +192,6 @@ func _ready() -> void:
 		"player_wall_hit_tint": PLAYER_WALL_HIT_TINT,
 		"player_wall_fallback_atlas": PLAYER_WALL_FALLBACK_ATLAS,
 		"player_wall_fallback_alt": PLAYER_WALL_FALLBACK_ALT,
-		"player_wall_hit_sounds": _player_wall_hit_sounds,
-		"player_wall_hit_volume_db": _player_wall_hit_volume_db_runtime,
 		"wall_reconnect_offsets": WALL_RECONNECT_OFFSETS,
 	})
 	Debug.log("boot", "World._ready begin")
