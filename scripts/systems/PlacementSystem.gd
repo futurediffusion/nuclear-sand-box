@@ -2,7 +2,7 @@ extends Node
 
 ## Autoload: PlacementSystem
 ## Gestiona el modo de colocación de objetos placeables en mundo.
-## Para agregar un nuevo placeable: registrar item_id → scene_path en PLACEABLE_SCENES.
+## Para agregar un nuevo placeable: registrar item_id → scene_path en PlacementCatalog.
 
 signal placement_completed(item_id: String, tile_pos: Vector2i)
 signal placement_cancelled(item_id: String)
@@ -10,22 +10,12 @@ signal placement_cancelled(item_id: String)
 const TILE_SIZE: int = 32
 const GHOST_SCENE: PackedScene = preload("res://scenes/placement_ghost.tscn")
 
-## Registry: item_id -> scene_path del objeto a instanciar en mundo.
-const PLACEABLE_SCENES: Dictionary = {
-	"workbench": "res://scenes/placeables/workbench_world.tscn",
-	"chest": "res://scenes/placeables/chest_world.tscn",
-	"barrel": "res://scenes/placeables/barrel_world.tscn",
-	"doorwood": "res://scenes/placeables/door_world.tscn",
-	"woodfloor": "res://scenes/placeables/woodfloor_world.tscn",
-}
-const TILE_WALL_ITEMS: Dictionary = {
-	"wallwood": true,
-}
-const REPEAT_SCENE_ITEMS: Dictionary = {
-	"woodfloor": true,
-}
-const PLACEMENT_MODE_SCENE: String = "scene"
-const PLACEMENT_MODE_TILE_WALL: String = "tile_wall"
+## Compat temporal: mantener símbolos históricos para referencias externas.
+const PLACEABLE_SCENES: Dictionary = PlacementCatalog.PLACEABLE_SCENES
+const TILE_WALL_ITEMS: Dictionary = PlacementCatalog.TILE_WALL_ITEMS
+const REPEAT_SCENE_ITEMS: Dictionary = PlacementCatalog.REPEAT_SCENE_ITEMS
+const PLACEMENT_MODE_SCENE: String = PlacementCatalog.PLACEMENT_MODE_SCENE
+const PLACEMENT_MODE_TILE_WALL: String = PlacementCatalog.PLACEMENT_MODE_TILE_WALL
 const PLACEMENT_CLICK_COMBAT_BLOCK_MS: int = 120
 const PLACEMENT_HOVER_SFX: Array[AudioStream] = [
 	preload("res://art/Sounds/place1.ogg"),
@@ -67,11 +57,12 @@ func begin_placement(item_id: String, icon: Texture2D = null) -> void:
 	if _active:
 		cancel_placement()
 	var scene_path := ""
-	var placement_mode := PLACEMENT_MODE_SCENE
-	if _is_tile_wall_item(item_id):
-		placement_mode = PLACEMENT_MODE_TILE_WALL
+	var placement_mode := PlacementCatalog.resolve_placement_mode(item_id)
+	if placement_mode == PLACEMENT_MODE_TILE_WALL:
+		# tile-wall no instancia escena world directamente.
+		scene_path = ""
 	else:
-		scene_path = _get_scene_path(item_id)
+		scene_path = PlacementCatalog.resolve_scene_path(item_id)
 		if scene_path == "":
 			push_warning("[PlacementSystem] No hay escena registrada para item_id='%s'" % item_id)
 			return
@@ -305,7 +296,7 @@ func _do_place() -> void:
 		return
 	var removed := int(inv.call("remove_item", _item_id, 1))
 	if removed < 1:
-		if _placement_mode == PLACEMENT_MODE_TILE_WALL or _is_repeat_scene_item(_item_id):
+		if _placement_mode == PLACEMENT_MODE_TILE_WALL or PlacementCatalog.is_repeat_scene_item(_item_id):
 			_cleanup()
 		return
 
@@ -349,7 +340,7 @@ func _do_place() -> void:
 	var placed_id := _item_id
 	_play_scene_place_sfx(placed_id, tile)
 	placement_completed.emit(placed_id, tile)
-	if _is_repeat_scene_item(placed_id):
+	if PlacementCatalog.is_repeat_scene_item(placed_id):
 		var remaining_scene: int = 0
 		if inv.has_method("get_total"):
 			remaining_scene = int(inv.call("get_total", placed_id))
@@ -428,24 +419,21 @@ func _get_space_state() -> PhysicsDirectSpaceState2D:
 
 
 func _get_scene_path(item_id: String) -> String:
-	return String(PLACEABLE_SCENES.get(item_id, ""))
+	return PlacementCatalog.resolve_scene_path(item_id)
 
 func _is_tile_wall_item(item_id: String) -> bool:
-	return TILE_WALL_ITEMS.has(item_id)
+	return PlacementCatalog.is_tile_wall_item(item_id)
 
 
 func _is_repeat_scene_item(item_id: String) -> bool:
-	return REPEAT_SCENE_ITEMS.has(item_id)
+	return PlacementCatalog.is_repeat_scene_item(item_id)
 
 
 func _can_share_tile_with_existing(existing_item_id: String) -> bool:
 	var placing_item_id := _item_id
 	if placing_item_id == "" or existing_item_id == "":
 		return false
-	if placing_item_id == existing_item_id:
-		return false
-	return (placing_item_id == "doorwood" and existing_item_id == "woodfloor") \
-		or (placing_item_id == "woodfloor" and existing_item_id == "doorwood")
+	return PlacementCatalog.can_share_tile(placing_item_id, existing_item_id)
 
 
 func _is_physics_hit_blocking_for_item(collider: Variant) -> bool:
