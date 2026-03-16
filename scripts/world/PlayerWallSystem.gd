@@ -33,7 +33,7 @@ var player_wallwood_max_hp: int = 3
 var player_wall_drop_enabled: bool = true
 var player_wall_drop_item_id: String = BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD)
 var player_wall_drop_amount: int = 1
-var structural_wall_drop_enabled: bool = false
+var structural_wall_drop_enabled: bool = true
 var structural_wall_drop_item_id: String = BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD)
 var structural_wall_drop_amount: int = 1
 
