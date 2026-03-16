@@ -21,7 +21,7 @@ const TAVERN_BARREL_SCENE_PATH: String = "res://scenes/placeables/barrel_world.t
 const TAVERN_BARREL_ITEM_ID: String = "barrel"
 
 const LAYER_FLOOR: int = 1
-const LAYER_WALLS: int = 2
+const LAYER_WALLS: int = 0
 const SRC_FLOOR: int = 1
 const SRC_WALLS: int = 2
 const FLOOR_WOOD: Vector2i = Vector2i(0, 0)
@@ -400,6 +400,7 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var x1: int = x0 + bounds.size.x - 1
 	var y1: int = y0 + bounds.size.y - 1
 	var door_x: int = x0 + bounds.size.x / 2
+	var structural_wall_default_hp: int = maxi(1, int(ctx.get("structural_wall_default_hp", 1)))
 
 	for cell in data.floor_cells:
 		_place_tile_persistent(chunk_pos, LAYER_FLOOR, cell, SRC_FLOOR, FLOOR_WOOD, ctx)
@@ -410,7 +411,8 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 				"layer": LAYER_WALLS,
 				"tile": cell,
 				"source": -1,
-				"atlas": Vector2i(-1, -1)
+				"atlas": Vector2i(-1, -1),
+				"hp": structural_wall_default_hp,
 			})
 		else:
 			var atlas: Vector2i = WALL_MID
