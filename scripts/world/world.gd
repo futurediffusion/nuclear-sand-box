@@ -673,6 +673,8 @@ func _chunk_from_key(chunk_key: String) -> Vector2i:
 
 
 
+# Frontera de módulos: world.gd conserva sólo API pública de fachada para gameplay/colocación;
+# toda la lógica interna de ownership, reconciliación, drops, feedback y aplicación de paredes vive en PlayerWallSystem.
 func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	return _player_wall_system != null and _player_wall_system.can_place_player_wall_at_tile(tile_pos)
 
@@ -699,30 +701,6 @@ func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 
 func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> bool:
 	return _player_wall_system != null and _player_wall_system.remove_player_wall_at_tile(tile_pos, drop_item)
-
-func _apply_player_wall_tiles_strict(player_tiles: Array[Vector2i]) -> bool:
-	return _player_wall_system != null and _player_wall_system._apply_player_wall_tiles_strict(player_tiles)
-
-func _reconcile_wall_ownership_in_scope(scope_cells: Array[Vector2i], keep_tiles: Dictionary = {}) -> bool:
-	return _player_wall_system != null and _player_wall_system._reconcile_wall_ownership_in_scope(scope_cells, keep_tiles)
-
-func _is_player_wall_tile(tile_pos: Vector2i) -> bool:
-	return _player_wall_system != null and _player_wall_system._is_player_wall_tile(tile_pos)
-
-func _is_structural_wall_tile(tile_pos: Vector2i) -> bool:
-	return _player_wall_system != null and _player_wall_system._is_structural_wall_tile(tile_pos)
-
-func _spawn_player_wall_drop(tile_pos: Vector2i) -> void:
-	if _player_wall_system != null:
-		_player_wall_system._spawn_player_wall_drop(tile_pos)
-
-func _play_player_wall_hit_feedback(tile_pos: Vector2i) -> void:
-	if _player_wall_system != null:
-		_player_wall_system._play_player_wall_hit_feedback(tile_pos)
-
-func _apply_player_walls_for_chunk(chunk_pos: Vector2i) -> void:
-	if _player_wall_system != null:
-		_player_wall_system.apply_saved_walls_for_chunk(chunk_pos)
 
 func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) -> void:
 	var chunks_to_refresh: Dictionary = {}
