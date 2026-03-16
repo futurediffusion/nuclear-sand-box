@@ -44,13 +44,16 @@ var _tile_painter := TilePainter.new()
 @export var player_wall_drop_enabled: bool = true
 @export var player_wall_drop_item_id: String = "wallwood"
 @export var player_wall_drop_amount: int = 1
-@export var structural_wall_drop_enabled: bool = false
+@export var structural_wall_drop_enabled: bool = true
 @export var structural_wall_drop_item_id: String = "wallwood"
 @export var structural_wall_drop_amount: int = 1
 @export var player_wall_hit_shake_duration: float = 0.08
 @export var player_wall_hit_shake_px: float = 5.0
 @export var player_wall_hit_shake_speed: float = 40.0
 @export var player_wall_hit_flash_time: float = 0.06
+@export var structural_wall_hit_shake_duration: float = 0.12
+@export var structural_wall_hit_shake_px: float = 7.0
+@export var structural_wall_hit_shake_speed: float = 46.0
 @export var structural_wall_default_hp: int = 3
 @export_group("")
 
@@ -192,6 +195,9 @@ func _ready() -> void:
 		"player_wall_hit_shake_px": player_wall_hit_shake_px,
 		"player_wall_hit_shake_speed": player_wall_hit_shake_speed,
 		"player_wall_hit_flash_time": player_wall_hit_flash_time,
+		"structural_wall_hit_shake_duration": structural_wall_hit_shake_duration,
+		"structural_wall_hit_shake_px": structural_wall_hit_shake_px,
+		"structural_wall_hit_shake_speed": structural_wall_hit_shake_speed,
 		"player_wall_hit_tint": PLAYER_WALL_HIT_TINT,
 		"player_wall_fallback_atlas": PLAYER_WALL_FALLBACK_ATLAS,
 		"player_wall_fallback_alt": PLAYER_WALL_FALLBACK_ALT,

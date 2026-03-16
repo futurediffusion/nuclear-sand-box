@@ -17,6 +17,8 @@ var player_wall_hit_flash_time: float = 0.06
 var player_wall_hit_tint: Color = Color(0.86, 0.76, 0.6, 1.0)
 
 var structural_wall_hit_shake_duration: float = player_wall_hit_shake_duration
+var structural_wall_hit_shake_px: float = player_wall_hit_shake_px
+var structural_wall_hit_shake_speed: float = player_wall_hit_shake_speed
 var structural_wall_hit_flash_time: float = player_wall_hit_flash_time
 var structural_wall_hit_tint: Color = player_wall_hit_tint
 
@@ -36,6 +38,8 @@ func setup(ctx: Dictionary) -> void:
 	player_wall_hit_flash_time = float(ctx.get("player_wall_hit_flash_time", player_wall_hit_flash_time))
 	player_wall_hit_tint = Color(ctx.get("player_wall_hit_tint", player_wall_hit_tint))
 	structural_wall_hit_shake_duration = float(ctx.get("structural_wall_hit_shake_duration", structural_wall_hit_shake_duration))
+	structural_wall_hit_shake_px = float(ctx.get("structural_wall_hit_shake_px", structural_wall_hit_shake_px))
+	structural_wall_hit_shake_speed = float(ctx.get("structural_wall_hit_shake_speed", structural_wall_hit_shake_speed))
 	structural_wall_hit_flash_time = float(ctx.get("structural_wall_hit_flash_time", structural_wall_hit_flash_time))
 	structural_wall_hit_tint = Color(ctx.get("structural_wall_hit_tint", structural_wall_hit_tint))
 	player_wall_fallback_atlas = Vector2i(ctx.get("player_wall_fallback_atlas", player_wall_fallback_atlas))
@@ -51,6 +55,8 @@ func play_structural_wall_hit_feedback(tile_pos: Vector2i, audio_ctx: Dictionary
 		tile_pos,
 		{
 			"shake_duration": structural_wall_hit_shake_duration,
+			"shake_px": structural_wall_hit_shake_px,
+			"shake_speed": structural_wall_hit_shake_speed,
 			"flash_time": structural_wall_hit_flash_time,
 			"tint": structural_wall_hit_tint,
 		}
@@ -107,6 +113,8 @@ func _spawn_player_wall_hit_shake(tile_pos: Vector2i, visual_overrides: Dictiona
 		atlas_coords = player_wall_fallback_atlas
 	var alternative_tile: int = walls_tilemap.get_cell_alternative_tile(walls_map_layer, tile_pos)
 	var shake_duration: float = float(visual_overrides.get("shake_duration", player_wall_hit_shake_duration))
+	var shake_px: float = float(visual_overrides.get("shake_px", player_wall_hit_shake_px))
+	var shake_speed: float = float(visual_overrides.get("shake_speed", player_wall_hit_shake_speed))
 	var flash_time: float = float(visual_overrides.get("flash_time", player_wall_hit_flash_time))
 	var tint: Color = Color(visual_overrides.get("tint", player_wall_hit_tint))
 	var feedback_result: Dictionary = TileHitFeedbackScript.spawn_tile_hit_feedback(
@@ -122,8 +130,8 @@ func _spawn_player_wall_hit_shake(tile_pos: Vector2i, visual_overrides: Dictiona
 			"fallback_atlas": player_wall_fallback_atlas,
 			"fallback_alternative_tile": player_wall_fallback_alt,
 			"shake_duration": shake_duration,
-			"shake_speed": player_wall_hit_shake_speed,
-			"shake_px": player_wall_hit_shake_px,
+			"shake_speed": shake_speed,
+			"shake_px": shake_px,
 			"flash_time": flash_time,
 			"tint": tint,
 			"z_index": max(walls_tilemap.z_index + 2, 7),
