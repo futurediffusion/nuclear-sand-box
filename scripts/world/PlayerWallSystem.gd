@@ -4,6 +4,7 @@ class_name PlayerWallSystem
 signal player_wall_hit(tile_pos: Vector2i)
 signal structural_wall_hit(tile_pos: Vector2i)
 signal player_wall_drop(tile_pos: Vector2i, item_id: String, amount: int)
+signal structural_wall_drop(tile_pos: Vector2i, item_id: String, amount: int)
 
 const WallTileResolverScript := preload("res://scripts/world/WallTileResolver.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
@@ -32,6 +33,9 @@ var player_wallwood_max_hp: int = 3
 var player_wall_drop_enabled: bool = true
 var player_wall_drop_item_id: String = BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD)
 var player_wall_drop_amount: int = 1
+var structural_wall_drop_enabled: bool = false
+var structural_wall_drop_item_id: String = BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD)
+var structural_wall_drop_amount: int = 1
 
 var player_wall_hit_shake_duration: float = 0.08
 var player_wall_hit_shake_px: float = 5.0
@@ -77,6 +81,9 @@ func setup(ctx: Dictionary) -> void:
 	player_wall_drop_enabled = bool(ctx.get("player_wall_drop_enabled", player_wall_drop_enabled))
 	player_wall_drop_item_id = String(ctx.get("player_wall_drop_item_id", player_wall_drop_item_id)).strip_edges()
 	player_wall_drop_amount = maxi(0, int(ctx.get("player_wall_drop_amount", player_wall_drop_amount)))
+	structural_wall_drop_enabled = bool(ctx.get("structural_wall_drop_enabled", structural_wall_drop_enabled))
+	structural_wall_drop_item_id = String(ctx.get("structural_wall_drop_item_id", structural_wall_drop_item_id)).strip_edges()
+	structural_wall_drop_amount = maxi(0, int(ctx.get("structural_wall_drop_amount", structural_wall_drop_amount)))
 	player_wall_hit_shake_duration = float(ctx.get("player_wall_hit_shake_duration", player_wall_hit_shake_duration))
 	player_wall_hit_shake_px = float(ctx.get("player_wall_hit_shake_px", player_wall_hit_shake_px))
 	player_wall_hit_shake_speed = float(ctx.get("player_wall_hit_shake_speed", player_wall_hit_shake_speed))
@@ -328,7 +335,7 @@ func damage_structural_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool
 		})
 		return true
 
-	return remove_structural_wall_at_tile(tile_pos)
+	return remove_structural_wall_at_tile(tile_pos, structural_wall_drop_enabled)
 
 func remove_structural_wall_at_tile(tile_pos: Vector2i, drop_item: bool = false) -> bool:
 	if structural_wall_persistence == null:
@@ -347,9 +354,8 @@ func remove_structural_wall_at_tile(tile_pos: Vector2i, drop_item: bool = false)
 		_apply_wall_terrain_connect(reconnect_neighbors)
 		_enforce_removed_wall_tile_cleared(tile_pos)
 	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
-	if drop_item:
-		# Placeholder para potencial loot de structural walls: actualmente no se dropea item.
-		pass
+	if drop_item and structural_wall_drop_enabled and structural_wall_drop_amount > 0:
+		_emit_structural_wall_drop(tile_pos)
 	return true
 
 func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
@@ -452,6 +458,12 @@ func _emit_player_wall_drop(tile_pos: Vector2i) -> void:
 	if feedback == null:
 		return
 	feedback.play_player_wall_drop_feedback(tile_pos, player_wall_drop_item_id, player_wall_drop_amount)
+
+func _emit_structural_wall_drop(tile_pos: Vector2i) -> void:
+	emit_signal("structural_wall_drop", tile_pos, structural_wall_drop_item_id, structural_wall_drop_amount)
+	if feedback == null:
+		return
+	feedback.play_player_wall_drop_feedback(tile_pos, structural_wall_drop_item_id, structural_wall_drop_amount)
 
 func _collect_wall_connect_cells_for_placement(tile_pos: Vector2i) -> Array[Vector2i]:
 	var out: Dictionary = {}
