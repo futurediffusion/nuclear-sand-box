@@ -44,6 +44,9 @@ var _tile_painter := TilePainter.new()
 @export var player_wall_drop_enabled: bool = true
 @export var player_wall_drop_item_id: String = "wallwood"
 @export var player_wall_drop_amount: int = 1
+@export var structural_wall_drop_enabled: bool = false
+@export var structural_wall_drop_item_id: String = "wallwood"
+@export var structural_wall_drop_amount: int = 1
 @export var player_wall_hit_shake_duration: float = 0.08
 @export var player_wall_hit_shake_px: float = 5.0
 @export var player_wall_hit_shake_speed: float = 40.0
@@ -219,6 +222,9 @@ func _ready() -> void:
 		"player_wall_drop_enabled": player_wall_drop_enabled,
 		"player_wall_drop_item_id": player_wall_drop_item_id,
 		"player_wall_drop_amount": player_wall_drop_amount,
+		"structural_wall_drop_enabled": structural_wall_drop_enabled,
+		"structural_wall_drop_item_id": structural_wall_drop_item_id,
+		"structural_wall_drop_amount": structural_wall_drop_amount,
 		"player_wall_hit_shake_duration": player_wall_hit_shake_duration,
 		"player_wall_hit_shake_px": player_wall_hit_shake_px,
 		"player_wall_hit_shake_speed": player_wall_hit_shake_speed,
