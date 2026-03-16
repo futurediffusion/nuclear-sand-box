@@ -15,6 +15,8 @@ const PLACEABLE_SCENES: Dictionary = {
 	"workbench": "res://scenes/placeables/workbench_world.tscn",
 	"chest": "res://scenes/placeables/chest_world.tscn",
 	"barrel": "res://scenes/placeables/barrel_world.tscn",
+	"doorwood": "res://scenes/placeables/door_world.tscn",
+	"woodfloor": "res://scenes/placeables/woodfloor_world.tscn",
 }
 const TILE_WALL_ITEMS: Dictionary = {
 	"wallwood": true,
@@ -28,9 +30,12 @@ const PLACEMENT_HOVER_SFX: Array[AudioStream] = [
 	preload("res://art/Sounds/place3.ogg"),
 	preload("res://art/Sounds/place4.ogg"),
 ]
+const DEFAULT_PLACEMENT_HOVER_VOLUME_DB: float = 0.0
+const DEFAULT_DOOR_PLACE_VOLUME_DB: float = 0.0
 const WALLWOOD_PLACE_SFX: AudioStream = preload("res://art/Sounds/woodwallplace.ogg")
 const WORKBENCH_PLACE_SFX: AudioStream = preload("res://art/Sounds/workbenchplace.ogg")
 const CHEST_PLACE_SFX: AudioStream = preload("res://art/Sounds/chestplace.ogg")
+const DOOR_PLACE_SFX: AudioStream = preload("res://art/Sounds/doorplace.ogg")
 
 var _active:       bool   = false
 var _item_id:      String = ""
@@ -230,7 +235,7 @@ func _play_hover_tile_sfx() -> void:
 		return
 	var ghost_pos := _ghost.global_position if _ghost != null else Vector2.ZERO
 	var sound_pos := ghost_pos + Vector2(TILE_SIZE * 0.5, TILE_SIZE * 0.5)
-	AudioSystem.play_2d(stream, sound_pos, null, &"SFX")
+	AudioSystem.play_2d(stream, sound_pos, null, &"SFX", _resolve_placement_hover_volume_db())
 
 
 func _play_tile_wall_place_sfx(tile: Vector2i) -> void:
@@ -241,17 +246,21 @@ func _play_tile_wall_place_sfx(tile: Vector2i) -> void:
 
 func _play_scene_place_sfx(item_id: String, tile: Vector2i) -> void:
 	var stream: AudioStream = null
+	var volume_db: float = 0.0
 	match item_id:
 		"workbench":
 			stream = WORKBENCH_PLACE_SFX
 		"chest":
 			stream = CHEST_PLACE_SFX
+		"doorwood":
+			stream = _resolve_door_place_sfx()
+			volume_db = _resolve_door_place_volume_db()
 		_:
 			return
-	_play_placement_sfx_at_tile(stream, tile)
+	_play_placement_sfx_at_tile(stream, tile, volume_db)
 
 
-func _play_placement_sfx_at_tile(stream: AudioStream, tile: Vector2i) -> void:
+func _play_placement_sfx_at_tile(stream: AudioStream, tile: Vector2i, volume_db: float = 0.0) -> void:
 	if stream == null:
 		return
 	var world := _find_world_node()
@@ -261,7 +270,7 @@ func _play_placement_sfx_at_tile(stream: AudioStream, tile: Vector2i) -> void:
 	)
 	if world != null:
 		sound_pos = world.to_global(sound_pos)
-	AudioSystem.play_2d(stream, sound_pos, null, &"SFX")
+	AudioSystem.play_2d(stream, sound_pos, null, &"SFX", volume_db)
 
 
 func _get_mouse_tile() -> Vector2i:
@@ -403,6 +412,36 @@ func _get_scene_path(item_id: String) -> String:
 
 func _is_tile_wall_item(item_id: String) -> bool:
 	return TILE_WALL_ITEMS.has(item_id)
+
+
+func _resolve_placement_hover_volume_db() -> float:
+	var panel := _resolve_sound_panel()
+	if panel != null:
+		return panel.placement_hover_volume_db
+	return DEFAULT_PLACEMENT_HOVER_VOLUME_DB
+
+
+func _resolve_door_place_sfx() -> AudioStream:
+	var panel := _resolve_sound_panel()
+	if panel != null and panel.door_place_sfx != null:
+		return panel.door_place_sfx
+	return DOOR_PLACE_SFX
+
+
+func _resolve_door_place_volume_db() -> float:
+	var panel := _resolve_sound_panel()
+	if panel != null:
+		return panel.door_place_volume_db
+	return DEFAULT_DOOR_PLACE_VOLUME_DB
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null
 
 func _acquire_combat_block() -> void:
 	if _combat_block_pushed:

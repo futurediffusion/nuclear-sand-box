@@ -7,6 +7,9 @@ const DEFAULT_BOW_DRAW_SFX: AudioStream = preload("res://art/Sounds/bow1.ogg")
 const DEFAULT_BOW_RELEASE_SFX: AudioStream = preload("res://art/Sounds/bow2.ogg")
 const DEFAULT_TREE_WIND_SFX: AudioStream = preload("res://art/Sounds/windsound.ogg")
 const DEFAULT_GRASS_DESTROY_SFX: AudioStream = preload("res://art/Sounds/grassdestroy.ogg")
+const DEFAULT_DOOR_OPEN_SFX: AudioStream = preload("res://art/Sounds/doorwoodopen.ogg")
+const DEFAULT_DOOR_CLOSE_SFX: AudioStream = preload("res://art/Sounds/doorwoodclose.ogg")
+const DEFAULT_DOOR_PLACE_SFX: AudioStream = preload("res://art/Sounds/doorplace.ogg")
 
 @export_group("Melee - Slash")
 @export var slash_swing_sfx: AudioStream = DEFAULT_SLASH_SWING_SFX
@@ -41,6 +44,20 @@ const DEFAULT_GRASS_DESTROY_SFX: AudioStream = preload("res://art/Sounds/grassde
 	preload("res://art/Sounds/grassmove2.ogg"),
 ]
 @export_range(-80.0, 12.0, 0.5, "suffix:dB") var grass_touch_volume_db: float = 7.5
+
+@export_group("Items - Pickup")
+@export_range(-80.0, 12.0, 0.5, "suffix:dB") var pickup_volume_db: float = 12.0
+
+@export_group("Placement - Hover")
+@export_range(-80.0, 12.0, 0.5, "suffix:dB") var placement_hover_volume_db: float = 0.0
+
+@export_group("Placeables - Door")
+@export var door_open_sfx: AudioStream = DEFAULT_DOOR_OPEN_SFX
+@export_range(-80.0, 12.0, 0.5, "suffix:dB") var door_open_volume_db: float = 0.0
+@export var door_close_sfx: AudioStream = DEFAULT_DOOR_CLOSE_SFX
+@export_range(-80.0, 12.0, 0.5, "suffix:dB") var door_close_volume_db: float = 0.0
+@export var door_place_sfx: AudioStream = DEFAULT_DOOR_PLACE_SFX
+@export_range(-80.0, 12.0, 0.5, "suffix:dB") var door_place_volume_db: float = 0.0
 
 @export_group("Ambience - Tree Wind")
 @export var tree_wind_loop_sfx: AudioStream = DEFAULT_TREE_WIND_SFX

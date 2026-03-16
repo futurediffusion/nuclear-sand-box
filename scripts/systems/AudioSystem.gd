@@ -6,6 +6,7 @@ extends Node
 @export var debug_force_master_bus := false
 @export var debug_force_1d_master := false
 const FALLBACK_PICKUP_SFX: AudioStream = preload("res://art/Sounds/pickup.ogg")
+const DEFAULT_PICKUP_VOLUME_DB: float = 12.0
 var _sound_panel_ref: WeakRef = null
 
 func _ready() -> void:
@@ -153,11 +154,19 @@ func _on_item_picked(item_id: String, amount: int, picker: Node) -> void:
 		if stream == null:
 			Debug.log("audio", "[AudioSystem] pickup_sfx NULL for item_id=%s (revisa .tres)" % item_id)
 			return
-	Debug.log("audio", "[AudioSystem] playing pickup_sfx=%s bus=SFX" % stream)
+	var pickup_volume_db := _resolve_pickup_volume_db()
+	Debug.log("audio", "[AudioSystem] playing pickup_sfx=%s bus=SFX vol_db=%s" % [stream, pickup_volume_db])
 	if debug_force_1d_master:
-		play_1d(stream, null, &"Master", 12.0)
+		play_1d(stream, null, &"Master", pickup_volume_db)
 		return
 	if picker is Node2D:
-		play_2d(stream, (picker as Node2D).global_position, null, &"SFX", 12.0)
+		play_2d(stream, (picker as Node2D).global_position, null, &"SFX", pickup_volume_db)
 	else:
-		play_2d(stream, Vector2.ZERO, null, &"SFX", 12.0)
+		play_2d(stream, Vector2.ZERO, null, &"SFX", pickup_volume_db)
+
+
+func _resolve_pickup_volume_db() -> float:
+	var panel := get_sound_panel()
+	if panel is SoundPanel:
+		return (panel as SoundPanel).pickup_volume_db
+	return DEFAULT_PICKUP_VOLUME_DB

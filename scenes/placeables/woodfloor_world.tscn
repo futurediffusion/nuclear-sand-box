@@ -1,0 +1,21 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/placeables/WoodFloorComponent.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://art/tiles/wood_floor.png" id="2_floor"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hit"]
+size = Vector2(30, 30)
+
+[node name="WoodFloorWorld" type="Node2D"]
+z_index = -1
+script = ExtResource("1_script")
+
+[node name="floorsprite" type="Sprite2D" parent="."]
+centered = false
+texture = ExtResource("2_floor")
+
+[node name="hitarea" type="Area2D" parent="."]
+position = Vector2(16, 16)
+
+[node name="hitcollision" type="CollisionShape2D" parent="hitarea"]
+shape = SubResource("RectangleShape2D_hit")

@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3 uid="uid://p0l82bo6xyxj"]
+
+[ext_resource type="Script" uid="uid://dsv8bs57w8srn" path="res://scripts/items/ItemData.gd" id="1_script"]
+[ext_resource type="Texture2D" uid="uid://75hy32gbfvjl" path="res://art/tiles/wood_floor.png" id="2_icon"]
+
+[resource]
+script = ExtResource("1_script")
+id = "woodfloor"
+display_name = "Wood Floor"
+icon = ExtResource("2_icon")
+max_stack = 64
+buy_price = 4
+sell_price = 1
+tags = Array[String](["placeable"])
+weight = 0.0
+consumable = false
+heal_hp = 0

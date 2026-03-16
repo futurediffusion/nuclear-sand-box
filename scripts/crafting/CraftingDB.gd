@@ -57,7 +57,6 @@ func _register_all() -> void:
 	_add("ironpipe",      "ironpipe",      1, "survival", 1, ["copper", "stick"],           [3, 4])
 	_add("arrow",         "arrow",         4, "survival", 1, ["stick",  "stone"],           [4, 2])
 	_add("chest",         "chest",         1, "survival", 1, ["wood"],                      [10])
-	_add("wallwood",      "wallwood",      1, "survival", 1, ["wood"],                      [1])
 
 	# ── Tools ─────────────────────────────────────────────────────────────────
 	_add("axe_wood",       "axe_wood",       1, "tools", 1, ["wood",   "fiber", "stick"], [3, 2, 2])
@@ -69,3 +68,6 @@ func _register_all() -> void:
 
 	# ── Stations ──────────────────────────────────────────────────────────────
 	_add("workbench", "workbench", 1, "stations", 1, ["wood", "stone"], [4, 4])
+	_add("wallwood", "wallwood", 1, "tinkering", 1, ["wood"], [1])
+	_add("doorwood", "doorwood", 1, "tinkering", 1, ["wood"], [8])
+	_add("woodfloor", "woodfloor", 1, "tinkering", 1, ["wood"], [4])

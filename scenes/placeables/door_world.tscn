@@ -1,0 +1,37 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/placeables/DoorComponent.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://art/placeables/doorwoodclose.png" id="2_closed"]
+[ext_resource type="Texture2D" path="res://art/placeables/doorwoodopen.png" id="3_open"]
+[ext_resource type="Texture2D" path="res://art/ui/ekey.png" id="4_ekey"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(28, 28)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_area"]
+size = Vector2(52, 40)
+
+[node name="DoorWorld" type="StaticBody2D"]
+script = ExtResource("1_script")
+closed_texture = ExtResource("2_closed")
+open_texture = ExtResource("3_open")
+
+[node name="doorcollision" type="CollisionShape2D" parent="."]
+position = Vector2(16, 16)
+shape = SubResource("RectangleShape2D_body")
+
+[node name="doorsprite" type="Sprite2D" parent="."]
+centered = false
+texture = ExtResource("2_closed")
+
+[node name="doorarea" type="Area2D" parent="."]
+position = Vector2(16, 16)
+
+[node name="doorareacollision" type="CollisionShape2D" parent="doorarea"]
+shape = SubResource("RectangleShape2D_area")
+
+[node name="Sprite2D2" type="Sprite2D" parent="."]
+visible = false
+position = Vector2(16, -11)
+scale = Vector2(0.36, 0.36)
+texture = ExtResource("4_ekey")
