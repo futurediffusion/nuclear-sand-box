@@ -1,6 +1,7 @@
 extends Node2D
 
 const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
+const CollisionLayersScript := preload("res://scripts/systems/CollisionLayers.gd")
 
 @export var knockback_strength: float = 120.0
 @export var damage: int = 1
@@ -22,6 +23,7 @@ var owner_node: Node = null
 var owner_damage_entity: Node = null
 var owner_hurtbox: Area2D = null
 var did_hitstop: bool = false
+var _hit_player_wall_this_swing: bool = false
 
 
 
@@ -60,7 +62,12 @@ func _ready() -> void:
 func _activate_hitbox() -> void:
 	if hitbox == null:
 		return
+	# Intento directo por tile (player walls) para no depender de un collider agregado por chunk.
+	_try_damage_player_wall_once()
+	if _hit_player_wall_this_swing:
+		return
 	if _is_slash_overlapping_wall():
+		_try_damage_player_wall_once()
 		return
 	_set_hitbox_enabled(true)
 
@@ -75,7 +82,8 @@ func _configure_mask() -> void:
 	if hitbox == null:
 		return
 
-	hitbox.collision_mask = (1 << 0) | (1 << 2) | (1 << 3)  # Player + EnemyNPC + Resources
+	# Player + EnemyNPC + Resources + World walls
+	hitbox.collision_mask = (1 << 0) | (1 << 2) | (1 << 3) | CollisionLayersScript.WORLD_WALL_LAYER_MASK
 
 func _on_anim_finished() -> void:
 	queue_free()
@@ -108,6 +116,7 @@ func _try_damage(raw_target: Node) -> void:
 		return
 
 	if _is_slash_overlapping_wall():
+		_try_damage_player_wall_once()
 		return
 
 	if _is_target_blocked_by_wall(target, target_hurtbox):
@@ -195,7 +204,86 @@ func _is_slash_overlapping_wall() -> bool:
 
 	return CombatQueryScript.shape_overlaps_wall(self, shape, excluded)
 
+func _try_damage_player_wall_once() -> void:
+	if _hit_player_wall_this_swing:
+		return
+	var world := _get_world_node()
+	if world == null:
+		return
+	var can_hit_wall: bool = world.has_method("hit_wall_at_world_pos")
+	var can_damage_wall_legacy: bool = world.has_method("damage_player_wall_at_world_pos")
+	if not can_hit_wall and not can_damage_wall_legacy:
+		return
+	var amount: int = maxi(1, damage)
+	var radius := _estimate_wall_hit_radius_world()
+	var damaged := false
+	var owner_pos := global_position
+	if owner_node is Node2D:
+		owner_pos = (owner_node as Node2D).global_position
+	var excluded: Array = [self]
+	if owner_node != null:
+		excluded.append(owner_node)
+	var wall_hit := CombatQueryScript.find_first_wall_hit(self, owner_pos, global_position, excluded, true)
+	var hit_pos := global_position
+	if not wall_hit.is_empty():
+		hit_pos = wall_hit.get("position", global_position)
+
+	if can_hit_wall:
+		damaged = bool(world.call("hit_wall_at_world_pos", hit_pos, amount, radius))
+		if not damaged and hit_pos != global_position:
+			damaged = bool(world.call("hit_wall_at_world_pos", global_position, amount, radius))
+		if damaged:
+			_hit_player_wall_this_swing = true
+			return
+
+	if not can_damage_wall_legacy:
+		return
+
+	if world.has_method("damage_player_wall_in_circle"):
+		damaged = bool(world.call("damage_player_wall_in_circle", global_position, radius, amount))
+		if damaged:
+			_hit_player_wall_this_swing = true
+			return
+	damaged = bool(world.call("damage_player_wall_at_world_pos", hit_pos, amount))
+	if not damaged:
+		damaged = bool(world.call("damage_player_wall_at_world_pos", global_position, amount))
+	if damaged:
+		_hit_player_wall_this_swing = true
+
+func _estimate_wall_hit_radius_world() -> float:
+	var default_radius: float = 20.0
+	if hitbox == null:
+		return default_radius
+	var shape_node := hitbox.get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if shape_node == null or shape_node.shape == null:
+		return default_radius
+
+	var scale_x: float = absf(hitbox.global_scale.x * shape_node.global_scale.x)
+	var scale_y: float = absf(hitbox.global_scale.y * shape_node.global_scale.y)
+	var world_scale: float = maxf(scale_x, scale_y)
+	var shape := shape_node.shape
+
+	if shape is CircleShape2D:
+		return maxf((shape as CircleShape2D).radius * world_scale, default_radius)
+	if shape is RectangleShape2D:
+		var half_size: Vector2 = (shape as RectangleShape2D).size * 0.5
+		return maxf(maxf(half_size.x, half_size.y) * world_scale, default_radius)
+	if shape is CapsuleShape2D:
+		var capsule := shape as CapsuleShape2D
+		return maxf(maxf(capsule.radius, capsule.height * 0.5) * world_scale, default_radius)
+
+	return default_radius
+
+func _get_world_node() -> Node:
+	var worlds := get_tree().get_nodes_in_group("world")
+	if worlds.is_empty():
+		return null
+	return worlds[0]
+
 func _on_body_entered(body: Node) -> void:
+	if CombatQueryScript.is_wall_collider(body) and CombatQueryScript.resolve_damage_target(body).is_empty():
+		_try_damage_player_wall_once()
+		return
 	_try_damage(body)
 
 func _on_area_entered(area: Area2D) -> void:

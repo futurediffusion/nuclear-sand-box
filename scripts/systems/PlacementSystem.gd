@@ -16,15 +16,22 @@ const PLACEABLE_SCENES: Dictionary = {
 	"chest": "res://scenes/placeables/chest_world.tscn",
 	"barrel": "res://scenes/placeables/barrel_world.tscn",
 }
+const TILE_WALL_ITEMS: Dictionary = {
+	"wallwood": true,
+}
+const PLACEMENT_MODE_SCENE: String = "scene"
+const PLACEMENT_MODE_TILE_WALL: String = "tile_wall"
 
 var _active:       bool   = false
 var _item_id:      String = ""
 var _scene_path:   String = ""
+var _placement_mode: String = ""
 var _can_place:    bool   = false
 var _ghost:        Node2D = null
 var _ghost_sprite: Sprite2D = null
 var _world_cache:  Node2D = null
 var _check_shape:  RectangleShape2D = null  # cached — reutilizado cada frame
+var _combat_block_pushed: bool = false
 
 # Máscara de capas que bloquean colocación: WALLPROPS(16) + Resources(8) + Player(1)
 const BLOCK_MASK: int = CollisionLayers.WORLD_WALL_LAYER_MASK \
@@ -37,13 +44,20 @@ const BLOCK_MASK: int = CollisionLayers.WORLD_WALL_LAYER_MASK \
 func begin_placement(item_id: String, icon: Texture2D = null) -> void:
 	if _active:
 		cancel_placement()
-	var scene_path := _get_scene_path(item_id)
-	if scene_path == "":
-		push_warning("[PlacementSystem] No hay escena registrada para item_id='%s'" % item_id)
-		return
+	var scene_path := ""
+	var placement_mode := PLACEMENT_MODE_SCENE
+	if _is_tile_wall_item(item_id):
+		placement_mode = PLACEMENT_MODE_TILE_WALL
+	else:
+		scene_path = _get_scene_path(item_id)
+		if scene_path == "":
+			push_warning("[PlacementSystem] No hay escena registrada para item_id='%s'" % item_id)
+			return
 	_active     = true
 	_item_id    = item_id
 	_scene_path = scene_path
+	_placement_mode = placement_mode
+	_acquire_combat_block()
 	_spawn_ghost(icon)
 
 
@@ -141,6 +155,11 @@ func can_place_at(tile_pos: Vector2i) -> bool:
 		if hits.size() > 0:
 			return false
 
+	if _placement_mode == PLACEMENT_MODE_TILE_WALL:
+		if world.has_method("can_place_player_wall_at_tile"):
+			return bool(world.call("can_place_player_wall_at_tile", tile_pos))
+		return false
+
 	return true
 
 
@@ -156,6 +175,11 @@ func _get_check_shape() -> RectangleShape2D:
 func _spawn_ghost(icon: Texture2D) -> void:
 	_ghost        = GHOST_SCENE.instantiate() as Node2D
 	_ghost_sprite = _ghost.get_node_or_null("Sprite2D") as Sprite2D
+	if _ghost_sprite != null:
+		# El ghost se posiciona por esquina de tile (x*32,y*32), así que
+		# el sprite también debe renderizarse sin centrado para evitar offset 0.5 tile.
+		_ghost_sprite.centered = false
+		_ghost_sprite.offset = Vector2.ZERO
 	if _ghost_sprite != null and icon != null:
 		_ghost_sprite.texture = icon
 	var world := _find_world_node()
@@ -195,6 +219,27 @@ func _do_place() -> void:
 		return
 	var removed := int(inv.call("remove_item", _item_id, 1))
 	if removed < 1:
+		if _placement_mode == PLACEMENT_MODE_TILE_WALL:
+			_cleanup()
+		return
+
+	if _placement_mode == PLACEMENT_MODE_TILE_WALL:
+		var world := _find_world_node()
+		var placed_wall := false
+		if world != null and world.has_method("place_player_wall_at_tile"):
+			placed_wall = bool(world.call("place_player_wall_at_tile", tile))
+		if not placed_wall:
+			if inv.has_method("add_item"):
+				inv.call("add_item", _item_id, 1)
+			return
+		placement_completed.emit(_item_id, tile)
+		var remaining: int = 0
+		if inv.has_method("get_total"):
+			remaining = int(inv.call("get_total", _item_id))
+		if remaining <= 0:
+			_cleanup()
+		else:
+			_update_ghost()
 		return
 
 	# UID simple basado en tiempo + item_id
@@ -244,11 +289,16 @@ func _cleanup() -> void:
 	_active   = false
 	_item_id  = ""
 	_scene_path = ""
+	_placement_mode = ""
 	_can_place  = false
 	if _ghost != null and is_instance_valid(_ghost):
 		_ghost.queue_free()
 	_ghost        = null
 	_ghost_sprite = null
+	_release_combat_block()
+
+func _exit_tree() -> void:
+	_release_combat_block()
 
 
 func _find_world_node() -> Node2D:
@@ -280,3 +330,18 @@ func _get_space_state() -> PhysicsDirectSpaceState2D:
 
 func _get_scene_path(item_id: String) -> String:
 	return String(PLACEABLE_SCENES.get(item_id, ""))
+
+func _is_tile_wall_item(item_id: String) -> bool:
+	return TILE_WALL_ITEMS.has(item_id)
+
+func _acquire_combat_block() -> void:
+	if _combat_block_pushed:
+		return
+	UiManager.push_combat_block()
+	_combat_block_pushed = true
+
+func _release_combat_block() -> void:
+	if not _combat_block_pushed:
+		return
+	UiManager.pop_combat_block()
+	_combat_block_pushed = false

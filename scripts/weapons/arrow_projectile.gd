@@ -5,6 +5,7 @@ const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
 
 @export var damage: int = 12
 @export var knockback: float = 180.0
+@export var wall_damage: int = 1
 @export var projectile_gravity: float = 900.0
 @export var max_flight_time: float = 4.0
 @export var stuck_visible_time: float = 5.0
@@ -246,6 +247,7 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 	global_position = hit.get("position", global_position)
 
 	if CombatQueryScript.is_wall_collider(body):
+		_damage_player_wall(hit)
 		height = 0.0
 		vertical_velocity = 0.0
 		_stick_to_world()
@@ -397,3 +399,13 @@ func _get_owner_node() -> Node:
 		return null
 
 	return owner_node
+
+func _damage_player_wall(hit: Dictionary) -> void:
+	var worlds := get_tree().get_nodes_in_group("world")
+	if worlds.is_empty():
+		return
+	var world := worlds[0]
+	if world == null or not world.has_method("damage_player_wall_at_world_pos"):
+		return
+	var hit_pos: Vector2 = hit.get("position", global_position)
+	world.call("damage_player_wall_at_world_pos", hit_pos, maxi(1, wall_damage))

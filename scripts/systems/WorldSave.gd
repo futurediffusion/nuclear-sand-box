@@ -9,6 +9,7 @@ var chunks: Dictionary = {}  # chunk_key(String) -> ChunkSave(Dictionary)
 var enemy_state_by_chunk: Dictionary = {}  # chunk_key(String) -> enemy_id(String) -> state(Dictionary)
 var enemy_spawns_by_chunk: Dictionary = {}  # chunk_key(String) -> Array[Dictionary]
 var global_flags: Dictionary = {}  # flags globales del mundo (ej: "global_camp_placed")
+var player_walls_by_chunk: Dictionary = {}  # chunk_key(String) -> tile_key(String) -> {"hp": int}
 
 func chunk_key(cx: int, cy: int) -> String:
 	return "%d,%d" % [cx, cy]
@@ -16,6 +17,8 @@ func chunk_key(cx: int, cy: int) -> String:
 ## Entidades colocadas manualmente por el player en mundo (mesas, etc.)
 var placed_entities: Array[Dictionary] = []
 var placed_entity_data_by_uid: Dictionary = {}  # uid(String) -> data(Dictionary)
+
+const PLAYER_WALL_HP_KEY: String = "hp"
 
 func add_placed_entity(entry: Dictionary) -> void:
 	placed_entities.append(entry.duplicate(true))
@@ -79,6 +82,84 @@ func get_chunk_flag(cx: int, cy: int, flag_key: String):
 
 func set_chunk_flag(cx: int, cy: int, flag_key: String, value) -> void:
 	get_chunk_save(cx, cy)["flags"][flag_key] = value
+
+func set_player_wall(cx: int, cy: int, tile_pos: Vector2i, hp: int) -> void:
+	if hp <= 0:
+		remove_player_wall(cx, cy, tile_pos)
+		return
+	var ckey := chunk_key(cx, cy)
+	if not player_walls_by_chunk.has(ckey):
+		player_walls_by_chunk[ckey] = {}
+	var chunk_dict: Dictionary = player_walls_by_chunk[ckey]
+	chunk_dict[_player_wall_tile_key(tile_pos)] = {PLAYER_WALL_HP_KEY: hp}
+	player_walls_by_chunk[ckey] = chunk_dict
+
+func has_player_wall(cx: int, cy: int, tile_pos: Vector2i) -> bool:
+	var ckey := chunk_key(cx, cy)
+	if not player_walls_by_chunk.has(ckey):
+		return false
+	var chunk_dict: Dictionary = player_walls_by_chunk[ckey]
+	return chunk_dict.has(_player_wall_tile_key(tile_pos))
+
+func get_player_wall(cx: int, cy: int, tile_pos: Vector2i) -> Dictionary:
+	var ckey := chunk_key(cx, cy)
+	if not player_walls_by_chunk.has(ckey):
+		return {}
+	var chunk_dict: Dictionary = player_walls_by_chunk[ckey]
+	var key := _player_wall_tile_key(tile_pos)
+	if not chunk_dict.has(key):
+		return {}
+	var raw: Variant = chunk_dict[key]
+	if raw is Dictionary:
+		return (raw as Dictionary).duplicate(true)
+	return {}
+
+func remove_player_wall(cx: int, cy: int, tile_pos: Vector2i) -> void:
+	var ckey := chunk_key(cx, cy)
+	if not player_walls_by_chunk.has(ckey):
+		return
+	var chunk_dict: Dictionary = player_walls_by_chunk[ckey]
+	chunk_dict.erase(_player_wall_tile_key(tile_pos))
+	if chunk_dict.is_empty():
+		player_walls_by_chunk.erase(ckey)
+	else:
+		player_walls_by_chunk[ckey] = chunk_dict
+
+func list_player_walls_in_chunk(cx: int, cy: int) -> Array[Dictionary]:
+	var ckey := chunk_key(cx, cy)
+	if not player_walls_by_chunk.has(ckey):
+		return []
+	var chunk_dict: Dictionary = player_walls_by_chunk[ckey]
+	var keys: Array = chunk_dict.keys()
+	keys.sort()
+	var out: Array[Dictionary] = []
+	for tile_key in keys:
+		var parsed: Vector2i = _player_wall_tile_from_key(String(tile_key))
+		if parsed.x <= -999999:
+			continue
+		var hp: int = 0
+		var raw: Variant = chunk_dict[tile_key]
+		if raw is Dictionary:
+			hp = int((raw as Dictionary).get(PLAYER_WALL_HP_KEY, 0))
+		if hp <= 0:
+			continue
+		out.append({
+			"tile": parsed,
+			"hp": hp,
+		})
+	return out
+
+func clear_player_walls() -> void:
+	player_walls_by_chunk.clear()
+
+func _player_wall_tile_key(tile_pos: Vector2i) -> String:
+	return "%d,%d" % [tile_pos.x, tile_pos.y]
+
+func _player_wall_tile_from_key(tile_key: String) -> Vector2i:
+	var parts: PackedStringArray = tile_key.split(",")
+	if parts.size() != 2:
+		return Vector2i(-999999, -999999)
+	return Vector2i(int(parts[0]), int(parts[1]))
 
 func get_enemy_state(chunk_key: String, enemy_id: String):
 	if chunk_key == "" or enemy_id == "":
