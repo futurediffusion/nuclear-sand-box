@@ -105,6 +105,7 @@ var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
 var _player_wall_system: PlayerWallSystem
+var _wall_feedback: WallFeedback
 var _chunk_wall_collider_cache: ChunkWallColliderCache
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
@@ -125,6 +126,7 @@ const PLAYER_WALL_FALLBACK_ATLAS: Vector2i = Vector2i(0, 0)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
+const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
 const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
@@ -163,6 +165,21 @@ func _ready() -> void:
 	add_to_group("world")
 	get_tree().set_auto_accept_quit(false)
 	_player_wall_system = PlayerWallSystemScript.new()
+	_wall_feedback = WallFeedbackScript.new()
+	_wall_feedback.setup({
+		"owner": self,
+		"walls_tilemap": walls_tilemap,
+		"walls_map_layer": WALLS_MAP_LAYER,
+		"src_walls": SRC_WALLS,
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"player_wall_hit_shake_duration": player_wall_hit_shake_duration,
+		"player_wall_hit_shake_px": player_wall_hit_shake_px,
+		"player_wall_hit_shake_speed": player_wall_hit_shake_speed,
+		"player_wall_hit_flash_time": player_wall_hit_flash_time,
+		"player_wall_hit_tint": PLAYER_WALL_HIT_TINT,
+		"player_wall_fallback_atlas": PLAYER_WALL_FALLBACK_ATLAS,
+		"player_wall_fallback_alt": PLAYER_WALL_FALLBACK_ALT,
+	})
 	# Nota de migración: world.gd no define audio de walls; PlayerWallSystem resuelve defaults/overrides internos.
 	_player_wall_system.setup({
 		"owner": self,
