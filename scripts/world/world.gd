@@ -830,7 +830,7 @@ func hit_wall_at_world_pos(
 	var structural_tile: Vector2i = _find_nearest_structural_wall_tile(world_pos, hit_radius)
 	if structural_tile.x < 0 or structural_tile.y < 0:
 		return false
-	_play_player_wall_hit_feedback(structural_tile)
+	_play_structural_wall_hit_feedback(structural_tile)
 	return true
 
 func _find_nearest_structural_wall_tile(world_center: Vector2, world_radius: float) -> Vector2i:
@@ -928,6 +928,9 @@ func _play_player_wall_hit_feedback(tile_pos: Vector2i) -> void:
 	_play_player_wall_hit_sfx(tile_pos)
 	_spawn_player_wall_hit_shake(tile_pos)
 
+func _play_structural_wall_hit_feedback(tile_pos: Vector2i) -> void:
+	_play_player_wall_hit_sfx(tile_pos)
+
 func _play_player_wall_hit_sfx(tile_pos: Vector2i) -> void:
 	var sfx := _pick_player_wall_hit_sound()
 	if sfx == null:
@@ -941,22 +944,22 @@ func _pick_player_wall_hit_sound() -> AudioStream:
 
 func _spawn_player_wall_hit_shake(tile_pos: Vector2i) -> void:
 	var source_id: int = walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, tile_pos)
-	if source_id == -1:
-		return
 	var atlas_coords: Vector2i = walls_tilemap.get_cell_atlas_coords(WALLS_MAP_LAYER, tile_pos)
 	if atlas_coords.x < 0 or atlas_coords.y < 0:
 		atlas_coords = PLAYER_WALL_FALLBACK_ATLAS
 	var alternative_tile: int = walls_tilemap.get_cell_alternative_tile(WALLS_MAP_LAYER, tile_pos)
-	TileHitFeedbackScript.spawn_tile_hit_feedback(
+	var feedback_result: Dictionary = TileHitFeedbackScript.spawn_tile_hit_feedback(
 		self,
 		walls_tilemap,
 		WALLS_MAP_LAYER,
 		tile_pos,
 		{
 			"source_id": source_id,
+			"fallback_source_id": SRC_WALLS,
 			"atlas_coords": atlas_coords,
 			"alternative_tile": alternative_tile,
 			"fallback_atlas": PLAYER_WALL_FALLBACK_ATLAS,
+			"fallback_alternative_tile": PLAYER_WALL_FALLBACK_ALT,
 			"shake_duration": player_wall_hit_shake_duration,
 			"shake_speed": player_wall_hit_shake_speed,
 			"shake_px": player_wall_hit_shake_px,
@@ -965,6 +968,11 @@ func _spawn_player_wall_hit_shake(tile_pos: Vector2i) -> void:
 			"z_index": max(walls_tilemap.z_index + 2, 7),
 		}
 	)
+	if bool(feedback_result.get("ok", false)):
+		return
+	if Debug.is_enabled("wall"):
+		var reason: String = String(feedback_result.get("reason", "unknown"))
+		Debug.log("wall", "wallwood shake skipped at %s reason=%s" % [str(tile_pos), reason])
 
 func _apply_player_walls_for_chunk(chunk_pos: Vector2i) -> void:
 	if not loaded_chunks.has(chunk_pos):
