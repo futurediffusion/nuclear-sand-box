@@ -89,6 +89,19 @@ func _add_full_tile_block(body: StaticBody2D, tilemap: TileMap, cell: Vector2i, 
 	shape.position = tilemap.map_to_local(cell)
 	body.add_child(shape)
 
+func _is_top_corner_above_door_exception(wall_lookup: Dictionary, support_lookup: Dictionary, cell: Vector2i) -> bool:
+	var north_free: bool = not support_lookup.has(cell + Vector2i(0, -1))
+	if not north_free:
+		return false
+	var west_free: bool = not support_lookup.has(cell + Vector2i(-1, 0))
+	var east_free: bool = not support_lookup.has(cell + Vector2i(1, 0))
+	var east_wall: bool = wall_lookup.has(cell + Vector2i(1, 0))
+	var west_wall: bool = wall_lookup.has(cell + Vector2i(-1, 0))
+	var isolated_top: bool = west_free and east_free
+	var top_left_exception: bool = west_free and east_wall
+	var top_right_exception: bool = east_free and west_wall
+	return isolated_top or top_left_exception or top_right_exception
+
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _is_top_edge_tile
 #
@@ -194,6 +207,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			continue
 		support_lookup[raw_cell as Vector2i] = true
 	var sealed_wall_lookup: Dictionary = {}
+	var sealed_wall_south_band_lookup: Dictionary = {}
 	for raw_wall_cell in wall_lookup.keys():
 		if not (raw_wall_cell is Vector2i):
 			continue
@@ -202,6 +216,8 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 		var has_door_south: bool = extra_support_lookup.has(wall_cell + Vector2i(0, 1))
 		if has_door_north or has_door_south:
 			sealed_wall_lookup[wall_cell] = true
+		if has_door_south and _is_top_corner_above_door_exception(wall_lookup, support_lookup, wall_cell):
+			sealed_wall_south_band_lookup[wall_cell] = true
 	var body := StaticBody2D.new()
 	body.name = "WallCollisionBody_%d_%d" % [chunk_pos.x, chunk_pos.y]
 	body.collision_layer = CollisionLayersScript.WORLD_WALL_LAYER_MASK
@@ -215,7 +231,11 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 	for raw_sealed_cell in sealed_wall_lookup.keys():
 		if not (raw_sealed_cell is Vector2i):
 			continue
-		_add_full_tile_block(body, tilemap, raw_sealed_cell as Vector2i, tile_size)
+		var sealed_cell: Vector2i = raw_sealed_cell as Vector2i
+		if sealed_wall_south_band_lookup.has(sealed_cell):
+			_add_upper_corner_south_band(body, tilemap, sealed_cell, tile_size, band_height, inset)
+		else:
+			_add_full_tile_block(body, tilemap, sealed_cell, tile_size)
 		shape_count += 1
 
 	# â”€â”€ Paso 1: bandas sur (south exposed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

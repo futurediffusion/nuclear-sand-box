@@ -8,7 +8,7 @@
 [ext_resource type="Resource" uid="uid://d2v76x60qxx2x" path="res://data/items/stone.tres" id="6_stone"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_stone"]
-size = Vector2(16, 7)
+size = Vector2(25, 16)
 
 [sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_stone"]
 particle_flag_disable_z = true
@@ -34,7 +34,7 @@ drop_pickup_sfx = ExtResource("5_stone")
 texture = ExtResource("1_stone")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-position = Vector2(0, 0.5)
+position = Vector2(-1.5, 2)
 shape = SubResource("RectangleShape2D_stone")
 
 [node name="HitParticles" type="GPUParticles2D" parent="."]
