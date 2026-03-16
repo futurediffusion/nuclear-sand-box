@@ -51,3 +51,29 @@
 Logs esperados:
 - `[SHOP][BUY] item=... amt=... cost=... ok=... reason=... offer_mode=...`
 - `[SHOP][SELL] item=... amt=... payout=... ok=... reason=... buyback_mode=...`
+
+
+## 5) Cierre de corte — PlayerWallSystem (sin lógica fantasma)
+
+### A) Verificación de arquitectura (rápida)
+
+- [ ] `scripts/world/world.gd` mantiene solo wrappers/hooks para player walls.
+- [ ] `scripts/world/PlayerWallSystem.gd` concentra reglas de dominio (place/damage/drop/reconnect).
+- [ ] `PlayerWallSystem` no accede por rutas absolutas ni depende de estructura interna de `world.gd`; usa contexto/callables de integración.
+
+### B) Regresión funcional obligatoria
+
+- [ ] **Place**: colocar pared player en tile válido, rechazar tile ocupado/cliff/entidad.
+- [ ] **Save/Load**: guardar, recargar escena, confirmar HP y presencia de paredes player.
+- [ ] **Damage melee** (`slash.gd`): contacto cercano y fallback radial siguen dañando pared player.
+- [ ] **Damage flechas** (`arrow_projectile.gd`): impacto sigue aplicando daño a pared player.
+- [ ] **Reconnect visual**: al colocar/quitar pared, el autotile reconecta vecinos correctamente.
+- [ ] **Chunk borders**: paredes en bordes de chunk sobreviven carga/descarga sin duplicar ni desaparecer.
+- [ ] **Drops**: al romper pared player, drop de `wallwood` respeta toggle/cantidad.
+- [ ] **Collider refresh**: cambios de paredes marcan dirty + reconstruyen/reciclan collider del chunk.
+
+Sugerencia de pasada manual:
+1. Colocar 3-5 paredes cruzando borde de chunk.
+2. Aplicar daño mixto melee + flechas hasta romper algunas.
+3. Salir del chunk y volver.
+4. Guardar/cargar y repetir daño en las restantes.

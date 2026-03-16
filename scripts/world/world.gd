@@ -161,6 +161,7 @@ func _ready() -> void:
 		"cliffs_tilemap": cliffs_tilemap,
 		"chunk_save": chunk_save,
 		"loaded_chunks": loaded_chunks,
+		"is_chunk_loaded": Callable(self, "_is_chunk_loaded"),
 		"width": width,
 		"height": height,
 		"chunk_size": chunk_size,
@@ -662,6 +663,11 @@ func _chunk_from_key(chunk_key: String) -> Vector2i:
 	if parts.size() != 2:
 		return Vector2i(-99999, -99999)
 	return Vector2i(int(parts[0]), int(parts[1]))
+
+
+func _is_chunk_loaded(chunk_pos: Vector2i) -> bool:
+	return loaded_chunks.has(chunk_pos)
+
 
 func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	return _player_wall_system != null and _player_wall_system.can_place_player_wall_at_tile(tile_pos)
