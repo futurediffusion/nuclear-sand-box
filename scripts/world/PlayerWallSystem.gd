@@ -45,7 +45,8 @@ var player_wall_hit_shake_speed: float = 40.0
 var player_wall_hit_flash_time: float = 0.06
 var player_wall_hit_tint: Color = Color(0.86, 0.76, 0.6, 1.0)
 
-var player_wall_fallback_atlas: Vector2i = Vector2i(0, 1)
+var player_wall_fallback_atlas: Vector2i = Vector2i(0, 0)
+var player_wall_isolated_atlas: Vector2i = Vector2i(0, 1)
 var player_wall_fallback_alt: int = 2
 
 var player_wall_hit_sounds: Array[AudioStream] = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)
@@ -96,6 +97,7 @@ func setup(ctx: Dictionary) -> void:
 	player_wall_hit_tint = Color(ctx.get("player_wall_hit_tint", player_wall_hit_tint))
 
 	player_wall_fallback_atlas = Vector2i(ctx.get("player_wall_fallback_atlas", player_wall_fallback_atlas))
+	player_wall_isolated_atlas = Vector2i(ctx.get("player_wall_isolated_atlas", player_wall_isolated_atlas))
 	player_wall_fallback_alt = int(ctx.get("player_wall_fallback_alt", player_wall_fallback_alt))
 
 	wall_reconnect_offsets = []
@@ -671,12 +673,16 @@ func _collect_scope_wall_cells(scope_cells: Array[Vector2i]) -> Array[Vector2i]:
 	return _dict_keys_to_vector2i_array(survivor_cells_dict)
 
 func _ensure_wall_cells_exist(cells: Array[Vector2i]) -> bool:
+	var expected_cells: Dictionary = {}
+	for cell in cells:
+		if _is_valid_world_tile(cell):
+			expected_cells[cell] = true
 	for tile_pos in cells:
 		if not _is_valid_world_tile(tile_pos):
 			continue
 		if walls_tilemap.get_cell_source_id(walls_map_layer, tile_pos) == src_walls:
 			continue
-		if not _force_place_player_wall_tile(tile_pos):
+		if not _force_place_player_wall_tile(tile_pos, expected_cells):
 			return false
 	return true
 
@@ -692,17 +698,35 @@ func _apply_wall_terrain_connect(cells: Array[Vector2i]) -> void:
 		return
 	walls_tilemap.set_cells_terrain_connect(walls_map_layer, cells, wall_terrain_set, wall_terrain, true)
 
-func _force_place_player_wall_tile(tile_pos: Vector2i) -> bool:
+func _force_place_player_wall_tile(tile_pos: Vector2i, expected_cells: Dictionary = {}) -> bool:
 	if not _is_valid_world_tile(tile_pos):
 		return false
+	var fallback_atlas: Vector2i = _resolve_fallback_atlas_for_tile(tile_pos, expected_cells)
 	walls_tilemap.set_cell(
 		walls_map_layer,
 		tile_pos,
 		src_walls,
-		player_wall_fallback_atlas,
+		fallback_atlas,
 		player_wall_fallback_alt
 	)
 	return walls_tilemap.get_cell_source_id(walls_map_layer, tile_pos) == src_walls
+
+func _resolve_fallback_atlas_for_tile(tile_pos: Vector2i, expected_cells: Dictionary = {}) -> Vector2i:
+	if _has_expected_wall_neighbor(tile_pos, expected_cells):
+		return player_wall_fallback_atlas
+	return player_wall_isolated_atlas
+
+func _has_expected_wall_neighbor(tile_pos: Vector2i, expected_cells: Dictionary = {}) -> bool:
+	var side_offsets: Array[Vector2i] = [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
+	for offset in side_offsets:
+		var probe: Vector2i = tile_pos + offset
+		if not _is_valid_world_tile(probe):
+			continue
+		if expected_cells.has(probe):
+			return true
+		if walls_tilemap.get_cell_source_id(walls_map_layer, probe) == src_walls:
+			return true
+	return false
 
 func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) -> void:
 	if mark_chunk_walls_dirty_and_refresh_for_tiles_cb.is_valid():

@@ -102,6 +102,15 @@ func _is_top_corner_above_door_exception(wall_lookup: Dictionary, support_lookup
 	var top_right_exception: bool = east_free and west_wall
 	return isolated_top or top_left_exception or top_right_exception
 
+func _is_north_branch_t_anchor(wall_lookup: Dictionary, cell: Vector2i) -> bool:
+	if not wall_lookup.has(cell):
+		return false
+	var north_wall: bool = wall_lookup.has(cell + Vector2i(0, -1))
+	var south_wall: bool = wall_lookup.has(cell + Vector2i(0, 1))
+	var west_wall: bool = wall_lookup.has(cell + Vector2i(-1, 0))
+	var east_wall: bool = wall_lookup.has(cell + Vector2i(1, 0))
+	return north_wall and west_wall and east_wall and not south_wall
+
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _is_top_edge_tile
 #
@@ -212,11 +221,12 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 		if not (raw_wall_cell is Vector2i):
 			continue
 		var wall_cell: Vector2i = raw_wall_cell as Vector2i
+		var is_north_t_anchor: bool = _is_north_branch_t_anchor(wall_lookup, wall_cell)
 		var has_door_north: bool = extra_support_lookup.has(wall_cell + Vector2i(0, -1))
 		var has_door_south: bool = extra_support_lookup.has(wall_cell + Vector2i(0, 1))
-		if has_door_north or has_door_south:
+		if is_north_t_anchor or has_door_north or has_door_south:
 			sealed_wall_lookup[wall_cell] = true
-		if has_door_south and _is_top_corner_above_door_exception(wall_lookup, support_lookup, wall_cell):
+		if (not is_north_t_anchor) and has_door_south and _is_top_corner_above_door_exception(wall_lookup, support_lookup, wall_cell):
 			sealed_wall_south_band_lookup[wall_cell] = true
 	var body := StaticBody2D.new()
 	body.name = "WallCollisionBody_%d_%d" % [chunk_pos.x, chunk_pos.y]
