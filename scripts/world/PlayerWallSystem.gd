@@ -4,6 +4,7 @@ class_name PlayerWallSystem
 const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 const TileHitFeedbackScript := preload("res://scripts/systems/TileHitFeedback.gd")
 const WallTileResolverScript := preload("res://scripts/world/WallTileResolver.gd")
+const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
@@ -49,6 +50,7 @@ var tile_to_chunk_cb: Callable
 var mark_chunk_walls_dirty_and_refresh_for_tiles_cb: Callable
 
 var owner: Node
+var wall_persistence: WallPersistence
 
 func setup(ctx: Dictionary) -> void:
 	walls_tilemap = ctx.get("walls_tilemap")
@@ -89,6 +91,11 @@ func setup(ctx: Dictionary) -> void:
 	tile_to_chunk_cb = ctx.get("tile_to_chunk", Callable())
 	mark_chunk_walls_dirty_and_refresh_for_tiles_cb = ctx.get("mark_chunk_walls_dirty_and_refresh_for_tiles", Callable())
 	owner = ctx.get("owner")
+	var persistence_candidate: Variant = ctx.get("wall_persistence", null)
+	if persistence_candidate is WallPersistence:
+		wall_persistence = persistence_candidate as WallPersistence
+	else:
+		wall_persistence = WallPersistenceScript.new()
 
 	var legacy_audio_config: Dictionary = {}
 	if ctx.has("player_wall_hit_sounds"):
@@ -123,7 +130,7 @@ func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	if not _is_valid_world_tile(tile_pos):
 		return false
 	var cpos := _tile_to_chunk(tile_pos)
-	if WorldSave.has_player_wall(cpos.x, cpos.y, tile_pos):
+	if wall_persistence.has_wall(cpos, tile_pos):
 		return false
 	if walls_tilemap.get_cell_source_id(walls_map_layer, tile_pos) != -1:
 		return false
@@ -155,7 +162,7 @@ func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> boo
 	var final_hp := hp_override if hp_override > 0 else configured_max_hp
 	final_hp = clampi(final_hp, 1, configured_max_hp)
 	var cpos := _tile_to_chunk(tile_pos)
-	WorldSave.set_player_wall(cpos.x, cpos.y, tile_pos, final_hp)
+	wall_persistence.save_wall(cpos, tile_pos, {WorldSave.PLAYER_WALL_HP_KEY: final_hp})
 	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
 	_reconcile_wall_ownership_in_scope(reconnect_scope)
 	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
@@ -192,7 +199,7 @@ func damage_player_wall_at_world_pos(world_pos: Vector2, amount: int = 1) -> boo
 			if not _is_valid_world_tile(candidate):
 				continue
 			var chunk_pos := _tile_to_chunk(candidate)
-			if not WorldSave.has_player_wall(chunk_pos.x, chunk_pos.y, candidate):
+			if not wall_persistence.has_wall(chunk_pos, candidate):
 				continue
 			var center := _tile_to_world(candidate)
 			var dist := center.distance_squared_to(world_pos)
@@ -221,7 +228,7 @@ func damage_player_wall_in_circle(world_center: Vector2, world_radius: float, am
 			if not _is_valid_world_tile(candidate):
 				continue
 			var chunk_pos: Vector2i = _tile_to_chunk(candidate)
-			if not WorldSave.has_player_wall(chunk_pos.x, chunk_pos.y, candidate):
+			if not wall_persistence.has_wall(chunk_pos, candidate):
 				continue
 
 			var tile_center: Vector2 = _tile_to_world(candidate)
@@ -268,7 +275,7 @@ func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	if amount <= 0:
 		amount = 1
 	var cpos := _tile_to_chunk(tile_pos)
-	var data := WorldSave.get_player_wall(cpos.x, cpos.y, tile_pos)
+	var data: Dictionary = wall_persistence.get_wall(cpos, tile_pos)
 	if data.is_empty():
 		return false
 	_play_player_wall_hit_feedback(tile_pos)
@@ -276,20 +283,20 @@ func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	var current_hp := int(data.get(WorldSave.PLAYER_WALL_HP_KEY, configured_max_hp))
 	var normalized_hp: int = clampi(current_hp, 1, configured_max_hp)
 	if normalized_hp != current_hp:
-		WorldSave.set_player_wall(cpos.x, cpos.y, tile_pos, normalized_hp)
+		wall_persistence.save_wall(cpos, tile_pos, {WorldSave.PLAYER_WALL_HP_KEY: normalized_hp})
 	current_hp = normalized_hp
 	var new_hp := current_hp - amount
 	if new_hp > 0:
-		WorldSave.set_player_wall(cpos.x, cpos.y, tile_pos, new_hp)
+		wall_persistence.save_wall(cpos, tile_pos, {WorldSave.PLAYER_WALL_HP_KEY: new_hp})
 		return true
 	return remove_player_wall_at_tile(tile_pos, player_wall_drop_enabled)
 
 func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> bool:
 	var cpos := _tile_to_chunk(tile_pos)
-	if not WorldSave.has_player_wall(cpos.x, cpos.y, tile_pos):
+	if not wall_persistence.has_wall(cpos, tile_pos):
 		return false
 	walls_tilemap.erase_cell(walls_map_layer, tile_pos)
-	WorldSave.remove_player_wall(cpos.x, cpos.y, tile_pos)
+	wall_persistence.remove_wall(cpos, tile_pos)
 	var reconnect_neighbors := _collect_existing_wall_neighbors(tile_pos)
 	_apply_wall_terrain_connect(reconnect_neighbors)
 	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
@@ -306,7 +313,7 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
 	if not loaded_chunks.has(chunk_pos):
 		return
-	var entries: Array[Dictionary] = WorldSave.list_player_walls_in_chunk(chunk_pos.x, chunk_pos.y)
+	var entries: Array[Dictionary] = wall_persistence.load_chunk_walls(chunk_pos)
 	if entries.is_empty():
 		return
 	var player_tiles_dict: Dictionary = {}
@@ -534,7 +541,7 @@ func _apply_player_wall_tiles_strict(player_tiles: Array[Vector2i]) -> bool:
 
 func _is_player_wall_tile(tile_pos: Vector2i) -> bool:
 	var cpos := _tile_to_chunk(tile_pos)
-	return WorldSave.has_player_wall(cpos.x, cpos.y, tile_pos)
+	return wall_persistence.has_wall(cpos, tile_pos)
 
 func _is_structural_wall_tile(tile_pos: Vector2i) -> bool:
 	var cpos := _tile_to_chunk(tile_pos)
