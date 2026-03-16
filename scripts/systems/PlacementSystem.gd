@@ -21,6 +21,9 @@ const PLACEABLE_SCENES: Dictionary = {
 const TILE_WALL_ITEMS: Dictionary = {
 	"wallwood": true,
 }
+const REPEAT_SCENE_ITEMS: Dictionary = {
+	"woodfloor": true,
+}
 const PLACEMENT_MODE_SCENE: String = "scene"
 const PLACEMENT_MODE_TILE_WALL: String = "tile_wall"
 const PLACEMENT_CLICK_COMBAT_BLOCK_MS: int = 120
@@ -36,6 +39,7 @@ const WALLWOOD_PLACE_SFX: AudioStream = preload("res://art/Sounds/woodwallplace.
 const WORKBENCH_PLACE_SFX: AudioStream = preload("res://art/Sounds/workbenchplace.ogg")
 const CHEST_PLACE_SFX: AudioStream = preload("res://art/Sounds/chestplace.ogg")
 const DOOR_PLACE_SFX: AudioStream = preload("res://art/Sounds/doorplace.ogg")
+const WOODFLOOR_PLACE_SFX: AudioStream = preload("res://art/Sounds/placewoodfloor.ogg")
 
 var _active:       bool   = false
 var _item_id:      String = ""
@@ -158,6 +162,9 @@ func can_place_at(tile_pos: Vector2i) -> bool:
 		var ex: int = int(entry.get("tile_pos_x", -99999))
 		var ey: int = int(entry.get("tile_pos_y", -99999))
 		if ex == tile_pos.x and ey == tile_pos.y:
+			var existing_item_id := String(entry.get("item_id", ""))
+			if _can_share_tile_with_existing(existing_item_id):
+				continue
 			return false
 
 	# ── 3. Physics shape query ────────────────────────────────────────────────
@@ -176,9 +183,11 @@ func can_place_at(tile_pos: Vector2i) -> bool:
 		params.collision_mask      = BLOCK_MASK
 		params.collide_with_bodies = true
 		params.collide_with_areas  = false
-		var hits := space_state.intersect_shape(params, 1)
-		if hits.size() > 0:
-			return false
+		var hits := space_state.intersect_shape(params, 8)
+		for hit in hits:
+			var collider: Variant = hit.get("collider", null)
+			if _is_physics_hit_blocking_for_item(collider):
+				return false
 
 	if _placement_mode == PLACEMENT_MODE_TILE_WALL:
 		if world.has_method("can_place_player_wall_at_tile"):
@@ -255,6 +264,8 @@ func _play_scene_place_sfx(item_id: String, tile: Vector2i) -> void:
 		"doorwood":
 			stream = _resolve_door_place_sfx()
 			volume_db = _resolve_door_place_volume_db()
+		"woodfloor":
+			stream = WOODFLOOR_PLACE_SFX
 		_:
 			return
 	_play_placement_sfx_at_tile(stream, tile, volume_db)
@@ -294,7 +305,7 @@ func _do_place() -> void:
 		return
 	var removed := int(inv.call("remove_item", _item_id, 1))
 	if removed < 1:
-		if _placement_mode == PLACEMENT_MODE_TILE_WALL:
+		if _placement_mode == PLACEMENT_MODE_TILE_WALL or _is_repeat_scene_item(_item_id):
 			_cleanup()
 		return
 
@@ -337,8 +348,17 @@ func _do_place() -> void:
 
 	var placed_id := _item_id
 	_play_scene_place_sfx(placed_id, tile)
-	_cleanup()
 	placement_completed.emit(placed_id, tile)
+	if _is_repeat_scene_item(placed_id):
+		var remaining_scene: int = 0
+		if inv.has_method("get_total"):
+			remaining_scene = int(inv.call("get_total", placed_id))
+		if remaining_scene <= 0:
+			_cleanup()
+		else:
+			_update_ghost()
+	else:
+		_cleanup()
 
 
 func _spawn_placed_instance(entry: Dictionary, parent: Node) -> void:
@@ -412,6 +432,30 @@ func _get_scene_path(item_id: String) -> String:
 
 func _is_tile_wall_item(item_id: String) -> bool:
 	return TILE_WALL_ITEMS.has(item_id)
+
+
+func _is_repeat_scene_item(item_id: String) -> bool:
+	return REPEAT_SCENE_ITEMS.has(item_id)
+
+
+func _can_share_tile_with_existing(existing_item_id: String) -> bool:
+	var placing_item_id := _item_id
+	if placing_item_id == "" or existing_item_id == "":
+		return false
+	if placing_item_id == existing_item_id:
+		return false
+	return (placing_item_id == "doorwood" and existing_item_id == "woodfloor") \
+		or (placing_item_id == "woodfloor" and existing_item_id == "doorwood")
+
+
+func _is_physics_hit_blocking_for_item(collider: Variant) -> bool:
+	if _item_id != "woodfloor":
+		return true
+	if collider is Node:
+		var node := collider as Node
+		if node.is_in_group("doorwood_placeable"):
+			return false
+	return true
 
 
 func _resolve_placement_hover_volume_db() -> float:

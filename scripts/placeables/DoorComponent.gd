@@ -37,6 +37,8 @@ var placed_uid: String = ""
 
 func _ready() -> void:
 	add_to_group("interactable")
+	add_to_group("doorwood_placeable")
+	z_index = 1
 	interact_icon.visible = false
 	_base_sprite_pos = door_sprite.position
 
