@@ -26,6 +26,10 @@ const PLACEMENT_MODE_TILE_WALL: String = "tile_wall"
 const SHARED_TILE_COMPATIBILITY: Dictionary = {
 	"doorwood": {"woodfloor": true},
 	"woodfloor": {"doorwood": true},
+	"chest": {"woodfloor": true},
+	"barrel": {"woodfloor": true},
+	"workbench": {"woodfloor": true},
+	"wallwood": {"woodfloor": true},
 }
 
 
@@ -52,7 +56,7 @@ static func can_share_tile(placing_item_id: String, existing_item_id: String) ->
 		return false
 	if placing_item_id == existing_item_id:
 		return false
-	var compat := SHARED_TILE_COMPATIBILITY.get(placing_item_id, null)
+	var compat: Variant = SHARED_TILE_COMPATIBILITY.get(placing_item_id, null)
 	if compat is Dictionary:
 		return (compat as Dictionary).has(existing_item_id)
 	return false

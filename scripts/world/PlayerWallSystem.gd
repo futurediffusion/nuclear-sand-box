@@ -131,10 +131,15 @@ func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	for entry in WorldSave.placed_entities:
 		if typeof(entry) != TYPE_DICTIONARY:
 			continue
-		var tx: int = int((entry as Dictionary).get("tile_pos_x", -99999))
-		var ty: int = int((entry as Dictionary).get("tile_pos_y", -99999))
-		if tx == tile_pos.x and ty == tile_pos.y:
-			return false
+		var placed_entry := entry as Dictionary
+		var tx: int = int(placed_entry.get("tile_pos_x", -99999))
+		var ty: int = int(placed_entry.get("tile_pos_y", -99999))
+		if tx != tile_pos.x or ty != tile_pos.y:
+			continue
+		var existing_item_id := String(placed_entry.get("item_id", ""))
+		if PlacementCatalog.can_share_tile("wallwood", existing_item_id):
+			continue
+		return false
 	return true
 
 func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> bool:
