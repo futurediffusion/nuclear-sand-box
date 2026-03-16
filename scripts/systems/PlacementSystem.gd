@@ -30,6 +30,7 @@ const WORKBENCH_PLACE_SFX: AudioStream = preload("res://art/Sounds/workbenchplac
 const CHEST_PLACE_SFX: AudioStream = preload("res://art/Sounds/chestplace.ogg")
 const DOOR_PLACE_SFX: AudioStream = preload("res://art/Sounds/doorplace.ogg")
 const FLOORWOOD_PLACE_SFX: AudioStream = preload("res://art/Sounds/placewoodfloor.ogg")
+const DOORWOOD_ITEM_ID: String = BuildableCatalog.ID_DOORWOOD
 
 var _active:       bool   = false
 var _item_id:      String = ""
@@ -92,6 +93,7 @@ func is_placing() -> bool:
 func restore_placed_entities(world_node: Node) -> void:
 	for entry in WorldSave.placed_entities:
 		_spawn_placed_instance(entry, world_node)
+	_refresh_all_door_pairings()
 
 
 ## Quitar una entidad colocada por UID (por ejemplo, si la destruyen).
@@ -337,6 +339,8 @@ func _do_place() -> void:
 	var world := _find_world_node()
 	var parent: Node = world if world != null else get_tree().current_scene
 	_spawn_placed_instance(entry, parent)
+	if placed_id == DOORWOOD_ITEM_ID:
+		refresh_door_pairing_around_tile(tile)
 
 	_play_scene_place_sfx(placed_id, tile)
 	placement_completed.emit(placed_id, tile)
@@ -373,6 +377,114 @@ func _spawn_placed_instance(entry: Dictionary, parent: Node) -> void:
 		(instance as Node2D).position = Vector2(tx * TILE_SIZE, ty * TILE_SIZE)
 	if instance.has_method("load_persisted_data"):
 		instance.call("load_persisted_data")
+
+
+func refresh_door_pairing_around_tile(tile_pos: Vector2i) -> void:
+	var processed_spans: Dictionary = {}
+	var candidates: Array[Vector2i] = [tile_pos, tile_pos + Vector2i.LEFT, tile_pos + Vector2i.RIGHT]
+	for candidate in candidates:
+		if not _has_door_at_tile(candidate):
+			continue
+		var span := _collect_door_span(candidate)
+		if span.is_empty():
+			continue
+		var start_x := int(span.get("start_x", candidate.x))
+		var end_x := int(span.get("end_x", candidate.x))
+		var y := int(span.get("y", candidate.y))
+		var span_key := "%d,%d,%d" % [start_x, end_x, y]
+		if processed_spans.has(span_key):
+			continue
+		processed_spans[span_key] = true
+		_apply_door_span_mirroring(start_x, end_x, y)
+
+
+func _refresh_all_door_pairings() -> void:
+	var seen: Dictionary = {}
+	for entry in WorldSave.placed_entities:
+		if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
+			continue
+		var tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
+		var key := "%d,%d" % [tile.x, tile.y]
+		if seen.has(key):
+			continue
+		seen[key] = true
+		refresh_door_pairing_around_tile(tile)
+
+
+func _has_door_at_tile(tile_pos: Vector2i) -> bool:
+	for entry in WorldSave.placed_entities:
+		if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
+			continue
+		var ex := int(entry.get("tile_pos_x", -999999))
+		var ey := int(entry.get("tile_pos_y", -999999))
+		if ex == tile_pos.x and ey == tile_pos.y:
+			return true
+	return false
+
+
+func _collect_door_span(seed_tile: Vector2i) -> Dictionary:
+	if not _has_door_at_tile(seed_tile):
+		return {}
+	var start_x := seed_tile.x
+	var end_x := seed_tile.x
+	while _has_door_at_tile(Vector2i(start_x - 1, seed_tile.y)):
+		start_x -= 1
+	while _has_door_at_tile(Vector2i(end_x + 1, seed_tile.y)):
+		end_x += 1
+	return {
+		"start_x": start_x,
+		"end_x": end_x,
+		"y": seed_tile.y,
+	}
+
+
+func _apply_door_span_mirroring(start_x: int, end_x: int, y: int) -> void:
+	for x in range(start_x, end_x + 1):
+		var uid := _get_door_uid_at_tile(Vector2i(x, y))
+		if uid == "":
+			continue
+		var mirrored := ((x - start_x) % 2) == 1
+		_set_door_mirrored_state(uid, mirrored)
+
+
+func _get_door_uid_at_tile(tile_pos: Vector2i) -> String:
+	for entry in WorldSave.placed_entities:
+		if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
+			continue
+		var ex := int(entry.get("tile_pos_x", -999999))
+		var ey := int(entry.get("tile_pos_y", -999999))
+		if ex == tile_pos.x and ey == tile_pos.y:
+			return String(entry.get("uid", ""))
+	return ""
+
+
+func _set_door_mirrored_state(uid: String, mirrored: bool) -> void:
+	if uid == "":
+		return
+	var persisted := WorldSave.get_placed_entity_data(uid)
+	persisted["is_mirrored"] = mirrored
+	WorldSave.set_placed_entity_data(uid, persisted)
+	var door := _find_live_door_by_uid(uid)
+	if door == null:
+		return
+	if door.has_method("set_mirrored"):
+		door.call("set_mirrored", mirrored, false)
+	elif "is_mirrored" in door:
+		door.is_mirrored = mirrored
+
+
+func _find_live_door_by_uid(uid: String) -> Node:
+	if uid == "":
+		return null
+	for candidate in get_tree().get_nodes_in_group("doorwood_placeable"):
+		if not (candidate is Node):
+			continue
+		var node := candidate as Node
+		if not is_instance_valid(node):
+			continue
+		if "placed_uid" in node and String(node.placed_uid) == uid:
+			return node
+	return null
 
 
 func _cleanup() -> void:

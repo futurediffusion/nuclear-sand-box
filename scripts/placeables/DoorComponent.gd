@@ -13,11 +13,13 @@ const SHAKE_DURATION: float = 0.08
 const SHAKE_PX: float = 6.0
 const SHAKE_SPEED: float = 40.0
 const HIT_FLASH_TIME: float = 0.06
+const TILE_SIZE: int = 32
 
 @export var closed_texture: Texture2D = DEFAULT_CLOSED_TEXTURE
 @export var open_texture: Texture2D = DEFAULT_OPEN_TEXTURE
 @export var drop_item_id: String = "doorwood"
 @export var starts_open: bool = false
+@export var is_mirrored: bool = false
 
 @onready var door_collision: CollisionShape2D = $doorcollision
 @onready var door_sprite: Sprite2D = $doorsprite
@@ -53,15 +55,20 @@ func _ready() -> void:
 
 	_is_open = starts_open
 	if placed_uid == "":
+		_apply_mirror_visual()
 		_apply_open_state()
+		call_deferred("_refresh_double_door_pairing")
 		return
 
 	var persisted := WorldSave.get_placed_entity_data(placed_uid)
 	if persisted.is_empty():
+		_apply_mirror_visual()
 		_apply_open_state()
 		sync_persistence_data()
+		call_deferred("_refresh_double_door_pairing")
 		return
 	apply_persistence_data(persisted)
+	call_deferred("_refresh_double_door_pairing")
 
 
 func _physics_process(delta: float) -> void:
@@ -107,6 +114,7 @@ func _play_hit_feedback() -> void:
 
 
 func _destroy() -> void:
+	var tile_pos := _get_tile_pos()
 	var world_node := get_parent()
 	if world_node == null:
 		world_node = get_tree().current_scene
@@ -120,6 +128,8 @@ func _destroy() -> void:
 	if placed_uid != "":
 		WorldSave.erase_placed_entity_data(placed_uid)
 		PlacementSystem.remove_placed_entity(placed_uid)
+		if PlacementSystem != null and PlacementSystem.has_method("refresh_door_pairing_around_tile"):
+			PlacementSystem.call("refresh_door_pairing_around_tile", tile_pos)
 
 	queue_free()
 
@@ -145,12 +155,30 @@ func _set_open_state(is_open: bool, play_sfx: bool = false) -> void:
 	if play_sfx and changed:
 		_play_toggle_sfx()
 
+func set_mirrored(value: bool, persist: bool = true) -> void:
+	if is_mirrored == value:
+		return
+	is_mirrored = value
+	_apply_mirror_visual()
+	if persist:
+		sync_persistence_data()
+
 
 func _apply_open_state() -> void:
 	var closed_tex := closed_texture if closed_texture != null else DEFAULT_CLOSED_TEXTURE
 	var open_tex := open_texture if open_texture != null else closed_tex
 	door_sprite.texture = open_tex if _is_open else closed_tex
 	door_collision.disabled = _is_open
+
+
+func _apply_mirror_visual() -> void:
+	var closed_tex := closed_texture if closed_texture != null else DEFAULT_CLOSED_TEXTURE
+	var door_width: float = float(TILE_SIZE)
+	if closed_tex != null:
+		door_width = float(closed_tex.get_width())
+	door_sprite.scale.x = -1.0 if is_mirrored else 1.0
+	door_sprite.position.x = door_width if is_mirrored else 0.0
+	_base_sprite_pos = door_sprite.position
 
 
 func _play_toggle_sfx() -> void:
@@ -185,10 +213,13 @@ func get_persistence_data() -> Dictionary:
 		"uid": placed_uid,
 		"is_open": _is_open,
 		"hit_count": _hit_count,
+		"is_mirrored": is_mirrored,
 	}
 
 
 func apply_persistence_data(data: Dictionary) -> void:
+	is_mirrored = bool(data.get("is_mirrored", is_mirrored))
+	_apply_mirror_visual()
 	_is_open = bool(data.get("is_open", starts_open))
 	_hit_count = int(data.get("hit_count", 0))
 	_apply_open_state()
@@ -205,13 +236,30 @@ func load_persisted_data() -> void:
 	if placed_uid == "":
 		_is_open = starts_open
 		_hit_count = 0
+		_apply_mirror_visual()
 		_apply_open_state()
 		return
 	var persisted := WorldSave.get_placed_entity_data(placed_uid)
 	if persisted.is_empty():
 		_is_open = starts_open
 		_hit_count = 0
+		_apply_mirror_visual()
 		_apply_open_state()
 		sync_persistence_data()
 		return
 	apply_persistence_data(persisted)
+
+
+func _refresh_double_door_pairing() -> void:
+	if PlacementSystem == null:
+		return
+	if not PlacementSystem.has_method("refresh_door_pairing_around_tile"):
+		return
+	PlacementSystem.call("refresh_door_pairing_around_tile", _get_tile_pos())
+
+
+func _get_tile_pos() -> Vector2i:
+	return Vector2i(
+		floori(position.x / float(TILE_SIZE)),
+		floori(position.y / float(TILE_SIZE))
+	)
