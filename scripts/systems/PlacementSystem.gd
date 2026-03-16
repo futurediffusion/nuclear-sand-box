@@ -311,6 +311,7 @@ func _do_place() -> void:
 			if inv.has_method("add_item"):
 				inv.call("add_item", _item_id, 1)
 			return
+		refresh_door_pairing_around_tile(tile)
 		_play_tile_wall_place_sfx(tile)
 		placement_completed.emit(_item_id, tile)
 		var remaining: int = 0
@@ -379,83 +380,131 @@ func _spawn_placed_instance(entry: Dictionary, parent: Node) -> void:
 		instance.call("load_persisted_data")
 
 
-func refresh_door_pairing_around_tile(tile_pos: Vector2i) -> void:
-	var processed_spans: Dictionary = {}
-	var candidates: Array[Vector2i] = [tile_pos, tile_pos + Vector2i.LEFT, tile_pos + Vector2i.RIGHT]
-	for candidate in candidates:
-		if not _has_door_at_tile(candidate):
-			continue
-		var span := _collect_door_span(candidate)
-		if span.is_empty():
-			continue
-		var start_x := int(span.get("start_x", candidate.x))
-		var end_x := int(span.get("end_x", candidate.x))
-		var y := int(span.get("y", candidate.y))
-		var span_key := "%d,%d,%d" % [start_x, end_x, y]
-		if processed_spans.has(span_key):
-			continue
-		processed_spans[span_key] = true
-		_apply_door_span_mirroring(start_x, end_x, y)
+func refresh_door_pairing_around_tile(_tile_pos: Vector2i) -> void:
+	_refresh_all_door_layouts()
 
 
 func _refresh_all_door_pairings() -> void:
-	var seen: Dictionary = {}
+	_refresh_all_door_layouts()
+
+
+func _refresh_all_door_layouts() -> void:
+	var door_uid_by_tile := _collect_door_uid_by_tile()
+	if door_uid_by_tile.is_empty():
+		return
+
+	var door_vertical_by_tile: Dictionary = {}
+	for tile_key in door_uid_by_tile.keys():
+		var tile := _tile_key_to_pos(String(tile_key))
+		var is_vertical := _resolve_door_is_vertical(tile, door_uid_by_tile)
+		door_vertical_by_tile[String(tile_key)] = is_vertical
+		_set_door_vertical_layout_state(String(door_uid_by_tile[tile_key]), is_vertical)
+
+	var visited_horizontal: Dictionary = {}
+	for tile_key in door_uid_by_tile.keys():
+		var key := String(tile_key)
+		if visited_horizontal.has(key):
+			continue
+		if bool(door_vertical_by_tile.get(key, false)):
+			visited_horizontal[key] = true
+			_set_door_mirrored_state(String(door_uid_by_tile[key]), false)
+			continue
+		var tile := _tile_key_to_pos(key)
+		var start_x := tile.x
+		var end_x := tile.x
+		while true:
+			var left_key := _tile_pos_to_key(Vector2i(start_x - 1, tile.y))
+			if not door_uid_by_tile.has(left_key):
+				break
+			if bool(door_vertical_by_tile.get(left_key, false)):
+				break
+			start_x -= 1
+		while true:
+			var right_key := _tile_pos_to_key(Vector2i(end_x + 1, tile.y))
+			if not door_uid_by_tile.has(right_key):
+				break
+			if bool(door_vertical_by_tile.get(right_key, false)):
+				break
+			end_x += 1
+		for x in range(start_x, end_x + 1):
+			var span_key := _tile_pos_to_key(Vector2i(x, tile.y))
+			visited_horizontal[span_key] = true
+			var uid := String(door_uid_by_tile.get(span_key, ""))
+			if uid == "":
+				continue
+			var mirrored := ((x - start_x) % 2) == 1
+			_set_door_mirrored_state(uid, mirrored)
+
+
+func _collect_door_uid_by_tile() -> Dictionary:
+	var out: Dictionary = {}
 	for entry in WorldSave.placed_entities:
 		if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
 			continue
-		var tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
-		var key := "%d,%d" % [tile.x, tile.y]
-		if seen.has(key):
+		var tile := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
+		var uid := String(entry.get("uid", ""))
+		if uid == "":
 			continue
-		seen[key] = true
-		refresh_door_pairing_around_tile(tile)
+		out[_tile_pos_to_key(tile)] = uid
+	return out
 
 
-func _has_door_at_tile(tile_pos: Vector2i) -> bool:
-	for entry in WorldSave.placed_entities:
-		if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
-			continue
-		var ex := int(entry.get("tile_pos_x", -999999))
-		var ey := int(entry.get("tile_pos_y", -999999))
-		if ex == tile_pos.x and ey == tile_pos.y:
+func _resolve_door_is_vertical(tile_pos: Vector2i, door_uid_by_tile: Dictionary) -> bool:
+	var has_left := _is_door_or_wall_at_tile(tile_pos + Vector2i.LEFT, door_uid_by_tile)
+	var has_right := _is_door_or_wall_at_tile(tile_pos + Vector2i.RIGHT, door_uid_by_tile)
+	var has_up := _is_door_or_wall_at_tile(tile_pos + Vector2i.UP, door_uid_by_tile)
+	var has_down := _is_door_or_wall_at_tile(tile_pos + Vector2i.DOWN, door_uid_by_tile)
+
+	var horizontal_enclosed := has_left and has_right
+	var vertical_enclosed := has_up and has_down
+
+	if vertical_enclosed and not horizontal_enclosed:
+		return true
+	if horizontal_enclosed and not vertical_enclosed:
+		return false
+	if vertical_enclosed and horizontal_enclosed:
+		var horizontal_wall_score := int(_is_wall_at_tile(tile_pos + Vector2i.LEFT)) + int(_is_wall_at_tile(tile_pos + Vector2i.RIGHT))
+		var vertical_wall_score := int(_is_wall_at_tile(tile_pos + Vector2i.UP)) + int(_is_wall_at_tile(tile_pos + Vector2i.DOWN))
+		if vertical_wall_score > horizontal_wall_score:
 			return true
+		if horizontal_wall_score > vertical_wall_score:
+			return false
+		return false
+
+	var has_horizontal_support := has_left or has_right
+	var has_vertical_support := has_up or has_down
+	if has_vertical_support and not has_horizontal_support:
+		return true
+	if has_horizontal_support and not has_vertical_support:
+		return false
 	return false
 
 
-func _collect_door_span(seed_tile: Vector2i) -> Dictionary:
-	if not _has_door_at_tile(seed_tile):
-		return {}
-	var start_x := seed_tile.x
-	var end_x := seed_tile.x
-	while _has_door_at_tile(Vector2i(start_x - 1, seed_tile.y)):
-		start_x -= 1
-	while _has_door_at_tile(Vector2i(end_x + 1, seed_tile.y)):
-		end_x += 1
-	return {
-		"start_x": start_x,
-		"end_x": end_x,
-		"y": seed_tile.y,
-	}
+func _is_door_or_wall_at_tile(tile_pos: Vector2i, door_uid_by_tile: Dictionary) -> bool:
+	if _is_wall_at_tile(tile_pos):
+		return true
+	return door_uid_by_tile.has(_tile_pos_to_key(tile_pos))
 
 
-func _apply_door_span_mirroring(start_x: int, end_x: int, y: int) -> void:
-	for x in range(start_x, end_x + 1):
-		var uid := _get_door_uid_at_tile(Vector2i(x, y))
-		if uid == "":
-			continue
-		var mirrored := ((x - start_x) % 2) == 1
-		_set_door_mirrored_state(uid, mirrored)
+func _is_wall_at_tile(tile_pos: Vector2i) -> bool:
+	var world := _find_world_node()
+	if world == null:
+		return false
+	var walls_tm := world.get_node_or_null("StructureWallsMap") as TileMap
+	if walls_tm == null:
+		return false
+	return walls_tm.get_cell_source_id(0, tile_pos) != -1
 
 
-func _get_door_uid_at_tile(tile_pos: Vector2i) -> String:
-	for entry in WorldSave.placed_entities:
-		if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
-			continue
-		var ex := int(entry.get("tile_pos_x", -999999))
-		var ey := int(entry.get("tile_pos_y", -999999))
-		if ex == tile_pos.x and ey == tile_pos.y:
-			return String(entry.get("uid", ""))
-	return ""
+func _tile_pos_to_key(tile_pos: Vector2i) -> String:
+	return "%d,%d" % [tile_pos.x, tile_pos.y]
+
+
+func _tile_key_to_pos(tile_key: String) -> Vector2i:
+	var parts := tile_key.split(",")
+	if parts.size() != 2:
+		return Vector2i(-999999, -999999)
+	return Vector2i(int(parts[0]), int(parts[1]))
 
 
 func _set_door_mirrored_state(uid: String, mirrored: bool) -> void:
@@ -471,6 +520,21 @@ func _set_door_mirrored_state(uid: String, mirrored: bool) -> void:
 		door.call("set_mirrored", mirrored, false)
 	elif "is_mirrored" in door:
 		door.is_mirrored = mirrored
+
+
+func _set_door_vertical_layout_state(uid: String, is_vertical: bool) -> void:
+	if uid == "":
+		return
+	var persisted := WorldSave.get_placed_entity_data(uid)
+	persisted["is_vertical_layout"] = is_vertical
+	WorldSave.set_placed_entity_data(uid, persisted)
+	var door := _find_live_door_by_uid(uid)
+	if door == null:
+		return
+	if door.has_method("set_vertical_layout"):
+		door.call("set_vertical_layout", is_vertical, false)
+	elif "is_vertical_layout" in door:
+		door.is_vertical_layout = is_vertical
 
 
 func _find_live_door_by_uid(uid: String) -> Node:

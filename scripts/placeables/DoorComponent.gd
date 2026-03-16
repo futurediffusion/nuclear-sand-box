@@ -20,6 +20,7 @@ const TILE_SIZE: int = 32
 @export var drop_item_id: String = "doorwood"
 @export var starts_open: bool = false
 @export var is_mirrored: bool = false
+@export var is_vertical_layout: bool = false
 
 @onready var door_collision: CollisionShape2D = $doorcollision
 @onready var door_sprite: Sprite2D = $doorsprite
@@ -93,6 +94,7 @@ func _input(event: InputEvent) -> void:
 	if not event.is_action_pressed("interact"):
 		return
 
+	_refresh_double_door_pairing()
 	_set_open_state(not _is_open, true)
 	sync_persistence_data()
 	UiManager.block_interact_for(150)
@@ -163,11 +165,23 @@ func set_mirrored(value: bool, persist: bool = true) -> void:
 	if persist:
 		sync_persistence_data()
 
+func set_vertical_layout(value: bool, persist: bool = true) -> void:
+	if is_vertical_layout == value:
+		return
+	is_vertical_layout = value
+	_apply_open_state()
+	if persist:
+		sync_persistence_data()
+
 
 func _apply_open_state() -> void:
 	var closed_tex := closed_texture if closed_texture != null else DEFAULT_CLOSED_TEXTURE
 	var open_tex := open_texture if open_texture != null else closed_tex
-	door_sprite.texture = open_tex if _is_open else closed_tex
+	var visual_open := _is_open
+	if is_vertical_layout:
+		# Vertical layout invierte solo la apariencia; la fisica sigue la logica real.
+		visual_open = not visual_open
+	door_sprite.texture = open_tex if visual_open else closed_tex
 	door_collision.disabled = _is_open
 
 
@@ -214,11 +228,13 @@ func get_persistence_data() -> Dictionary:
 		"is_open": _is_open,
 		"hit_count": _hit_count,
 		"is_mirrored": is_mirrored,
+		"is_vertical_layout": is_vertical_layout,
 	}
 
 
 func apply_persistence_data(data: Dictionary) -> void:
 	is_mirrored = bool(data.get("is_mirrored", is_mirrored))
+	is_vertical_layout = bool(data.get("is_vertical_layout", is_vertical_layout))
 	_apply_mirror_visual()
 	_is_open = bool(data.get("is_open", starts_open))
 	_hit_count = int(data.get("hit_count", 0))
