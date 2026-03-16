@@ -3,6 +3,7 @@ class_name PlayerWallSystem
 
 const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 const TileHitFeedbackScript := preload("res://scripts/systems/TileHitFeedback.gd")
+const WallTileResolverScript := preload("res://scripts/world/WallTileResolver.gd")
 const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
@@ -163,7 +164,7 @@ func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> boo
 func damage_player_wall_from_contact(hit_pos: Vector2, hit_normal: Vector2, amount: int = 1) -> bool:
 	if amount <= 0:
 		amount = 1
-	var resolved_tile: Vector2i = _resolve_player_wall_tile_from_contact(hit_pos, hit_normal)
+	var resolved_tile: Vector2i = WallTileResolverScript.resolve_player_wall_tile_from_contact(hit_pos, hit_normal, Callable(self, "_world_to_tile"), Callable(self, "_is_valid_world_tile"), Callable(self, "_is_player_wall_tile"), Callable(self, "_tile_to_world"), _get_wall_tile_size_vec(), 1)
 	if resolved_tile.x < 0 or resolved_tile.y < 0:
 		return false
 	return damage_player_wall_at_tile(resolved_tile, amount)
@@ -172,7 +173,7 @@ func damage_player_wall_near_world_pos(world_pos: Vector2, amount: int = 1) -> b
 	if amount <= 0:
 		amount = 1
 	var center_tile: Vector2i = _world_to_tile(world_pos)
-	var resolved_tile: Vector2i = _find_nearest_player_wall_tile_in_neighborhood(world_pos, center_tile, 1)
+	var resolved_tile: Vector2i = WallTileResolverScript.find_nearest_player_wall_tile_in_neighborhood(world_pos, center_tile, Callable(self, "_world_to_tile"), Callable(self, "_is_valid_world_tile"), Callable(self, "_is_player_wall_tile"), Callable(self, "_tile_to_world"), _get_wall_tile_size_vec(), 1)
 	if resolved_tile.x < 0 or resolved_tile.y < 0:
 		return false
 	return damage_player_wall_at_tile(resolved_tile, amount)
@@ -257,7 +258,7 @@ func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 
 	if not allow_structural_feedback:
 		return false
 
-	var structural_tile: Vector2i = _find_nearest_structural_wall_tile(world_pos, hit_radius)
+	var structural_tile: Vector2i = WallTileResolverScript.find_nearest_structural_wall_tile(world_pos, hit_radius, Callable(self, "_world_to_tile"), Callable(self, "_is_valid_world_tile"), Callable(self, "_is_structural_wall_tile"), Callable(self, "_tile_to_world"), _get_wall_tile_size_vec())
 	if structural_tile.x < 0 or structural_tile.y < 0:
 		return false
 	_play_structural_wall_hit_feedback(structural_tile)
@@ -320,109 +321,11 @@ func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
 	var player_tiles: Array[Vector2i] = _dict_keys_to_vector2i_array(player_tiles_dict)
 	_apply_player_wall_tiles_strict(player_tiles)
 
-func _resolve_player_wall_tile_from_contact(hit_pos: Vector2, hit_normal: Vector2) -> Vector2i:
-	var contact_tile: Vector2i = _world_to_tile(hit_pos)
-	if _is_valid_world_tile(contact_tile) and _is_player_wall_tile(contact_tile):
-		return contact_tile
-
-	var inward: Vector2 = -hit_normal
-	if inward.length_squared() > 0.000001:
-		inward = inward.normalized()
-		var probe_offsets: Array[float] = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0]
-		for offset in probe_offsets:
-			var probe_pos: Vector2 = hit_pos + inward * offset
-			var probe_tile: Vector2i = _world_to_tile(probe_pos)
-			if not _is_valid_world_tile(probe_tile):
-				continue
-			if _is_player_wall_tile(probe_tile):
-				return probe_tile
-
-	return _find_nearest_player_wall_tile_in_neighborhood(hit_pos, contact_tile, 1)
-
-func _find_nearest_player_wall_tile_in_neighborhood(world_center: Vector2, center_tile: Vector2i, tile_radius: int = 1) -> Vector2i:
-	var radius: int = maxi(0, tile_radius)
-	var best_tile: Vector2i = Vector2i(-1, -1)
-	var best_dist_sq: float = 1.0e30
-	var found: bool = false
+func _get_wall_tile_size_vec() -> Vector2:
 	var tile_size_vec: Vector2 = Vector2(32.0, 32.0)
 	if walls_tilemap != null and walls_tilemap.tile_set != null:
 		tile_size_vec = Vector2(walls_tilemap.tile_set.tile_size)
-
-	for oy in range(-radius, radius + 1):
-		for ox in range(-radius, radius + 1):
-			var candidate: Vector2i = center_tile + Vector2i(ox, oy)
-			if not _is_valid_world_tile(candidate):
-				continue
-			if not _is_player_wall_tile(candidate):
-				continue
-			var dist_sq: float = _distance_sq_to_tile_bounds(world_center, candidate, tile_size_vec)
-			var better: bool = false
-			if not found:
-				better = true
-			elif dist_sq < best_dist_sq - 0.0001:
-				better = true
-			elif absf(dist_sq - best_dist_sq) <= 0.0001:
-				better = candidate.y < best_tile.y or (candidate.y == best_tile.y and candidate.x < best_tile.x)
-			if not better:
-				continue
-			found = true
-			best_dist_sq = dist_sq
-			best_tile = candidate
-
-	if found:
-		return best_tile
-	return Vector2i(-1, -1)
-
-func _distance_sq_to_tile_bounds(world_pos: Vector2, tile_pos: Vector2i, tile_size_vec: Vector2) -> float:
-	var tile_center: Vector2 = _tile_to_world(tile_pos)
-	var half_ext: Vector2 = tile_size_vec * 0.5
-	var min_p: Vector2 = tile_center - half_ext
-	var max_p: Vector2 = tile_center + half_ext
-	var closest: Vector2 = Vector2(
-		clampf(world_pos.x, min_p.x, max_p.x),
-		clampf(world_pos.y, min_p.y, max_p.y)
-	)
-	return world_pos.distance_squared_to(closest)
-
-func _find_nearest_structural_wall_tile(world_center: Vector2, world_radius: float) -> Vector2i:
-	var center_tile: Vector2i = _world_to_tile(world_center)
-	var radius: float = maxf(world_radius, 0.0)
-	var tile_size_vec: Vector2 = Vector2(32.0, 32.0)
-	if walls_tilemap != null and walls_tilemap.tile_set != null:
-		tile_size_vec = Vector2(walls_tilemap.tile_set.tile_size)
-	var tile_size: float = maxf(tile_size_vec.x, tile_size_vec.y)
-	var tile_radius: int = maxi(1, int(ceili(radius / tile_size)) + 1)
-	var best_tile: Vector2i = Vector2i(-1, -1)
-	var best_dist_sq: float = 1.0e30
-	var found: bool = false
-
-	for oy in range(-tile_radius, tile_radius + 1):
-		for ox in range(-tile_radius, tile_radius + 1):
-			var candidate: Vector2i = center_tile + Vector2i(ox, oy)
-			if not _is_valid_world_tile(candidate):
-				continue
-			if walls_tilemap.get_cell_source_id(walls_map_layer, candidate) != src_walls:
-				continue
-
-			var tile_center: Vector2 = _tile_to_world(candidate)
-			var half_ext: Vector2 = tile_size_vec * 0.5
-			var min_p: Vector2 = tile_center - half_ext
-			var max_p: Vector2 = tile_center + half_ext
-			var closest: Vector2 = Vector2(
-				clampf(world_center.x, min_p.x, max_p.x),
-				clampf(world_center.y, min_p.y, max_p.y)
-			)
-			var dist_sq: float = world_center.distance_squared_to(closest)
-			if radius > 0.0 and dist_sq > radius * radius:
-				continue
-			if not found or dist_sq < best_dist_sq:
-				found = true
-				best_dist_sq = dist_sq
-				best_tile = candidate
-
-	if found:
-		return best_tile
-	return Vector2i(-1, -1)
+	return tile_size_vec
 
 func _enforce_removed_wall_tile_cleared(tile_pos: Vector2i) -> bool:
 	if not _is_valid_world_tile(tile_pos):
