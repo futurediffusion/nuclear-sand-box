@@ -140,7 +140,7 @@ const FLOOR_SURFACE_BY_ATLAS := {
 	FLOOR_WOOD: WALK_SURFACE_WOOD,
 }
 const DOORWOOD_ITEM_ID: String = BuildableCatalog.ID_DOORWOOD
-const PLAYER_WALL_FALLBACK_ATLAS: Vector2i = Vector2i(0, 0)
+const PLAYER_WALL_FALLBACK_ATLAS: Vector2i = Vector2i(0, 1)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")

@@ -45,7 +45,7 @@ var player_wall_hit_shake_speed: float = 40.0
 var player_wall_hit_flash_time: float = 0.06
 var player_wall_hit_tint: Color = Color(0.86, 0.76, 0.6, 1.0)
 
-var player_wall_fallback_atlas: Vector2i = Vector2i(0, 0)
+var player_wall_fallback_atlas: Vector2i = Vector2i(0, 1)
 var player_wall_fallback_alt: int = 2
 
 var player_wall_hit_sounds: Array[AudioStream] = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)

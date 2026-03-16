@@ -22,7 +22,7 @@ var structural_wall_hit_shake_speed: float = player_wall_hit_shake_speed
 var structural_wall_hit_flash_time: float = player_wall_hit_flash_time
 var structural_wall_hit_tint: Color = player_wall_hit_tint
 
-var player_wall_fallback_atlas: Vector2i = Vector2i(0, 0)
+var player_wall_fallback_atlas: Vector2i = Vector2i(0, 1)
 var player_wall_fallback_alt: int = 2
 
 func setup(ctx: Dictionary) -> void:
