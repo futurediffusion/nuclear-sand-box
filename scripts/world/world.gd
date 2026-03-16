@@ -663,6 +663,7 @@ func _make_spawn_ctx() -> Dictionary:
 		"grass_tuft_grass_max": grass_tuft_grass_max,
 		"grass_tuft_dirt_min": grass_tuft_dirt_min,
 		"grass_tuft_dirt_max": grass_tuft_dirt_max,
+		"structural_wall_default_hp": structural_wall_default_hp,
 	}
 
 func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int, mode: String = "legacy") -> void:
