@@ -277,6 +277,9 @@ func damage_player_wall_in_circle(world_center: Vector2, world_radius: float, am
 	return damage_player_wall_at_tile(best_tile, amount)
 
 func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 20.0, allow_structural_feedback: bool = true) -> bool:
+	return damage_wall_at_world_pos(world_pos, amount, radius, allow_structural_feedback)
+
+func damage_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 20.0, allow_structural_feedback: bool = true) -> bool:
 	var hit_amount: int = maxi(1, amount)
 	var hit_radius: float = maxf(radius, 0.0)
 	var hit_player_wall: bool = false
@@ -287,13 +290,56 @@ func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 
 		hit_player_wall = damage_player_wall_at_world_pos(world_pos, hit_amount)
 	if hit_player_wall:
 		return true
-	if not allow_structural_feedback:
-		return false
 
 	var structural_tile: Vector2i = WallTileResolverScript.find_nearest_structural_wall_tile(world_pos, hit_radius, Callable(self, "_world_to_tile"), Callable(self, "_is_valid_world_tile"), Callable(self, "_is_structural_wall_tile"), Callable(self, "_tile_to_world"), _get_wall_tile_size_vec())
 	if structural_tile.x < 0 or structural_tile.y < 0:
 		return false
-	_emit_structural_wall_hit(structural_tile)
+	if not allow_structural_feedback:
+		return false
+	return damage_wall_at_tile(structural_tile, hit_amount)
+
+func damage_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
+	if _is_player_wall_tile(tile_pos):
+		return damage_player_wall_at_tile(tile_pos, amount)
+	if _is_structural_wall_tile(tile_pos):
+		return damage_structural_wall_at_tile(tile_pos, amount)
+	return false
+
+func damage_structural_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
+	if structural_wall_persistence == null:
+		return false
+	if amount <= 0:
+		amount = 1
+	var cpos := _tile_to_chunk(tile_pos)
+	var data := structural_wall_persistence.get_wall(cpos, tile_pos)
+	if data.is_empty():
+		return false
+
+	_emit_structural_wall_hit(tile_pos)
+	var default_hp: int = maxi(1, structural_wall_persistence.structural_wall_default_hp)
+	var current_hp: int = maxi(1, int(data.get(StructuralWallPersistence.WALL_HP_KEY, default_hp)))
+	var new_hp: int = current_hp - amount
+	if new_hp > 0:
+		structural_wall_persistence.save_wall(cpos, tile_pos, {
+			StructuralWallPersistence.WALL_HP_KEY: new_hp,
+			StructuralWallPersistence.WALL_KIND_KEY: data.get(StructuralWallPersistence.WALL_KIND_KEY),
+			StructuralWallPersistence.WALL_TYPE_KEY: data.get(StructuralWallPersistence.WALL_TYPE_KEY),
+		})
+		return true
+
+	return remove_structural_wall_at_tile(tile_pos)
+
+func remove_structural_wall_at_tile(tile_pos: Vector2i) -> bool:
+	if structural_wall_persistence == null:
+		return false
+	var cpos := _tile_to_chunk(tile_pos)
+	if not structural_wall_persistence.has_wall(cpos, tile_pos):
+		return false
+	walls_tilemap.erase_cell(walls_map_layer, tile_pos)
+	structural_wall_persistence.remove_wall(cpos, tile_pos)
+	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
+	_reconcile_wall_ownership_in_scope(reconnect_scope)
+	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	return true
 
 func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
