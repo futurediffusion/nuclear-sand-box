@@ -186,6 +186,8 @@ func _ready() -> void:
 	# Nota de migración: world.gd no define audio de walls; PlayerWallSystem resuelve defaults/overrides internos.
 	_player_wall_system.setup({
 		"owner": self,
+		"feedback": _wall_feedback,
+		"sound_panel_getter": Callable(self, "_get_sound_panel_for_walls"),
 		"wall_persistence": _wall_persistence,
 		"walls_tilemap": walls_tilemap,
 		"cliffs_tilemap": cliffs_tilemap,
@@ -656,6 +658,11 @@ func _tile_to_world(tile_pos: Vector2i) -> Vector2:
 
 func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 	return Vector2i(int(floor(float(tile_pos.x) / float(chunk_size))), int(floor(float(tile_pos.y) / float(chunk_size))))
+
+func _get_sound_panel_for_walls() -> Node:
+	if AudioSystem != null and AudioSystem.has_method("get_sound_panel"):
+		return AudioSystem.get_sound_panel()
+	return null
 
 func _debug_check_player_chunk(player_global: Vector2) -> void:
 	if not DEBUG_SPAWN: return

@@ -131,6 +131,15 @@ func configure_audio(config: Dictionary = {}) -> void:
 	player_wall_hit_sounds = resolved_sounds
 	player_wall_hit_volume_db = resolved_volume_db
 
+func _to_valid_sound_pool(raw_pool: Variant) -> Array[AudioStream]:
+	var valid: Array[AudioStream] = []
+	if typeof(raw_pool) != TYPE_ARRAY:
+		return valid
+	for entry in raw_pool:
+		if entry is AudioStream and entry != null:
+			valid.append(entry as AudioStream)
+	return valid
+
 func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	if not _is_valid_world_tile(tile_pos):
 		return false

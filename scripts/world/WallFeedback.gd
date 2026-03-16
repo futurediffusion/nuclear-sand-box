@@ -48,7 +48,10 @@ func play_player_wall_drop_feedback(tile_pos: Vector2i, drop_item_id: String, dr
 		return
 	if not tile_to_world_cb.is_valid():
 		return
-	var origin := tile_to_world_cb.call(tile_pos) + Vector2(0.0, -10.0)
+	var origin_raw: Variant = tile_to_world_cb.call(tile_pos)
+	if not (origin_raw is Vector2):
+		return
+	var origin: Vector2 = (origin_raw as Vector2) + Vector2(0.0, -10.0)
 	var overrides := {"drop_scene": drop_scene}
 	LootSystem.spawn_drop(null, drop_item_id, drop_amount, origin, owner, overrides)
 
@@ -58,8 +61,12 @@ func _play_player_wall_hit_sfx(tile_pos: Vector2i, audio_ctx: Dictionary) -> voi
 		return
 	if not tile_to_world_cb.is_valid():
 		return
+	var sfx_pos_raw: Variant = tile_to_world_cb.call(tile_pos)
+	if not (sfx_pos_raw is Vector2):
+		return
+	var sfx_pos: Vector2 = sfx_pos_raw as Vector2
 	var volume_db: float = float(audio_ctx.get("player_wall_hit_volume_db", 0.0))
-	AudioSystem.play_2d(sfx, tile_to_world_cb.call(tile_pos), owner, &"SFX", volume_db)
+	AudioSystem.play_2d(sfx, sfx_pos, owner, &"SFX", volume_db)
 
 func _pick_player_wall_hit_sound(audio_ctx: Dictionary) -> AudioStream:
 	var pool_raw: Variant = audio_ctx.get("player_wall_hit_sounds", [])
