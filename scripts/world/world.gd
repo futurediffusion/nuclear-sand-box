@@ -106,6 +106,7 @@ var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
 var _player_wall_system: PlayerWallSystem
 var _wall_feedback: WallFeedback
+var _wall_persistence: WallPersistence
 var _chunk_wall_collider_cache: ChunkWallColliderCache
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
@@ -126,6 +127,7 @@ const PLAYER_WALL_FALLBACK_ATLAS: Vector2i = Vector2i(0, 0)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
+const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
 const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
@@ -165,6 +167,7 @@ func _ready() -> void:
 	add_to_group("world")
 	get_tree().set_auto_accept_quit(false)
 	_player_wall_system = PlayerWallSystemScript.new()
+	_wall_persistence = WallPersistenceScript.new()
 	_wall_feedback = WallFeedbackScript.new()
 	_wall_feedback.setup({
 		"owner": self,
@@ -183,6 +186,7 @@ func _ready() -> void:
 	# Nota de migración: world.gd no define audio de walls; PlayerWallSystem resuelve defaults/overrides internos.
 	_player_wall_system.setup({
 		"owner": self,
+		"wall_persistence": _wall_persistence,
 		"walls_tilemap": walls_tilemap,
 		"cliffs_tilemap": cliffs_tilemap,
 		"chunk_save": chunk_save,

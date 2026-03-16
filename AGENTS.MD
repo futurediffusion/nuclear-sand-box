@@ -228,6 +228,18 @@ Rol:
 - Instancia y libera una vez escenas clave fuera de pantalla para evitar hitch de “primera vez”.
 - Mantiene un mínimo de ventana de warm-up para ocultar picos iniciales del renderer.
 
+### 🧱 WALL PERSISTENCE (Adapter)
+
+Ubicación:
+
+- `scripts/world/WallPersistence.gd`
+
+Rol:
+
+- Adaptador único entre `PlayerWallSystem` y `WorldSave` para walls del player.
+- Expone API por caso de uso (`save_wall`, `remove_wall`, `load_chunk_walls`, `list_player_walls`).
+- Centraliza serialización/deserialización de `wall_data` sin cambiar el schema actual (`{"hp": int}`).
+
 ### ⏱️ AWAKE RAMP QUEUE (Autoload)
 
 Ubicación:

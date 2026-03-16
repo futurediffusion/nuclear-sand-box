@@ -108,6 +108,29 @@ func _run() -> void:
 	else:
 		_record("rebuild de colliders", false, "No se pudo preparar tile de collider")
 
+
+	# Caso 8: ciclo mínimo place -> save -> unload/reload chunk -> restore -> remove -> save
+	var cycle_tile := _find_valid_tile(world, origin_tile + Vector2i(6, 0), 14)
+	var cycle_ok := false
+	if cycle_tile.x >= 0 and bool(world.call("place_player_wall_at_tile", cycle_tile, 2)):
+		var cycle_chunk: Vector2i = world.call("_tile_to_chunk", cycle_tile)
+		SaveManager.register_world(world)
+		var save_a_ok: bool = bool(SaveManager.save_world())
+		world.call("unload_chunk", cycle_chunk)
+		var loaded_chunks: Dictionary = world.get("loaded_chunks")
+		loaded_chunks[cycle_chunk] = true
+		world.set("loaded_chunks", loaded_chunks)
+		var pws := world.get("_player_wall_system")
+		if pws != null:
+			pws.call("apply_saved_walls_for_chunk", cycle_chunk)
+		var restored_ok: bool = WorldSave.has_player_wall(cycle_chunk.x, cycle_chunk.y, cycle_tile)
+		var removed_ok2: bool = bool(world.call("remove_player_wall_at_tile", cycle_tile, false))
+		var save_b_ok: bool = bool(SaveManager.save_world())
+		cycle_ok = save_a_ok and restored_ok and removed_ok2 and save_b_ok and (not WorldSave.has_player_wall(cycle_chunk.x, cycle_chunk.y, cycle_tile))
+		_record("ciclo mínimo de persistencia de wall", cycle_ok, "tile=%s chunk=%s restored=%s" % [str(cycle_tile), str(cycle_chunk), str(restored_ok)])
+	else:
+		_record("ciclo mínimo de persistencia de wall", false, "No se pudo preparar tile de ciclo")
+
 	# Caso 7: no regresión placeables críticos (registro cargable)
 	var required := ["doorwood", "woodfloor", "chest", "barrel", "workbench"]
 	var missing: Array[String] = []
