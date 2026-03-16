@@ -38,6 +38,12 @@ var _magnet_on: bool = false
 var _vel: Vector2 = Vector2.ZERO
 var _throwing: bool = false
 var _ground_y: float = 0.0
+var _scattering: bool = false
+var _scatter_origin: Vector2 = Vector2.ZERO
+var _scatter_target: Vector2 = Vector2.ZERO
+var _scatter_duration: float = 0.0
+var _scatter_elapsed: float = 0.0
+var _scatter_arc_height: float = 0.0
 
 func _ready() -> void:
 	_resolve_item_data()
@@ -83,6 +89,13 @@ func _resolve_item_data() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+
+	# =========================
+	# 0) SCATTER: dispersion radial controlada para props
+	# =========================
+	if _scattering:
+		_update_scatter(delta)
+		return
 
 	# =========================
 	# 1) THROW: sale disparado y cae
@@ -180,10 +193,49 @@ func _try_pickup() -> void:
 	monitorable = false
 	spr.visible = false
 	queue_free()
+
+
+func _update_scatter(delta: float) -> void:
+	_scatter_elapsed += delta
+	var t := clampf(_scatter_elapsed / _scatter_duration, 0.0, 1.0)
+	global_position = _scatter_origin.lerp(_scatter_target, t)
+
+	var arc := sin(t * PI) * _scatter_arc_height
+	spr.position.y = _base_y - arc
+	spr.rotation_degrees = 0.0
+
+	if t >= 1.0:
+		_finish_scatter()
+
+
+func _finish_scatter() -> void:
+	_scattering = false
+	global_position = _scatter_target
+	spr.position.y = _base_y
 	
 func throw_from(origin: Vector2, dir: Vector2, speed: float, up_boost: float = 260.0) -> void:
+	_scattering = false
 	global_position = origin
 	_vel = dir.normalized() * speed
 	_vel.y -= absf(up_boost)
 	_throwing = true
 	_ground_y = origin.y
+
+
+func scatter_from(origin: Vector2, target: Vector2, duration: float, arc_height: float) -> void:
+	_throwing = false
+	_vel = Vector2.ZERO
+	global_position = origin
+
+	_scatter_origin = origin
+	_scatter_target = target
+	_scatter_duration = maxf(0.01, duration)
+	_scatter_elapsed = 0.0
+	_scatter_arc_height = maxf(0.0, arc_height)
+	_scattering = true
+
+	# Durante scatter no hay pop inicial; al aterrizar vuelve el flujo normal (float + magnet).
+	_popping = false
+	_pop_t = 0.0
+	spr.position.y = _base_y
+	spr.rotation_degrees = 0.0

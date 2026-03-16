@@ -156,8 +156,12 @@ func _maybe_drop_stick() -> void:
 	if randf() >= 0.5:
 		return
 	var amount := 2 if randf() < 0.3 else 1
-	var origin := global_position + Vector2(0.0, -16.0)
-	LootSystem.spawn_drop(null, "stick", amount, origin, get_parent(), {"drop_scene": drop_scene}, entity_uid + "_stick_%d" % randi())
+	var origin := global_position + Vector2(0.0, 32.0)
+	var overrides := {
+		"drop_scene": drop_scene,
+		"scatter_mode": "prop_radial_short",
+	}
+	LootSystem.spawn_drop(null, "stick", amount, origin, get_parent(), overrides, entity_uid + "_stick_%d" % randi())
 
 
 func _play_hit_feedback() -> void:
@@ -311,13 +315,14 @@ func _fell_tree() -> void:
 	var raw: int = mini(randi_range(1, 6), randi_range(1, 6)) + 2
 	var wood_count: int = clampi(raw, 3, 6)
 
-	var origin: Vector2 = global_position + Vector2(0.0, -16.0)
+	var origin: Vector2 = global_position + Vector2(0.0, 32.0)
 
 	for i in range(wood_count):
 		var overrides: Dictionary = {
 			"drop_scene": drop_scene,
 			"icon": drop_icon,
 			"pickup_sfx": drop_pickup_sfx,
+			"scatter_mode": "prop_radial_short",
 		}
 		var spawned := LootSystem.spawn_drop(drop_item, "wood", 1, origin, get_parent(), overrides, entity_uid + "_drop_%d" % i)
 		if spawned == null:

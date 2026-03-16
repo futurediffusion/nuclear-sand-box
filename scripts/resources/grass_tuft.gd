@@ -294,7 +294,11 @@ func hit(_by: Node) -> void:
 		hit_particles.emitting = true
 
 	var fiber_amount := 2 if randf() < 0.3 else 1
-	LootSystem.spawn_drop(null, "fiber", fiber_amount, global_position, get_parent(), {"drop_scene": ITEM_DROP_SCENE}, entity_uid + "_fiber")
+	var overrides := {
+		"drop_scene": ITEM_DROP_SCENE,
+		"scatter_mode": "prop_radial_short",
+	}
+	LootSystem.spawn_drop(null, "fiber", fiber_amount, global_position, get_parent(), overrides, entity_uid + "_fiber")
 
 	WorldSave.set_entity_state(entity_cx, entity_cy, entity_uid, {"dead": true})
 	Debug.log("grass", "cut uid=%s" % entity_uid)

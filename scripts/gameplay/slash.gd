@@ -65,11 +65,8 @@ func _activate_hitbox() -> void:
 		return
 	# Intento directo por tile (player walls) para no depender de un collider agregado por chunk.
 	_try_damage_player_wall_once()
-	if _hit_player_wall_this_swing:
-		return
 	if _is_slash_overlapping_wall():
 		_try_damage_player_wall_once()
-		return
 	_set_hitbox_enabled(true)
 
 func _set_hitbox_enabled(enabled: bool) -> void:
@@ -117,8 +114,9 @@ func _try_damage(raw_target: Node) -> void:
 		return
 
 	if _is_slash_overlapping_wall():
+		# El solape con muro no debe cancelar todo el swing:
+		# se dana muro si aplica y luego se valida LOS por objetivo.
 		_try_damage_player_wall_once()
-		return
 
 	if _is_target_blocked_by_wall(target, target_hurtbox):
 		return

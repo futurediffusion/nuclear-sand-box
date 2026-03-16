@@ -50,6 +50,16 @@ script = ExtResource("21_warmup")
 
 [node name="SoundPanel" type="Node" parent="."]
 script = ExtResource("30_soundpanel")
+slash_swing_volume_db = -15.0
+npc_enemy_hit_volume_db = -11.5
+wood_hit_volume_db = -12.5
+stone_hit_volume_db = -9.5
+grass_destroy_volume_db = -7.5
+grass_touch_volume_db = 7.0
+tree_wind_loop_volume_db = -2.5
+player_wall_hit_volume_db = -14.5
+bow_draw_volume_db = 6.0
+bow_release_volume_db = 6.0
 
 [node name="World" type="Node2D" parent="."]
 script = ExtResource("2_jkv2x")

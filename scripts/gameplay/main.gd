@@ -19,6 +19,12 @@ const CommandSystemScript = preload("res://scripts/systems/CommandSystem.gd")
 var _command_system: CommandSystem = null
 
 
+func _enter_tree() -> void:
+	# Register as early as possible so child _ready() calls can resolve SoundPanel.
+	if AudioSystem != null and AudioSystem.has_method("register_sound_panel"):
+		AudioSystem.register_sound_panel(get_node_or_null("SoundPanel"))
+
+
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
 	if AudioSystem != null and AudioSystem.has_method("register_sound_panel"):

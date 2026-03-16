@@ -52,13 +52,28 @@ func get_sound_panel() -> Node:
 		_sound_panel_ref = null
 
 	var tree := get_tree()
-	if tree == null or tree.current_scene == null:
+	if tree == null:
 		return null
-	var found: Node = tree.current_scene.get_node_or_null("SoundPanel")
-	if found == null:
-		return null
-	_sound_panel_ref = weakref(found)
-	return found
+
+	# Prefer current scene direct child (fast path).
+	if tree.current_scene != null:
+		var found_in_scene: Node = tree.current_scene.get_node_or_null("SoundPanel")
+		if found_in_scene != null:
+			_sound_panel_ref = weakref(found_in_scene)
+			return found_in_scene
+		var found_nested_scene: Node = tree.current_scene.find_child("SoundPanel", true, false)
+		if found_nested_scene != null:
+			_sound_panel_ref = weakref(found_nested_scene)
+			return found_nested_scene
+
+	# Early startup fallback: current_scene may still be null while nodes are entering tree.
+	if tree.root != null:
+		var found_in_root: Node = tree.root.find_child("SoundPanel", true, false)
+		if found_in_root != null:
+			_sound_panel_ref = weakref(found_in_root)
+			return found_in_root
+
+	return null
 
 func play_2d(stream: AudioStream, pos: Vector2, parent: Node = null, bus: StringName = &"SFX", volume_db: float = 0.0) -> void:
 	if stream == null:

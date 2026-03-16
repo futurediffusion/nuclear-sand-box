@@ -185,6 +185,7 @@ func _spawn_drop(amount_to_drop: int) -> void:
 		"drop_scene": drop_scene,
 		"icon": icon_override,
 		"pickup_sfx": pickup_override,
+		"scatter_mode": "prop_radial_short",
 	}
 
 	var origin := global_position + Vector2(0.0, -10.0)
