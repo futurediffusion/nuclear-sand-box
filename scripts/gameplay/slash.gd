@@ -40,6 +40,7 @@ func setup(team: StringName, owner: Node) -> void:
 
 func _ready() -> void:
 	hitbox = get_node_or_null("Hitbox")
+	_apply_sound_panel_overrides()
 
 	if sfx and sfx.stream:
 		sfx.pitch_scale = randf_range(pitch_min, pitch_max)
@@ -301,3 +302,32 @@ func _on_body_entered(body: Node) -> void:
 
 func _on_area_entered(area: Area2D) -> void:
 	_try_damage(area)
+
+
+func _apply_sound_panel_overrides() -> void:
+	var panel := _resolve_sound_panel()
+	if panel == null:
+		return
+	if sfx != null:
+		if panel.slash_swing_sfx != null:
+			sfx.stream = panel.slash_swing_sfx
+		sfx.volume_db = panel.slash_swing_volume_db
+	if impact_sound != null:
+		var npc_hit := panel.npc_enemy_hit_sfx
+		if npc_hit != null:
+			impact_sound.stream = npc_hit
+			impact_sound.volume_db = panel.npc_enemy_hit_volume_db
+		elif panel.slash_impact_sfx != null:
+			impact_sound.stream = panel.slash_impact_sfx
+			impact_sound.volume_db = panel.slash_impact_volume_db
+		else:
+			impact_sound.volume_db = panel.npc_enemy_hit_volume_db
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null

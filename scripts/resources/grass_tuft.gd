@@ -65,6 +65,7 @@ var _touch_retrigger_t: float = 0.0
 var _shader_mat: ShaderMaterial = null
 var _last_touch_sfx_idx: int = -1
 var _player_was_in_touch_radius: bool = false
+var _grass_hit_volume_db: float = 0.0
 
 
 func _ready() -> void:
@@ -84,6 +85,7 @@ func _ready() -> void:
 		for s in DEFAULT_TOUCH_SFX_POOL:
 			if s != null:
 				touch_sfx_pool.append(s)
+	_apply_sound_panel_overrides()
 
 	# Seleccionar variante determinista del atlas
 	_apply_variant_from_uid()
@@ -237,6 +239,28 @@ func _play_touch_sfx() -> void:
 	AudioSystem.play_2d(valid_streams[pick_idx], global_position, null, &"SFX", touch_sfx_volume_db)
 
 
+func _apply_sound_panel_overrides() -> void:
+	var panel := _resolve_sound_panel()
+	if panel == null:
+		return
+	if panel.grass_destroy_sfx != null:
+		hit_sfx = panel.grass_destroy_sfx
+	_grass_hit_volume_db = panel.grass_destroy_volume_db
+	var touch_pool := panel.get_grass_touch_sfx_pool()
+	if not touch_pool.is_empty():
+		touch_sfx_pool = touch_pool
+	touch_sfx_volume_db = panel.grass_touch_volume_db
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null
+
+
 func apply_spawn_data(init_data: Dictionary) -> void:
 	var props: Variant = init_data.get("properties", null)
 	if props is Dictionary:
@@ -258,7 +282,7 @@ func hit(_by: Node) -> void:
 		return
 
 	if hit_sfx != null:
-		AudioSystem.play_2d(hit_sfx, global_position)
+		AudioSystem.play_2d(hit_sfx, global_position, null, &"SFX", _grass_hit_volume_db)
 
 	_is_dead = true
 	_set_touch_offset(0.0)

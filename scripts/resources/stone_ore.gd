@@ -1,7 +1,7 @@
 class_name StoneOre
 extends Area2D
 
-const STONE_HIT_SOUNDS: Array[AudioStream] = [
+const DEFAULT_STONE_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/stone1.ogg"),
 	preload("res://art/Sounds/stone 2.ogg"),
 	preload("res://art/Sounds/stone 3.ogg"),
@@ -45,6 +45,8 @@ func get_hit_sound() -> AudioStream:
 var _base_sprite_pos: Vector2
 var _shake_t: float = 0.0
 var _flash_t: float = 0.0
+var _stone_hit_sounds: Array[AudioStream] = []
+var _stone_hit_volume_db: float = 0.0
 
 var entity_uid: String = ""
 var _hit_accumulator: int = 0
@@ -53,6 +55,8 @@ func _ready() -> void:
 	if remaining < 0:
 		remaining = randi_range(total_min, total_max)
 	_base_sprite_pos = sprite.position
+	_stone_hit_sounds = _to_valid_pool(DEFAULT_STONE_HIT_SOUNDS)
+	_apply_sound_panel_overrides()
 
 	if drop_item == null and give_item_id == "":
 		push_warning("[STONE] Define drop_item o give_item_id")
@@ -92,7 +96,7 @@ func hit(by: Node) -> void:
 
 	var hit_sfx := get_hit_sound()
 	if use_systems and hit_sfx != null:
-		AudioSystem.play_2d(hit_sfx, global_position)
+		AudioSystem.play_2d(hit_sfx, global_position, null, &"SFX", _stone_hit_volume_db)
 
 	if _hit_accumulator < interval:
 		return
@@ -146,8 +150,8 @@ func _play_hit_feedback() -> void:
 
 
 func _pick_stone_hit_sound() -> AudioStream:
-	if not STONE_HIT_SOUNDS.is_empty():
-		return STONE_HIT_SOUNDS[randi() % STONE_HIT_SOUNDS.size()]
+	if not _stone_hit_sounds.is_empty():
+		return _stone_hit_sounds[randi() % _stone_hit_sounds.size()]
 	return mining_sfx
 
 
@@ -215,6 +219,33 @@ func _spawn_drop_legacy(amount_to_drop: int) -> void:
 	var speed := randf_range(160.0, 220.0)
 	var up_boost := randf_range(240.0, 320.0)
 	drop.throw_from(origin, dir, speed, up_boost)
+
+
+func _apply_sound_panel_overrides() -> void:
+	var panel := _resolve_sound_panel()
+	if panel == null:
+		return
+	var stone_pool := panel.get_stone_hit_sfx_pool()
+	if not stone_pool.is_empty():
+		_stone_hit_sounds = stone_pool
+	_stone_hit_volume_db = panel.stone_hit_volume_db
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null
+
+
+func _to_valid_pool(pool: Array[AudioStream]) -> Array[AudioStream]:
+	var valid: Array[AudioStream] = []
+	for stream in pool:
+		if stream != null:
+			valid.append(stream)
+	return valid
 
 
 func get_save_state() -> Dictionary:

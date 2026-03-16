@@ -12,6 +12,7 @@ const CommandSystemScript = preload("res://scripts/systems/CommandSystem.gd")
 @onready var player: Node = $Player
 @onready var world: Node2D = $World
 @onready var warmup_manager: Node = $WarmupManager
+@onready var sound_panel: Node = $SoundPanel
 @onready var ui_layer: CanvasLayer = $UI
 @export var debug_input_logs: bool = false
 
@@ -20,6 +21,8 @@ var _command_system: CommandSystem = null
 
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
+	if AudioSystem != null and AudioSystem.has_method("register_sound_panel"):
+		AudioSystem.register_sound_panel(sound_panel)
 	_ensure_world_data()
 	if warmup_manager != null and warmup_manager.has_method("run_warmup"):
 		await warmup_manager.run_warmup()
@@ -37,6 +40,11 @@ func _ready() -> void:
 	_command_system.setup(player, world, ui_layer)
 
 	get_tree().process_frame.connect(_boot_frame_ping, CONNECT_ONE_SHOT)
+
+
+func _exit_tree() -> void:
+	if AudioSystem != null and AudioSystem.has_method("register_sound_panel"):
+		AudioSystem.register_sound_panel(null)
 
 
 func _on_player_died_from_manager() -> void:

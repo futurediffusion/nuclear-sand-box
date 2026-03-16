@@ -5,8 +5,12 @@ extends Node
 @export var pickup_player_only := false
 @export var debug_force_master_bus := false
 @export var debug_force_1d_master := false
+const FALLBACK_PICKUP_SFX: AudioStream = preload("res://art/Sounds/pickup.ogg")
+var _sound_panel_ref: WeakRef = null
 
 func _ready() -> void:
+	if default_pickup_sfx == null:
+		default_pickup_sfx = FALLBACK_PICKUP_SFX
 	if debug_events:
 		Debug.categories["audio"] = true
 	Debug.log("audio", "[AudioSystem] buses count=%s" % AudioServer.bus_count)
@@ -30,6 +34,31 @@ func _ready() -> void:
 			Debug.log("audio", "[AudioSystem] connected to /root/GameEvents.item_picked")
 	else:
 		push_error("[AudioSystem] GameEvents sin signal item_picked")
+
+
+func register_sound_panel(panel: Node) -> void:
+	if panel == null:
+		_sound_panel_ref = null
+		return
+	_sound_panel_ref = weakref(panel)
+	Debug.log("audio", "[AudioSystem] SoundPanel registered: %s" % panel.get_path())
+
+
+func get_sound_panel() -> Node:
+	if _sound_panel_ref != null:
+		var panel: Node = _sound_panel_ref.get_ref() as Node
+		if panel != null and is_instance_valid(panel):
+			return panel
+		_sound_panel_ref = null
+
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		return null
+	var found: Node = tree.current_scene.get_node_or_null("SoundPanel")
+	if found == null:
+		return null
+	_sound_panel_ref = weakref(found)
+	return found
 
 func play_2d(stream: AudioStream, pos: Vector2, parent: Node = null, bus: StringName = &"SFX", volume_db: float = 0.0) -> void:
 	if stream == null:
@@ -105,8 +134,10 @@ func _on_item_picked(item_id: String, amount: int, picker: Node) -> void:
 		return
 	var stream: AudioStream = item_data.pickup_sfx
 	if stream == null:
-		Debug.log("audio", "[AudioSystem] pickup_sfx NULL for item_id=%s (revisa .tres)" % item_id)
-		return
+		stream = default_pickup_sfx if default_pickup_sfx != null else FALLBACK_PICKUP_SFX
+		if stream == null:
+			Debug.log("audio", "[AudioSystem] pickup_sfx NULL for item_id=%s (revisa .tres)" % item_id)
+			return
 	Debug.log("audio", "[AudioSystem] playing pickup_sfx=%s bus=SFX" % stream)
 	if debug_force_1d_master:
 		play_1d(stream, null, &"Master", 12.0)

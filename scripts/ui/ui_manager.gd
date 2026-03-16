@@ -4,6 +4,7 @@ var _open_reasons: Dictionary = {}
 var _cursor: CanvasItem = null
 var _block_interact_until_msec: int = 0
 var _combat_block_count: int = 0
+var _combat_block_until_msec: int = 0
 
 
 func _ready() -> void:
@@ -56,8 +57,12 @@ func pop_combat_block() -> void:
 	_combat_block_count = max(0, _combat_block_count - 1)
 
 
+func block_combat_for(ms: int) -> void:
+	_combat_block_until_msec = maxi(_combat_block_until_msec, Time.get_ticks_msec() + max(ms, 0))
+
+
 func is_combat_input_blocked() -> bool:
-	return _combat_block_count > 0
+	return _combat_block_count > 0 or Time.get_ticks_msec() < _combat_block_until_msec
 
 
 func block_interact_for(ms: int) -> void:

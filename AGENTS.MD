@@ -239,6 +239,20 @@ Rol:
 - Aplica budget por frame para repartir el costo de AI/Nav/combate en varios frames.
 - Evita starvation con un tope de delay máximo por enemigo.
 
+### SOUND PANEL (Main Node)
+
+Ubicacion:
+
+- `scripts/systems/SoundPanel.gd`
+- `scenes/main.tscn` (`Main/SoundPanel`)
+
+Rol:
+
+- Panel central con `@export` de SFX para ajustar sonidos desde un solo lugar en Inspector.
+- Incluye perillas de volumen (`*_volume_db`) por categoria/sonido para balancear audio sin editar scripts.
+- `main.gd` registra el nodo en `AudioSystem` para acceso global durante la sesion.
+- Consumido por `slash.gd`, `tree_wood.gd`, `stone_ore.gd`, `grass_tuft.gd`, `BowWeapon.gd`, `enemy.gd` y `world.gd` (paredes de player).
+
 ### 💬 IN-GAME COMMAND BAR
 
 Ubicación:

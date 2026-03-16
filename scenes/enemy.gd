@@ -5,7 +5,7 @@ const AIComponentScript = preload("res://scripts/components/AIComponent.gd")
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 const WeaponComponentScript = preload("res://scripts/components/WeaponComponent.gd")
 const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponController.gd")
-const ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
+const DEFAULT_ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.ogg")
 
 @export_group("Combat")
 @export var attack_damage: int = 1
@@ -76,6 +76,8 @@ var entity_uid: String = ""
 var enemy_chunk_key: String = ""
 var enemy_seed: int = 0
 var last_engaged_time: float = 0.0
+var _enemy_death_sound: AudioStream = DEFAULT_ENEMY_DEATH_SOUND
+var _enemy_death_volume_db: float = 2.0
 
 const WARMUP_META_KEY := "warmup_instance"
 
@@ -106,6 +108,7 @@ func _ready() -> void:
 		set_physics_process(false)
 		return
 
+	_apply_sound_panel_overrides()
 	add_to_group("enemy")
 	sprite.play("idle")
 	sprite.z_index = 0
@@ -598,12 +601,12 @@ func _trigger_death_shake() -> void:
 		cam.shake(death_shake_magnitude)
 
 func _play_death_sound() -> void:
-	if ENEMY_DEATH_SOUND == null:
+	if _enemy_death_sound == null:
 		return
 	var death_audio := AudioStreamPlayer2D.new()
-	death_audio.stream = ENEMY_DEATH_SOUND
+	death_audio.stream = _enemy_death_sound
 	death_audio.pitch_scale = death_sound_pitch_scale
-	death_audio.volume_db = death_sound_volume_db
+	death_audio.volume_db = _enemy_death_volume_db
 	death_audio.global_position = global_position
 	get_tree().current_scene.add_child(death_audio)
 	death_audio.finished.connect(func():
@@ -611,3 +614,22 @@ func _play_death_sound() -> void:
 			death_audio.queue_free()
 	)
 	death_audio.play()
+
+
+func _apply_sound_panel_overrides() -> void:
+	var panel := _resolve_sound_panel()
+	_enemy_death_sound = DEFAULT_ENEMY_DEATH_SOUND
+	_enemy_death_volume_db = death_sound_volume_db
+	if panel != null and panel.enemy_death_sfx != null:
+		_enemy_death_sound = panel.enemy_death_sfx
+	if panel != null:
+		_enemy_death_volume_db = panel.enemy_death_volume_db
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null

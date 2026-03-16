@@ -105,6 +105,8 @@ var chunk_save: Dictionary = {}
 var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
+var _player_wall_hit_sounds: Array[AudioStream] = []
+var _player_wall_hit_volume_db_runtime: float = 0.0
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -123,7 +125,7 @@ const FLOOR_WOOD: Vector2i = Vector2i(0, 0)
 const PLAYER_WALL_FALLBACK_ATLAS: Vector2i = Vector2i(0, 0)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
 const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
-const PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
+const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
 ]
@@ -149,6 +151,9 @@ func _ready() -> void:
 	_clear_chunk_wall_runtime_cache()
 	add_to_group("world")
 	get_tree().set_auto_accept_quit(false)
+	_player_wall_hit_sounds = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)
+	_player_wall_hit_volume_db_runtime = player_wall_hit_sfx_volume_db
+	_apply_sound_panel_overrides()
 	Debug.log("boot", "World._ready begin")
 	ground_tilemap.z_index = -1
 	cliffs_tilemap.z_index = 5
@@ -935,12 +940,39 @@ func _play_player_wall_hit_sfx(tile_pos: Vector2i) -> void:
 	var sfx := _pick_player_wall_hit_sound()
 	if sfx == null:
 		return
-	AudioSystem.play_2d(sfx, _tile_to_world(tile_pos), self, &"SFX", player_wall_hit_sfx_volume_db)
+	AudioSystem.play_2d(sfx, _tile_to_world(tile_pos), self, &"SFX", _player_wall_hit_volume_db_runtime)
 
 func _pick_player_wall_hit_sound() -> AudioStream:
-	if PLAYER_WALL_HIT_SOUNDS.is_empty():
+	if _player_wall_hit_sounds.is_empty():
 		return null
-	return PLAYER_WALL_HIT_SOUNDS[randi() % PLAYER_WALL_HIT_SOUNDS.size()]
+	return _player_wall_hit_sounds[randi() % _player_wall_hit_sounds.size()]
+
+
+func _apply_sound_panel_overrides() -> void:
+	var panel := _resolve_sound_panel()
+	if panel == null:
+		return
+	var pool := panel.get_player_wall_hit_sfx_pool()
+	if not pool.is_empty():
+		_player_wall_hit_sounds = pool
+	_player_wall_hit_volume_db_runtime = panel.player_wall_hit_volume_db
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null
+
+
+func _to_valid_sound_pool(pool: Array[AudioStream]) -> Array[AudioStream]:
+	var valid: Array[AudioStream] = []
+	for stream in pool:
+		if stream != null:
+			valid.append(stream)
+	return valid
 
 func _spawn_player_wall_hit_shake(tile_pos: Vector2i) -> void:
 	var source_id: int = walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, tile_pos)

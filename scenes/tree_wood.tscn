@@ -52,6 +52,7 @@ leaves_textures = Array[Texture2D]([ExtResource("6_tree"), ExtResource("7_ooww3"
 drop_scene = ExtResource("2_tree")
 drop_icon = ExtResource("3_tree")
 drop_pickup_sfx = ExtResource("4_tree")
+wind_edge_gain = 0.2
 
 [node name="TrunkSprite" type="Sprite2D" parent="."]
 texture = ExtResource("5_tree")
@@ -80,5 +81,6 @@ shape = SubResource("CircleShape2D_wind")
 
 [node name="WindLoop" type="AudioStreamPlayer2D" parent="."]
 stream = ExtResource("10_wind")
-volume_db = -6.0
+volume_db = -4.4
+attenuation = 4.0
 bus = &"SFX"

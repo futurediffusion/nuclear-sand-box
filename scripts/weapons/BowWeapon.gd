@@ -3,8 +3,8 @@ class_name BowWeapon
 
 const ARROW_SCENE := preload("res://scenes/arrow.tscn")
 const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
-const BOW_DRAW_SFX: AudioStream = preload("res://art/Sounds/bow1.ogg")
-const BOW_RELEASE_SFX: AudioStream = preload("res://art/Sounds/bow2.ogg")
+const DEFAULT_BOW_DRAW_SFX: AudioStream = preload("res://art/Sounds/bow1.ogg")
+const DEFAULT_BOW_RELEASE_SFX: AudioStream = preload("res://art/Sounds/bow2.ogg")
 
 @export var max_draw_time: float = 1.2
 @export var stamina_drain_per_sec: float = 8.0
@@ -45,6 +45,10 @@ var _draw_sfx_player: AudioStreamPlayer2D = null
 var _release_sfx_player: AudioStreamPlayer2D = null
 var _bow_draw_length_sec: float = 0.0
 var _bow_release_length_sec: float = 0.0
+var _bow_draw_sfx: AudioStream = DEFAULT_BOW_DRAW_SFX
+var _bow_release_sfx: AudioStream = DEFAULT_BOW_RELEASE_SFX
+var _bow_draw_volume_db_runtime: float = 0.0
+var _bow_release_volume_db_runtime: float = 0.0
 
 func on_equipped(p_owner: Node, p_controller: WeaponController = null) -> void:
 	super.on_equipped(p_owner, p_controller)
@@ -52,6 +56,7 @@ func on_equipped(p_owner: Node, p_controller: WeaponController = null) -> void:
 		_aim_trajectory_line = owner_entity.get_node_or_null("WeaponPivot/AimTrajectory") as Line2D
 	else:
 		_aim_trajectory_line = null
+	_apply_sound_panel_overrides()
 	_cache_bow_audio_lengths()
 	_ensure_audio_players()
 	_cancel_draw()
@@ -468,8 +473,8 @@ func _resolve_arrow_launch(owner_entity_node: Node2D, dir: Vector2, arrow: Arrow
 
 
 func _cache_bow_audio_lengths() -> void:
-	_bow_draw_length_sec = _get_stream_length_sec(BOW_DRAW_SFX)
-	_bow_release_length_sec = _get_stream_length_sec(BOW_RELEASE_SFX)
+	_bow_draw_length_sec = _get_stream_length_sec(_bow_draw_sfx)
+	_bow_release_length_sec = _get_stream_length_sec(_bow_release_sfx)
 	if bow_audio_debug:
 		print("[BowWeapon] bow1 length=", _bow_draw_length_sec, "s | bow2 length=", _bow_release_length_sec, "s")
 
@@ -516,10 +521,10 @@ func _cleanup_audio_players() -> void:
 
 func _play_draw_sfx() -> void:
 	_ensure_audio_players()
-	if _draw_sfx_player == null or BOW_DRAW_SFX == null:
+	if _draw_sfx_player == null or _bow_draw_sfx == null:
 		return
-	_draw_sfx_player.stream = BOW_DRAW_SFX
-	_draw_sfx_player.volume_db = bow_draw_volume_db
+	_draw_sfx_player.stream = _bow_draw_sfx
+	_draw_sfx_player.volume_db = _bow_draw_volume_db_runtime
 	var target_duration := maxf(max_draw_time, 0.01)
 	_draw_sfx_player.pitch_scale = _calc_pitch_for_target_duration(_bow_draw_length_sec, target_duration, bow_draw_pitch_min, bow_draw_pitch_max)
 	_draw_sfx_player.play()
@@ -543,10 +548,10 @@ func _stop_draw_sfx() -> void:
 
 func _play_release_sfx_synced(target_duration: float) -> void:
 	_ensure_audio_players()
-	if _release_sfx_player == null or BOW_RELEASE_SFX == null:
+	if _release_sfx_player == null or _bow_release_sfx == null:
 		return
-	_release_sfx_player.stream = BOW_RELEASE_SFX
-	_release_sfx_player.volume_db = bow_release_volume_db
+	_release_sfx_player.stream = _bow_release_sfx
+	_release_sfx_player.volume_db = _bow_release_volume_db_runtime
 	_release_sfx_player.pitch_scale = _calc_pitch_for_target_duration(_bow_release_length_sec, maxf(target_duration, 0.01), bow_release_pitch_min, bow_release_pitch_max)
 	_release_sfx_player.play()
 
@@ -556,3 +561,28 @@ func _calc_pitch_for_target_duration(stream_duration: float, target_duration: fl
 		return 1.0
 	var raw_pitch := stream_duration / target_duration
 	return clampf(raw_pitch, min_pitch, max_pitch)
+
+
+func _apply_sound_panel_overrides() -> void:
+	var panel := _resolve_sound_panel()
+	_bow_draw_sfx = DEFAULT_BOW_DRAW_SFX
+	_bow_release_sfx = DEFAULT_BOW_RELEASE_SFX
+	_bow_draw_volume_db_runtime = bow_draw_volume_db
+	_bow_release_volume_db_runtime = bow_release_volume_db
+	if panel == null:
+		return
+	if panel.bow_draw_sfx != null:
+		_bow_draw_sfx = panel.bow_draw_sfx
+	if panel.bow_release_sfx != null:
+		_bow_release_sfx = panel.bow_release_sfx
+	_bow_draw_volume_db_runtime = panel.bow_draw_volume_db
+	_bow_release_volume_db_runtime = panel.bow_release_volume_db
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null

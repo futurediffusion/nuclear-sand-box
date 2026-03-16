@@ -21,6 +21,16 @@ const TILE_WALL_ITEMS: Dictionary = {
 }
 const PLACEMENT_MODE_SCENE: String = "scene"
 const PLACEMENT_MODE_TILE_WALL: String = "tile_wall"
+const PLACEMENT_CLICK_COMBAT_BLOCK_MS: int = 120
+const PLACEMENT_HOVER_SFX: Array[AudioStream] = [
+	preload("res://art/Sounds/place1.ogg"),
+	preload("res://art/Sounds/place2.ogg"),
+	preload("res://art/Sounds/place3.ogg"),
+	preload("res://art/Sounds/place4.ogg"),
+]
+const WALLWOOD_PLACE_SFX: AudioStream = preload("res://art/Sounds/woodwallplace.ogg")
+const WORKBENCH_PLACE_SFX: AudioStream = preload("res://art/Sounds/workbenchplace.ogg")
+const CHEST_PLACE_SFX: AudioStream = preload("res://art/Sounds/chestplace.ogg")
 
 var _active:       bool   = false
 var _item_id:      String = ""
@@ -32,6 +42,9 @@ var _ghost_sprite: Sprite2D = null
 var _world_cache:  Node2D = null
 var _check_shape:  RectangleShape2D = null  # cached — reutilizado cada frame
 var _combat_block_pushed: bool = false
+var _last_hover_tile: Vector2i = Vector2i.ZERO
+var _has_last_hover_tile: bool = false
+var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 # Máscara de capas que bloquean colocación: WALLPROPS(16) + Resources(8) + Player(1)
 const BLOCK_MASK: int = CollisionLayers.WORLD_WALL_LAYER_MASK \
@@ -57,6 +70,8 @@ func begin_placement(item_id: String, icon: Texture2D = null) -> void:
 	_item_id    = item_id
 	_scene_path = scene_path
 	_placement_mode = placement_mode
+	_last_hover_tile = Vector2i.ZERO
+	_has_last_hover_tile = false
 	_acquire_combat_block()
 	_spawn_ghost(icon)
 
@@ -94,6 +109,7 @@ func _input(event: InputEvent) -> void:
 		if not mb.pressed:
 			return
 		if mb.button_index == MOUSE_BUTTON_LEFT:
+			UiManager.block_combat_for(PLACEMENT_CLICK_COMBAT_BLOCK_MS)
 			if _can_place:
 				_do_place()
 			get_viewport().set_input_as_handled()
@@ -110,6 +126,10 @@ func _input(event: InputEvent) -> void:
 func _process(_delta: float) -> void:
 	if _active and _ghost != null and is_instance_valid(_ghost):
 		_update_ghost()
+
+
+func _ready() -> void:
+	_rng.randomize()
 
 
 # ── Validación ────────────────────────────────────────────────────────────────
@@ -192,10 +212,56 @@ func _update_ghost() -> void:
 	if _ghost == null or not is_instance_valid(_ghost):
 		return
 	var tile := _get_mouse_tile()
+	if _has_last_hover_tile and tile != _last_hover_tile:
+		_play_hover_tile_sfx()
+	_last_hover_tile = tile
+	_has_last_hover_tile = true
 	_ghost.position = Vector2(tile.x * TILE_SIZE, tile.y * TILE_SIZE)
 	_can_place      = can_place_at(tile)
 	if _ghost_sprite != null:
 		_ghost_sprite.modulate = Color(0.5, 1.0, 0.5, 0.7) if _can_place else Color(1.0, 0.35, 0.35, 0.5)
+
+
+func _play_hover_tile_sfx() -> void:
+	if PLACEMENT_HOVER_SFX.is_empty():
+		return
+	var stream := PLACEMENT_HOVER_SFX[_rng.randi_range(0, PLACEMENT_HOVER_SFX.size() - 1)]
+	if stream == null:
+		return
+	var ghost_pos := _ghost.global_position if _ghost != null else Vector2.ZERO
+	var sound_pos := ghost_pos + Vector2(TILE_SIZE * 0.5, TILE_SIZE * 0.5)
+	AudioSystem.play_2d(stream, sound_pos, null, &"SFX")
+
+
+func _play_tile_wall_place_sfx(tile: Vector2i) -> void:
+	if _item_id != "wallwood":
+		return
+	_play_placement_sfx_at_tile(WALLWOOD_PLACE_SFX, tile)
+
+
+func _play_scene_place_sfx(item_id: String, tile: Vector2i) -> void:
+	var stream: AudioStream = null
+	match item_id:
+		"workbench":
+			stream = WORKBENCH_PLACE_SFX
+		"chest":
+			stream = CHEST_PLACE_SFX
+		_:
+			return
+	_play_placement_sfx_at_tile(stream, tile)
+
+
+func _play_placement_sfx_at_tile(stream: AudioStream, tile: Vector2i) -> void:
+	if stream == null:
+		return
+	var world := _find_world_node()
+	var sound_pos := Vector2(
+		tile.x * TILE_SIZE + TILE_SIZE * 0.5,
+		tile.y * TILE_SIZE + TILE_SIZE * 0.5
+	)
+	if world != null:
+		sound_pos = world.to_global(sound_pos)
+	AudioSystem.play_2d(stream, sound_pos, null, &"SFX")
 
 
 func _get_mouse_tile() -> Vector2i:
@@ -232,6 +298,7 @@ func _do_place() -> void:
 			if inv.has_method("add_item"):
 				inv.call("add_item", _item_id, 1)
 			return
+		_play_tile_wall_place_sfx(tile)
 		placement_completed.emit(_item_id, tile)
 		var remaining: int = 0
 		if inv.has_method("get_total"):
@@ -260,6 +327,7 @@ func _do_place() -> void:
 	_spawn_placed_instance(entry, parent)
 
 	var placed_id := _item_id
+	_play_scene_place_sfx(placed_id, tile)
 	_cleanup()
 	placement_completed.emit(placed_id, tile)
 
@@ -291,6 +359,8 @@ func _cleanup() -> void:
 	_scene_path = ""
 	_placement_mode = ""
 	_can_place  = false
+	_last_hover_tile = Vector2i.ZERO
+	_has_last_hover_tile = false
 	if _ghost != null and is_instance_valid(_ghost):
 		_ghost.queue_free()
 	_ghost        = null

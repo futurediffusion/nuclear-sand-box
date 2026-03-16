@@ -1,4 +1,4 @@
-[gd_scene load_steps=33 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=34 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
@@ -31,6 +31,7 @@
 [ext_resource type="PackedScene" uid="uid://b2w1eue5fqx4m" path="res://scenes/ui/workbench_menu_ui.tscn" id="28_yq6so"]
 [ext_resource type="PackedScene" uid="uid://cccpmg7n24spe" path="res://scenes/ui/chest_ui.tscn" id="29_tel4y"]
 [ext_resource type="PackedScene" uid="uid://qlf2bj00x63j" path="res://scenes/placeables/workbench_world.tscn" id="29_wbworld"]
+[ext_resource type="Script" uid="uid://tq4fi4lfk12p" path="res://scripts/systems/SoundPanel.gd" id="30_soundpanel"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0ld40"]
 shader = ExtResource("8_0ld40")
@@ -46,6 +47,9 @@ script = ExtResource("1_sugp2")
 
 [node name="WarmupManager" type="Node" parent="."]
 script = ExtResource("21_warmup")
+
+[node name="SoundPanel" type="Node" parent="."]
+script = ExtResource("30_soundpanel")
 
 [node name="World" type="Node2D" parent="."]
 script = ExtResource("2_jkv2x")
@@ -176,9 +180,9 @@ layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 194.86
+offset_left = 195.0
 offset_top = 29.0
-offset_right = 194.86
+offset_right = 195.0
 offset_bottom = 29.73
 grow_horizontal = 2
 grow_vertical = 2

@@ -3,6 +3,7 @@ extends Node
 @export var item_list: Array[ItemData] = []
 
 var items: Dictionary = {}
+const DEFAULT_PICKUP_SFX: AudioStream = preload("res://art/Sounds/pickup.ogg")
 
 func _ready() -> void:
 	for data in item_list:
@@ -28,6 +29,9 @@ func register_item(data: ItemData) -> void:
 
 	if items.has(data.id):
 		push_warning("[ItemDB] id duplicado: " + data.id + " (sobrescribiendo)")
+
+	if data.pickup_sfx == null:
+		data.pickup_sfx = DEFAULT_PICKUP_SFX
 
 	items[data.id] = data
 

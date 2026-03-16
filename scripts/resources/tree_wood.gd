@@ -1,7 +1,7 @@
 class_name TreeWood
 extends StaticBody2D
 
-const WOOD_HIT_SOUNDS: Array[AudioStream] = [
+const DEFAULT_WOOD_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
 ]
@@ -31,6 +31,10 @@ const DEFAULT_WIND_SFX: AudioStream = preload("res://art/Sounds/windsound.ogg")
 @export var wind_range_multiplier: float = 2.0
 @export var wind_min_radius: float = 32.0
 @export var wind_volume_db: float = -6.0
+@export var wind_silence_db: float = -60.0
+@export var wind_fade_exp: float = 1.0
+@export_range(0.0, 1.0, 0.01) var wind_edge_gain: float = 0.3
+@export var wind_exit_fade_time: float = 0.25
 
 @onready var trunk_sprite: Sprite2D = $TrunkSprite
 @onready var leaves_sprite: Sprite2D = $LeavesSprite
@@ -52,12 +56,19 @@ var _base_pos: Vector2
 var _shake_t: float = 0.0
 var _flash_t: float = 0.0
 var _player_in_wind_range: bool = false
+var _wind_radius: float = 64.0
+var _tracked_player: Node2D = null
+var _wind_fade_tween: Tween = null
+var _wood_hit_sounds: Array[AudioStream] = []
+var _wood_hit_volume_db: float = 0.0
 
 
 func _ready() -> void:
 	collision_layer = CollisionLayers.WORLD_WALL_LAYER_MASK | CollisionLayers.RESOURCES_LAYER_MASK
 	collision_mask = 0
 	_base_pos = trunk_sprite.position
+	_wood_hit_sounds = _to_valid_pool(DEFAULT_WOOD_HIT_SOUNDS)
+	_apply_sound_panel_overrides()
 
 	# Pick a deterministic variant from entity_uid so the same tree always looks the same
 	if trunk_textures.size() > 0:
@@ -105,6 +116,8 @@ func _physics_process(delta: float) -> void:
 			trunk_sprite.modulate = Color(1, 1, 1, 1)
 			leaves_sprite.modulate = Color(1, 1, 1, 1)
 
+	_update_wind_volume_from_distance()
+
 
 func hit(by: Node) -> void:
 	if _is_dead:
@@ -112,7 +125,7 @@ func hit(by: Node) -> void:
 
 	var hit_sfx := _pick_wood_hit_sound()
 	if hit_sfx != null:
-		AudioSystem.play_2d(hit_sfx, global_position)
+		AudioSystem.play_2d(hit_sfx, global_position, null, &"SFX", _wood_hit_volume_db)
 
 	_play_hit_feedback()
 	var strength := _get_hit_strength(by)
@@ -158,9 +171,9 @@ func _play_hit_feedback() -> void:
 
 
 func _pick_wood_hit_sound() -> AudioStream:
-	if WOOD_HIT_SOUNDS.is_empty():
+	if _wood_hit_sounds.is_empty():
 		return null
-	return WOOD_HIT_SOUNDS[randi() % WOOD_HIT_SOUNDS.size()]
+	return _wood_hit_sounds[randi() % _wood_hit_sounds.size()]
 
 
 func suppress_default_impact_sound() -> bool:
@@ -180,6 +193,7 @@ func _setup_wind_range() -> void:
 		circle = CircleShape2D.new()
 		wind_range_shape.shape = circle
 	circle.radius = _compute_wind_radius()
+	_wind_radius = maxf(1.0, circle.radius)
 
 	if not wind_range.body_entered.is_connected(_on_wind_range_body_entered):
 		wind_range.body_entered.connect(_on_wind_range_body_entered)
@@ -191,8 +205,11 @@ func _setup_wind_audio() -> void:
 	if wind_player == null:
 		return
 	wind_player.stream = wind_sfx
-	wind_player.volume_db = wind_volume_db
+	wind_player.volume_db = wind_silence_db
 	wind_player.bus = &"SFX"
+	# Custom fade is handled in script; disable built-in distance attenuation.
+	wind_player.attenuation = 0.0
+	wind_player.max_distance = 100000.0
 	if not wind_player.finished.is_connected(_on_wind_loop_finished):
 		wind_player.finished.connect(_on_wind_loop_finished)
 
@@ -216,21 +233,28 @@ func _on_wind_range_body_entered(body: Node) -> void:
 		return
 	if not body.is_in_group("player"):
 		return
+	_kill_wind_fade_tween()
+	if body is Node2D:
+		_tracked_player = body as Node2D
 	_player_in_wind_range = true
 	_play_wind_if_needed()
+	_update_wind_volume_from_distance()
 
 
 func _on_wind_range_body_exited(body: Node) -> void:
 	if not body.is_in_group("player"):
 		return
-	_player_in_wind_range = false
-	if wind_player != null:
-		wind_player.stop()
+	if body == _tracked_player:
+		_tracked_player = null
+	_refresh_player_in_wind_range()
+	if not _player_in_wind_range and wind_player != null:
+		_fade_out_and_stop_wind()
 
 
 func _on_wind_loop_finished() -> void:
 	if _player_in_wind_range and not _is_dead:
 		_play_wind_if_needed()
+		_update_wind_volume_from_distance()
 
 
 func _play_wind_if_needed() -> void:
@@ -241,9 +265,45 @@ func _play_wind_if_needed() -> void:
 	wind_player.play()
 
 
+func _refresh_player_in_wind_range() -> void:
+	if wind_range == null:
+		_player_in_wind_range = false
+		return
+	for body in wind_range.get_overlapping_bodies():
+		if body is Node and body.is_in_group("player"):
+			_player_in_wind_range = true
+			if body is Node2D:
+				_tracked_player = body as Node2D
+			return
+	_player_in_wind_range = false
+
+
+func _update_wind_volume_from_distance() -> void:
+	if _is_dead or not _player_in_wind_range or wind_player == null:
+		return
+	if _tracked_player == null or not is_instance_valid(_tracked_player):
+		_refresh_player_in_wind_range()
+	if _tracked_player == null or not is_instance_valid(_tracked_player):
+		return
+
+	var radius := maxf(1.0, _wind_radius)
+	var center := wind_range.global_position if wind_range != null else global_position
+	var distance := center.distance_to(_tracked_player.global_position)
+	var t := clampf(distance / radius, 0.0, 1.0)
+	var center_gain := pow(1.0 - t, maxf(0.01, wind_fade_exp))
+	var edge := clampf(wind_edge_gain, 0.0, 1.0)
+	var gain := lerpf(edge, 1.0, center_gain)
+	var max_linear := db_to_linear(wind_volume_db)
+	var min_linear := db_to_linear(wind_silence_db)
+	var target_linear := maxf(min_linear, max_linear * gain)
+	wind_player.volume_db = linear_to_db(target_linear)
+
+
 func _fell_tree() -> void:
 	_is_dead = true
 	_player_in_wind_range = false
+	_tracked_player = null
+	_kill_wind_fade_tween()
 	if wind_player != null:
 		wind_player.stop()
 
@@ -283,3 +343,54 @@ func apply_save_state(state: Dictionary) -> void:
 
 func get_save_state() -> Dictionary:
 	return {"dead": _is_dead}
+
+
+func _fade_out_and_stop_wind() -> void:
+	if wind_player == null:
+		return
+	_kill_wind_fade_tween()
+	var fade_time := maxf(0.01, wind_exit_fade_time)
+	_wind_fade_tween = create_tween()
+	_wind_fade_tween.tween_property(wind_player, "volume_db", wind_silence_db, fade_time)
+	_wind_fade_tween.finished.connect(func() -> void:
+		if wind_player != null and not _player_in_wind_range:
+			wind_player.stop()
+	)
+
+
+func _kill_wind_fade_tween() -> void:
+	if _wind_fade_tween == null:
+		return
+	if _wind_fade_tween.is_valid():
+		_wind_fade_tween.kill()
+	_wind_fade_tween = null
+
+
+func _apply_sound_panel_overrides() -> void:
+	var panel := _resolve_sound_panel()
+	if panel == null:
+		return
+	var wood_pool := panel.get_wood_hit_sfx_pool()
+	if not wood_pool.is_empty():
+		_wood_hit_sounds = wood_pool
+	_wood_hit_volume_db = panel.wood_hit_volume_db
+	if panel.tree_wind_loop_sfx != null:
+		wind_sfx = panel.tree_wind_loop_sfx
+	wind_volume_db = panel.tree_wind_loop_volume_db
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null
+
+
+func _to_valid_pool(pool: Array[AudioStream]) -> Array[AudioStream]:
+	var valid: Array[AudioStream] = []
+	for stream in pool:
+		if stream != null:
+			valid.append(stream)
+	return valid

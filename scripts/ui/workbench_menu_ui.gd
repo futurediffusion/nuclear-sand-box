@@ -4,6 +4,7 @@ class_name WorkbenchMenuUi
 const RECIPE_SLOT_SCENE:    PackedScene = preload("res://scenes/ui/crafting_recipe_slot.tscn")
 const INGREDIENT_ROW_SCENE: PackedScene = preload("res://scenes/ui/crafting_ingredient_row.tscn")
 const TIER_REQ_SLOT_SCENE:  PackedScene = preload("res://scenes/ui/tier_requirement_slot.tscn")
+const CRAFT_SFX: AudioStream = preload("res://art/Sounds/craft.ogg")
 
 # Materiales para subir la workbench de Tier 1 → Tier 2.
 # Cambiar aquí cuando se implemente el sistema de tiers real.
@@ -504,11 +505,13 @@ func _get_player_inventory_menu() -> PlayerInventoryMenu:
 
 func _try_craft_one() -> void:
 	if _execute_craft(_selected_recipe, 1):
+		_play_craft_sfx()
 		_refresh_after_craft()
 
 
 func _try_craft_x10() -> void:
 	if _execute_craft(_selected_recipe, 10):
+		_play_craft_sfx()
 		_refresh_after_craft()
 
 
@@ -518,7 +521,14 @@ func _try_craft_all() -> void:
 	if max_n <= 0:
 		return
 	if _execute_craft(_selected_recipe, max_n):
+		_play_craft_sfx()
 		_refresh_after_craft()
+
+
+func _play_craft_sfx() -> void:
+	if CRAFT_SFX == null:
+		return
+	AudioSystem.play_1d(CRAFT_SFX, null, &"SFX")
 
 
 func _execute_craft(recipe: CraftingRecipe, times: int) -> bool:
