@@ -48,6 +48,7 @@ var _tile_painter := TilePainter.new()
 @export var player_wall_hit_shake_px: float = 5.0
 @export var player_wall_hit_shake_speed: float = 40.0
 @export var player_wall_hit_flash_time: float = 0.06
+@export var structural_wall_default_hp: int = 3
 @export_group("")
 
 @export_group("Spawn Density")
@@ -107,6 +108,7 @@ var _pending_tile_erases: Array[Vector2i] = []
 var _player_wall_system: PlayerWallSystem
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
+var _structural_wall_persistence: StructuralWallPersistence
 var _chunk_wall_collider_cache: ChunkWallColliderCache
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
@@ -128,6 +130,7 @@ const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
+const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
 const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
@@ -168,6 +171,13 @@ func _ready() -> void:
 	get_tree().set_auto_accept_quit(false)
 	_player_wall_system = PlayerWallSystemScript.new()
 	_wall_persistence = WallPersistenceScript.new()
+	_structural_wall_persistence = StructuralWallPersistenceScript.new()
+	_structural_wall_persistence.setup({
+		"chunk_save": chunk_save,
+		"walls_map_layer": WALLS_MAP_LAYER,
+		"structural_wall_source": -1,
+		"structural_wall_default_hp": structural_wall_default_hp,
+	})
 	_wall_feedback = WallFeedbackScript.new()
 	_wall_feedback.setup({
 		"owner": self,
@@ -189,6 +199,7 @@ func _ready() -> void:
 		"feedback": _wall_feedback,
 		"sound_panel_getter": Callable(self, "_get_sound_panel_for_walls"),
 		"wall_persistence": _wall_persistence,
+		"structural_wall_persistence": _structural_wall_persistence,
 		"walls_tilemap": walls_tilemap,
 		"cliffs_tilemap": cliffs_tilemap,
 		"chunk_save": chunk_save,
@@ -212,6 +223,7 @@ func _ready() -> void:
 		"player_wall_hit_shake_px": player_wall_hit_shake_px,
 		"player_wall_hit_shake_speed": player_wall_hit_shake_speed,
 		"player_wall_hit_flash_time": player_wall_hit_flash_time,
+		"structural_wall_default_hp": structural_wall_default_hp,
 		"player_wall_hit_tint": PLAYER_WALL_HIT_TINT,
 		"player_wall_fallback_atlas": PLAYER_WALL_FALLBACK_ATLAS,
 		"player_wall_fallback_alt": PLAYER_WALL_FALLBACK_ALT,
