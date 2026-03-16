@@ -247,7 +247,7 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 	global_position = hit.get("position", global_position)
 
 	if CombatQueryScript.is_wall_collider(body):
-		_damage_player_wall(hit)
+		_damage_generic_wall(hit)
 		height = 0.0
 		vertical_velocity = 0.0
 		_stick_to_world()
@@ -400,12 +400,20 @@ func _get_owner_node() -> Node:
 
 	return owner_node
 
-func _damage_player_wall(hit: Dictionary) -> void:
+func _damage_generic_wall(hit: Dictionary) -> void:
 	var worlds := get_tree().get_nodes_in_group("world")
 	if worlds.is_empty():
 		return
 	var world := worlds[0]
-	if world == null or not world.has_method("damage_player_wall_at_world_pos"):
+	if world == null:
 		return
+
 	var hit_pos: Vector2 = hit.get("position", global_position)
-	world.call("damage_player_wall_at_world_pos", hit_pos, maxi(1, wall_damage))
+	var wall_amount: int = maxi(1, wall_damage)
+	var wall_radius: float = 12.0
+
+	if world.has_method("hit_wall_at_world_pos"):
+		world.call("hit_wall_at_world_pos", hit_pos, wall_amount, wall_radius, true)
+		return
+	if world.has_method("damage_player_wall_at_world_pos"):
+		world.call("damage_player_wall_at_world_pos", hit_pos, wall_amount)
