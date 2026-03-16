@@ -107,7 +107,8 @@ func _destroy() -> void:
 		world_node = get_tree().current_scene
 
 	var overrides := {"drop_scene": ITEM_DROP_SCENE}
-	var spawned := LootSystem.spawn_drop(null, "workbench", 1, global_position, world_node, overrides)
+	var drop_item_id := BuildableCatalog.resolve_drop_item_id("", BuildableCatalog.ID_WORKBENCH)
+	var spawned := LootSystem.spawn_drop(null, drop_item_id, 1, global_position, world_node, overrides)
 
 	if OS.is_debug_build():
 		Debug.log("workbench", "destroy uid=%s parent_ok=%s drop_spawned=%s" % [placed_uid, str(world_node != null), str(spawned != null)])
