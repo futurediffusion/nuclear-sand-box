@@ -3,6 +3,11 @@ class_name PlayerWallSystem
 
 const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 const TileHitFeedbackScript := preload("res://scripts/systems/TileHitFeedback.gd")
+const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
+	preload("res://art/Sounds/wood1.ogg"),
+	preload("res://art/Sounds/wood2.ogg"),
+]
+const DEFAULT_PLAYER_WALL_HIT_VOLUME_DB: float = 0.0
 
 var walls_tilemap: TileMap
 var cliffs_tilemap: TileMap
@@ -32,8 +37,8 @@ var player_wall_hit_tint: Color = Color(0.86, 0.76, 0.6, 1.0)
 var player_wall_fallback_atlas: Vector2i = Vector2i(0, 0)
 var player_wall_fallback_alt: int = 2
 
-var player_wall_hit_sounds: Array[AudioStream] = []
-var player_wall_hit_volume_db: float = 0.0
+var player_wall_hit_sounds: Array[AudioStream] = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)
+var player_wall_hit_volume_db: float = DEFAULT_PLAYER_WALL_HIT_VOLUME_DB
 
 var wall_reconnect_offsets: Array[Vector2i] = []
 
@@ -61,18 +66,17 @@ func setup(ctx: Dictionary) -> void:
 
 	player_wallwood_max_hp = int(ctx.get("player_wallwood_max_hp", player_wallwood_max_hp))
 	player_wall_drop_enabled = bool(ctx.get("player_wall_drop_enabled", player_wall_drop_enabled))
-	player_wall_drop_item_id = String(ctx.get("player_wall_drop_item_id", player_wall_drop_item_id))
-	player_wall_drop_amount = int(ctx.get("player_wall_drop_amount", player_wall_drop_amount))
+	player_wall_drop_item_id = String(ctx.get("player_wall_drop_item_id", player_wall_drop_item_id)).strip_edges()
+	player_wall_drop_amount = maxi(0, int(ctx.get("player_wall_drop_amount", player_wall_drop_amount)))
 	player_wall_hit_shake_duration = float(ctx.get("player_wall_hit_shake_duration", player_wall_hit_shake_duration))
 	player_wall_hit_shake_px = float(ctx.get("player_wall_hit_shake_px", player_wall_hit_shake_px))
 	player_wall_hit_shake_speed = float(ctx.get("player_wall_hit_shake_speed", player_wall_hit_shake_speed))
 	player_wall_hit_flash_time = float(ctx.get("player_wall_hit_flash_time", player_wall_hit_flash_time))
+	player_wallwood_max_hp = maxi(1, player_wallwood_max_hp)
 	player_wall_hit_tint = Color(ctx.get("player_wall_hit_tint", player_wall_hit_tint))
 
 	player_wall_fallback_atlas = Vector2i(ctx.get("player_wall_fallback_atlas", player_wall_fallback_atlas))
 	player_wall_fallback_alt = int(ctx.get("player_wall_fallback_alt", player_wall_fallback_alt))
-	player_wall_hit_sounds = _to_valid_sound_pool(ctx.get("player_wall_hit_sounds", []))
-	player_wall_hit_volume_db = float(ctx.get("player_wall_hit_volume_db", player_wall_hit_volume_db))
 
 	wall_reconnect_offsets = []
 	for offset in ctx.get("wall_reconnect_offsets", []):
@@ -84,6 +88,35 @@ func setup(ctx: Dictionary) -> void:
 	tile_to_chunk_cb = ctx.get("tile_to_chunk", Callable())
 	mark_chunk_walls_dirty_and_refresh_for_tiles_cb = ctx.get("mark_chunk_walls_dirty_and_refresh_for_tiles", Callable())
 	owner = ctx.get("owner")
+
+	var legacy_audio_config: Dictionary = {}
+	if ctx.has("player_wall_hit_sounds"):
+		legacy_audio_config["player_wall_hit_sounds"] = ctx.get("player_wall_hit_sounds")
+	if ctx.has("player_wall_hit_volume_db"):
+		legacy_audio_config["player_wall_hit_volume_db"] = ctx.get("player_wall_hit_volume_db")
+	configure_audio(legacy_audio_config)
+
+func configure_audio(config: Dictionary = {}) -> void:
+	var resolved_sounds: Array[AudioStream] = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)
+	var resolved_volume_db: float = DEFAULT_PLAYER_WALL_HIT_VOLUME_DB
+
+	if config.has("player_wall_hit_sounds"):
+		var explicit_sounds: Array[AudioStream] = _to_valid_sound_pool(config.get("player_wall_hit_sounds", []))
+		if not explicit_sounds.is_empty():
+			resolved_sounds = explicit_sounds
+	if config.has("player_wall_hit_volume_db"):
+		resolved_volume_db = float(config.get("player_wall_hit_volume_db", resolved_volume_db))
+
+	var panel: Node = AudioSystem.get_sound_panel()
+	if panel is SoundPanel:
+		var sound_panel := panel as SoundPanel
+		var panel_sounds: Array[AudioStream] = _to_valid_sound_pool(sound_panel.get_player_wall_hit_sfx_pool())
+		if not panel_sounds.is_empty():
+			resolved_sounds = panel_sounds
+		resolved_volume_db = sound_panel.player_wall_hit_volume_db
+
+	player_wall_hit_sounds = resolved_sounds
+	player_wall_hit_volume_db = resolved_volume_db
 
 func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	if not _is_valid_world_tile(tile_pos):
