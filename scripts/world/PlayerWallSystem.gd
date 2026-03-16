@@ -41,7 +41,6 @@ var world_to_tile_cb: Callable
 var tile_to_world_cb: Callable
 var tile_to_chunk_cb: Callable
 var mark_chunk_walls_dirty_and_refresh_for_tiles_cb: Callable
-var is_chunk_loaded_cb: Callable
 
 var owner: Node
 
@@ -84,7 +83,6 @@ func setup(ctx: Dictionary) -> void:
 	tile_to_world_cb = ctx.get("tile_to_world", Callable())
 	tile_to_chunk_cb = ctx.get("tile_to_chunk", Callable())
 	mark_chunk_walls_dirty_and_refresh_for_tiles_cb = ctx.get("mark_chunk_walls_dirty_and_refresh_for_tiles", Callable())
-	is_chunk_loaded_cb = ctx.get("is_chunk_loaded", Callable())
 	owner = ctx.get("owner")
 
 func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
@@ -267,7 +265,7 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 	return true
 
 func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
-	if not _is_chunk_loaded(chunk_pos):
+	if not loaded_chunks.has(chunk_pos):
 		return
 	var entries: Array[Dictionary] = WorldSave.list_player_walls_in_chunk(chunk_pos.x, chunk_pos.y)
 	if entries.is_empty():
@@ -616,11 +614,6 @@ func _is_structural_wall_tile(tile_pos: Vector2i) -> bool:
 		if saved_tile is Vector2i and (saved_tile as Vector2i) == tile_pos:
 			return true
 	return false
-
-func _is_chunk_loaded(chunk_pos: Vector2i) -> bool:
-	if is_chunk_loaded_cb.is_valid():
-		return bool(is_chunk_loaded_cb.call(chunk_pos))
-	return loaded_chunks.has(chunk_pos)
 
 func _reconcile_wall_ownership_in_scope(scope_cells: Array[Vector2i], keep_tiles: Dictionary = {}) -> bool:
 	var removed_any: bool = _erase_unowned_walls_in_scope(scope_cells, keep_tiles)

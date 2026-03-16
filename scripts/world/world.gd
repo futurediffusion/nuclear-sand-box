@@ -165,7 +165,6 @@ func _ready() -> void:
 		"is_chunk_in_active_window": Callable(self, "_is_chunk_in_active_window"),
 		"record_stage_time": Callable(self, "_record_chunk_stage_time"),
 		"chunk_perf_stage_collider_build": CHUNK_PERF_STAGE_COLLIDER_BUILD,
-		"owner": self,
 	})
 	_chunk_wall_collider_cache.clear_all()
 	add_to_group("world")
@@ -180,7 +179,6 @@ func _ready() -> void:
 		"cliffs_tilemap": cliffs_tilemap,
 		"chunk_save": chunk_save,
 		"loaded_chunks": loaded_chunks,
-		"is_chunk_loaded": Callable(self, "_is_chunk_loaded"),
 		"width": width,
 		"height": height,
 		"chunk_size": chunk_size,
@@ -674,9 +672,6 @@ func _chunk_from_key(chunk_key: String) -> Vector2i:
 	return Vector2i(int(parts[0]), int(parts[1]))
 
 
-func _is_chunk_loaded(chunk_pos: Vector2i) -> bool:
-	return loaded_chunks.has(chunk_pos)
-
 
 func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	return _player_wall_system != null and _player_wall_system.can_place_player_wall_at_tile(tile_pos)
@@ -736,7 +731,9 @@ func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) ->
 		mark_chunk_walls_dirty(cpos.x, cpos.y)
 		chunks_to_refresh[cpos] = true
 	for cpos in chunks_to_refresh.keys():
-		_ensure_chunk_wall_collision(cpos as Vector2i)
+		var chunk_pos: Vector2i = cpos as Vector2i
+		if loaded_chunks.has(chunk_pos):
+			_ensure_chunk_wall_collision(chunk_pos)
 
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	if _chunk_wall_collider_cache != null:
