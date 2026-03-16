@@ -14,6 +14,7 @@ var chunk_key: Callable
 var is_chunk_in_active_window: Callable
 var record_stage_time: Callable
 var chunk_perf_stage_collider_build: String = "collider build"
+var extra_wall_support_lookup_provider: Callable
 
 var chunk_wall_body: Dictionary = {}
 var _chunk_wall_last_used: Dictionary = {}
@@ -33,6 +34,7 @@ func setup(ctx: Dictionary) -> void:
 	is_chunk_in_active_window = ctx.get("is_chunk_in_active_window", Callable())
 	record_stage_time = ctx.get("record_stage_time", Callable())
 	chunk_perf_stage_collider_build = String(ctx.get("chunk_perf_stage_collider_build", "collider build"))
+	extra_wall_support_lookup_provider = ctx.get("extra_wall_support_lookup_provider", Callable())
 
 func clear_all() -> void:
 	for cpos in chunk_wall_body.keys():
@@ -74,8 +76,13 @@ func ensure_for_chunk(chunk_pos: Vector2i) -> void:
 		chunk_wall_body.erase(chunk_pos)
 		_chunk_wall_last_used.erase(chunk_key_str)
 
+		var extra_support_lookup: Dictionary = {}
+		if extra_wall_support_lookup_provider.is_valid():
+			var provided: Variant = extra_wall_support_lookup_provider.call(chunk_pos)
+			if provided is Dictionary:
+				extra_support_lookup = provided as Dictionary
 		var body: StaticBody2D = collision_builder.build_chunk_walls(
-			walls_tilemap, chunk_pos, chunk_size, walls_map_layer, src_walls
+			walls_tilemap, chunk_pos, chunk_size, walls_map_layer, src_walls, extra_support_lookup
 		)
 		if body != null:
 			walls_tilemap.add_child(body)

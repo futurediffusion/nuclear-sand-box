@@ -139,6 +139,7 @@ const FLOORWOOD_LEGACY_ITEM_ID: String = "woodfloor"
 const FLOOR_SURFACE_BY_ATLAS := {
 	FLOOR_WOOD: WALK_SURFACE_WOOD,
 }
+const DOORWOOD_ITEM_ID: String = BuildableCatalog.ID_DOORWOOD
 const PLAYER_WALL_FALLBACK_ATLAS: Vector2i = Vector2i(0, 0)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
@@ -179,6 +180,7 @@ func _ready() -> void:
 		"is_chunk_in_active_window": Callable(self, "_is_chunk_in_active_window"),
 		"record_stage_time": Callable(self, "_record_chunk_stage_time"),
 		"chunk_perf_stage_collider_build": CHUNK_PERF_STAGE_COLLIDER_BUILD,
+		"extra_wall_support_lookup_provider": Callable(self, "_get_extra_wall_support_lookup_for_chunk"),
 	})
 	_chunk_wall_collider_cache.clear_all()
 	add_to_group("world")
@@ -769,6 +771,27 @@ func _chunk_from_key(chunk_key: String) -> Vector2i:
 		return Vector2i(-99999, -99999)
 	return Vector2i(int(parts[0]), int(parts[1]))
 
+func _get_extra_wall_support_lookup_for_chunk(chunk_pos: Vector2i) -> Dictionary:
+	var out: Dictionary = {}
+	var margin: int = 1
+	var start_x: int = chunk_pos.x * chunk_size - margin
+	var start_y: int = chunk_pos.y * chunk_size - margin
+	var end_x: int = (chunk_pos.x + 1) * chunk_size - 1 + margin
+	var end_y: int = (chunk_pos.y + 1) * chunk_size - 1 + margin
+	for raw_entry in WorldSave.placed_entities:
+		if typeof(raw_entry) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = raw_entry as Dictionary
+		var item_id: String = BuildableCatalog.normalize_buildable_id(String(entry.get("item_id", "")))
+		if item_id != DOORWOOD_ITEM_ID:
+			continue
+		var tx: int = int(entry.get("tile_pos_x", -999999))
+		var ty: int = int(entry.get("tile_pos_y", -999999))
+		if tx < start_x or tx > end_x or ty < start_y or ty > end_y:
+			continue
+		out[Vector2i(tx, ty)] = true
+	return out
+
 
 
 # Frontera de módulos: world.gd conserva sólo API pública de fachada para gameplay/colocación;
@@ -799,6 +822,18 @@ func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 
 func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> bool:
 	return _player_wall_system != null and _player_wall_system.remove_player_wall_at_tile(tile_pos, drop_item)
+
+func refresh_wall_collision_for_tiles(tile_positions: Array[Vector2i]) -> void:
+	if tile_positions.is_empty():
+		return
+	var valid_tiles: Array[Vector2i] = []
+	for tile_pos in tile_positions:
+		if tile_pos.x < 0 or tile_pos.x >= width or tile_pos.y < 0 or tile_pos.y >= height:
+			continue
+		valid_tiles.append(tile_pos)
+	if valid_tiles.is_empty():
+		return
+	_mark_walls_dirty_and_refresh_for_tiles(valid_tiles)
 
 func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) -> void:
 	var chunks_to_refresh: Dictionary = {}

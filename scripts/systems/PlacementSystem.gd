@@ -91,14 +91,30 @@ func is_placing() -> bool:
 
 ## Restaurar todas las entidades colocadas al cargar el mundo.
 func restore_placed_entities(world_node: Node) -> void:
+	var restored_door_tiles: Array[Vector2i] = []
 	for entry in WorldSave.placed_entities:
 		_spawn_placed_instance(entry, world_node)
+		if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
+			continue
+		var door_tile := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
+		restored_door_tiles.append(door_tile)
 	_refresh_all_door_pairings()
+	_refresh_wall_collision_around_tiles(world_node, restored_door_tiles)
 
 
 ## Quitar una entidad colocada por UID (por ejemplo, si la destruyen).
 func remove_placed_entity(uid: String) -> void:
+	var removed_entry: Dictionary = _find_placed_entity_entry_by_uid(uid)
 	WorldSave.remove_placed_entity(uid)
+	if removed_entry.is_empty():
+		return
+	var removed_item_id: String = PlacementCatalog.normalize_item_id(String(removed_entry.get("item_id", "")))
+	if removed_item_id != DOORWOOD_ITEM_ID:
+		return
+	var removed_tile := Vector2i(int(removed_entry.get("tile_pos_x", -999999)), int(removed_entry.get("tile_pos_y", -999999)))
+	refresh_door_pairing_around_tile(removed_tile)
+	var removed_tiles: Array[Vector2i] = [removed_tile]
+	_refresh_wall_collision_around_tiles(_find_world_node(), removed_tiles)
 
 
 # ── Input ────────────────────────────────────────────────────────────────────
@@ -342,6 +358,8 @@ func _do_place() -> void:
 	_spawn_placed_instance(entry, parent)
 	if placed_id == DOORWOOD_ITEM_ID:
 		refresh_door_pairing_around_tile(tile)
+		var door_tiles: Array[Vector2i] = [tile]
+		_refresh_wall_collision_around_tiles(world, door_tiles)
 
 	_play_scene_place_sfx(placed_id, tile)
 	placement_completed.emit(placed_id, tile)
@@ -505,6 +523,45 @@ func _tile_key_to_pos(tile_key: String) -> Vector2i:
 	if parts.size() != 2:
 		return Vector2i(-999999, -999999)
 	return Vector2i(int(parts[0]), int(parts[1]))
+
+func _find_placed_entity_entry_by_uid(uid: String) -> Dictionary:
+	if uid == "":
+		return {}
+	for raw_entry in WorldSave.placed_entities:
+		if typeof(raw_entry) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = raw_entry as Dictionary
+		if String(entry.get("uid", "")) == uid:
+			return entry.duplicate(true)
+	return {}
+
+func _refresh_wall_collision_around_tiles(world_node: Node, center_tiles: Array[Vector2i], radius: int = 1) -> void:
+	if center_tiles.is_empty():
+		return
+	var world := world_node
+	if world == null:
+		world = _find_world_node()
+	if world == null:
+		return
+	if not world.has_method("refresh_wall_collision_for_tiles"):
+		return
+	var neighborhood_tiles: Array[Vector2i] = _collect_tile_neighborhood(center_tiles, radius)
+	if neighborhood_tiles.is_empty():
+		return
+	world.call("refresh_wall_collision_for_tiles", neighborhood_tiles)
+
+func _collect_tile_neighborhood(center_tiles: Array[Vector2i], radius: int = 1) -> Array[Vector2i]:
+	var unique_tiles: Dictionary = {}
+	var clamped_radius: int = maxi(0, radius)
+	for center in center_tiles:
+		for oy in range(-clamped_radius, clamped_radius + 1):
+			for ox in range(-clamped_radius, clamped_radius + 1):
+				unique_tiles[center + Vector2i(ox, oy)] = true
+	var out: Array[Vector2i] = []
+	for raw_tile in unique_tiles.keys():
+		if raw_tile is Vector2i:
+			out.append(raw_tile as Vector2i)
+	return out
 
 
 func _set_door_mirrored_state(uid: String, mirrored: bool) -> void:
