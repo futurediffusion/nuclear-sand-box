@@ -114,7 +114,7 @@ func _destroy() -> void:
 	var overrides := {"drop_scene": ITEM_DROP_SCENE}
 	var resolved_drop_item_id := drop_item_id.strip_edges()
 	if resolved_drop_item_id == "":
-		resolved_drop_item_id = "doorwood"
+		resolved_drop_item_id = BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_DOORWOOD)
 	LootSystem.spawn_drop(null, resolved_drop_item_id, 1, global_position, world_node, overrides)
 
 	if placed_uid != "":

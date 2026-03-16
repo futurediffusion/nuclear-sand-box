@@ -30,7 +30,7 @@ var src_walls: int = 2
 
 var player_wallwood_max_hp: int = 3
 var player_wall_drop_enabled: bool = true
-var player_wall_drop_item_id: String = "wallwood"
+var player_wall_drop_item_id: String = BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD)
 var player_wall_drop_amount: int = 1
 
 var player_wall_hit_shake_duration: float = 0.08
@@ -170,7 +170,7 @@ func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 		if tx != tile_pos.x or ty != tile_pos.y:
 			continue
 		var existing_item_id := String(placed_entry.get("item_id", ""))
-		if PlacementCatalog.can_share_tile("wallwood", existing_item_id):
+		if PlacementCatalog.can_share_tile(BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD), existing_item_id):
 			continue
 		return false
 	return true
@@ -299,9 +299,10 @@ func damage_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float
 	return damage_wall_at_tile(structural_tile, hit_amount)
 
 func damage_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
-	if _is_player_wall_tile(tile_pos):
+	var wall_category := BuildableCatalog.classify_wall_tile(_is_player_wall_tile(tile_pos), _is_structural_wall_tile(tile_pos))
+	if wall_category == BuildableCatalog.CATEGORY_TILE_WALL_PLAYER:
 		return damage_player_wall_at_tile(tile_pos, amount)
-	if _is_structural_wall_tile(tile_pos):
+	if wall_category == BuildableCatalog.CATEGORY_TILE_WALL_STRUCTURAL:
 		return damage_structural_wall_at_tile(tile_pos, amount)
 	return false
 
