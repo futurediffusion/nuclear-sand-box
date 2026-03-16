@@ -329,7 +329,7 @@ func damage_structural_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool
 
 	return remove_structural_wall_at_tile(tile_pos)
 
-func remove_structural_wall_at_tile(tile_pos: Vector2i) -> bool:
+func remove_structural_wall_at_tile(tile_pos: Vector2i, drop_item: bool = false) -> bool:
 	if structural_wall_persistence == null:
 		return false
 	var cpos := _tile_to_chunk(tile_pos)
@@ -337,9 +337,18 @@ func remove_structural_wall_at_tile(tile_pos: Vector2i) -> bool:
 		return false
 	walls_tilemap.erase_cell(walls_map_layer, tile_pos)
 	structural_wall_persistence.remove_wall(cpos, tile_pos)
+	var reconnect_neighbors := _collect_existing_wall_neighbors(tile_pos)
+	_apply_wall_terrain_connect(reconnect_neighbors)
 	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
 	_reconcile_wall_ownership_in_scope(reconnect_scope)
+	if _enforce_removed_wall_tile_cleared(tile_pos):
+		reconnect_neighbors = _collect_existing_wall_neighbors(tile_pos)
+		_apply_wall_terrain_connect(reconnect_neighbors)
+		_enforce_removed_wall_tile_cleared(tile_pos)
 	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
+	if drop_item:
+		# Placeholder para potencial loot de structural walls: actualmente no se dropea item.
+		pass
 	return true
 
 func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
