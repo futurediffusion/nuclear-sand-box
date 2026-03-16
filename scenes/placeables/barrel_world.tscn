@@ -19,14 +19,15 @@ drop_item_id = "barrel"
 container_group = &"barrel"
 
 [node name="chestcollision" type="CollisionShape2D" parent="."]
-position = Vector2(0, 10)
+position = Vector2(16, 26)
 shape = SubResource("RectangleShape2D_body")
 
 [node name="chestsprite" type="Sprite2D" parent="."]
+centered = false
 texture = ExtResource("1_barreltex")
 
 [node name="chestarea" type="Area2D" parent="."]
-position = Vector2(0, 2)
+position = Vector2(16, 18)
 
 [node name="chestareacollision" type="CollisionShape2D" parent="chestarea"]
 position = Vector2(0, 3)
@@ -34,6 +35,6 @@ shape = SubResource("RectangleShape2D_area")
 
 [node name="Sprite2D2" type="Sprite2D" parent="."]
 visible = false
-position = Vector2(0, -19)
+position = Vector2(16, -3)
 scale = Vector2(0.36, 0.36)
 texture = ExtResource("3_ekey")

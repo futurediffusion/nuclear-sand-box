@@ -14,14 +14,15 @@ size = Vector2(52, 40)
 script = ExtResource("1_t0sh6")
 
 [node name="chestcollision" type="CollisionShape2D" parent="."]
-position = Vector2(0, 8.5)
+position = Vector2(16, 24.5)
 shape = SubResource("RectangleShape2D_od151")
 
 [node name="chestsprite" type="Sprite2D" parent="."]
+centered = false
 texture = ExtResource("1_7goi3")
 
 [node name="chestarea" type="Area2D" parent="."]
-position = Vector2(0, 2)
+position = Vector2(16, 18)
 
 [node name="chestareacollision" type="CollisionShape2D" parent="chestarea"]
 position = Vector2(0, 3)
@@ -29,6 +30,6 @@ shape = SubResource("RectangleShape2D_srfla")
 
 [node name="Sprite2D2" type="Sprite2D" parent="."]
 visible = false
-position = Vector2(0, -19)
+position = Vector2(16, -3)
 scale = Vector2(0.36, 0.36)
 texture = ExtResource("2_t0sh6")
