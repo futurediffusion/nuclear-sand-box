@@ -14,6 +14,8 @@ const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood2.ogg"),
 ]
 const DEFAULT_PLAYER_WALL_HIT_VOLUME_DB: float = 0.0
+const DEFAULT_PLAYER_WALL_BREAK_SFX: AudioStream = preload("res://art/Sounds/woodwallbreak.ogg")
+const DEFAULT_PLAYER_WALL_BREAK_VOLUME_DB: float = 0.0
 
 var walls_tilemap: TileMap
 var cliffs_tilemap: TileMap
@@ -48,6 +50,8 @@ var player_wall_fallback_alt: int = 2
 
 var player_wall_hit_sounds: Array[AudioStream] = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)
 var player_wall_hit_volume_db: float = DEFAULT_PLAYER_WALL_HIT_VOLUME_DB
+var player_wall_break_sfx: AudioStream = DEFAULT_PLAYER_WALL_BREAK_SFX
+var player_wall_break_volume_db: float = DEFAULT_PLAYER_WALL_BREAK_VOLUME_DB
 
 var wall_reconnect_offsets: Array[Vector2i] = []
 
@@ -129,6 +133,8 @@ func setup(ctx: Dictionary) -> void:
 func configure_audio(config: Dictionary = {}) -> void:
 	var resolved_sounds: Array[AudioStream] = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)
 	var resolved_volume_db: float = DEFAULT_PLAYER_WALL_HIT_VOLUME_DB
+	var resolved_break_sfx: AudioStream = DEFAULT_PLAYER_WALL_BREAK_SFX
+	var resolved_break_volume_db: float = DEFAULT_PLAYER_WALL_BREAK_VOLUME_DB
 
 	if config.has("player_wall_hit_sounds"):
 		var explicit_sounds: Array[AudioStream] = _to_valid_sound_pool(config.get("player_wall_hit_sounds", []))
@@ -136,6 +142,12 @@ func configure_audio(config: Dictionary = {}) -> void:
 			resolved_sounds = explicit_sounds
 	if config.has("player_wall_hit_volume_db"):
 		resolved_volume_db = float(config.get("player_wall_hit_volume_db", resolved_volume_db))
+	if config.has("player_wall_break_sfx"):
+		var explicit_break_sfx: Variant = config.get("player_wall_break_sfx")
+		if explicit_break_sfx is AudioStream and explicit_break_sfx != null:
+			resolved_break_sfx = explicit_break_sfx as AudioStream
+	if config.has("player_wall_break_volume_db"):
+		resolved_break_volume_db = float(config.get("player_wall_break_volume_db", resolved_break_volume_db))
 
 	if sound_panel_getter_cb.is_valid():
 		var panel: Variant = sound_panel_getter_cb.call()
@@ -145,9 +157,14 @@ func configure_audio(config: Dictionary = {}) -> void:
 			if not panel_sounds.is_empty():
 				resolved_sounds = panel_sounds
 			resolved_volume_db = sound_panel.player_wall_hit_volume_db
+			if sound_panel.player_wall_break_sfx != null:
+				resolved_break_sfx = sound_panel.player_wall_break_sfx
+			resolved_break_volume_db = sound_panel.player_wall_break_volume_db
 
 	player_wall_hit_sounds = resolved_sounds
 	player_wall_hit_volume_db = resolved_volume_db
+	player_wall_break_sfx = resolved_break_sfx
+	player_wall_break_volume_db = resolved_break_volume_db
 
 func _to_valid_sound_pool(raw_pool: Variant) -> Array[AudioStream]:
 	var valid: Array[AudioStream] = []
@@ -457,13 +474,21 @@ func _emit_player_wall_drop(tile_pos: Vector2i) -> void:
 	emit_signal("player_wall_drop", tile_pos, player_wall_drop_item_id, player_wall_drop_amount)
 	if feedback == null:
 		return
-	feedback.play_player_wall_drop_feedback(tile_pos, player_wall_drop_item_id, player_wall_drop_amount)
+	var audio_ctx := {
+		"player_wall_break_sfx": player_wall_break_sfx,
+		"player_wall_break_volume_db": player_wall_break_volume_db,
+	}
+	feedback.play_player_wall_drop_feedback(tile_pos, player_wall_drop_item_id, player_wall_drop_amount, audio_ctx)
 
 func _emit_structural_wall_drop(tile_pos: Vector2i) -> void:
 	emit_signal("structural_wall_drop", tile_pos, structural_wall_drop_item_id, structural_wall_drop_amount)
 	if feedback == null:
 		return
-	feedback.play_player_wall_drop_feedback(tile_pos, structural_wall_drop_item_id, structural_wall_drop_amount)
+	var audio_ctx := {
+		"player_wall_break_sfx": player_wall_break_sfx,
+		"player_wall_break_volume_db": player_wall_break_volume_db,
+	}
+	feedback.play_player_wall_drop_feedback(tile_pos, structural_wall_drop_item_id, structural_wall_drop_amount, audio_ctx)
 
 func _collect_wall_connect_cells_for_placement(tile_pos: Vector2i) -> Array[Vector2i]:
 	var out: Dictionary = {}

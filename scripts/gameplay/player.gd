@@ -4,6 +4,7 @@ extends CharacterBase
 var DEBUG_PLAYER := OS.is_debug_build()
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponController.gd")
+const FootstepAudioComponentScript = preload("res://scripts/components/FootstepAudioComponent.gd")
 
 @onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
 @onready var movement_component: MovementComponent = get_node_or_null("MovementComponent") as MovementComponent
@@ -11,6 +12,7 @@ const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponControll
 @onready var block_component: BlockComponent = get_node_or_null("BlockComponent") as BlockComponent
 @onready var wall_occlusion_component: WallOcclusionComponent = get_node_or_null("WallOcclusionComponent") as WallOcclusionComponent
 @onready var vfx_component: VFXComponent = get_node_or_null("VFXComponent") as VFXComponent
+@onready var footstep_audio_component: FootstepAudioComponent = get_node_or_null("FootstepAudioComponent") as FootstepAudioComponent
 @onready var character_hurtbox: CharacterHurtbox = get_node_or_null("Hurtbox") as CharacterHurtbox
 
 @export_group("Component Toggles")
@@ -19,6 +21,7 @@ const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponControll
 @export var use_block_component := true
 @export var use_wall_component := true
 @export var use_vfx_component := true
+@export var use_footstep_audio_component := true
 
 @export_group("Movement")
 @export var max_speed: float = 300.0
@@ -96,6 +99,7 @@ var block_wiggle_t: float = 0.0
 var _current_weapon_controller: WeaponController = null
 var _movement_control_mode: StringName = &"player"
 var _combat_control_mode: StringName = &"player"
+var _world_node_ref: WeakRef = null
 
 
 signal stamina_changed(stamina: float, max_stamina: float)
@@ -165,6 +169,14 @@ func _setup_components() -> void:
 		vfx_component.setup(self)
 	else:
 		push_warning("[Player] Missing VFXComponent")
+	if footstep_audio_component == null:
+		footstep_audio_component = FootstepAudioComponentScript.new()
+		footstep_audio_component.name = "FootstepAudioComponent"
+		add_child(footstep_audio_component)
+	if footstep_audio_component != null:
+		footstep_audio_component.setup(self, Callable(self, "_resolve_walk_surface_id"))
+	else:
+		push_warning("[Player] Missing FootstepAudioComponent")
 
 func _configure_collision_mode() -> void:
 	if Debug.use_legacy_wall_collision:
@@ -385,6 +397,8 @@ func _input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if dying:
 		velocity = Vector2.ZERO
+		if footstep_audio_component != null:
+			footstep_audio_component.stop_loop()
 		_update_wall(delta)
 		move_and_slide()
 		return
@@ -424,6 +438,11 @@ func _physics_process(delta: float) -> void:
 		blocking = block_component.is_blocking()
 	else:
 		blocking = false
+
+	if use_footstep_audio_component and footstep_audio_component != null:
+		footstep_audio_component.physics_tick(delta)
+	elif footstep_audio_component != null:
+		footstep_audio_component.stop_loop()
 
 	_update_animation()
 	if attack_push_t > 0.0:
@@ -588,6 +607,33 @@ func _update_hearts_ui() -> void:
 		hearts_ui.set("max_hearts", max_hp)
 		hearts_ui.call("set_hearts", hp)
 
+func _resolve_walk_surface_id(world_pos: Vector2) -> StringName:
+	var world := _resolve_world_node()
+	if world == null or not world.has_method("get_walk_surface_at_world_pos"):
+		return &"grass"
+	var result: Variant = world.call("get_walk_surface_at_world_pos", world_pos)
+	if typeof(result) == TYPE_STRING_NAME:
+		var surface_id: StringName = result
+		return surface_id
+	if typeof(result) == TYPE_STRING:
+		var raw: String = String(result).strip_edges()
+		if not raw.is_empty():
+			return StringName(raw)
+	return &"grass"
+
+func _resolve_world_node() -> Node:
+	if _world_node_ref != null:
+		var cached: Node = _world_node_ref.get_ref() as Node
+		if cached != null and is_instance_valid(cached):
+			return cached
+		_world_node_ref = null
+	var worlds: Array = get_tree().get_nodes_in_group("world")
+	if worlds.is_empty():
+		return null
+	var world: Node = worlds[0] as Node
+	_world_node_ref = weakref(world)
+	return world
+
 func _on_before_die() -> void:
 	weapon_sprite.visible = false
 	hurt_t = 0.0
@@ -642,6 +688,8 @@ func _legacy_wall_toggle_update() -> void:
 	return
 
 func _exit_tree() -> void:
+	if footstep_audio_component != null:
+		footstep_audio_component.stop_loop()
 	if wall_occlusion_component != null:
 		wall_occlusion_component.close()
 

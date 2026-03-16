@@ -2,6 +2,21 @@ extends CanvasLayer
 class_name ChestUi
 
 const SLOT_SCENE: PackedScene = preload("res://scenes/ui/inventory_slot.tscn")
+const DEFAULT_CHEST_OPEN_SFX: AudioStream = preload("res://art/Sounds/chestopen.ogg")
+const DEFAULT_CHEST_CLOSE_SFX: AudioStream = preload("res://art/Sounds/chestclose.ogg")
+const DEFAULT_INVENTORY_ITEM_SELECT_SFX: AudioStream = preload("res://art/Sounds/inventoryitemgrab.ogg")
+const DEFAULT_SHIFT_TRANSFER_SFX: AudioStream = preload("res://art/Sounds/inventoryshifttransfer.ogg")
+const DEFAULT_UI_SLOT_PLACE_SFX_POOL: Array[AudioStream] = [
+	preload("res://art/Sounds/place1.ogg"),
+	preload("res://art/Sounds/place2.ogg"),
+	preload("res://art/Sounds/place3.ogg"),
+	preload("res://art/Sounds/place4.ogg"),
+]
+const DEFAULT_CHEST_OPEN_VOLUME_DB: float = 0.0
+const DEFAULT_CHEST_CLOSE_VOLUME_DB: float = 0.0
+const DEFAULT_INVENTORY_ITEM_SELECT_VOLUME_DB: float = 0.0
+const DEFAULT_SHIFT_TRANSFER_VOLUME_DB: float = 0.0
+const DEFAULT_UI_SLOT_PLACE_VOLUME_DB: float = 0.0
 
 @export var chest_columns: int = 5
 @export var chest_rows: int = 3
@@ -86,6 +101,7 @@ func open_for_chest(chest_component: ChestWorld) -> void:
 	visible = true
 	UiManager.open_ui("chest")
 	UiManager.push_combat_block()
+	_play_chest_open_sfx()
 
 
 func open_menu(chest_component: ChestWorld) -> void:
@@ -110,6 +126,7 @@ func close_menu() -> void:
 		visible = false
 		UiManager.close_ui("chest")
 		UiManager.pop_combat_block()
+		_play_chest_close_sfx()
 
 
 func _handoff_current_chest() -> void:
@@ -146,6 +163,7 @@ func on_slot_primary_action(slot_index: int, _shift_pressed: bool = false) -> bo
 	if _player_inv == null:
 		return false
 
+	var moved_any := false
 	while true:
 		var source_stack = _normalize_slot(_chest_get_slot(slot_index))
 		var remaining := _slot_count(source_stack)
@@ -160,10 +178,13 @@ func on_slot_primary_action(slot_index: int, _shift_pressed: bool = false) -> bo
 				continue
 			if _transfer_chest_to_player_slot(slot_index, i, remaining):
 				moved_this_pass = true
+				moved_any = true
 				break
 		if not moved_this_pass:
 			break
 
+	if moved_any and _shift_pressed:
+		_play_shift_transfer_sfx()
 	return true
 
 
@@ -221,6 +242,7 @@ func begin_drag(slot_index: int, mouse_position: Vector2, button_index: int, shi
 	drag_item_id = item_id
 	drag_amount = amount
 	drag_ghost.global_position = mouse_position - drag_offset
+	_play_inventory_item_select_sfx()
 
 
 func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
@@ -232,12 +254,14 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 	var chest_target := _get_chest_slot_at_global_pos(mouse)
 	if chest_target != -1:
 		_move_inside_chest(drag_from_slot, chest_target, drag_amount)
+		_play_slot_place_sfx()
 		_clear_drag_visual()
 		return
 
 	var player_target := _get_player_slot_at_global_pos(mouse)
 	if player_target != -1:
 		_transfer_chest_to_player_slot(drag_from_slot, player_target, drag_amount)
+		_play_slot_place_sfx()
 
 	_clear_drag_visual()
 
@@ -459,6 +483,7 @@ func _on_player_panel_quick_transfer(from_player_slot: int) -> bool:
 	if from_player_slot < 0 or from_player_slot >= _player_inv.max_slots:
 		return false
 
+	var moved_any := false
 	while true:
 		var source_stack = _normalize_slot(_player_inv.slots[from_player_slot])
 		if source_stack == null:
@@ -474,9 +499,13 @@ func _on_player_panel_quick_transfer(from_player_slot: int) -> bool:
 				continue
 			if _transfer_player_to_chest_slot(from_player_slot, chest_slot, remaining):
 				moved_this_pass = true
+				moved_any = true
 				break
 		if not moved_this_pass:
 			break
+
+	if moved_any:
+		_play_shift_transfer_sfx()
 
 	var final_stack = _player_inv.slots[from_player_slot]
 	if final_stack == null:
@@ -636,3 +665,76 @@ func _get_player_inventory_menu() -> PlayerInventoryMenu:
 
 func _on_chest_slot_clicked(slot_index: int, _button: int) -> void:
 	on_slot_primary_action(slot_index)
+
+
+func _play_chest_open_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_CHEST_OPEN_SFX
+	var volume_db: float = DEFAULT_CHEST_OPEN_VOLUME_DB
+	if panel != null:
+		if panel.chest_open_sfx != null:
+			stream = panel.chest_open_sfx
+		volume_db = panel.chest_open_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _play_chest_close_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_CHEST_CLOSE_SFX
+	var volume_db: float = DEFAULT_CHEST_CLOSE_VOLUME_DB
+	if panel != null:
+		if panel.chest_close_sfx != null:
+			stream = panel.chest_close_sfx
+		volume_db = panel.chest_close_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _play_shift_transfer_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_SHIFT_TRANSFER_SFX
+	var volume_db: float = DEFAULT_SHIFT_TRANSFER_VOLUME_DB
+	if panel != null:
+		if panel.inventory_shift_transfer_sfx != null:
+			stream = panel.inventory_shift_transfer_sfx
+		volume_db = panel.inventory_shift_transfer_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _play_inventory_item_select_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_INVENTORY_ITEM_SELECT_SFX
+	var volume_db: float = DEFAULT_INVENTORY_ITEM_SELECT_VOLUME_DB
+	if panel != null:
+		if panel.inventory_item_select_sfx != null:
+			stream = panel.inventory_item_select_sfx
+		volume_db = panel.inventory_item_select_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _play_slot_place_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var pool: Array[AudioStream] = DEFAULT_UI_SLOT_PLACE_SFX_POOL
+	var volume_db: float = DEFAULT_UI_SLOT_PLACE_VOLUME_DB
+	if panel != null:
+		var panel_pool: Array[AudioStream] = panel.get_ui_slot_place_sfx_pool()
+		if not panel_pool.is_empty():
+			pool = panel_pool
+		volume_db = panel.ui_slot_place_volume_db
+	if pool.is_empty():
+		return
+	var stream: AudioStream = pool[randi() % pool.size()]
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null

@@ -79,6 +79,8 @@ Al descargar: `unload_chunk()` + `entity_coordinator.unload_entities()` + `pipel
 
 `get_spawn_biome(x, y)` en `world.gd` mapea terreno de `GroundPainter` a IDs de bioma (`BIOME_ID_GRASSLAND=1`, `BIOME_ID_DENSE_GRASS=2`) que usa `PropSpawner` para densidad de ores.
 
+`world.gd` tambien expone `get_walk_surface_at_world_pos(world_pos)` para clasificar superficie jugable (`grass`, `dirt`, `wood`) sin acoplar deteccion de tiles al player.
+
 ⚠️ **Reglas importantes:**
 
 - Un chunk no debe regenerar entidades si ya fue generado (`entities_spawned_chunks`).
@@ -136,6 +138,7 @@ Componentes usados:
 - `HealthComponent`
 - `StaminaComponent`
 - `InventoryComponent`
+- `FootstepAudioComponent`
 
 Sistemas activos:
 
@@ -174,6 +177,13 @@ Ubicación:
 - `add_item / remove_item`
 - `sell / buy`
 - `debug_print()`
+
+`FootstepAudioComponent`
+
+- Loop de pasos por superficie (`grass`, `dirt`, `wood`).
+- Inicia/detiene segun velocidad real del personaje.
+- Resuelve SFX y volumen desde `SoundPanel` para escalar a nuevos materiales.
+- Consume superficie via `World.get_walk_surface_at_world_pos()`.
 
 ⚠️ **Regla:**
 
@@ -264,7 +274,7 @@ Rol:
 - Panel central con `@export` de SFX para ajustar sonidos desde un solo lugar en Inspector.
 - Incluye perillas de volumen (`*_volume_db`) por categoria/sonido para balancear audio sin editar scripts.
 - `main.gd` registra el nodo en `AudioSystem` para acceso global durante la sesion.
-- Consumido por `slash.gd`, `tree_wood.gd`, `stone_ore.gd`, `grass_tuft.gd`, `BowWeapon.gd`, `enemy.gd` y `world.gd` (paredes de player).
+- Consumido por `slash.gd`, `tree_wood.gd`, `stone_ore.gd`, `grass_tuft.gd`, `BowWeapon.gd`, `enemy.gd`, `world.gd` (paredes de player) y `FootstepAudioComponent` (loop de caminar por superficie).
 
 ### 💬 IN-GAME COMMAND BAR
 

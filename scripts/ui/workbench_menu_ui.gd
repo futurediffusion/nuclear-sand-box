@@ -5,6 +5,14 @@ const RECIPE_SLOT_SCENE:    PackedScene = preload("res://scenes/ui/crafting_reci
 const INGREDIENT_ROW_SCENE: PackedScene = preload("res://scenes/ui/crafting_ingredient_row.tscn")
 const TIER_REQ_SLOT_SCENE:  PackedScene = preload("res://scenes/ui/tier_requirement_slot.tscn")
 const CRAFT_SFX: AudioStream = preload("res://art/Sounds/craft.ogg")
+const DEFAULT_WORKBENCH_OPEN_SFX: AudioStream = preload("res://art/Sounds/workbenchopen.ogg")
+const DEFAULT_WORKBENCH_CLOSE_SFX: AudioStream = preload("res://art/Sounds/workbenchclose.ogg")
+const DEFAULT_WORKBENCH_SELECT_RECIPE_SFX: AudioStream = preload("res://art/Sounds/chooseitem.ogg")
+const DEFAULT_WORKBENCH_TAB_SFX: AudioStream = preload("res://art/Sounds/workbenchtab.ogg")
+const DEFAULT_WORKBENCH_OPEN_VOLUME_DB: float = 0.0
+const DEFAULT_WORKBENCH_CLOSE_VOLUME_DB: float = 0.0
+const DEFAULT_WORKBENCH_SELECT_RECIPE_VOLUME_DB: float = 0.0
+const DEFAULT_WORKBENCH_TAB_VOLUME_DB: float = 0.0
 
 # Materiales para subir la workbench de Tier 1 → Tier 2.
 # Cambiar aquí cuando se implemente el sistema de tiers real.
@@ -93,6 +101,7 @@ func open_menu() -> void:
 	visible = true
 	UiManager.open_ui("workbench")
 	UiManager.push_combat_block()
+	_play_workbench_open_sfx()
 	_reset_recipe_selection()
 	_connect_player_inventory()
 	_populate_grid()
@@ -107,6 +116,7 @@ func close_menu() -> void:
 	visible = false
 	UiManager.close_ui("workbench")
 	UiManager.pop_combat_block()
+	_play_workbench_close_sfx()
 
 
 func is_open() -> bool:
@@ -135,6 +145,7 @@ func _switch_tab(category: String, title: String) -> void:
 	if _current_category == category:
 		return
 	_current_category = category
+	_play_workbench_tab_sfx()
 	tab_title.text = title
 
 	tab_survival.button_pressed  = (category == "survival")
@@ -280,6 +291,7 @@ func _select_recipe(recipe: CraftingRecipe) -> void:
 	_refresh_selected_recipe_ui()
 	# Refresco diferido para cubrir cambios del inventario aplicados al final del frame.
 	_queue_inventory_dependent_refresh()
+	_play_workbench_recipe_select_sfx()
 
 
 func _update_result_preview(recipe: CraftingRecipe) -> void:
@@ -529,6 +541,63 @@ func _play_craft_sfx() -> void:
 	if CRAFT_SFX == null:
 		return
 	AudioSystem.play_1d(CRAFT_SFX, null, &"SFX")
+
+
+func _play_workbench_open_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_WORKBENCH_OPEN_SFX
+	var volume_db: float = DEFAULT_WORKBENCH_OPEN_VOLUME_DB
+	if panel != null:
+		if panel.workbench_open_sfx != null:
+			stream = panel.workbench_open_sfx
+		volume_db = panel.workbench_open_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _play_workbench_close_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_WORKBENCH_CLOSE_SFX
+	var volume_db: float = DEFAULT_WORKBENCH_CLOSE_VOLUME_DB
+	if panel != null:
+		if panel.workbench_close_sfx != null:
+			stream = panel.workbench_close_sfx
+		volume_db = panel.workbench_close_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _play_workbench_recipe_select_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_WORKBENCH_SELECT_RECIPE_SFX
+	var volume_db: float = DEFAULT_WORKBENCH_SELECT_RECIPE_VOLUME_DB
+	if panel != null:
+		if panel.workbench_select_recipe_sfx != null:
+			stream = panel.workbench_select_recipe_sfx
+		volume_db = panel.workbench_select_recipe_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _play_workbench_tab_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_WORKBENCH_TAB_SFX
+	var volume_db: float = DEFAULT_WORKBENCH_TAB_VOLUME_DB
+	if panel != null:
+		if panel.workbench_tab_sfx != null:
+			stream = panel.workbench_tab_sfx
+		volume_db = panel.workbench_tab_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null
 
 
 func _execute_craft(recipe: CraftingRecipe, times: int) -> bool:

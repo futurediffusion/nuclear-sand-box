@@ -4,6 +4,16 @@ class_name InventoryPanel
 signal slot_clicked(slot_index: int, button: int)
 signal placeable_requested(item_id: String)
 
+const DEFAULT_INVENTORY_ITEM_SELECT_SFX: AudioStream = preload("res://art/Sounds/inventoryitemgrab.ogg")
+const DEFAULT_INVENTORY_ITEM_SELECT_VOLUME_DB: float = 0.0
+const DEFAULT_UI_SLOT_PLACE_SFX_POOL: Array[AudioStream] = [
+	preload("res://art/Sounds/place1.ogg"),
+	preload("res://art/Sounds/place2.ogg"),
+	preload("res://art/Sounds/place3.ogg"),
+	preload("res://art/Sounds/place4.ogg"),
+]
+const DEFAULT_UI_SLOT_PLACE_VOLUME_DB: float = 0.0
+
 @export var slot_scene: PackedScene
 
 @export var columns: int = 5
@@ -455,6 +465,7 @@ func begin_drag(slot_index: int, mouse_position: Vector2, button_index: int, shi
 	drag_amount = amount
 	drag_from_count_snapshot = count
 	drag_ghost.global_position = mouse_position - drag_offset
+	_play_inventory_item_select_sfx()
 
 	print("[InventoryPanel] begin_drag VISUAL slot=%d id=%s amount=%d (from_count=%d) btn=%s shift=%s" % [slot_index, item_id, amount, count, _button_to_log(button_index), str(shift)])
 
@@ -474,6 +485,7 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 		if _external_drop_handler.is_valid():
 			var handled := bool(_external_drop_handler.call(from_slot, amount, mouse))
 			if handled:
+				_play_slot_place_sfx()
 				_clear_drag_visual()
 				return
 
@@ -510,6 +522,8 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 
 	if _inv != null and target != -1 and target != from_slot:
 		_inv.drag_transfer_amount(from_slot, target, amount)
+	if target != -1:
+		_play_slot_place_sfx()
 
 	_clear_drag_visual()
 
@@ -622,18 +636,25 @@ func on_slot_primary_action(slot_index: int, shift_pressed: bool = false) -> boo
 
 	if _inv == null:
 		return false
+	if slot_index >= _inv.max_slots:
+		return false
 
 	if shift_pressed and _external_quick_transfer_handler.is_valid():
 		return bool(_external_quick_transfer_handler.call(slot_index))
 
 	# Placeable items entran en placement mode en vez de "usar"
 	var slot_data = _inv.slots[slot_index]
+	var item_id := ""
 	if slot_data != null:
-		var item_id := String(slot_data.get("id", ""))
+		item_id = String(slot_data.get("id", ""))
 		if item_id != "" and _is_placeable_item(item_id):
+			_play_inventory_item_select_sfx()
 			placeable_requested.emit(item_id)
 			return true
+	if item_id == "":
+		return false
 
+	_play_inventory_item_select_sfx()
 	return _inv.use_slot(slot_index)
 
 
@@ -675,3 +696,40 @@ func _slot_has_item(slot_index: int) -> bool:
 
 func _on_slot_clicked(slot_index: int, button: int) -> void:
 	slot_clicked.emit(slot_index, button)
+
+
+func _play_inventory_item_select_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_INVENTORY_ITEM_SELECT_SFX
+	var volume_db: float = DEFAULT_INVENTORY_ITEM_SELECT_VOLUME_DB
+	if panel != null:
+		if panel.inventory_item_select_sfx != null:
+			stream = panel.inventory_item_select_sfx
+		volume_db = panel.inventory_item_select_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _play_slot_place_sfx() -> void:
+	var panel := _resolve_sound_panel()
+	var pool: Array[AudioStream] = DEFAULT_UI_SLOT_PLACE_SFX_POOL
+	var volume_db: float = DEFAULT_UI_SLOT_PLACE_VOLUME_DB
+	if panel != null:
+		var panel_pool: Array[AudioStream] = panel.get_ui_slot_place_sfx_pool()
+		if not panel_pool.is_empty():
+			pool = panel_pool
+		volume_db = panel.ui_slot_place_volume_db
+	if pool.is_empty():
+		return
+	var stream: AudioStream = pool[randi() % pool.size()]
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null

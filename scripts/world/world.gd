@@ -131,6 +131,14 @@ const SRC_FLOOR: int = 1
 const SRC_WALLS: int = 2
 
 const FLOOR_WOOD: Vector2i = Vector2i(0, 0)
+const WALK_SURFACE_GRASS: StringName = &"grass"
+const WALK_SURFACE_DIRT: StringName = &"dirt"
+const WALK_SURFACE_WOOD: StringName = &"wood"
+const FLOORWOOD_RUNTIME_ITEM_ID: String = "floorwood"
+const FLOORWOOD_LEGACY_ITEM_ID: String = "woodfloor"
+const FLOOR_SURFACE_BY_ATLAS := {
+	FLOOR_WOOD: WALK_SURFACE_WOOD,
+}
 const PLAYER_WALL_FALLBACK_ATLAS: Vector2i = Vector2i(0, 0)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
@@ -617,6 +625,54 @@ func get_spawn_biome(x: int, y: int) -> int:
 	if terrain == 0:  # dirt patch → alta densidad de ores
 		return BIOME_ID_DENSE_GRASS
 	return BIOME_ID_GRASSLAND  # grass → baja densidad
+
+func get_walk_surface_at_world_pos(world_pos: Vector2) -> StringName:
+	var tile_pos: Vector2i = _world_to_tile(world_pos)
+	return get_walk_surface_at_tile(tile_pos)
+
+func get_walk_surface_at_tile(tile_pos: Vector2i) -> StringName:
+	if not _is_valid_walk_surface_tile(tile_pos):
+		return WALK_SURFACE_GRASS
+
+	if _has_floorwood_placeable_at_tile(tile_pos):
+		return WALK_SURFACE_WOOD
+
+	var floor_surface: StringName = _resolve_floor_walk_surface(tile_pos)
+	if floor_surface != StringName():
+		return floor_surface
+
+	var terrain: int = _ground_painter.get_terrain(tile_pos.x, tile_pos.y)
+	if terrain == 0:
+		return WALK_SURFACE_DIRT
+	return WALK_SURFACE_GRASS
+
+func _resolve_floor_walk_surface(tile_pos: Vector2i) -> StringName:
+	if tilemap == null:
+		return StringName()
+	if tilemap.get_cell_source_id(LAYER_FLOOR, tile_pos) != SRC_FLOOR:
+		return StringName()
+	var atlas: Vector2i = tilemap.get_cell_atlas_coords(LAYER_FLOOR, tile_pos)
+	if FLOOR_SURFACE_BY_ATLAS.has(atlas):
+		var surface_id: StringName = FLOOR_SURFACE_BY_ATLAS[atlas]
+		return surface_id
+	return StringName()
+
+func _is_valid_walk_surface_tile(tile_pos: Vector2i) -> bool:
+	return tile_pos.x >= 0 and tile_pos.x < width and tile_pos.y >= 0 and tile_pos.y < height
+
+func _has_floorwood_placeable_at_tile(tile_pos: Vector2i) -> bool:
+	for raw_entry in WorldSave.placed_entities:
+		if typeof(raw_entry) != TYPE_DICTIONARY:
+			continue
+		var entry: Dictionary = raw_entry as Dictionary
+		var item_id: String = String(entry.get("item_id", "")).strip_edges()
+		if item_id != FLOORWOOD_RUNTIME_ITEM_ID and item_id != FLOORWOOD_LEGACY_ITEM_ID:
+			continue
+		var tx: int = int(entry.get("tile_pos_x", -999999))
+		var ty: int = int(entry.get("tile_pos_y", -999999))
+		if tx == tile_pos.x and ty == tile_pos.y:
+			return true
+	return false
 
 var chunk_occupied_tiles: Dictionary = {}
 

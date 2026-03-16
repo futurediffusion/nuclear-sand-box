@@ -1,6 +1,11 @@
 extends CanvasLayer
 class_name PlayerInventoryMenu
 
+const DEFAULT_INVENTORY_OPEN_SFX: AudioStream = preload("res://art/Sounds/inventoryopen.ogg")
+const DEFAULT_INVENTORY_CLOSE_SFX: AudioStream = preload("res://art/Sounds/inventoryclose.ogg")
+const DEFAULT_INVENTORY_OPEN_VOLUME_DB: float = 0.0
+const DEFAULT_INVENTORY_CLOSE_VOLUME_DB: float = 0.0
+
 @onready var panel: InventoryPanel = $Root/InventoryPanel
 
 var _inv: InventoryComponent = null
@@ -29,6 +34,7 @@ func open() -> void:
 	visible = true
 	UiManager.open_ui("inventory")
 	UiManager.push_combat_block()
+	_play_inventory_open_sfx()
 	call_deferred("_bind_player_inventory")
 
 func close() -> void:
@@ -39,6 +45,7 @@ func close() -> void:
 	visible = false
 	UiManager.close_ui("inventory")
 	UiManager.pop_combat_block()
+	_play_inventory_close_sfx()
 
 
 func _close_keeper_menu_if_open() -> void:
@@ -97,3 +104,36 @@ func _on_placeable_requested(item_id: String) -> void:
 		icon = item_db.get_icon(item_id) as Texture2D
 	close()  # cerrar inventario
 	PlacementSystem.begin_placement(item_id, icon)
+
+
+func _play_inventory_open_sfx() -> void:
+	var panel_sound := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_INVENTORY_OPEN_SFX
+	var volume_db: float = DEFAULT_INVENTORY_OPEN_VOLUME_DB
+	if panel_sound != null:
+		if panel_sound.inventory_open_sfx != null:
+			stream = panel_sound.inventory_open_sfx
+		volume_db = panel_sound.inventory_open_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _play_inventory_close_sfx() -> void:
+	var panel_sound := _resolve_sound_panel()
+	var stream: AudioStream = DEFAULT_INVENTORY_CLOSE_SFX
+	var volume_db: float = DEFAULT_INVENTORY_CLOSE_VOLUME_DB
+	if panel_sound != null:
+		if panel_sound.inventory_close_sfx != null:
+			stream = panel_sound.inventory_close_sfx
+		volume_db = panel_sound.inventory_close_volume_db
+	if stream != null:
+		AudioSystem.play_1d(stream, null, &"SFX", volume_db)
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null
