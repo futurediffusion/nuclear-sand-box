@@ -7,6 +7,7 @@ signal player_wall_drop(tile_pos: Vector2i, item_id: String, amount: int)
 
 const WallTileResolverScript := preload("res://scripts/world/WallTileResolver.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
+const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
@@ -55,6 +56,7 @@ var owner: Node
 var feedback: WallFeedback
 var sound_panel_getter_cb: Callable
 var wall_persistence: WallPersistence
+var structural_wall_persistence: StructuralWallPersistence
 
 func setup(ctx: Dictionary) -> void:
 	walls_tilemap = ctx.get("walls_tilemap")
@@ -100,6 +102,15 @@ func setup(ctx: Dictionary) -> void:
 	wall_persistence = ctx.get("wall_persistence")
 	if wall_persistence == null:
 		wall_persistence = WallPersistenceScript.new()
+	structural_wall_persistence = ctx.get("structural_wall_persistence")
+	if structural_wall_persistence == null:
+		structural_wall_persistence = StructuralWallPersistenceScript.new()
+	structural_wall_persistence.setup({
+		"chunk_save": chunk_save,
+		"walls_map_layer": walls_map_layer,
+		"structural_wall_source": -1,
+		"structural_wall_default_hp": int(ctx.get("structural_wall_default_hp", 1)),
+	})
 
 	var legacy_audio_config: Dictionary = {}
 	if ctx.has("player_wall_hit_sounds"):
@@ -521,23 +532,7 @@ func _is_player_wall_tile(tile_pos: Vector2i) -> bool:
 
 func _is_structural_wall_tile(tile_pos: Vector2i) -> bool:
 	var cpos := _tile_to_chunk(tile_pos)
-	if not chunk_save.has(cpos):
-		return false
-	var chunk_data: Variant = chunk_save[cpos]
-	if typeof(chunk_data) != TYPE_DICTIONARY:
-		return false
-	var placed_tiles: Array = (chunk_data as Dictionary).get("placed_tiles", [])
-	for raw_tile in placed_tiles:
-		if typeof(raw_tile) != TYPE_DICTIONARY:
-			continue
-		var tile_data: Dictionary = raw_tile as Dictionary
-		var source_id: int = int(tile_data.get("source", 0))
-		if source_id != -1 and source_id != src_walls:
-			continue
-		var saved_tile: Variant = tile_data.get("tile", Vector2i(-1, -1))
-		if saved_tile is Vector2i and (saved_tile as Vector2i) == tile_pos:
-			return true
-	return false
+	return structural_wall_persistence != null and structural_wall_persistence.has_wall(cpos, tile_pos)
 
 func _reconcile_wall_ownership_in_scope(scope_cells: Array[Vector2i], keep_tiles: Dictionary = {}) -> bool:
 	var removed_any: bool = _erase_unowned_walls_in_scope(scope_cells, keep_tiles)
