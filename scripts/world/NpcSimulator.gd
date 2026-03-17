@@ -116,9 +116,16 @@ func _tick_data_only(delta: float) -> void:
 			var is_dead: bool = bool(state.get("is_dead", false))
 			if dist < spawn_r and not is_dead and not active_enemies.has(enemy_id) and not spawning_enemy_ids.has(enemy_id):
 				enqueue_spawn(chunk_pos, enemy_id, state)
-			elif dist > despawn_r and active_enemies.has(enemy_id):
-				if _can_despawn(active_enemies[enemy_id], state):
-					despawn_enemy(enemy_id)
+			elif active_enemies.has(enemy_id):
+				var node: Node = active_enemies[enemy_id]
+				if not is_instance_valid(node):
+					active_enemies.erase(enemy_id)
+					active_enemy_chunk.erase(enemy_id)
+					continue
+
+				if dist > despawn_r:
+					if _can_despawn(node, state):
+						despawn_enemy(enemy_id)
 	if debug_counts:
 		Debug.log("npc_data", "active=%d queued=%d" % [active_enemies.size(), spawning_enemy_ids.size()])
 
