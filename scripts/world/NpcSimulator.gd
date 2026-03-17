@@ -117,12 +117,13 @@ func _tick_data_only(delta: float) -> void:
 			if dist < spawn_r and not is_dead and not active_enemies.has(enemy_id) and not spawning_enemy_ids.has(enemy_id):
 				enqueue_spawn(chunk_pos, enemy_id, state)
 			elif active_enemies.has(enemy_id):
-				var node: Node = active_enemies[enemy_id]
-				if not is_instance_valid(node):
+				var node_v = active_enemies[enemy_id]
+				if typeof(node_v) != TYPE_OBJECT or not is_instance_valid(node_v):
 					active_enemies.erase(enemy_id)
 					active_enemy_chunk.erase(enemy_id)
 					continue
 
+				var node: Node = node_v as Node
 				if dist > despawn_r:
 					if _can_despawn(node, state):
 						despawn_enemy(enemy_id)
@@ -158,9 +159,10 @@ func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> 
 func despawn_enemy(enemy_id: String) -> void:
 	if not active_enemies.has(enemy_id):
 		return
-	var node: Node = active_enemies[enemy_id]
+	var node_v = active_enemies[enemy_id]
 	var chunk_key: String = String(active_enemy_chunk.get(enemy_id, ""))
-	if node != null and is_instance_valid(node):
+	if typeof(node_v) == TYPE_OBJECT and is_instance_valid(node_v):
+		var node: Node = node_v as Node
 		if node.has_method("capture_save_state"):
 			var state: Dictionary = node.call("capture_save_state")
 			if node.has_node("DownedComponent"):
