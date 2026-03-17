@@ -185,6 +185,51 @@ func run():
 		print("  FAILURE: pos1 should have been demoted and placed after pos2. Result: ", res)
 		quit(1)
 
+	# 9. Test Full State Reset after Purge
+	print("Testing Full State Reset after Purge...")
+	queue.clear()
+	queue.enqueue(pos1) # Revision 1
+	res = queue.try_pop_next()
+	queue.confirm_rebuild(pos1, res.revision)
+
+	# Trigger cooldown and higher revision
+	queue.enqueue(pos1) # Revision 2
+	res = queue.try_pop_next()
+	if res.ok == false:
+		print("  SUCCESS: pos1 in cooldown as expected.")
+	else:
+		print("  FAILURE: pos1 should be in cooldown.")
+		quit(1)
+
+	# Purge should clear everything
+	queue.purge_chunk(pos1)
+
+	if queue.has_pending():
+		print("  FAILURE: Should not have pending after purge.")
+		quit(1)
+
+	res = queue.try_pop_next()
+	if not res.ok:
+		print("  SUCCESS: try_pop_next returned ok=false after purge.")
+	else:
+		print("  FAILURE: try_pop_next should be false after purge.")
+		quit(1)
+
+	# Enqueue again: should have NO cooldown and revision should START AT 1
+	queue.enqueue(pos1)
+	res = queue.try_pop_next()
+
+	if res.ok and res.chunk_pos == pos1:
+		print("  SUCCESS: No cooldown after purge.")
+		if res.revision == 1:
+			print("  SUCCESS: Revision reset to 1 after purge.")
+		else:
+			print("  FAILURE: Revision should be 1, got: ", res.revision)
+			quit(1)
+	else:
+		print("  FAILURE: Should pop immediately after purge (cooldown reset). Result: ", res)
+		quit(1)
+
 	print("All Phase C WallRefreshQueue tests passed!")
 	quit(0)
 

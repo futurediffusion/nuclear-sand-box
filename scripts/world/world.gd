@@ -504,6 +504,8 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 
 		var chunk_pos: Vector2i = result.chunk_pos
 		if not loaded_chunks.has(chunk_pos):
+			if _wall_refresh_queue != null:
+				_wall_refresh_queue.purge_chunk(chunk_pos)
 			continue
 
 		_ensure_chunk_wall_collision(chunk_pos)
