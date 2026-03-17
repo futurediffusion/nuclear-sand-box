@@ -616,7 +616,11 @@ func _on_before_die() -> void:
 func _on_after_die() -> void:
 	# El cadáver persiste hasta que NpcSimulator lo limpie al alejarse o descargar el chunk,
 	# a menos que keep_corpses esté desactivado.
-	if not GameManager.keep_corpses:
+	var should_keep_corpses: bool = false
+	if GameManager != null and GameManager.has_method("get_keep_corpses"):
+		should_keep_corpses = GameManager.get_keep_corpses()
+
+	if not should_keep_corpses:
 		queue_free()
 
 func _trigger_death_shake() -> void:

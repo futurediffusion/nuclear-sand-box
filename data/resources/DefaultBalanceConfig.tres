@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="BalanceConfig" load_steps=2 format=3 uid="uid://cx4j1b2a3d4e5"]
+
+[ext_resource type="Script" path="res://scripts/resources/BalanceConfig.gd" id="1_a2b3c"]
+
+[resource]
+script = ExtResource("1_a2b3c")
+keep_corpses = false
+finish_off_chance_min = 0.2
+finish_off_chance_max = 0.4
