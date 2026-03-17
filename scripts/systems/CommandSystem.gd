@@ -41,6 +41,7 @@ const GIVE_SHORTCUT_EXTRA_ALIASES: Dictionary = {
 	"pickaxe_wood": ["pxw", "wpx", "picomadera", "pickw"],
 	"stick": ["stk", "stik", "palo"],
 	"stone": ["stn", "sto", "piedra", "rock"],
+	"stool": ["stl", "silla", "taburete"],
 	"sword_copper": ["swc", "csw", "espadacobre", "swordc"],
 	"sword_stone": ["sws", "ssw", "espadapiedra", "swords"],
 	"sword_wood": ["sww", "wsw", "espadamadera", "swordw"],

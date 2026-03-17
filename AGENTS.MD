@@ -207,6 +207,22 @@ Rol:
 - Incluye placeholders no invasivos para fase futura: `locked`, `loot_profile`, `break_behavior`.
 - Conserva compatibilidad total con lookup legacy (`UI/ChestUi`, grupo `chest_ui`) y añade alias neutral (`UI/ContainerUi`, grupo `container_ui`).
 
+### 🪑 STOOL PLACEABLE (Sit Toggle)
+
+Ubicación:
+
+- `scenes/placeables/stool_world.tscn`
+- `scripts/placeables/StoolComponent.gd`
+- `data/items/stool.tres`
+
+Rol:
+
+- Placeable interactuable con prompt `E`.
+- Toggle de sentarse/pararse del player.
+- Al sentarse, el player salta al punto de asiento del stool, usa sprite `playersit` y bloquea movimiento/combate.
+- Al volver a interactuar, retorna a la posición previa y recupera `idle/walk`.
+- Mantiene persistencia por `placed_uid` (daño/rotura) con drop del item `stool`.
+
 ### 🧩 PLACEMENT METADATA (ItemData-Driven)
 
 Ubicación:
@@ -385,6 +401,7 @@ Implementado:
 - ✅ Contenedores placeables formalizados (`ContainerPlaceable` + `ContainerUi`) con wrappers legacy `Chest*` para compatibilidad total.
 - ✅ Barriles como contenedor placeable persistente y spawn inicial en taberna (sobre la capa neutral de contenedores).
 - ✅ Mesa de taberna convertida a placeable persistente (`table`) con receta en `tinkering` y destrucción con drop de item.
+- ✅ Stool placeable (`stool`) con interacción de sentarse/pararse (toggle `E`) y sprite de sentado en player.
 - ✅ HUD funcional.
 - ✅ Game Over desacoplado.
 - ✅ Colisiones de paredes y ajuste visual de transparencia por oclusión.

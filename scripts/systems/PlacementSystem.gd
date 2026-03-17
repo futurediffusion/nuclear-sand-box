@@ -294,12 +294,74 @@ func _spawn_ghost(icon: Texture2D) -> void:
 		# el sprite también debe renderizarse sin centrado para evitar offset 0.5 tile.
 		_ghost_sprite.centered = false
 		_ghost_sprite.offset = Vector2.ZERO
+		_ghost_sprite.position = Vector2.ZERO
+		_ghost_sprite.scale = Vector2.ONE
+		_ghost_sprite.flip_h = false
+		_ghost_sprite.flip_v = false
 	if _ghost_sprite != null and icon != null:
 		_ghost_sprite.texture = icon
+	_apply_scene_visual_profile_to_ghost()
 	var world := _find_world_node()
 	var parent: Node = world if world != null else get_tree().current_scene
 	parent.add_child(_ghost)
 	_update_ghost()
+
+
+func _apply_scene_visual_profile_to_ghost() -> void:
+	if _ghost_sprite == null:
+		return
+	if _placement_mode != PLACEMENT_MODE_SCENE:
+		return
+	if _scene_path == "":
+		return
+	var packed := load(_scene_path) as PackedScene
+	if packed == null:
+		return
+	var preview_root := packed.instantiate()
+	if preview_root == null:
+		return
+	var source_sprite := _find_first_sprite_2d(preview_root)
+	if source_sprite == null:
+		preview_root.free()
+		return
+
+	_ghost_sprite.centered = source_sprite.centered
+	_ghost_sprite.offset = source_sprite.offset
+	_ghost_sprite.flip_h = source_sprite.flip_h
+	_ghost_sprite.flip_v = source_sprite.flip_v
+	_ghost_sprite.hframes = source_sprite.hframes
+	_ghost_sprite.vframes = source_sprite.vframes
+	_ghost_sprite.frame = source_sprite.frame
+	_ghost_sprite.region_enabled = source_sprite.region_enabled
+	_ghost_sprite.region_rect = source_sprite.region_rect
+	if _ghost_sprite.texture == null:
+		_ghost_sprite.texture = source_sprite.texture
+
+	if preview_root is Node2D:
+		var root_2d := preview_root as Node2D
+		var source_global := source_sprite.global_transform
+		var relative: Transform2D = root_2d.global_transform.affine_inverse() * source_global
+		_ghost_sprite.position = relative.origin
+		_ghost_sprite.scale = Vector2(relative.x.length(), relative.y.length())
+	else:
+		_ghost_sprite.position = source_sprite.position
+		_ghost_sprite.scale = source_sprite.scale
+
+	preview_root.free()
+
+
+func _find_first_sprite_2d(root: Node) -> Sprite2D:
+	if root == null:
+		return null
+	if root is Sprite2D:
+		return root as Sprite2D
+	for child in root.get_children():
+		if not (child is Node):
+			continue
+		var nested := _find_first_sprite_2d(child as Node)
+		if nested != null:
+			return nested
+	return null
 
 
 func _update_ghost() -> void:
@@ -342,6 +404,8 @@ func _play_scene_place_sfx(item_id: String, tile: Vector2i) -> void:
 		"chest":
 			stream = CHEST_PLACE_SFX
 		"barrel":
+			stream = CHEST_PLACE_SFX
+		"stool":
 			stream = CHEST_PLACE_SFX
 		"doorwood":
 			stream = _resolve_door_place_sfx()

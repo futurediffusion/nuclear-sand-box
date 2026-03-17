@@ -12,6 +12,7 @@ const PLACEABLE_SCENES: Dictionary = {
 	"chest": "res://scenes/placeables/chest_world.tscn",
 	"barrel": "res://scenes/placeables/barrel_world.tscn",
 	"table": "res://scenes/placeables/table_world.tscn",
+	"stool": "res://scenes/placeables/stool_world.tscn",
 	"doorwood": "res://scenes/placeables/door_world.tscn",
 	FLOORWOOD_ITEM_ID: "res://scenes/placeables/woodfloor_world.tscn",
 	LEGACY_WOODFLOOR_ITEM_ID: "res://scenes/placeables/woodfloor_world.tscn",
@@ -35,6 +36,7 @@ const SHARED_TILE_COMPATIBILITY: Dictionary = {
 	"chest": {FLOORWOOD_ITEM_ID: true},
 	"barrel": {FLOORWOOD_ITEM_ID: true},
 	"table": {FLOORWOOD_ITEM_ID: true},
+	"stool": {FLOORWOOD_ITEM_ID: true},
 	"workbench": {FLOORWOOD_ITEM_ID: true},
 	"wallwood": {FLOORWOOD_ITEM_ID: true},
 }

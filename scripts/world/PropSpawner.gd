@@ -22,6 +22,9 @@ const TAVERN_BARREL_ITEM_ID: String = "barrel"
 const TAVERN_TABLE_SEED_FLAG: String = "tavern_tables_seeded_v1"
 const TAVERN_TABLE_SCENE_PATH: String = "res://scenes/placeables/table_world.tscn"
 const TAVERN_TABLE_ITEM_ID: String = "table"
+const TAVERN_STOOL_SEED_FLAG: String = "tavern_stools_seeded_v1"
+const TAVERN_STOOL_SCENE_PATH: String = "res://scenes/placeables/stool_world.tscn"
+const TAVERN_STOOL_ITEM_ID: String = "stool"
 
 const LAYER_FLOOR: int = 1
 const LAYER_WALLS: int = 0
@@ -396,10 +399,13 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var data := _structure_gen.generate_tavern(chunk_pos, int(ctx["chunk_size"]))
 	_align_existing_tavern_barrels_to_structure(data.placements)
 	_align_existing_tavern_tables_to_structure(data.placements)
+	_align_existing_tavern_stools_to_structure(data.placements)
 	_seed_tavern_barrels_as_placeables(data.placements)
 	_seed_tavern_tables_as_placeables(data.placements)
+	_seed_tavern_stools_as_placeables(data.placements)
 	_remove_legacy_tavern_barrel_props(chunk_pos, ctx)
 	_remove_legacy_tavern_table_props(chunk_pos, ctx)
+	_remove_legacy_tavern_stool_props(chunk_pos, ctx)
 	var bounds: Rect2i = data.bounds
 	var x0: int = bounds.position.x
 	var y0: int = bounds.position.y
@@ -445,7 +451,7 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 			_place_tile_persistent(chunk_pos, LAYER_WALLS, cell, SRC_WALLS, atlas, ctx)
 
 	for p in data.placements:
-		if _is_tavern_barrel_placement(p) or _is_tavern_table_placement(p):
+		if _is_tavern_barrel_placement(p) or _is_tavern_table_placement(p) or _is_tavern_stool_placement(p):
 			continue
 		var exists := false
 		var site_id := String(p.get("site_id", ""))
@@ -512,6 +518,12 @@ func _is_tavern_table_placement(raw: Variant) -> bool:
 	var p := raw as Dictionary
 	return String(p.get("kind", "")) == "prop" and String(p.get("prop_id", "")) == "table"
 
+func _is_tavern_stool_placement(raw: Variant) -> bool:
+	if typeof(raw) != TYPE_DICTIONARY:
+		return false
+	var p := raw as Dictionary
+	return String(p.get("kind", "")) == "prop" and String(p.get("prop_id", "")) == "stool"
+
 func _remove_legacy_tavern_barrel_props(chunk_key: Vector2i, ctx: Dictionary) -> void:
 	var chunk_save: Dictionary = ctx["chunk_save"]
 	if not chunk_save.has(chunk_key):
@@ -538,6 +550,21 @@ func _remove_legacy_tavern_table_props(chunk_key: Vector2i, ctx: Dictionary) -> 
 	var filtered: Array = []
 	for raw in placements:
 		if _is_tavern_table_placement(raw):
+			continue
+		filtered.append(raw)
+	chunk_save[chunk_key]["placements"] = filtered
+
+func _remove_legacy_tavern_stool_props(chunk_key: Vector2i, ctx: Dictionary) -> void:
+	var chunk_save: Dictionary = ctx["chunk_save"]
+	if not chunk_save.has(chunk_key):
+		return
+	var placements_raw: Variant = chunk_save[chunk_key].get("placements", null)
+	if not (placements_raw is Array):
+		return
+	var placements: Array = placements_raw
+	var filtered: Array = []
+	for raw in placements:
+		if _is_tavern_stool_placement(raw):
 			continue
 		filtered.append(raw)
 	chunk_save[chunk_key]["placements"] = filtered
@@ -594,6 +621,32 @@ func _seed_tavern_tables_as_placeables(placements: Array[Dictionary]) -> void:
 
 	WorldSave.global_flags[TAVERN_TABLE_SEED_FLAG] = true
 
+func _seed_tavern_stools_as_placeables(placements: Array[Dictionary]) -> void:
+	if bool(WorldSave.global_flags.get(TAVERN_STOOL_SEED_FLAG, false)):
+		return
+
+	for p in placements:
+		if not _is_tavern_stool_placement(p):
+			continue
+		var cell_raw: Array = p.get("cell", []) as Array
+		if cell_raw.size() < 2:
+			continue
+		var cell := Vector2i(int(cell_raw[0]), int(cell_raw[1]))
+		var site_id := String(p.get("site_id", ""))
+		var uid := UID.make_uid("placed_stool", site_id, cell if site_id == "" else Vector2i(-1, -1))
+		if _placed_entity_uid_exists(uid):
+			continue
+		WorldSave.add_placed_entity({
+			"uid": uid,
+			"scene": TAVERN_STOOL_SCENE_PATH,
+			"tile_pos_x": cell.x,
+			"tile_pos_y": cell.y,
+			"tier": 1,
+			"item_id": TAVERN_STOOL_ITEM_ID,
+		})
+
+	WorldSave.global_flags[TAVERN_STOOL_SEED_FLAG] = true
+
 func _align_existing_tavern_barrels_to_structure(placements: Array[Dictionary]) -> void:
 	var expected_cells_by_uid: Dictionary = {}
 	for p in placements:
@@ -641,6 +694,42 @@ func _align_existing_tavern_tables_to_structure(placements: Array[Dictionary]) -
 		var cell := Vector2i(int(cell_raw[0]), int(cell_raw[1]))
 		var site_id := String(p.get("site_id", ""))
 		var uid := UID.make_uid("placed_table", site_id, cell if site_id == "" else Vector2i(-1, -1))
+		expected_cells_by_uid[uid] = cell
+
+	if expected_cells_by_uid.is_empty():
+		return
+
+	for i in range(WorldSave.placed_entities.size()):
+		var raw := WorldSave.placed_entities[i]
+		if not (raw is Dictionary):
+			continue
+		var entry := (raw as Dictionary).duplicate(true)
+		var uid := String(entry.get("uid", ""))
+		if not expected_cells_by_uid.has(uid):
+			continue
+		var expected_cell_raw: Variant = expected_cells_by_uid[uid]
+		if not (expected_cell_raw is Vector2i):
+			continue
+		var expected_cell: Vector2i = expected_cell_raw
+		var tx: int = int(entry.get("tile_pos_x", 0))
+		var ty: int = int(entry.get("tile_pos_y", 0))
+		if tx == expected_cell.x and ty == expected_cell.y:
+			continue
+		entry["tile_pos_x"] = expected_cell.x
+		entry["tile_pos_y"] = expected_cell.y
+		WorldSave.placed_entities[i] = entry
+
+func _align_existing_tavern_stools_to_structure(placements: Array[Dictionary]) -> void:
+	var expected_cells_by_uid: Dictionary = {}
+	for p in placements:
+		if not _is_tavern_stool_placement(p):
+			continue
+		var cell_raw: Array = p.get("cell", []) as Array
+		if cell_raw.size() < 2:
+			continue
+		var cell := Vector2i(int(cell_raw[0]), int(cell_raw[1]))
+		var site_id := String(p.get("site_id", ""))
+		var uid := UID.make_uid("placed_stool", site_id, cell if site_id == "" else Vector2i(-1, -1))
 		expected_cells_by_uid[uid] = cell
 
 	if expected_cells_by_uid.is_empty():

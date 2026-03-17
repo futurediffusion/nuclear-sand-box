@@ -64,6 +64,9 @@ func _rect_fits_and_free(occupied: Dictionary, pos: Vector2i, size: Vector2i, in
 				return false
 	return true
 
+func _is_inside_inner(cell: Vector2i, inner_min: Vector2i, inner_max: Vector2i) -> bool:
+	return cell.x >= inner_min.x and cell.y >= inner_min.y and cell.x <= inner_max.x and cell.y <= inner_max.y
+
 func _generate_furniture(inner_min: Vector2i, inner_max: Vector2i, door_cell: Vector2i) -> Array[Dictionary]:
 	var occupied: Dictionary = {}
 	var placements: Array[Dictionary] = []
@@ -90,6 +93,7 @@ func _generate_furniture(inner_min: Vector2i, inner_max: Vector2i, door_cell: Ve
 
 	var table_size: Vector2i = Vector2i(2, 2)
 	var placed_tables: int = 0
+	var table_01_cell: Vector2i = Vector2i(-999999, -999999)
 	var candidates: Array[Vector2i] = [
 		Vector2i(inner_min.x + 2, inner_max.y - 1),
 		Vector2i(inner_max.x - 2, inner_max.y - 1),
@@ -106,15 +110,40 @@ func _generate_furniture(inner_min: Vector2i, inner_max: Vector2i, door_cell: Ve
 				"site_id": "tavern_table_%02d" % placed_tables,
 				"cell": [pos.x, pos.y]
 			})
+			if placed_tables == 1:
+				table_01_cell = pos
+
+	# 4 stools alrededor de la mesa principal (table_01): arriba/abajo/izq/der.
+	if table_01_cell.x != -999999:
+		var stool_entries := [
+			{"site_id": "tavern_stool_table01_up", "cell": table_01_cell + Vector2i(0, -1)},
+			{"site_id": "tavern_stool_table01_down", "cell": table_01_cell + Vector2i(0, 2)},
+			{"site_id": "tavern_stool_table01_left", "cell": table_01_cell + Vector2i(-1, 0)},
+			{"site_id": "tavern_stool_table01_right", "cell": table_01_cell + Vector2i(2, 0)},
+		]
+		for raw_stool in stool_entries:
+			var stool_cell: Vector2i = raw_stool["cell"]
+			if not _is_inside_inner(stool_cell, inner_min, inner_max):
+				continue
+			if not _is_free(occupied, stool_cell):
+				continue
+			occupied[stool_cell] = true
+			placements.append({
+				"kind": "prop",
+				"prop_id": "stool",
+				"site_id": String(raw_stool["site_id"]),
+				"cell": [stool_cell.x, stool_cell.y]
+			})
 
 	var left_x: int = mini(inner_min.x + 1, inner_max.x)
 	var right_x: int = maxi(inner_max.x - 1, inner_min.x)
 	var top_y: int = mini(inner_min.y + 1, inner_max.y)
 	var bottom_y: int = maxi(inner_max.y - 1, inner_min.y)
+	var moved_left_barrel_x: int = maxi(inner_min.x, left_x - 1)
 	var corners: Array[Vector2i] = [
 		Vector2i(left_x, top_y),
 		Vector2i(right_x, top_y),
-		Vector2i(left_x, bottom_y),
+		Vector2i(moved_left_barrel_x, bottom_y),
 		Vector2i(right_x, bottom_y),
 	]
 	var barrel_count: int = 0

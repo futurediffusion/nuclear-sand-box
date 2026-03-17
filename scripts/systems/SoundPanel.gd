@@ -10,6 +10,8 @@ const DEFAULT_GRASS_DESTROY_SFX: AudioStream = preload("res://art/Sounds/grassde
 const DEFAULT_DOOR_OPEN_SFX: AudioStream = preload("res://art/Sounds/doorwoodopen.ogg")
 const DEFAULT_DOOR_CLOSE_SFX: AudioStream = preload("res://art/Sounds/doorwoodclose.ogg")
 const DEFAULT_DOOR_PLACE_SFX: AudioStream = preload("res://art/Sounds/doorplace.ogg")
+const DEFAULT_STOOL_SIT_SFX: AudioStream = preload("res://art/Sounds/stoolsit.ogg")
+const DEFAULT_STOOL_OUT_SFX: AudioStream = preload("res://art/Sounds/stoolout.ogg")
 const DEFAULT_INVENTORY_OPEN_SFX: AudioStream = preload("res://art/Sounds/inventoryopen.ogg")
 const DEFAULT_INVENTORY_CLOSE_SFX: AudioStream = preload("res://art/Sounds/inventoryclose.ogg")
 const DEFAULT_INVENTORY_ITEM_SELECT_SFX: AudioStream = preload("res://art/Sounds/inventoryitemgrab.ogg")
@@ -119,6 +121,12 @@ const WALK_SURFACE_WOOD: StringName = &"wood"
 @export_range(-80.0, 12.0, 0.5, "suffix:dB") var door_close_volume_db: float = 0.0
 @export var door_place_sfx: AudioStream = DEFAULT_DOOR_PLACE_SFX
 @export_range(-80.0, 12.0, 0.5, "suffix:dB") var door_place_volume_db: float = 0.0
+
+@export_group("Placeables - Stool")
+@export var stool_sit_sfx: AudioStream = DEFAULT_STOOL_SIT_SFX
+@export_range(-80.0, 12.0, 0.5, "suffix:dB") var stool_sit_volume_db: float = 0.0
+@export var stool_out_sfx: AudioStream = DEFAULT_STOOL_OUT_SFX
+@export_range(-80.0, 12.0, 0.5, "suffix:dB") var stool_out_volume_db: float = 0.0
 
 @export_group("Ambience - Tree Wind")
 @export var tree_wind_loop_sfx: AudioStream = DEFAULT_TREE_WIND_SFX

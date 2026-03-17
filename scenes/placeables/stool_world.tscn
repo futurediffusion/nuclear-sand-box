@@ -1,0 +1,42 @@
+[gd_scene load_steps=6 format=3 uid="uid://sa14yc0p1u0x"]
+
+[ext_resource type="Script" uid="uid://qnpk1foxc4p1" path="res://scripts/placeables/StoolComponent.gd" id="1_script"]
+[ext_resource type="Texture2D" uid="uid://xes3mww1xu8d" path="res://art/placeables/stool.png" id="2_stool"]
+[ext_resource type="Texture2D" uid="uid://cj70iqi85uw61" path="res://art/ui/ekey.png" id="3_ekey"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(16, 6.5)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_area"]
+size = Vector2(56, 44)
+
+[node name="StoolWorld" type="StaticBody2D" groups=["interactable", "stool_placeable"]]
+script = ExtResource("1_script")
+seat_offset = Vector2(16.585, 14.4)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(16, 27.25)
+shape = SubResource("RectangleShape2D_body")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+position = Vector2(5.125, 12.69)
+scale = Vector2(0.7, 0.7)
+texture = ExtResource("2_stool")
+centered = false
+
+[node name="Area2D" type="Area2D" parent="."]
+position = Vector2(16, 16)
+collision_layer = 8
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+position = Vector2(0, 6)
+shape = SubResource("RectangleShape2D_area")
+
+[node name="SeatPoint" type="Marker2D" parent="."]
+position = Vector2(15.845, 27.285)
+
+[node name="Sprite2D2" type="Sprite2D" parent="."]
+visible = false
+position = Vector2(16, 3.225)
+scale = Vector2(0.36, 0.36)
+texture = ExtResource("3_ekey")

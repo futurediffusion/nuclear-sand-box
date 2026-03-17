@@ -5,6 +5,8 @@ var DEBUG_PLAYER := OS.is_debug_build()
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponController.gd")
 const FootstepAudioComponentScript = preload("res://scripts/components/FootstepAudioComponent.gd")
+const PLAYER_SIT_TEXTURE: Texture2D = preload("res://art/sprites/playersit.png")
+const PLAYER_SIT_ANIMATION: StringName = &"sit"
 
 @onready var stamina_component: StaminaComponent = get_node_or_null("StaminaComponent") as StaminaComponent
 @onready var movement_component: MovementComponent = get_node_or_null("MovementComponent") as MovementComponent
@@ -100,6 +102,9 @@ var _current_weapon_controller: WeaponController = null
 var _movement_control_mode: StringName = &"player"
 var _combat_control_mode: StringName = &"player"
 var _world_node_ref: WeakRef = null
+var _is_seated: bool = false
+var _seat_source_ref: WeakRef = null
+var _seat_return_world_pos: Vector2 = Vector2.INF
 
 
 signal stamina_changed(stamina: float, max_stamina: float)
@@ -116,6 +121,7 @@ func player_debug(message: String) -> void:
 func _ready() -> void:
 	super._ready()
 	Debug.log("boot", "Player ready begin")
+	_ensure_sit_animation()
 	sprite.play("idle")
 	sprite.flip_h = false
 	add_to_group("player")
@@ -359,10 +365,99 @@ func get_world_mouse_pos() -> Vector2:
 func get_mouse_angle() -> float:
 	return mouse_angle
 
+func is_seated() -> bool:
+	return _is_seated
+
+func is_seated_on(seat_node: Node) -> bool:
+	if seat_node == null:
+		return false
+	if not _is_seated:
+		return false
+	return _seat_source_node() == seat_node
+
+func toggle_stool_seat(seat_node: Node, seat_world_pos: Vector2) -> bool:
+	if seat_node == null:
+		return _is_seated
+	if _is_seated and is_seated_on(seat_node):
+		_leave_seat(true)
+		return false
+	if _is_seated:
+		_leave_seat(true)
+	_enter_seat(seat_node, seat_world_pos)
+	return true
+
+func force_leave_seat() -> void:
+	_leave_seat(true)
+
+func _enter_seat(seat_node: Node, seat_world_pos: Vector2) -> void:
+	if dying:
+		return
+	_reset_control_transient_state()
+	if weapon_controller != null and weapon_controller.has_method("set_attack_down"):
+		weapon_controller.call("set_attack_down", false)
+	if ai_weapon_controller != null:
+		ai_weapon_controller.set_attack_down(false)
+	_is_seated = true
+	_seat_source_ref = weakref(seat_node)
+	_seat_return_world_pos = global_position
+	velocity = Vector2.ZERO
+	knock_vel = Vector2.ZERO
+	global_position = seat_world_pos
+	_set_seated_visual_state(true)
+	_update_animation()
+
+func _leave_seat(restore_position: bool = true) -> void:
+	if not _is_seated:
+		_seat_source_ref = null
+		_seat_return_world_pos = Vector2.INF
+		return
+	var return_pos := _seat_return_world_pos
+	_is_seated = false
+	_seat_source_ref = null
+	_seat_return_world_pos = Vector2.INF
+	if restore_position and return_pos != Vector2.INF:
+		global_position = return_pos
+	velocity = Vector2.ZERO
+	knock_vel = Vector2.ZERO
+	_set_seated_visual_state(false)
+	_update_animation()
+
+func _seat_source_node() -> Node:
+	if _seat_source_ref == null:
+		return null
+	var source: Node = _seat_source_ref.get_ref() as Node
+	if source != null and is_instance_valid(source):
+		return source
+	_seat_source_ref = null
+	return null
+
+func _set_seated_visual_state(seated: bool) -> void:
+	if weapon_pivot != null:
+		weapon_pivot.visible = not seated
+	if footstep_audio_component != null and seated:
+		footstep_audio_component.stop_loop()
+
+func _ensure_sit_animation() -> void:
+	if sprite == null:
+		return
+	var frames := sprite.sprite_frames
+	if frames == null:
+		frames = SpriteFrames.new()
+		sprite.sprite_frames = frames
+	if not frames.has_animation(PLAYER_SIT_ANIMATION):
+		frames.add_animation(PLAYER_SIT_ANIMATION)
+	frames.set_animation_speed(PLAYER_SIT_ANIMATION, 1.0)
+	frames.set_animation_loop(PLAYER_SIT_ANIMATION, false)
+	if frames.get_frame_count(PLAYER_SIT_ANIMATION) <= 0 and PLAYER_SIT_TEXTURE != null:
+		frames.add_frame(PLAYER_SIT_ANIMATION, PLAYER_SIT_TEXTURE, 1.0)
+
 func _input(event: InputEvent) -> void:
 	if _movement_control_mode != &"player":
 		return
 	if UiManager.is_combat_input_blocked():
+		return
+	if _is_seated:
+		_update_seated_facing_from_mouse_motion(event)
 		return
 
 	if event is InputEventMouseButton and event.pressed:
@@ -405,6 +500,22 @@ func _physics_process(delta: float) -> void:
 
 	if hurt_t > 0.0:
 		hurt_t -= delta
+
+	if _is_seated:
+		velocity = Vector2.ZERO
+		knock_vel = Vector2.ZERO
+		attack_push_t = 0.0
+		attack_push_vel = Vector2.ZERO
+		attacking = false
+		blocking = false
+		if block_component != null and block_component.is_blocking():
+			block_component.blocking = false
+		if footstep_audio_component != null:
+			footstep_audio_component.stop_loop()
+		_update_animation()
+		_update_wall(delta)
+		move_and_slide()
+		return
 
 	if _movement_control_mode == &"player" and use_movement_component and movement_component != null:
 		movement_component.physics_tick(delta)
@@ -554,6 +665,10 @@ func _update_weapon_flip() -> void:
 	weapon_sprite.flip_v = abs(angle) > PI / 2.0
 
 func _update_animation() -> void:
+	if _is_seated:
+		if sprite.animation != PLAYER_SIT_ANIMATION:
+			sprite.play(PLAYER_SIT_ANIMATION)
+		return
 	if hurt_t > 0.0:
 		return
 	sprite.play("walk" if velocity.length() > 5.0 else "idle")
@@ -635,6 +750,7 @@ func _resolve_world_node() -> Node:
 	return world
 
 func _on_before_die() -> void:
+	_leave_seat(false)
 	weapon_sprite.visible = false
 	hurt_t = 0.0
 	attacking = false
@@ -646,6 +762,7 @@ func _on_after_die() -> void:
 	GameManager.player_died.emit()
 
 func respawn(pos: Vector2) -> void:
+	_leave_seat(false)
 	dying = false
 	hurt_t = 0.0
 	knock_vel = Vector2.ZERO
@@ -688,6 +805,7 @@ func _legacy_wall_toggle_update() -> void:
 	return
 
 func _exit_tree() -> void:
+	_leave_seat(false)
 	if footstep_audio_component != null:
 		footstep_audio_component.stop_loop()
 	if wall_occlusion_component != null:
@@ -695,3 +813,13 @@ func _exit_tree() -> void:
 
 func get_inventory() -> Node:
 	return inventory_component
+
+
+func _update_seated_facing_from_mouse_motion(event: InputEvent) -> void:
+	if not (event is InputEventMouseMotion):
+		return
+	var motion := event as InputEventMouseMotion
+	if absf(motion.relative.x) <= 0.05:
+		return
+	# Mantiene el lado inicial al sentarse y solo gira cuando hay movimiento horizontal real.
+	sprite.flip_h = motion.relative.x < 0.0
