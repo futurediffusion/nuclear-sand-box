@@ -465,6 +465,8 @@ func _ensure_sit_animation() -> void:
 		frames.add_frame(PLAYER_SIT_ANIMATION, PLAYER_SIT_TEXTURE, 1.0)
 
 func _input(event: InputEvent) -> void:
+	if dying or is_downed:
+		return
 	if _movement_control_mode != &"player":
 		return
 	if UiManager.is_combat_input_blocked():
@@ -503,7 +505,7 @@ func _input(event: InputEvent) -> void:
 			if DEBUG_PLAYER: inventory_component.debug_print()
 
 func _physics_process(delta: float) -> void:
-	if dying:
+	if dying or is_downed:
 		velocity = Vector2.ZERO
 		if footstep_audio_component != null:
 			footstep_audio_component.stop_loop()
@@ -761,6 +763,17 @@ func _resolve_world_node() -> Node:
 	var world: Node = worlds[0] as Node
 	_world_node_ref = weakref(world)
 	return world
+
+func _on_entered_downed() -> void:
+	super._on_entered_downed()
+	weapon_sprite.visible = false
+	if footstep_audio_component != null:
+		footstep_audio_component.stop_loop()
+
+func _on_revived() -> void:
+	super._on_revived()
+	weapon_sprite.visible = true
+	_update_hearts_ui()
 
 func _on_before_die() -> void:
 	_leave_seat(false)

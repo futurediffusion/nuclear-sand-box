@@ -155,7 +155,12 @@ func despawn_enemy(enemy_id: String) -> void:
 	var chunk_key: String = String(active_enemy_chunk.get(enemy_id, ""))
 	if node != null and is_instance_valid(node):
 		if node.has_method("capture_save_state"):
-			WorldSave.set_enemy_state(chunk_key, enemy_id, node.call("capture_save_state"))
+			var state: Dictionary = node.call("capture_save_state")
+			if node.has_node("DownedComponent"):
+				var downed := node.get_node("DownedComponent")
+				if downed.has_method("get_save_data"):
+					state.merge(downed.call("get_save_data"), true)
+			WorldSave.set_enemy_state(chunk_key, enemy_id, state)
 		if node.has_node("AIComponent"):
 			var ai := node.get_node_or_null("AIComponent")
 			if ai != null and ai.has_method("on_owner_exit_tree"):
@@ -176,10 +181,24 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 	spawning_enemy_ids.erase(enemy_id)
 	active_enemies[enemy_id] = node
 	active_enemy_chunk[enemy_id] = String(job.get("chunk_key", ""))
+
+	var save_state: Dictionary = job.get("init_data", {}).get("save_state", {})
+	if node.has_node("DownedComponent"):
+		var downed := node.get_node("DownedComponent")
+		if downed.has_method("load_save_data"):
+			downed.call("load_save_data", save_state)
+
 	if node.has_method("exit_lite_mode"):
 		node.call("exit_lite_mode")
 	EnemyRegistry.register_enemy(node)
 	NpcProfileSystem.ensure_profile(enemy_id, "bandit", "soldier")
+
+	if save_state.get("is_dead", false):
+		NpcProfileSystem.set_status(enemy_id, "dead")
+	elif save_state.get("is_downed", false):
+		NpcProfileSystem.set_status(enemy_id, "downed")
+		if node.has_node("AIComponent"):
+			node.get_node("AIComponent").call("set_downed")
 
 # Llamado desde World._on_spawn_queue_job_skipped cuando kind == "enemy"
 func on_enemy_job_skipped(job: Dictionary) -> void:
@@ -189,8 +208,10 @@ func on_enemy_job_skipped(job: Dictionary) -> void:
 func on_entity_died(uid: String) -> void:
 	if active_enemy_chunk.has(uid):
 		WorldSave.mark_enemy_dead(String(active_enemy_chunk[uid]), uid)
-		active_enemies.erase(uid)
-		active_enemy_chunk.erase(uid)
+		# No borrar de active_enemies todavía si queremos que el cadáver persista un poco o por si acaso,
+		# pero NpcSimulator usualmente limpia en despawn.
+		# active_enemies.erase(uid)
+		# active_enemy_chunk.erase(uid)
 	spawning_enemy_ids.erase(uid)
 	NpcProfileSystem.set_status(uid, "dead")
 
