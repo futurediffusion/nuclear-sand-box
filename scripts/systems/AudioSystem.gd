@@ -117,7 +117,7 @@ func play_2d(stream: AudioStream, pos: Vector2, parent: Node = null, bus: String
 		])
 	player.play()
 
-func play_1d(stream: AudioStream, parent: Node = null, bus: StringName = &"Master", volume_db: float = 0.0) -> void:
+func play_1d(stream: AudioStream, parent: Node = null, bus: StringName = &"Master", volume_db: float = 0.0, pitch_scale: float = 1.0) -> void:
 	if stream == null:
 		return
 
@@ -131,9 +131,10 @@ func play_1d(stream: AudioStream, parent: Node = null, bus: StringName = &"Maste
 	p.stream = stream
 	p.bus = bus
 	p.volume_db = volume_db
+	p.pitch_scale = maxf(0.01, pitch_scale)
 	target_parent.add_child(p)
 	p.finished.connect(p.queue_free)
-	Debug.log("audio", "[AudioSystem] play_1d bus=%s vol_db=%s stream=%s" % [p.bus, p.volume_db, p.stream])
+	Debug.log("audio", "[AudioSystem] play_1d bus=%s vol_db=%s pitch=%s stream=%s" % [p.bus, p.volume_db, p.pitch_scale, p.stream])
 	p.play()
 
 func _on_item_picked(item_id: String, amount: int, picker: Node) -> void:

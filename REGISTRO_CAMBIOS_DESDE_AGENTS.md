@@ -120,3 +120,12 @@ Commits de referencia recientes:
 - `ItemDrop` y `CopperOre` aceptan referencia `ItemData` como vía principal, pero conservan `item_id`/`give_item_id` como fallback legacy para escenas existentes.
 - `InventoryUI` ahora intenta resolver iconos desde `ItemDB` y deja `copper_icon` como fallback legacy.
 - Se creó `data/items/copper.tres` y se cableó en escenas de drop/mena para evitar tener que escribir `"copper"` manualmente en cada nodo nuevo.
+
+## Actualización técnica: Contenedores explícitos + placement metadata (compatibilidad total)
+
+- Se formalizó la capa neutral de contenedores con `ContainerPlaceable` y `ContainerUi`, manteniendo wrappers legacy `ChestComponent`/`ChestUi` para no romper escenas ni tests actuales.
+- Se preservó la persistencia existente de contenedores (`placed_uid`, `stored_slots`, `hit_count`) sin migración de schema.
+- Se agregaron exports explícitos de contenedor (`max_slots`, `max_stack`, `drop_item_id`, `container_group`) y placeholders de fase futura (`locked`, `loot_profile`, `break_behavior`) sin activar todavía sistema completo de locks/loot.
+- Se extendió `ItemData` con metadata de placement y `ItemDB` con lectura de perfil de placement.
+- `PlacementCatalog` ahora resuelve reglas por metadata de item con fallback legacy seguro; `PlacementSystem` dejó de depender de excepciones hardcodeadas para drag paint y excepción física de `floorwood`.
+- Estado de alcance: **sin mega-refactor universal de placeables**, deuda de `locked/loot_profile` queda explícitamente para siguiente fase.

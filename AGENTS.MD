@@ -190,6 +190,38 @@ Ubicación:
 - La lógica reusable va en componentes.
 - No duplicar sistemas dentro de `Player` o `Enemy`.
 
+### 📦 CONTAINER PLACEABLES (Chest/Barrel)
+
+Ubicación:
+
+- `scripts/placeables/ContainerPlaceable.gd`
+- Compat legacy: `scripts/placeables/ChestComponent.gd` (`ChestWorld` wrapper)
+- `scripts/ui/ContainerUi.gd`
+- Compat legacy: `scripts/ui/chest_ui.gd` (`ChestUi` wrapper)
+
+Rol:
+
+- Capa neutral para contenedores placeables reutilizable por chest/barrel y futuros `crate/locker/freezer`.
+- Mantiene persistencia actual por `placed_uid` en `WorldSave.placed_entity_data_by_uid`.
+- Expone config por datos/export: `max_slots`, `max_stack`, `drop_item_id`, `container_group`.
+- Incluye placeholders no invasivos para fase futura: `locked`, `loot_profile`, `break_behavior`.
+- Conserva compatibilidad total con lookup legacy (`UI/ChestUi`, grupo `chest_ui`) y añade alias neutral (`UI/ContainerUi`, grupo `container_ui`).
+
+### 🧩 PLACEMENT METADATA (ItemData-Driven)
+
+Ubicación:
+
+- `scripts/items/ItemData.gd`
+- `scripts/items/ItemDB.gd`
+- `scripts/systems/PlacementCatalog.gd`
+
+Rol:
+
+- Placement incremental basado en metadata de item con fallback legacy seguro.
+- Campos nuevos en `ItemData`: `placement_mode`, `placement_scene_path`, `repeat_place`, `drag_paintable`, `can_share_tile_with`, `ignore_collision_groups_when_placing`.
+- `PlacementCatalog` mantiene API legacy (`resolve_scene_path`, `resolve_placement_mode`, `is_repeat_scene_item`, `can_share_tile`) pero ahora resuelve primero perfil de item y cae a tablas legacy cuando no hay metadata explícita.
+- `PlacementSystem` consume reglas de catálogo para drag paint y excepciones físicas sin hardcodear `floorwood`.
+
 ### 👥 ENEMY REGISTRY (Autoload)
 
 Ubicación:
@@ -350,7 +382,8 @@ Implementado:
 - ✅ Bloqueo direccional.
 - ✅ Stamina.
 - ✅ Inventario básico.
-- ✅ Barriles como contenedor placeable (mismo sistema de chest) con persistencia por `PlacementSystem` y spawn inicial en taberna.
+- ✅ Contenedores placeables formalizados (`ContainerPlaceable` + `ContainerUi`) con wrappers legacy `Chest*` para compatibilidad total.
+- ✅ Barriles como contenedor placeable persistente y spawn inicial en taberna (sobre la capa neutral de contenedores).
 - ✅ HUD funcional.
 - ✅ Game Over desacoplado.
 - ✅ Colisiones de paredes y ajuste visual de transparencia por oclusión.

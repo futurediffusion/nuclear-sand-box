@@ -31,6 +31,8 @@ func open() -> void:
 	if visible:
 		return
 	_close_keeper_menu_if_open()
+	_close_container_ui_if_open()
+	_close_workbench_menu_if_open()
 	visible = true
 	UiManager.open_ui("inventory")
 	UiManager.push_combat_block()
@@ -52,6 +54,66 @@ func _close_keeper_menu_if_open() -> void:
 	var keeper_menu := _get_keeper_menu_ui()
 	if keeper_menu != null and keeper_menu.is_shop_open():
 		keeper_menu.close_shop()
+
+
+func _close_container_ui_if_open() -> void:
+	var container_ui := _get_container_ui()
+	if container_ui == null:
+		return
+	var is_open := bool(container_ui.visible)
+	if container_ui.has_method("is_open"):
+		is_open = bool(container_ui.call("is_open"))
+	if not is_open:
+		return
+	if container_ui.has_method("close_menu"):
+		container_ui.call("close_menu")
+		return
+	container_ui.visible = false
+
+
+func _close_workbench_menu_if_open() -> void:
+	var workbench_menu := _get_workbench_menu_ui()
+	if workbench_menu == null:
+		return
+	var is_open := bool(workbench_menu.visible)
+	if workbench_menu.has_method("is_open"):
+		is_open = bool(workbench_menu.call("is_open"))
+	if not is_open:
+		return
+	if workbench_menu.has_method("close_menu"):
+		workbench_menu.call("close_menu")
+		return
+	workbench_menu.visible = false
+
+
+func _get_container_ui() -> CanvasLayer:
+	var scene := get_tree().current_scene
+	if scene != null:
+		var by_container_path := scene.get_node_or_null("UI/ContainerUi") as CanvasLayer
+		if by_container_path != null:
+			return by_container_path
+		var by_chest_path := scene.get_node_or_null("UI/ChestUi") as CanvasLayer
+		if by_chest_path != null:
+			return by_chest_path
+	for node in get_tree().get_nodes_in_group("container_ui"):
+		if node is CanvasLayer:
+			return node as CanvasLayer
+	for node in get_tree().get_nodes_in_group("chest_ui"):
+		if node is CanvasLayer:
+			return node as CanvasLayer
+	return null
+
+
+func _get_workbench_menu_ui() -> CanvasLayer:
+	var scene := get_tree().current_scene
+	if scene != null:
+		var by_path := scene.get_node_or_null("UI/WorkbenchMenuUi") as CanvasLayer
+		if by_path != null:
+			return by_path
+	for node in get_tree().get_nodes_in_group("workbench_menu_ui"):
+		if node is CanvasLayer:
+			return node as CanvasLayer
+	return null
 
 
 func _get_keeper_menu_ui() -> KeeperMenuUi:

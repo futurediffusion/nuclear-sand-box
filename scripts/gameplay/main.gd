@@ -27,6 +27,7 @@ func _enter_tree() -> void:
 
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
+	_remap_inventory_key_to_tab()
 	if AudioSystem != null and AudioSystem.has_method("register_sound_panel"):
 		AudioSystem.register_sound_panel(sound_panel)
 	_ensure_world_data()
@@ -75,6 +76,17 @@ func _ensure_world_data() -> void:
 	if world_data == null:
 		world_data = WorldData.new()
 	world_data.setup(world_map_size, default_tavern_position)
+
+
+func _remap_inventory_key_to_tab() -> void:
+	if not InputMap.has_action("inventory"):
+		return
+	for event_variant in InputMap.action_get_events("inventory"):
+		if event_variant is InputEventKey:
+			InputMap.action_erase_event("inventory", event_variant)
+	var tab_event := InputEventKey.new()
+	tab_event.keycode = KEY_TAB
+	InputMap.action_add_event("inventory", tab_event)
 
 
 func _input(event: InputEvent) -> void:

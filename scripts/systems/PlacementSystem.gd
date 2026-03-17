@@ -189,9 +189,7 @@ func _process_drag_tile_wall_paint() -> void:
 
 
 func _is_drag_paint_enabled_for_current_item() -> bool:
-	if _placement_mode == PLACEMENT_MODE_TILE_WALL:
-		return true
-	return PlacementCatalog.is_floorwood_item(_item_id)
+	return PlacementCatalog.is_drag_paint_enabled_item(_item_id)
 
 
 func _build_drag_segment_tiles(from_tile: Vector2i, to_tile: Vector2i) -> Array[Vector2i]:
@@ -774,12 +772,8 @@ func _can_share_tile_with_existing(existing_item_id: String) -> bool:
 
 
 func _is_physics_hit_blocking_for_item(collider: Variant) -> bool:
-	if not PlacementCatalog.is_floorwood_item(_item_id):
-		return true
-	if collider is Node:
-		var node := collider as Node
-		if node.is_in_group("doorwood_placeable"):
-			return false
+	if PlacementCatalog.should_ignore_collision_for_item(_item_id, collider):
+		return false
 	return true
 
 

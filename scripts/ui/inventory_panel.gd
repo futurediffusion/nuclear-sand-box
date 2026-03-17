@@ -43,6 +43,7 @@ var drag_offset: Vector2 = Vector2(16, 16)
 var _default_drop_scene: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 var _external_drop_handler: Callable = Callable()
 var _external_quick_transfer_handler: Callable = Callable()
+var _external_quick_transfer_on_primary_click: bool = false
 
 
 func _process(_delta: float) -> void:
@@ -119,8 +120,9 @@ func set_external_drop_handler(handler: Callable) -> void:
 	_external_drop_handler = handler
 
 
-func set_external_quick_transfer_handler(handler: Callable) -> void:
+func set_external_quick_transfer_handler(handler: Callable, use_primary_click: bool = false) -> void:
 	_external_quick_transfer_handler = handler
+	_external_quick_transfer_on_primary_click = use_primary_click
 
 func _rebuild_grid() -> void:
 	if _grid == null:
@@ -639,8 +641,12 @@ func on_slot_primary_action(slot_index: int, shift_pressed: bool = false) -> boo
 	if slot_index >= _inv.max_slots:
 		return false
 
-	if shift_pressed and _external_quick_transfer_handler.is_valid():
-		return bool(_external_quick_transfer_handler.call(slot_index))
+	if _external_quick_transfer_handler.is_valid():
+		if _external_quick_transfer_on_primary_click:
+			_external_quick_transfer_handler.call(slot_index)
+			return true
+		if shift_pressed:
+			return bool(_external_quick_transfer_handler.call(slot_index))
 
 	# Placeable items entran en placement mode en vez de "usar"
 	var slot_data = _inv.slots[slot_index]
@@ -670,6 +676,8 @@ func _is_placeable_item(item_id: String) -> bool:
 
 func should_show_not_usable_feedback(slot_index: int) -> bool:
 	if _is_shop_click_context():
+		return false
+	if _external_quick_transfer_on_primary_click and _external_quick_transfer_handler.is_valid():
 		return false
 	return _slot_has_item(slot_index)
 

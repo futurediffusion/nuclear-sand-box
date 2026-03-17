@@ -14,8 +14,39 @@ const COMMAND_SPAWN_MIN_DIST  := 56.0
 const COMMAND_SPAWN_MAX_DIST  := 110.0
 const DEFAULT_COMMAND_TILE_SIZE := 16.0
 const COMMAND_HISTORY_LIMIT   := 10
-const GIVE_SHORTCUTS: Dictionary = {
+const GIVE_SHORTCUT_DEFAULT_AMOUNT: int = 200
+const GIVE_SHORTCUT_OVERRIDES: Dictionary = {
 	"ww": {"item_id": "wallwood", "amount": 200},
+	"fw": {"item_id": "floorwood", "amount": 200},
+	"dw": {"item_id": "doorwood", "amount": 200},
+	"wb": {"item_id": "workbench", "amount": 200},
+}
+const GIVE_SHORTCUT_EXTRA_ALIASES: Dictionary = {
+	"arrow": ["arr", "arw", "flecha"],
+	"axe_copper": ["axc", "cax", "hachacobre", "hachac"],
+	"axe_stone": ["axs", "sax", "hachapiedra", "hachas"],
+	"axe_wood": ["axw", "wax", "hachamadera", "hachaw"],
+	"bandage": ["bdg", "band", "venda"],
+	"barrel": ["brl", "barr", "barril"],
+	"book": ["bk", "bok", "libro"],
+	"bow": ["bw", "arco"],
+	"chest": ["cht", "chs", "cofre"],
+	"copper": ["cop", "cpr", "cobre"],
+	"doorwood": ["door", "wooddoor", "puerta"],
+	"fiber": ["fib", "fbr", "fibra"],
+	"floorwood": ["floor", "woodfloor", "piso", "suelo"],
+	"ironpipe": ["ip", "pipe", "tubo"],
+	"pickaxe_copper": ["pxc", "cpx", "picocobre", "pickc"],
+	"pickaxe_stone": ["pxs", "spx", "picopiedra", "picks"],
+	"pickaxe_wood": ["pxw", "wpx", "picomadera", "pickw"],
+	"stick": ["stk", "stik", "palo"],
+	"stone": ["stn", "sto", "piedra", "rock"],
+	"sword_copper": ["swc", "csw", "espadacobre", "swordc"],
+	"sword_stone": ["sws", "ssw", "espadapiedra", "swords"],
+	"sword_wood": ["sww", "wsw", "espadamadera", "swordw"],
+	"wallwood": ["wall", "woodwall", "muro", "pared"],
+	"wood": ["wd", "madera", "log"],
+	"workbench": ["bench", "work", "mesa"],
 }
 
 var _player: Node        = null
@@ -27,6 +58,10 @@ var _command_input: LineEdit    = null
 var _command_open: bool         = false
 var _command_history: Array[String] = []
 var _command_history_index: int = -1
+var _give_shortcut_alias_to_item: Dictionary = {}
+var _give_shortcut_alias_to_amount: Dictionary = {}
+var _give_shortcut_conflicts: Dictionary = {}
+var _give_shortcuts_ready: bool = false
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +128,7 @@ func _setup_command_bar() -> void:
 	_command_input.offset_top    = 4.0
 	_command_input.offset_right  = -8.0
 	_command_input.offset_bottom = -4.0
-	_command_input.placeholder_text = "/give <item_id> <n>  |  /gv ww  |  /dog <n>  |  /summon enemy [n] [ox] [oy]  |  /spawn  |  /spawn_workbench"
+	_command_input.placeholder_text = "/give <item_id> <n>  |  /gv <alias|item_id>  |  /gv list  |  /dog <n>  |  /summon enemy [n] [ox] [oy]"
 	_command_input.clear_button_enabled = true
 	_command_input.text_submitted.connect(_on_command_submitted)
 	_command_input.gui_input.connect(_on_command_gui_input)
@@ -225,16 +260,23 @@ func _try_execute_shortcut_without_prefix(command_text: String) -> bool:
 
 func _cmd_give_shortcut(raw_args: Array) -> void:
 	if raw_args.is_empty():
-		Debug.log("commands", "Uso: /gv ww")
+		Debug.log("commands", "Uso: /gv <alias|item_id>  (ej: /gv ww)  |  /gv list")
 		return
 	var shortcut_key := String(raw_args[0]).strip_edges().to_lower()
-	var shortcut_data: Variant = GIVE_SHORTCUTS.get(shortcut_key, null)
-	if not (shortcut_data is Dictionary):
-		Debug.log("commands", "Shortcut desconocido: %s" % shortcut_key)
+	if shortcut_key == "list":
+		_log_give_shortcut_list()
 		return
-	var shortcut := shortcut_data as Dictionary
-	var item_id := String(shortcut.get("item_id", "")).strip_edges().to_lower()
-	var amount := int(shortcut.get("amount", 0))
+	var resolve: Dictionary = _resolve_give_shortcut(shortcut_key)
+	if not bool(resolve.get("ok", false)):
+		var err: String = String(resolve.get("error", "unknown"))
+		if err == "ambiguous":
+			var options: Array = resolve.get("options", [])
+			Debug.log("commands", "Alias ambiguo '%s'. Usa uno de: %s" % [shortcut_key, _join_to_string(options)])
+			return
+		Debug.log("commands", "Alias/item desconocido: %s (usa /gv list)" % shortcut_key)
+		return
+	var item_id := String(resolve.get("item_id", "")).strip_edges().to_lower()
+	var amount := int(resolve.get("amount", GIVE_SHORTCUT_DEFAULT_AMOUNT))
 	if item_id.is_empty() or amount <= 0:
 		Debug.log("commands", "Shortcut invalido: %s" % shortcut_key)
 		return
@@ -304,9 +346,12 @@ func _cmd_give(raw_args: Array) -> void:
 		Debug.log("commands", "ItemDB no está disponible")
 		return
 
-	if item_db.call("get_item", item_id) == null:
+	var item_data: Variant = item_db.call("get_item", item_id)
+	if item_data == null:
 		Debug.log("commands", "Item no registrado en ItemDB: %s" % item_id)
 		return
+	if "id" in item_data:
+		item_id = String(item_data.id).strip_edges().to_lower()
 
 	var inventory := _get_player_inventory()
 	if inventory == null:
@@ -320,6 +365,197 @@ func _cmd_give(raw_args: Array) -> void:
 		Debug.log("commands", "Se agregaron %d/%d de %s (inventario lleno)" % [inserted, amount, item_id])
 	else:
 		Debug.log("commands", "Agregados %d de %s al inventario" % [inserted, item_id])
+
+func _resolve_give_shortcut(alias_or_item: String) -> Dictionary:
+	var key := alias_or_item.strip_edges().to_lower()
+	if key == "":
+		return {"ok": false, "error": "unknown"}
+	_ensure_give_shortcuts()
+	if _give_shortcut_conflicts.has(key):
+		return {
+			"ok": false,
+			"error": "ambiguous",
+			"options": _give_shortcut_conflicts[key],
+		}
+	if _give_shortcut_alias_to_item.has(key):
+		return {
+			"ok": true,
+			"item_id": String(_give_shortcut_alias_to_item[key]),
+			"amount": int(_give_shortcut_alias_to_amount.get(key, GIVE_SHORTCUT_DEFAULT_AMOUNT)),
+		}
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db != null and item_db.has_method("get_item"):
+		var item_data: Variant = item_db.call("get_item", key)
+		if item_data != null and "id" in item_data:
+			return {
+				"ok": true,
+				"item_id": String(item_data.id).strip_edges().to_lower(),
+				"amount": GIVE_SHORTCUT_DEFAULT_AMOUNT,
+			}
+	return {"ok": false, "error": "unknown"}
+
+func _log_give_shortcut_list() -> void:
+	_ensure_give_shortcuts()
+	var aliases: Array = _give_shortcut_alias_to_item.keys()
+	aliases.sort()
+	if aliases.is_empty():
+		Debug.log("commands", "No hay aliases cargados. ItemDB vacio o no disponible.")
+		return
+	var rows: Array[String] = []
+	for raw_alias in aliases:
+		var alias := String(raw_alias)
+		var item_id := String(_give_shortcut_alias_to_item.get(alias, ""))
+		if alias == item_id:
+			continue
+		rows.append("%s->%s" % [alias, item_id])
+	if rows.is_empty():
+		Debug.log("commands", "Aliases disponibles: usa directamente /gv <item_id>")
+		return
+	Debug.log("commands", "Aliases gv: %s" % _join_to_string(rows))
+
+func _ensure_give_shortcuts() -> void:
+	if _give_shortcuts_ready:
+		return
+	_give_shortcuts_ready = true
+	_give_shortcut_alias_to_item.clear()
+	_give_shortcut_alias_to_amount.clear()
+	_give_shortcut_conflicts.clear()
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db == null:
+		return
+	var items_variant: Variant = item_db.get("items")
+	if not (items_variant is Dictionary):
+		return
+	var items_dict: Dictionary = items_variant as Dictionary
+	var item_ids: Array[String] = []
+	for raw_id in items_dict.keys():
+		var item_id := String(raw_id).strip_edges().to_lower()
+		if item_id == "":
+			continue
+		item_ids.append(item_id)
+	item_ids.sort()
+	for item_id in item_ids:
+		_register_give_shortcut_alias(item_id, item_id, true, GIVE_SHORTCUT_DEFAULT_AMOUNT)
+		var item_data: Variant = items_dict.get(item_id, null)
+		var candidates: Array[String] = _build_shortcut_candidates_for_item(item_id, item_data)
+		for candidate in candidates:
+			_register_give_shortcut_alias(candidate, item_id, false, GIVE_SHORTCUT_DEFAULT_AMOUNT)
+		_register_curated_give_shortcuts(item_id)
+	for raw_alias in GIVE_SHORTCUT_OVERRIDES.keys():
+		var alias := String(raw_alias).strip_edges().to_lower()
+		var override_data: Variant = GIVE_SHORTCUT_OVERRIDES[raw_alias]
+		if not (override_data is Dictionary):
+			continue
+		var override_dict: Dictionary = override_data as Dictionary
+		var item_id := String(override_dict.get("item_id", "")).strip_edges().to_lower()
+		var amount := int(override_dict.get("amount", GIVE_SHORTCUT_DEFAULT_AMOUNT))
+		if alias == "" or item_id == "":
+			continue
+		_register_give_shortcut_alias(alias, item_id, true, amount)
+
+func _register_curated_give_shortcuts(item_id: String) -> void:
+	var aliases_variant: Variant = GIVE_SHORTCUT_EXTRA_ALIASES.get(item_id, null)
+	if not (aliases_variant is Array):
+		return
+	var aliases: Array = aliases_variant
+	for raw_alias in aliases:
+		var alias := String(raw_alias).strip_edges().to_lower()
+		if alias == "":
+			continue
+		_register_give_shortcut_alias(alias, item_id, true, GIVE_SHORTCUT_DEFAULT_AMOUNT)
+
+func _build_shortcut_candidates_for_item(item_id: String, item_data: Variant = null) -> Array[String]:
+	var candidates: Dictionary = {}
+	var compact := item_id.replace("_", "")
+	if compact != item_id:
+		candidates[compact] = true
+	var parts: PackedStringArray = item_id.split("_", false)
+	if parts.size() >= 2:
+		var acronym := ""
+		for part in parts:
+			if part.length() > 0:
+				acronym += part.substr(0, 1)
+		if acronym.length() >= 2:
+			candidates[acronym] = true
+	if compact.length() >= 2:
+		candidates[compact.substr(0, 2)] = true
+	if compact.length() >= 3:
+		candidates[compact.substr(0, 3)] = true
+	if item_data != null and "display_name" in item_data:
+		var display_compact := _compact_alias_text(String(item_data.display_name))
+		if display_compact != "" and display_compact != item_id:
+			candidates[display_compact] = true
+			if display_compact.length() >= 2:
+				candidates[display_compact.substr(0, 2)] = true
+			if display_compact.length() >= 3:
+				candidates[display_compact.substr(0, 3)] = true
+	var out: Array[String] = []
+	for raw_candidate in candidates.keys():
+		var alias := String(raw_candidate).strip_edges().to_lower()
+		if alias != "" and alias != item_id:
+			out.append(alias)
+	out.sort()
+	return out
+
+func _compact_alias_text(value: String) -> String:
+	var cleaned := value.to_lower()
+	var separators := [
+		" ",
+		"_",
+		"-",
+		"(",
+		")",
+		"[",
+		"]",
+		"{",
+		"}",
+		".",
+		",",
+		";",
+		":",
+		"/",
+		"\\",
+		"'",
+		"\"",
+	]
+	for separator in separators:
+		cleaned = cleaned.replace(separator, "")
+	return cleaned.strip_edges()
+
+func _register_give_shortcut_alias(alias: String, item_id: String, force: bool, amount: int = GIVE_SHORTCUT_DEFAULT_AMOUNT) -> void:
+	if alias == "" or item_id == "":
+		return
+	amount = maxi(1, amount)
+	if force:
+		_give_shortcut_alias_to_item[alias] = item_id
+		_give_shortcut_alias_to_amount[alias] = amount
+		_give_shortcut_conflicts.erase(alias)
+		return
+	if _give_shortcut_conflicts.has(alias):
+		var conflict_existing: Array = _give_shortcut_conflicts[alias]
+		if not conflict_existing.has(item_id):
+			conflict_existing.append(item_id)
+			conflict_existing.sort()
+			_give_shortcut_conflicts[alias] = conflict_existing
+		return
+	if not _give_shortcut_alias_to_item.has(alias):
+		_give_shortcut_alias_to_item[alias] = item_id
+		_give_shortcut_alias_to_amount[alias] = amount
+		return
+	var existing_item: String = String(_give_shortcut_alias_to_item[alias])
+	if existing_item == item_id:
+		return
+	var options: Array[String] = [existing_item, item_id]
+	options.sort()
+	_give_shortcut_alias_to_item.erase(alias)
+	_give_shortcut_alias_to_amount.erase(alias)
+	_give_shortcut_conflicts[alias] = options
+
+func _join_to_string(values: Array) -> String:
+	var parts := PackedStringArray()
+	for value in values:
+		parts.append(String(value))
+	return ", ".join(parts)
 
 
 ## /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]

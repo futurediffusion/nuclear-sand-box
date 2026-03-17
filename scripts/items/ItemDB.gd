@@ -74,6 +74,30 @@ func get_display_name(id: String, fallback: String = "") -> String:
 		return fallback
 	return data.display_name
 
+func get_placement_data(id: String) -> Dictionary:
+	var data := get_item(id)
+	if data == null:
+		return {}
+	var placement_mode := data.placement_mode.strip_edges()
+	var placement_scene_path := data.placement_scene_path.strip_edges()
+	var can_share := _normalize_string_array(data.can_share_tile_with)
+	var ignore_groups := _normalize_string_array(data.ignore_collision_groups_when_placing)
+	var has_explicit_placement := placement_mode != "" \
+		or placement_scene_path != "" \
+		or data.repeat_place \
+		or data.drag_paintable \
+		or not can_share.is_empty() \
+		or not ignore_groups.is_empty()
+	return {
+		"has_explicit_placement": has_explicit_placement,
+		"placement_mode": placement_mode,
+		"placement_scene_path": placement_scene_path,
+		"repeat_place": data.repeat_place,
+		"drag_paintable": data.drag_paintable,
+		"can_share_tile_with": can_share,
+		"ignore_collision_groups_when_placing": ignore_groups,
+	}
+
 func _auto_register_from_folder(path: String) -> void:
 	var dir := DirAccess.open(path)
 	if dir == null:
@@ -102,3 +126,12 @@ func _normalize_item_id(id: String) -> String:
 	if normalized == "":
 		return ""
 	return String(ITEM_ID_ALIASES.get(normalized, normalized))
+
+func _normalize_string_array(raw: Array) -> Array[String]:
+	var out: Array[String] = []
+	for value in raw:
+		var normalized := String(value).strip_edges()
+		if normalized == "":
+			continue
+		out.append(normalized)
+	return out
