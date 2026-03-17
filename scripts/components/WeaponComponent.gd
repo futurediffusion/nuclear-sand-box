@@ -227,6 +227,11 @@ func apply_visuals(player: Node) -> void:
 		return
 
 	var weapon_id := _normalize_weapon_id(current_weapon_id)
+	if weapon_id == "":
+		weapon_sprite.texture = null
+		weapon_sprite.visible = false
+		return
+
 	var conf = VISUALS.get(weapon_id, VISUALS["ironpipe"])
 	var sprite_path: String = String(conf.get("sprite_path", ""))
 	var sprite_offset: Vector2 = conf.get("weapon_sprite_offset", Vector2(12, 0))
@@ -254,9 +259,9 @@ func apply_visuals(player: Node) -> void:
 # ---- Helpers ----
 func _equip_fallback() -> void:
 	current_index = 0
-	if current_weapon_id == "ironpipe":
+	if current_weapon_id == "":
 		return
-	current_weapon_id = "ironpipe"
+	current_weapon_id = ""
 	weapon_equipped.emit(current_weapon_id)
 
 func _equip_runtime_weapon(owner: Node, controller: WeaponController = null) -> void:
@@ -266,6 +271,9 @@ func _equip_runtime_weapon(owner: Node, controller: WeaponController = null) -> 
 		current_weapon = null
 
 	current_weapon = _make_weapon_node(current_weapon_id)
+	if current_weapon == null:
+		return
+
 	if current_weapon is BowWeapon and controller is AIWeaponController:
 		(current_weapon as BowWeapon).consume_arrows = false
 	current_weapon.name = "CurrentWeapon"
@@ -274,6 +282,9 @@ func _equip_runtime_weapon(owner: Node, controller: WeaponController = null) -> 
 
 func _make_weapon_node(weapon_id: String) -> WeaponBase:
 	var normalized_weapon_id := _normalize_weapon_id(weapon_id)
+	if normalized_weapon_id == "":
+		return null
+
 	match normalized_weapon_id:
 		"ironpipe":
 			return IronPipeWeapon.new()
@@ -325,7 +336,7 @@ func _make_weapon_node(weapon_id: String) -> WeaponBase:
 			w.damage_bonus = 0
 			return w
 		_:
-			return IronPipeWeapon.new()
+			return null
 
 
 func _normalize_weapon_id(weapon_id: String) -> String:

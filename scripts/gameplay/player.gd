@@ -233,14 +233,27 @@ func _setup_inventory_component() -> void:
 		add_child(inventory_component)
 		Debug.log("inv", "[INV] InventoryComponent creado en Player")
 
+	if SaveManager._pending_player_inv.size() > 0:
+		inventory_component.slots = SaveManager._pending_player_inv.duplicate(true)
+		Debug.log("inv", "[INV] Inventory restaurado desde SaveManager")
+
+	if SaveManager._pending_player_gold >= 0:
+		inventory_component.gold = SaveManager._pending_player_gold
+		Debug.log("inv", "[INV] Gold restaurado desde SaveManager: %d" % inventory_component.gold)
+
 
 func _grant_starting_loadout() -> void:
 	if inventory_component == null:
 		return
 
+	var granted = WorldSave.global_flags.get("starting_loadout_granted", false)
+	if granted:
+		return
+
 	if inventory_component.get_total("ironpipe") <= 0:
 		inventory_component.add_item("ironpipe", 1)
 		Debug.log("inv", "[INV] loadout inicial agregado: ironpipe")
+		WorldSave.global_flags["starting_loadout_granted"] = true
 
 func _setup_weapon_component() -> void:
 	if weapon_component == null:
