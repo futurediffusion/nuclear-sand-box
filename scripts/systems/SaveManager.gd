@@ -194,6 +194,7 @@ func new_game() -> void:
 	SiteSystem.reset()
 	NpcProfileSystem.reset()
 	RunClock.reset()
+
 	# Generar semilla aleatoria real, ignorando debug_seed
 	var new_seed := int(Time.get_unix_time_from_system()) % 2147483647
 	if new_seed <= 0:
