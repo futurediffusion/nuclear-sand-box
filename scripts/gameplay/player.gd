@@ -790,6 +790,9 @@ func _on_after_die() -> void:
 func respawn(pos: Vector2) -> void:
 	_leave_seat(false)
 	dying = false
+	is_downed = false
+	if downed_component != null:
+		downed_component.reset()
 	hurt_t = 0.0
 	knock_vel = Vector2.ZERO
 	velocity = Vector2.ZERO

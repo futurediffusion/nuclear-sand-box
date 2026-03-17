@@ -73,6 +73,13 @@ func die_final() -> void:
 
 	died_final.emit()
 
+func reset() -> void:
+	is_downed = false
+	downed_at = 0.0
+	downed_resolve_at = 0.0
+	if _progress_bar:
+		_progress_bar.visible = false
+
 func _resolve_downed() -> void:
 	if randf() < downed_survival_chance:
 		revive()

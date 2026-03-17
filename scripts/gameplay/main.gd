@@ -5,6 +5,7 @@ const CommandSystemScript = preload("res://scripts/systems/CommandSystem.gd")
 @export var world_data: WorldData
 @export var world_map_size: Vector2i = Vector2i(256, 256)
 @export var default_tavern_position: Vector2i = Vector2i.ZERO
+@export var keep_corpses: bool = false
 
 @onready var game_over_panel: Control = $UI/GameOverPanel
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
@@ -27,6 +28,7 @@ func _enter_tree() -> void:
 
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
+	GameManager.keep_corpses = keep_corpses
 	_remap_inventory_key_to_tab()
 	if AudioSystem != null and AudioSystem.has_method("register_sound_panel"):
 		AudioSystem.register_sound_panel(sound_panel)
