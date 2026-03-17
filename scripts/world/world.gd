@@ -441,8 +441,13 @@ func _ready() -> void:
 		"chunk_save": chunk_save,
 	})
 
-	if GameEvents != null and not GameEvents.entity_died.is_connected(_on_entity_died):
-		GameEvents.entity_died.connect(_on_entity_died)
+	if GameEvents != null:
+		if not GameEvents.entity_died.is_connected(_on_entity_died):
+			GameEvents.entity_died.connect(_on_entity_died)
+		if GameEvents.has_signal("entity_downed") and not GameEvents.entity_downed.is_connected(_on_entity_downed):
+			GameEvents.entity_downed.connect(_on_entity_downed)
+		if GameEvents.has_signal("entity_recovered") and not GameEvents.entity_recovered.is_connected(_on_entity_recovered):
+			GameEvents.entity_recovered.connect(_on_entity_recovered)
 	if not chunk_stage_completed.is_connected(_on_chunk_stage_completed):
 		chunk_stage_completed.connect(_on_chunk_stage_completed)
 
@@ -938,6 +943,16 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 	if uid == "":
 		return
 	npc_simulator.on_entity_died(uid)
+
+func _on_entity_downed(uid: String, kind: String, resolve_at: float) -> void:
+	if kind != "enemy" or uid == "":
+		return
+	npc_simulator.on_entity_downed(uid, resolve_at)
+
+func _on_entity_recovered(uid: String, kind: String) -> void:
+	if kind != "enemy" or uid == "":
+		return
+	npc_simulator.on_entity_recovered(uid)
 
 
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.

@@ -490,12 +490,14 @@ func _input(event: InputEvent) -> void:
 			if DEBUG_PLAYER: inventory_component.debug_print()
 
 func _physics_process(delta: float) -> void:
-	if dying:
+	if dying or is_downed():
 		velocity = Vector2.ZERO
 		if footstep_audio_component != null:
 			footstep_audio_component.stop_loop()
 		_update_wall(delta)
 		move_and_slide()
+		if is_downed():
+			_update_animation() # Ensure death frame
 		return
 
 	if hurt_t > 0.0:
@@ -665,6 +667,13 @@ func _update_weapon_flip() -> void:
 	weapon_sprite.flip_v = abs(angle) > PI / 2.0
 
 func _update_animation() -> void:
+	if is_downed() or dying:
+		if sprite.animation != "death":
+			sprite.play("death")
+		var frame_count = sprite.sprite_frames.get_frame_count("death")
+		sprite.frame = frame_count - 1
+		sprite.stop()
+		return
 	if _is_seated:
 		if sprite.animation != PLAYER_SIT_ANIMATION:
 			sprite.play(PLAYER_SIT_ANIMATION)

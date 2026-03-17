@@ -114,6 +114,7 @@ func _tick_data_only(delta: float) -> void:
 			var enemy_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
 			var dist: float = enemy_pos.distance_to(player_pos)
 			var is_dead: bool = bool(state.get("is_dead", false))
+			var is_downed: bool = bool(state.get("is_downed", false))
 			if dist < spawn_r and not is_dead and not active_enemies.has(enemy_id) and not spawning_enemy_ids.has(enemy_id):
 				enqueue_spawn(chunk_pos, enemy_id, state)
 			elif dist > despawn_r and active_enemies.has(enemy_id):
@@ -155,7 +156,14 @@ func despawn_enemy(enemy_id: String) -> void:
 	var chunk_key: String = String(active_enemy_chunk.get(enemy_id, ""))
 	if node != null and is_instance_valid(node):
 		if node.has_method("capture_save_state"):
-			WorldSave.set_enemy_state(chunk_key, enemy_id, node.call("capture_save_state"))
+			var state: Dictionary = node.call("capture_save_state")
+			if node.has_method("is_downed") and node.call("is_downed"):
+				state["is_downed"] = true
+				if node.downed_component:
+					state["downed_resolve_at"] = node.downed_component.resolve_at_timestamp
+			else:
+				state["is_downed"] = false
+			WorldSave.set_enemy_state(chunk_key, enemy_id, state)
 		if node.has_node("AIComponent"):
 			var ai := node.get_node_or_null("AIComponent")
 			if ai != null and ai.has_method("on_owner_exit_tree"):
@@ -176,6 +184,11 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 	spawning_enemy_ids.erase(enemy_id)
 	active_enemies[enemy_id] = node
 	active_enemy_chunk[enemy_id] = String(job.get("chunk_key", ""))
+
+	var save_state: Dictionary = job.get("init_data", {}).get("save_state", {})
+	if save_state.get("is_downed", false) and node.has_method("enter_downed"):
+		node.call("enter_downed", float(save_state.get("downed_resolve_at", -1.0)))
+
 	if node.has_method("exit_lite_mode"):
 		node.call("exit_lite_mode")
 	EnemyRegistry.register_enemy(node)
@@ -193,6 +206,16 @@ func on_entity_died(uid: String) -> void:
 		active_enemy_chunk.erase(uid)
 	spawning_enemy_ids.erase(uid)
 	NpcProfileSystem.set_status(uid, "dead")
+
+func on_entity_downed(uid: String, resolve_at: float) -> void:
+	if active_enemy_chunk.has(uid):
+		WorldSave.mark_enemy_downed(String(active_enemy_chunk[uid]), uid, resolve_at)
+	NpcProfileSystem.set_status(uid, "downed")
+
+func on_entity_recovered(uid: String) -> void:
+	if active_enemy_chunk.has(uid):
+		WorldSave.mark_enemy_recovered(String(active_enemy_chunk[uid]), uid)
+	NpcProfileSystem.set_status(uid, "alive")
 
 # Llamado desde World.unload_chunk_entities
 func on_chunk_unloaded(chunk_key: String) -> void:
@@ -272,6 +295,8 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 				"pos": enemy_pos,
 				"hp": 3,
 				"is_dead": false,
+				"is_downed": false,
+				"downed_resolve_at": 0.0,
 				"seed": int(record["seed"]),
 				"weapon_ids": ["ironpipe", "bow"],
 				"equipped_weapon_id": "ironpipe",

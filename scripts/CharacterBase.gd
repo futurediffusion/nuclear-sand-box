@@ -2,6 +2,7 @@ class_name CharacterBase
 extends CharacterBody2D
 
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
+const DownedComponentScript = preload("res://scripts/components/DownedComponent.gd")
 const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd")
 
 @export_group("Health")
@@ -22,6 +23,7 @@ const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd"
 @export var ignore_world_walls: bool = false
 
 @onready var health_component: Node = get_node_or_null("HealthComponent")
+@onready var downed_component: DownedComponent = get_node_or_null("DownedComponent")
 
 var hp: int = 0
 var dying: bool = false
@@ -50,11 +52,29 @@ func _setup_health_component() -> void:
 	if health_component != null:
 		health_component.max_hp = max_hp
 		health_component.hp = max_hp
-		if not health_component.died.is_connected(die):
-			health_component.died.connect(die)
+		if not health_component.died.is_connected(_on_health_died):
+			health_component.died.connect(_on_health_died)
 		hp = health_component.hp
 	else:
 		hp = max_hp
+
+	_ensure_downed_component()
+
+func _ensure_downed_component() -> void:
+	if downed_component == null:
+		downed_component = get_node_or_null("DownedComponent")
+
+	if downed_component == null:
+		downed_component = DownedComponentScript.new()
+		downed_component.name = "DownedComponent"
+		add_child(downed_component)
+
+	if not downed_component.became_downed.is_connected(_on_became_downed):
+		downed_component.became_downed.connect(_on_became_downed)
+	if not downed_component.recovered.is_connected(recover_from_downed):
+		downed_component.recovered.connect(recover_from_downed)
+	if not downed_component.died_final.is_connected(die_final):
+		downed_component.died_final.connect(die_final)
 
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if dying:
@@ -81,19 +101,98 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	play_hurt()
 	_play_hit_flash()
 
-func die() -> void:
+func _on_health_died() -> void:
+	if is_downed():
+		die_final()
+	else:
+		enter_downed()
+
+func _on_became_downed() -> void:
+	pass
+
+func enter_downed(resolve_at: float = -1.0) -> void:
+	if is_downed() or dying:
+		return
+
+	if health_component:
+		health_component.is_downed = true
+
+	if downed_component:
+		downed_component.enter_downed(resolve_at)
+
+	velocity = Vector2.ZERO
+	knock_vel = Vector2.ZERO
+
+	if has_node("AnimatedSprite2D"):
+		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
+		sprite.play("death")
+		# We want to stay at the last frame
+		if sprite.sprite_frames.has_animation("death"):
+			var frame_count = sprite.sprite_frames.get_frame_count("death")
+			sprite.frame = frame_count - 1
+			sprite.stop()
+
+func recover_from_downed() -> void:
+	if not is_downed():
+		return
+
+	if health_component:
+		if health_component.has_method("revive"):
+			health_component.call("revive", downed_component.downed_revive_hp if downed_component else 1)
+		else:
+			health_component.is_downed = false
+			health_component.hp = downed_component.downed_revive_hp if downed_component else 1
+			if health_component.get("_dead_emitted") != null:
+				health_component.set("_dead_emitted", false)
+		hp = health_component.hp
+
+	if has_node("AnimatedSprite2D"):
+		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
+		sprite.play("idle")
+
+	_update_animation()
+	_on_recovered_from_downed()
+
+func _on_recovered_from_downed() -> void:
+	pass
+
+func is_downed() -> bool:
+	return downed_component != null and downed_component.is_downed
+
+func die_final() -> void:
 	if dying:
 		return
 	dying = true
+
+	if health_component:
+		health_component.is_downed = false
+		health_component.hp = 0
+		hp = 0
+
+	if downed_component:
+		downed_component.is_downed = false
+
 	hurt_t = 0.0
 	knock_vel = Vector2.ZERO
 	velocity = Vector2.ZERO
 	_on_before_die()
+
 	if has_node("AnimatedSprite2D"):
 		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
 		sprite.play("death")
-		await sprite.animation_finished
+		# If we were already at the last frame, it might not play.
+		# But usually we want to ensure it's at the end.
+		if sprite.is_playing() and sprite.animation == "death":
+			await sprite.animation_finished
+		else:
+			var frame_count = sprite.sprite_frames.get_frame_count("death")
+			sprite.frame = frame_count - 1
+
 	_on_after_die()
+
+func die() -> void:
+	# Deprecated or redirected to die_final
+	die_final()
 
 func apply_knockback(force: Vector2) -> void:
 	knock_vel += force

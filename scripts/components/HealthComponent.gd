@@ -8,6 +8,7 @@ signal hp_changed(current: int, max: int)
 @export var armor: int = 0
 
 var hp: int
+var is_downed: bool = false
 var _dead_emitted: bool = false
 
 func _ready() -> void:
@@ -15,7 +16,15 @@ func _ready() -> void:
 	hp_changed.emit(hp, max_hp)
 
 func take_damage(amount: int) -> void:
-	if is_dead():
+	if is_dead() and not is_downed:
+		return
+
+	if is_downed:
+		# Finishing blow
+		hp = 0
+		if not _dead_emitted:
+			_dead_emitted = true
+			died.emit()
 		return
 
 	var prev_visible_hp := maxi(hp, 0)
@@ -40,9 +49,15 @@ func heal(amount: int) -> void:
 		hp_changed.emit(hp, max_hp)
 
 func is_dead() -> bool:
-	return hp <= 0
+	return hp <= 0 and not is_downed
 
 func reset() -> void:
 	_dead_emitted = false
 	hp = max_hp
+	hp_changed.emit(hp, max_hp)
+
+func revive(amount: int) -> void:
+	_dead_emitted = false
+	is_downed = false
+	hp = amount
 	hp_changed.emit(hp, max_hp)

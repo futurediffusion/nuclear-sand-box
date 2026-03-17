@@ -1,7 +1,7 @@
 extends Node
 class_name AIComponent
 
-enum AIState { IDLE, CHASE, ATTACK, HURT, DEAD }
+enum AIState { IDLE, CHASE, ATTACK, HURT, DEAD, DOWNED }
 enum BowState { IDLE, CHARGING, COOLDOWN }
 
 @export_group("AI Combat")
@@ -76,12 +76,17 @@ func setup(p_owner_entity: Node) -> void:
 func physics_tick(delta: float) -> void:
 	if owner_entity == null:
 		return
+
+	if owner_entity.has_method("is_downed") and owner_entity.is_downed():
+		if current_state != AIState.DOWNED:
+			current_state = AIState.DOWNED
+
 	_update_timers(delta)
 	_update_combat_style_window(delta)
 	if sleeping:
 		_release_attack_input()
 		return
-	if current_state == AIState.DEAD:
+	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		_release_attack_input()
 		owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 		return
@@ -169,7 +174,7 @@ func is_sleeping() -> bool:
 	return sleeping
 
 func wake_now() -> void:
-	if current_state == AIState.DEAD:
+	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		return
 	var was_sleeping := sleeping
 	sleeping = false
@@ -181,7 +186,7 @@ func wake_now() -> void:
 		current_state = AIState.IDLE
 
 func set_hurt() -> void:
-	if current_state == AIState.DEAD:
+	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		return
 	wake_now()
 	current_state = AIState.HURT
@@ -256,7 +261,7 @@ func _reset_bow_charge_state() -> void:
 	_bow_charge_target = 0.0
 
 func _update_state() -> void:
-	if current_state == AIState.DEAD:
+	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		return
 	if owner_entity.hurt_t > 0.0:
 		current_state = AIState.HURT

@@ -558,7 +558,9 @@ func capture_save_state() -> Dictionary:
 		"chunk_key": enemy_chunk_key,
 		"pos": global_position,
 		"hp": hp,
-		"is_dead": hp <= 0 or dying,
+		"is_dead": (hp <= 0 or dying) and not is_downed(),
+		"is_downed": is_downed(),
+		"downed_resolve_at": downed_component.resolve_at_timestamp if downed_component else 0.0,
 		"seed": enemy_seed,
 		"weapon_ids": weapon_ids,
 		"equipped_weapon_id": equipped,
@@ -570,6 +572,17 @@ func capture_save_state() -> Dictionary:
 
 func is_attacking() -> bool:
 	return attacking
+
+func _on_became_downed() -> void:
+	if GameEvents != null and GameEvents.has_method("emit_entity_downed"):
+		var resolve_at := 0.0
+		if downed_component:
+			resolve_at = downed_component.resolve_at_timestamp
+		GameEvents.emit_entity_downed(entity_uid, "enemy", resolve_at)
+
+func _on_recovered_from_downed() -> void:
+	if GameEvents != null and GameEvents.has_method("emit_entity_recovered"):
+		GameEvents.emit_entity_recovered(entity_uid, "enemy")
 
 func _on_before_die() -> void:
 	EnemyRegistry.unregister_enemy(self)
