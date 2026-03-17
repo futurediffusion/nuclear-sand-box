@@ -11,13 +11,14 @@ var enemy_spawns_by_chunk: Dictionary = {}  # chunk_key(String) -> Array[Diction
 var global_flags: Dictionary = {}  # flags globales del mundo (ej: "global_camp_placed")
 var player_walls_by_chunk: Dictionary = {}  # chunk_key(String) -> tile_key(String) -> {"hp": int}
 
+var chunk_size: int = 32
+
 func chunk_key(cx: int, cy: int) -> String:
 	return "%d,%d" % [cx, cy]
 
 func get_chunk_key_for_tile(tx: int, ty: int) -> String:
-	# Asumimos chunk_size = 32 para resolución interna si no se especifica.
-	var cx := int(floor(float(tx) / 32.0))
-	var cy := int(floor(float(ty) / 32.0))
+	var cx := int(floor(float(tx) / float(chunk_size)))
+	var cy := int(floor(float(ty) / float(chunk_size)))
 	return chunk_key(cx, cy)
 
 ## Entidades colocadas manualmente por el player en mundo (mesas, etc.)
@@ -40,6 +41,14 @@ func add_placed_entity(entry: Dictionary) -> void:
 	var ckey := String(entry.get("chunk_key", ""))
 	if ckey == "":
 		ckey = get_chunk_key_for_tile(tx, ty)
+
+	# Si ya existía en otro chunk, borrar la entrada vieja para evitar duplicados.
+	if placed_entity_chunk_by_uid.has(uid):
+		var old_ckey := String(placed_entity_chunk_by_uid[uid])
+		if old_ckey != ckey and placed_entities_by_chunk.has(old_ckey):
+			placed_entities_by_chunk[old_ckey].erase(uid)
+			if placed_entities_by_chunk[old_ckey].is_empty():
+				placed_entities_by_chunk.erase(old_ckey)
 
 	var final_entry := entry.duplicate(true)
 	final_entry["chunk_key"] = ckey

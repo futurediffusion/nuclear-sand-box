@@ -68,38 +68,59 @@ func test_occupation_lookup():
 	print("SUCCESS: Occupation Lookup")
 
 func test_save_migration():
-	print("Testing Save Migration...")
+	print("Testing Save Migration via SaveManager...")
 	WorldSave.clear_placed_entities()
 
-	# Simulate legacy save data structure
+	var save_path := "user://savegame.json"
+	var backup_exists := FileAccess.file_exists(save_path)
+	var backup_data: String = ""
+	if backup_exists:
+		var f := FileAccess.open(save_path, FileAccess.READ)
+		backup_data = f.get_as_text()
+		f.close()
+
+	# 1. Create a legacy save file
 	var legacy_data = {
+		"version": 1,
+		"seed": 12345,
 		"placed_entities": [
 			{"uid": "legacy_1", "item_id": "chest", "tile_pos_x": 40, "tile_pos_y": 10},
 			{"uid": "legacy_2", "item_id": "door", "tile_pos_x": 5, "tile_pos_y": 5}
 		]
 	}
 
-	# We use a mock-like approach to test the migration logic in SaveManager
-	# Since we can't easily trigger the full SaveManager load without a file,
-	# we'll test the core migration loop logic.
+	var file := FileAccess.open(save_path, FileAccess.WRITE)
+	file.store_string(JSON.stringify(legacy_data))
+	file.close()
 
-	for entry in legacy_data["placed_entities"]:
-		WorldSave.add_placed_entity(entry)
+	# 2. Trigger load via SaveManager
+	var success = SaveManager.load_world_save()
+	assert(success, "SaveManager should successfully load legacy save")
 
-	# Verify chunking
-	# (40, 10) -> chunk (1, 0)
+	# 3. Verify migration results in WorldSave
+	# (40, 10) -> chunk (1, 0) assuming size 32
 	# (5, 5) -> chunk (0, 0)
-
-	assert(WorldSave.placed_entities_by_chunk.has("1,0"), "Chunk 1,0 should exist")
-	assert(WorldSave.placed_entities_by_chunk.has("0,0"), "Chunk 0,0 should exist")
+	assert(WorldSave.placed_entities_by_chunk.has("1,0"), "Chunk 1,0 should exist after migration")
+	assert(WorldSave.placed_entities_by_chunk.has("0,0"), "Chunk 0,0 should exist after migration")
 
 	var c1 = WorldSave.get_placed_entities_in_chunk(1, 0)
-	assert(c1.size() == 1 and c1[0]["uid"] == "legacy_1", "legacy_1 should be in chunk 1,0")
+	assert(c1.size() == 1 and c1[0]["uid"] == "legacy_1", "legacy_1 should be migrated to chunk 1,0")
 
 	var c0 = WorldSave.get_placed_entities_in_chunk(0, 0)
-	assert(c0.size() == 1 and c0[0]["uid"] == "legacy_2", "legacy_2 should be in chunk 0,0")
+	assert(c0.size() == 1 and c0[0]["uid"] == "legacy_2", "legacy_2 should be migrated to chunk 0,0")
 
-	print("SUCCESS: Save Migration")
+	assert(WorldSave.placed_entity_chunk_by_uid.get("legacy_1") == "1,0", "UID index should point to 1,0")
+	assert(WorldSave.placed_entity_chunk_by_uid.get("legacy_2") == "0,0", "UID index should point to 0,0")
+
+	# Cleanup / Restore backup
+	if backup_exists:
+		var f := FileAccess.open(save_path, FileAccess.WRITE)
+		f.store_string(backup_data)
+		f.close()
+	else:
+		DirAccess.remove_absolute(save_path)
+
+	print("SUCCESS: Save Migration via SaveManager")
 
 func test_door_neighborhood():
 	print("Testing Door Neighborhood Lookup...")
