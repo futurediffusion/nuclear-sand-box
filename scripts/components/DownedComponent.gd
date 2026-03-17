@@ -8,9 +8,11 @@ signal died_final
 @export var downed_duration_seconds: float = 10.0
 @export var downed_survival_chance: float = 0.5
 @export var downed_revive_hp: int = 1
+@export var grace_period: float = 1.0
 
 var is_downed: bool = false
 var downed_resolve_at: float = 0.0
+var downed_at: float = 0.0
 
 var _progress_bar: TextureProgressBar
 var _owner_character: CharacterBody2D
@@ -40,8 +42,9 @@ func enter_downed(resolve_at: float = -1.0) -> void:
 		return
 
 	is_downed = true
+	downed_at = Time.get_unix_time_from_system()
 	if resolve_at < 0:
-		downed_resolve_at = Time.get_unix_time_from_system() + downed_duration_seconds
+		downed_resolve_at = downed_at + downed_duration_seconds
 	else:
 		downed_resolve_at = resolve_at
 
@@ -91,6 +94,7 @@ func _setup_ui() -> void:
 	_progress_bar.max_value = 100
 	_progress_bar.step = 0.1
 	_progress_bar.visible = false
+	_progress_bar.z_index = 100
 
 	# Posicionamiento simple world-space debajo del personaje
 	var w := float(_progress_bar.texture_under.get_width())
@@ -98,7 +102,15 @@ func _setup_ui() -> void:
 	_progress_bar.custom_minimum_size = Vector2(w, h)
 	_progress_bar.position = Vector2(-w * 0.5, 10.0)
 
-	add_child(_progress_bar)
+	if _owner_character != null:
+		_owner_character.add_child(_progress_bar)
+	else:
+		add_child(_progress_bar)
+
+func can_take_finishing_blow() -> bool:
+	if not is_downed:
+		return true
+	return Time.get_unix_time_from_system() - downed_at >= grace_period
 
 func get_save_data() -> Dictionary:
 	return {

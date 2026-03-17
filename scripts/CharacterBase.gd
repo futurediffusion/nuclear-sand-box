@@ -77,7 +77,11 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 		return
 
 	if is_downed:
-		die_final()
+		if downed_component != null and downed_component.has_method("can_take_finishing_blow"):
+			if downed_component.call("can_take_finishing_blow"):
+				die_final()
+		else:
+			die_final()
 		return
 
 	if health_component != null and health_component.has_method("take_damage"):
