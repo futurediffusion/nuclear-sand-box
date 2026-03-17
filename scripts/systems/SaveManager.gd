@@ -5,6 +5,8 @@ const SAVE_VERSION: int = 1
 
 var _world: Node = null
 var _pending_player_pos: Vector2 = Vector2.ZERO
+var _pending_player_inv: Array = []
+var _pending_player_gold: int = -1
 
 func register_world(world: Node) -> void:
 	_world = world
@@ -24,13 +26,21 @@ func save_world() -> void:
 
 	var player = _world.get("player")
 	var player_pos := Vector2.ZERO
+	var player_inv := []
+	var player_gold := 0
 	if player != null:
 		player_pos = player.global_position
+		var inv = player.get("inventory_component")
+		if inv != null:
+			player_inv = inv.get("slots")
+			player_gold = inv.get("gold")
 
 	var data: Dictionary = {
 		"version": SAVE_VERSION,
 		"seed": Seed.run_seed,
 		"player_pos": _ser(player_pos),
+		"player_inv": _ser(player_inv),
+		"player_gold": player_gold,
 		"chunk_save": _ser(_world.chunk_save),
 		"worldsave_chunks": _ser(WorldSave.chunks),
 		"worldsave_enemy_state": _ser(WorldSave.enemy_state_by_chunk),
@@ -81,6 +91,9 @@ func load_world_save() -> bool:
 	var pp = _des(data.get("player_pos", {"__v2": [0.0, 0.0]}))
 	if pp is Vector2:
 		_pending_player_pos = pp
+
+	_pending_player_inv = _des(data.get("player_inv", []))
+	_pending_player_gold = int(data.get("player_gold", -1))
 
 	# Restore WorldSave state
 	var ws_chunks = _des(data.get("worldsave_chunks", {}))
