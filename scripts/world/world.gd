@@ -443,6 +443,13 @@ func _ready() -> void:
 		GameEvents.entity_died.connect(_on_entity_died)
 	if not chunk_stage_completed.is_connected(_on_chunk_stage_completed):
 		chunk_stage_completed.connect(_on_chunk_stage_completed)
+
+	if _player_wall_system != null:
+		if not _player_wall_system.player_wall_hit.is_connected(_on_wall_hit_activity):
+			_player_wall_system.player_wall_hit.connect(_on_wall_hit_activity)
+		if not _player_wall_system.structural_wall_hit.is_connected(_on_wall_hit_activity):
+			_player_wall_system.structural_wall_hit.connect(_on_wall_hit_activity)
+
 	await update_chunks(current_player_chunk)
 	_restore_placed_entities()
 
@@ -860,8 +867,10 @@ func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) ->
 		chunks_to_refresh[cpos] = true
 	for cpos in chunks_to_refresh.keys():
 		var chunk_pos: Vector2i = cpos as Vector2i
-		if loaded_chunks.has(chunk_pos) and _wall_refresh_queue != null:
-			_wall_refresh_queue.enqueue(chunk_pos)
+		if _wall_refresh_queue != null:
+			_wall_refresh_queue.record_activity(chunk_pos)
+			if loaded_chunks.has(chunk_pos):
+				_wall_refresh_queue.enqueue(chunk_pos)
 
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	if _chunk_wall_collider_cache != null:
@@ -919,6 +928,11 @@ func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var y0: int = chunk_pos.y * chunk_size + 3
 	return Vector2i(x0 + 6, y0 + 4)
 
+
+func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
+	if _wall_refresh_queue != null:
+		var cpos: Vector2i = _tile_to_chunk(tile_pos)
+		_wall_refresh_queue.record_activity(cpos)
 
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
 	if kind != "enemy":
