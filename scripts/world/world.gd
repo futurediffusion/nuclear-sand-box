@@ -497,11 +497,17 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 	if _wall_refresh_queue == null:
 		return
 	var rebuild_budget: int = maxi(0, max_rebuilds_per_frame)
-	while rebuild_budget > 0 and _wall_refresh_queue.has_pending():
-		var chunk_pos: Vector2i = _wall_refresh_queue.pop_next()
+	while rebuild_budget > 0:
+		var result: Dictionary = _wall_refresh_queue.try_pop_next()
+		if not result.ok:
+			break
+
+		var chunk_pos: Vector2i = result.chunk_pos
 		if not loaded_chunks.has(chunk_pos):
 			continue
+
 		_ensure_chunk_wall_collision(chunk_pos)
+		_wall_refresh_queue.confirm_rebuild(chunk_pos, result.revision)
 		rebuild_budget -= 1
 
 func _process(delta: float) -> void:
