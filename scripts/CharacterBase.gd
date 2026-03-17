@@ -18,6 +18,8 @@ const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd"
 @export var blood_scene: PackedScene
 @export var blood_hit_amount: int = 10
 @export var blood_death_amount: int = 30
+@export var death_shake_duration: float = 0.28
+@export var death_shake_magnitude: float = 23.4
 
 @export_group("Collision")
 @export var ignore_world_walls: bool = false
@@ -112,6 +114,7 @@ func _on_health_died() -> void:
 		die_final()
 
 func _on_entered_downed() -> void:
+	_trigger_death_shake()
 	is_downed = true
 	hurt_t = 0.0
 	knock_vel = Vector2.ZERO
@@ -138,6 +141,7 @@ func _on_revived() -> void:
 func die_final() -> void:
 	if dying:
 		return
+	_trigger_death_shake()
 	dying = true
 	is_downed = false
 	hurt_t = 0.0
@@ -176,6 +180,17 @@ func _play_hit_flash() -> void:
 		if is_instance_valid(self):
 			sprite.modulate = Color(1, 1, 1, 1)
 	)
+
+func _trigger_death_shake() -> void:
+	var players: Array = get_tree().get_nodes_in_group("player")
+	if players.size() > 0:
+		var p := players[0] as CharacterBody2D
+		if p and is_instance_valid(p) and p.has_node("Camera2D"):
+			var cam := p.get_node("Camera2D")
+			if cam and cam.has_method("shake_impulse"):
+				cam.shake_impulse(death_shake_duration, death_shake_magnitude)
+			elif cam and cam.has_method("shake"):
+				cam.shake(death_shake_magnitude)
 
 func _spawn_blood(amount: int) -> void:
 	if blood_scene == null:

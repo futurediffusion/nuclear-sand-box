@@ -65,6 +65,10 @@ var _is_warming_up: bool = false
 var _warmup_tick_timer: float = 0.0
 var _awaiting_first_full_tick: bool = false
 
+var _last_known_player_downed: bool = false
+var _will_finish_downed_player: bool = false
+@export var finish_downed_chance: float = 0.3
+
 func setup(p_owner_entity: Node) -> void:
 	owner_entity = p_owner_entity
 	_rng.seed = int(owner_entity.get_instance_id())
@@ -268,6 +272,16 @@ func _update_state() -> void:
 		current_state = AIState.HURT
 		return
 	if player == null:
+		current_state = AIState.IDLE
+		return
+
+	var is_player_downed: bool = player.get("is_downed") if "is_downed" in player else false
+	if is_player_downed and not _last_known_player_downed:
+		# Player just went down, roll chance to finish them
+		_will_finish_downed_player = (randf() < finish_downed_chance)
+	_last_known_player_downed = is_player_downed
+
+	if is_player_downed and not _will_finish_downed_player:
 		current_state = AIState.IDLE
 		return
 

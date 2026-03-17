@@ -28,8 +28,6 @@ const DEFAULT_ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.
 @export var slash_scene: PackedScene
 
 @export_group("Death Feedback")
-@export var death_shake_duration: float = 0.28
-@export var death_shake_magnitude: float = 18.0
 @export var death_sound_pitch_scale: float = 0.68
 @export var death_sound_volume_db: float = 2.0
 
@@ -596,7 +594,6 @@ func _on_before_die() -> void:
 	if GameEvents != null and GameEvents.has_method("emit_entity_died"):
 		GameEvents.emit_entity_died(entity_uid, "enemy", global_position, null)
 	_play_death_sound()
-	_trigger_death_shake()
 	attacking = false
 	set_ai_attack_intent(false, global_position)
 	set_physics_process(false)
@@ -610,18 +607,6 @@ func _on_after_die() -> void:
 	# a menos que keep_corpses esté desactivado.
 	if not GameManager.keep_corpses:
 		queue_free()
-
-func _trigger_death_shake() -> void:
-	if ai_component == null or not is_instance_valid(ai_component.player):
-		return
-	var p := ai_component.player
-	if not p.has_node("Camera2D"):
-		return
-	var cam := p.get_node("Camera2D")
-	if cam and cam.has_method("shake_impulse"):
-		cam.shake_impulse(death_shake_duration, death_shake_magnitude)
-	elif cam and cam.has_method("shake"):
-		cam.shake(death_shake_magnitude)
 
 func _play_death_sound() -> void:
 	if _enemy_death_sound == null:
