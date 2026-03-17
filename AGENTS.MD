@@ -384,6 +384,7 @@ Implementado:
 - ✅ Inventario básico.
 - ✅ Contenedores placeables formalizados (`ContainerPlaceable` + `ContainerUi`) con wrappers legacy `Chest*` para compatibilidad total.
 - ✅ Barriles como contenedor placeable persistente y spawn inicial en taberna (sobre la capa neutral de contenedores).
+- ✅ Mesa de taberna convertida a placeable persistente (`table`) con receta en `tinkering` y destrucción con drop de item.
 - ✅ HUD funcional.
 - ✅ Game Over desacoplado.
 - ✅ Colisiones de paredes y ajuste visual de transparencia por oclusión.

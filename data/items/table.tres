@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/ItemData.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://art/props/table.png" id="2_icon"]
+
+[resource]
+script = ExtResource("1_script")
+id = "table"
+display_name = "Table"
+icon = ExtResource("2_icon")
+max_stack = 1
+tags = Array[String](["placeable"])
+placement_mode = "scene"
+placement_scene_path = "res://scenes/placeables/table_world.tscn"
+repeat_place = false
+drag_paintable = false
+can_share_tile_with = Array[String](["floorwood"])
+ignore_collision_groups_when_placing = Array[String]([])
+buy_price = 45
+sell_price = 15

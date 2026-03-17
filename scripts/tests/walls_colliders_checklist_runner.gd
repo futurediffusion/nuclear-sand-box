@@ -132,7 +132,7 @@ func _run() -> void:
 		_record("ciclo mínimo de persistencia de wall", false, "No se pudo preparar tile de ciclo")
 
 	# Caso 7: no regresión placeables críticos (registro cargable)
-	var required := ["doorwood", "floorwood", "chest", "barrel", "workbench"]
+	var required := ["doorwood", "floorwood", "chest", "barrel", "table", "workbench"]
 	var missing: Array[String] = []
 	for item_id in required:
 		if not PlacementSystem.PLACEABLE_SCENES.has(item_id):
@@ -143,7 +143,7 @@ func _run() -> void:
 		if packed == null:
 			missing.append(item_id + "(scene)")
 	var regress_ok := missing.is_empty()
-	_record("no regresión doorwood/floorwood/chest/barrel/workbench", regress_ok, ("ok" if regress_ok else "faltantes=%s" % [str(missing)]))
+	_record("no regresión doorwood/floorwood/chest/barrel/table/workbench", regress_ok, ("ok" if regress_ok else "faltantes=%s" % [str(missing)]))
 
 	_finalize_and_quit()
 

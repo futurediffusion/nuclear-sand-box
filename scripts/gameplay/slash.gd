@@ -16,6 +16,13 @@ var hitbox: Area2D = null
 @export var pitch_max: float = 1.2
 @export var can_mine: bool = true
 
+@export_group("Target Priority")
+@export var destructible_focus_tolerance_px: float = 24.0
+@export var wall_focus_tolerance_px: float = 28.0
+@export_range(1, 8, 1) var max_destructible_hits_per_swing: int = 3
+@export_range(1, 8, 1) var max_wall_hits_per_swing: int = 2
+@export var wall_multi_probe_offset_px: float = 16.0
+
 
 var already_hit := {}
 var owner_team: StringName = &"player"
@@ -23,7 +30,14 @@ var owner_node: Node = null
 var owner_damage_entity: Node = null
 var owner_hurtbox: Area2D = null
 var did_hitstop: bool = false
-var _hit_player_wall_this_swing: bool = false
+var _destructible_hits_this_swing: int = 0
+var _closest_destructible_hit_dist_sq: float = -1.0
+var _non_wall_hits_this_swing: int = 0
+var _closest_non_wall_hit_dist_sq: float = -1.0
+var _wall_hits_this_swing: int = 0
+var _wall_hit_keys_this_swing: Dictionary = {}
+var _aim_world_pos: Vector2 = Vector2.ZERO
+var _aim_world_pos_valid: bool = false
 
 
 
@@ -41,6 +55,7 @@ func setup(team: StringName, owner: Node) -> void:
 func _ready() -> void:
 	hitbox = get_node_or_null("Hitbox")
 	_apply_sound_panel_overrides()
+	_cache_aim_world_pos()
 
 	if sfx and sfx.stream:
 		sfx.pitch_scale = randf_range(pitch_min, pitch_max)
@@ -63,10 +78,6 @@ func _ready() -> void:
 func _activate_hitbox() -> void:
 	if hitbox == null:
 		return
-	# Intento directo por tile (player walls) para no depender de un collider agregado por chunk.
-	_try_damage_player_wall_once()
-	if _is_slash_overlapping_wall():
-		_try_damage_player_wall_once()
 	_set_hitbox_enabled(true)
 
 func _set_hitbox_enabled(enabled: bool) -> void:
@@ -113,10 +124,7 @@ func _try_damage(raw_target: Node) -> void:
 	if CombatQueryScript.is_owner_related(owner_node, target):
 		return
 
-	if _is_slash_overlapping_wall():
-		# El solape con muro no debe cancelar todo el swing:
-		# se dana muro si aplica y luego se valida LOS por objetivo.
-		_try_damage_player_wall_once()
+	var target_world_pos: Vector2 = _resolve_target_world_pos(target, target_hurtbox)
 
 	if _is_target_blocked_by_wall(target, target_hurtbox):
 		return
@@ -125,10 +133,13 @@ func _try_damage(raw_target: Node) -> void:
 	if already_hit.has(id):
 		return
 
-	already_hit[id] = true
-
 	if can_mine and target.has_method("hit"):
+		if not _can_hit_destructible_target(target_world_pos):
+			return
+		already_hit[id] = true
 		target.call("hit", owner_node)
+		_register_destructible_hit(target_world_pos)
+		_register_non_wall_hit(target_world_pos)
 
 		var suppress_default_impact_sound := false
 		if target.has_method("suppress_default_impact_sound"):
@@ -153,7 +164,9 @@ func _try_damage(raw_target: Node) -> void:
 		if owner_node is Node2D:
 			from_pos = (owner_node as Node2D).global_position
 
+		already_hit[id] = true
 		target.call("take_damage", damage, from_pos)
+		_register_non_wall_hit(target_world_pos)
 
 		if impact_sound and impact_sound.stream:
 			impact_sound.play()
@@ -203,8 +216,9 @@ func _is_slash_overlapping_wall() -> bool:
 
 	return CombatQueryScript.shape_overlaps_wall(self, shape, excluded)
 
-func _try_damage_player_wall_once() -> void:
-	if _hit_player_wall_this_swing:
+func _try_damage_player_walls_prioritized(force_when_overlapping: bool = false) -> void:
+	var max_wall_hits := maxi(1, max_wall_hits_per_swing)
+	if _wall_hits_this_swing >= max_wall_hits:
 		return
 	var world := _get_world_node()
 	if world == null:
@@ -215,33 +229,108 @@ func _try_damage_player_wall_once() -> void:
 	var owner_pos := global_position
 	if owner_node is Node2D:
 		owner_pos = (owner_node as Node2D).global_position
+
+	var candidates := _collect_wall_hit_candidates(owner_pos)
+	if candidates.is_empty():
+		if force_when_overlapping and _is_slash_overlapping_wall():
+			candidates.append({
+				"position": global_position,
+				"dist_sq": _distance_sq_to_aim(global_position),
+			})
+		else:
+			return
+
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("dist_sq", 1.0e30)) < float(b.get("dist_sq", 1.0e30))
+	)
+
+	var nearest_wall_dist_sq: float = float(candidates[0].get("dist_sq", 1.0e30))
+	if not _should_mix_wall_damage(nearest_wall_dist_sq):
+		return
+
+	for candidate in candidates:
+		if _wall_hits_this_swing >= max_wall_hits:
+			break
+		var hit_pos: Vector2 = candidate.get("position", global_position)
+		var wall_key := _wall_candidate_key(world, hit_pos)
+		if wall_key != "" and _wall_hit_keys_this_swing.has(wall_key):
+			continue
+		var damaged := _damage_wall_at_world_pos(world, hit_pos, amount, radius)
+		if not damaged:
+			continue
+		_wall_hits_this_swing += 1
+		if wall_key != "":
+			_wall_hit_keys_this_swing[wall_key] = true
+
+
+func _collect_wall_hit_candidates(owner_pos: Vector2) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
 	var excluded: Array = [self]
 	if owner_node != null:
 		excluded.append(owner_node)
-	var wall_hit := CombatQueryScript.find_first_wall_hit(self, owner_pos, global_position, excluded, true)
-	var has_ray_wall_hit: bool = not wall_hit.is_empty()
-	var hit_pos := global_position
-	if has_ray_wall_hit:
-		hit_pos = wall_hit.get("position", global_position)
 
-	if world.has_method("hit_wall_at_world_pos"):
-		if has_ray_wall_hit:
-			world.call("hit_wall_at_world_pos", hit_pos, amount, radius, true)
-		elif _is_slash_overlapping_wall():
-			world.call("hit_wall_at_world_pos", global_position, amount, radius, true)
-		else:
+	var main_endpoint := global_position
+	var base_dir := main_endpoint - owner_pos
+	if base_dir.length_squared() < 0.0001:
+		base_dir = Vector2.RIGHT.rotated(global_rotation)
+	var dir := base_dir.normalized()
+	var perp := Vector2(-dir.y, dir.x)
+	var probe_offset := maxf(0.0, wall_multi_probe_offset_px)
+
+	var endpoints: Array[Vector2] = [main_endpoint]
+	if probe_offset > 0.0:
+		endpoints.append(main_endpoint + perp * probe_offset)
+		endpoints.append(main_endpoint - perp * probe_offset)
+
+	for endpoint in endpoints:
+		var wall_hit := CombatQueryScript.find_first_wall_hit(self, owner_pos, endpoint, excluded, true)
+		if wall_hit.is_empty():
+			continue
+		var hit_pos: Vector2 = wall_hit.get("position", endpoint)
+		_append_wall_candidate(out, hit_pos)
+
+	if _is_slash_overlapping_wall():
+		_append_wall_candidate(out, global_position)
+
+	return out
+
+
+func _append_wall_candidate(candidates: Array[Dictionary], hit_pos: Vector2) -> void:
+	for existing in candidates:
+		var existing_pos: Vector2 = existing.get("position", Vector2.INF)
+		if existing_pos == Vector2.INF:
+			continue
+		if existing_pos.distance_squared_to(hit_pos) <= 4.0:
 			return
-		_hit_player_wall_this_swing = true
-		return
+	candidates.append({
+		"position": hit_pos,
+		"dist_sq": _distance_sq_to_aim(hit_pos),
+	})
 
-	if not world.has_method("damage_player_wall_at_world_pos"):
-		return
 
-	var damaged := bool(world.call("damage_player_wall_at_world_pos", hit_pos, amount))
-	if not damaged and _is_slash_overlapping_wall():
-		damaged = bool(world.call("damage_player_wall_at_world_pos", global_position, amount))
-	if damaged:
-		_hit_player_wall_this_swing = true
+func _should_mix_wall_damage(nearest_wall_dist_sq: float) -> bool:
+	if _non_wall_hits_this_swing <= 0:
+		return true
+	var tol: float = maxf(0.0, wall_focus_tolerance_px)
+	var tol_sq: float = tol * tol
+	return nearest_wall_dist_sq <= (_closest_non_wall_hit_dist_sq + tol_sq)
+
+
+func _damage_wall_at_world_pos(world: Node, hit_pos: Vector2, amount: int, radius: float) -> bool:
+	if world.has_method("hit_wall_at_world_pos"):
+		return bool(world.call("hit_wall_at_world_pos", hit_pos, amount, radius, true))
+	if world.has_method("damage_player_wall_at_world_pos"):
+		return bool(world.call("damage_player_wall_at_world_pos", hit_pos, amount))
+	return false
+
+
+func _wall_candidate_key(world: Node, hit_pos: Vector2) -> String:
+	if world != null and world.has_method("_world_to_tile"):
+		var tile_raw: Variant = world.call("_world_to_tile", hit_pos)
+		if tile_raw is Vector2i:
+			var tile: Vector2i = tile_raw as Vector2i
+			return "%d,%d" % [tile.x, tile.y]
+	return "%d,%d" % [floori(hit_pos.x / 16.0), floori(hit_pos.y / 16.0)]
 
 func _estimate_wall_hit_radius_world() -> float:
 	var default_radius: float = 20.0
@@ -275,12 +364,76 @@ func _get_world_node() -> Node:
 
 func _on_body_entered(body: Node) -> void:
 	if CombatQueryScript.is_wall_collider(body) and CombatQueryScript.resolve_damage_target(body).is_empty():
-		_try_damage_player_wall_once()
+		_try_damage_player_walls_prioritized()
 		return
 	_try_damage(body)
 
 func _on_area_entered(area: Area2D) -> void:
 	_try_damage(area)
+
+
+func _resolve_target_world_pos(target: Node, target_hurtbox: Area2D = null) -> Vector2:
+	if target_hurtbox != null:
+		return target_hurtbox.global_position
+	if target is Node2D:
+		return (target as Node2D).global_position
+	return global_position
+
+
+func _can_hit_destructible_target(target_world_pos: Vector2) -> bool:
+	if _destructible_hits_this_swing <= 0:
+		return true
+	if _destructible_hits_this_swing >= maxi(1, max_destructible_hits_per_swing):
+		return false
+	var tol: float = maxf(0.0, destructible_focus_tolerance_px)
+	var tol_sq: float = tol * tol
+	var target_dist_sq: float = _distance_sq_to_aim(target_world_pos)
+	return target_dist_sq <= (_closest_destructible_hit_dist_sq + tol_sq)
+
+
+func _register_destructible_hit(target_world_pos: Vector2) -> void:
+	var target_dist_sq: float = _distance_sq_to_aim(target_world_pos)
+	if _destructible_hits_this_swing <= 0:
+		_closest_destructible_hit_dist_sq = target_dist_sq
+	else:
+		_closest_destructible_hit_dist_sq = minf(_closest_destructible_hit_dist_sq, target_dist_sq)
+	_destructible_hits_this_swing += 1
+
+
+func _register_non_wall_hit(target_world_pos: Vector2) -> void:
+	var target_dist_sq: float = _distance_sq_to_aim(target_world_pos)
+	if _non_wall_hits_this_swing <= 0:
+		_closest_non_wall_hit_dist_sq = target_dist_sq
+	else:
+		_closest_non_wall_hit_dist_sq = minf(_closest_non_wall_hit_dist_sq, target_dist_sq)
+	_non_wall_hits_this_swing += 1
+
+
+func _cache_aim_world_pos() -> void:
+	_aim_world_pos_valid = false
+
+	if owner_node != null and owner_node.has_method("get_world_mouse_pos"):
+		var raw_mouse: Variant = owner_node.call("get_world_mouse_pos")
+		if raw_mouse is Vector2:
+			_aim_world_pos = raw_mouse as Vector2
+			_aim_world_pos_valid = true
+
+	if not _aim_world_pos_valid and owner_node is Node2D:
+		var owner_pos := (owner_node as Node2D).global_position
+		var forward := Vector2.RIGHT.rotated(global_rotation)
+		_aim_world_pos = owner_pos + forward * _estimate_wall_hit_radius_world()
+		_aim_world_pos_valid = true
+
+	if not _aim_world_pos_valid:
+		var forward_fallback := Vector2.RIGHT.rotated(global_rotation)
+		_aim_world_pos = global_position + forward_fallback * _estimate_wall_hit_radius_world()
+		_aim_world_pos_valid = true
+
+
+func _distance_sq_to_aim(world_pos: Vector2) -> float:
+	if not _aim_world_pos_valid:
+		_cache_aim_world_pos()
+	return world_pos.distance_squared_to(_aim_world_pos)
 
 
 func _apply_sound_panel_overrides() -> void:

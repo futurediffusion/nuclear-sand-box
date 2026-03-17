@@ -341,6 +341,8 @@ func _play_scene_place_sfx(item_id: String, tile: Vector2i) -> void:
 			stream = WORKBENCH_PLACE_SFX
 		"chest":
 			stream = CHEST_PLACE_SFX
+		"barrel":
+			stream = CHEST_PLACE_SFX
 		"doorwood":
 			stream = _resolve_door_place_sfx()
 			volume_db = _resolve_door_place_volume_db()

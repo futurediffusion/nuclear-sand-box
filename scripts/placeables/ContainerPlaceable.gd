@@ -5,6 +5,8 @@ const MAX_HITS: int = 4
 const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 const DEFAULT_CLOSED_TEXTURE: Texture2D = preload("res://art/sprites/chestclosed.png")
 const DEFAULT_OPEN_TEXTURE: Texture2D = preload("res://art/sprites/chestopen.png")
+const DEFAULT_BREAK_SFX: AudioStream = preload("res://art/Sounds/woodwallbreak.ogg")
+const DEFAULT_BREAK_VOLUME_DB: float = 0.0
 
 const SHAKE_DURATION: float = 0.08
 const SHAKE_PX: float = 6.0
@@ -114,6 +116,7 @@ func _play_hit_feedback() -> void:
 func _destroy() -> void:
 	if _ui_open:
 		_close_ui()
+	_play_break_sfx()
 
 	var world_node := get_parent()
 	if world_node == null:
@@ -278,3 +281,34 @@ func load_persisted_data() -> void:
 		sync_persistence_data()
 		return
 	apply_persistence_data(persisted)
+
+
+func _play_break_sfx() -> void:
+	var break_sfx := _resolve_player_wall_break_sfx()
+	if break_sfx == null:
+		return
+	var break_volume_db := _resolve_player_wall_break_volume_db()
+	AudioSystem.play_2d(break_sfx, global_position, null, &"SFX", break_volume_db)
+
+
+func _resolve_player_wall_break_sfx() -> AudioStream:
+	var panel := _resolve_sound_panel()
+	if panel != null and panel.player_wall_break_sfx != null:
+		return panel.player_wall_break_sfx
+	return DEFAULT_BREAK_SFX
+
+
+func _resolve_player_wall_break_volume_db() -> float:
+	var panel := _resolve_sound_panel()
+	if panel != null:
+		return panel.player_wall_break_volume_db
+	return DEFAULT_BREAK_VOLUME_DB
+
+
+func _resolve_sound_panel() -> SoundPanel:
+	if AudioSystem == null or not AudioSystem.has_method("get_sound_panel"):
+		return null
+	var node: Node = AudioSystem.get_sound_panel()
+	if node is SoundPanel:
+		return node as SoundPanel
+	return null

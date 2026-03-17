@@ -5,6 +5,7 @@ const DEFAULT_WOOD_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
 ]
+const TREE_DESTROY_SFX: AudioStream = preload("res://art/Sounds/treedestroy.ogg")
 
 # Ambient wind near trees
 const DEFAULT_WIND_SFX: AudioStream = preload("res://art/Sounds/windsound.ogg")
@@ -310,6 +311,8 @@ func _fell_tree() -> void:
 	_kill_wind_fade_tween()
 	if wind_player != null:
 		wind_player.stop()
+	if TREE_DESTROY_SFX != null:
+		AudioSystem.play_2d(TREE_DESTROY_SFX, global_position, null, &"SFX", 0.0)
 
 	# Drop 3–6 wood, biased toward lower values (take min of two dice)
 	var raw: int = mini(randi_range(1, 6), randi_range(1, 6)) + 2

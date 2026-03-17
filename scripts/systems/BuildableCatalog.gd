@@ -9,6 +9,7 @@ const ID_DOORWOOD: String = "doorwood"
 const ID_WOODFLOOR: String = "woodfloor"
 const ID_CHEST: String = "chest"
 const ID_BARREL: String = "barrel"
+const ID_TABLE: String = "table"
 const ID_WORKBENCH: String = "workbench"
 
 const CATEGORY_TILE_WALL_PLAYER: String = "tile_wall_player"
@@ -21,6 +22,7 @@ const _BUILDABLE_CATEGORY_BY_ID: Dictionary = {
 	ID_WOODFLOOR: CATEGORY_ENTITY_PLACEABLE,
 	ID_CHEST: CATEGORY_ENTITY_PLACEABLE,
 	ID_BARREL: CATEGORY_ENTITY_PLACEABLE,
+	ID_TABLE: CATEGORY_ENTITY_PLACEABLE,
 	ID_WORKBENCH: CATEGORY_ENTITY_PLACEABLE,
 }
 

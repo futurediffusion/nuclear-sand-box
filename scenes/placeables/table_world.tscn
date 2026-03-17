@@ -1,0 +1,31 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/placeables/TableComponent.gd" id="1_table_script"]
+[ext_resource type="Texture2D" path="res://art/props/table.png" id="2_table_texture"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(30, 14)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_area"]
+size = Vector2(40, 30)
+
+[node name="TableWorld" type="StaticBody2D"]
+z_index = 12
+script = ExtResource("1_table_script")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(16, 25)
+shape = SubResource("RectangleShape2D_body")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+z_index = 3
+centered = false
+texture = ExtResource("2_table_texture")
+
+[node name="Area2D" type="Area2D" parent="."]
+position = Vector2(16, 16)
+collision_layer = 8
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+position = Vector2(0, 6)
+shape = SubResource("RectangleShape2D_area")

@@ -71,3 +71,4 @@ func _register_all() -> void:
 	_add("wallwood", "wallwood", 1, "tinkering", 1, ["wood"], [1])
 	_add("doorwood", "doorwood", 1, "tinkering", 1, ["wood"], [8])
 	_add("floorwood", "floorwood", 1, "tinkering", 1, ["wood"], [4])
+	_add("table", "table", 1, "tinkering", 1, ["wood", "stick"], [6, 4])
