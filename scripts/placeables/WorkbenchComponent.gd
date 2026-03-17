@@ -118,6 +118,8 @@ func _destroy() -> void:
 
 	# Remover del registro de placed_entities
 	if placed_uid != "":
+		# El sistema de chunks unregistra la instancia via PlacementSystem.unregister_runtime_instance(uid)
+		# pero debemos asegurar que se borre de WorldSave.
 		PlacementSystem.remove_placed_entity(placed_uid)
 
 	queue_free()

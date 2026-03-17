@@ -451,11 +451,7 @@ func _ready() -> void:
 			_player_wall_system.structural_wall_hit.connect(_on_wall_hit_activity)
 
 	await update_chunks(current_player_chunk)
-	_restore_placed_entities()
 
-
-func _restore_placed_entities() -> void:
-	PlacementSystem.restore_placed_entities(self)
 
 func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
 	if stage != "tiles":
@@ -697,18 +693,12 @@ func _is_valid_walk_surface_tile(tile_pos: Vector2i) -> bool:
 	return tile_pos.x >= 0 and tile_pos.x < width and tile_pos.y >= 0 and tile_pos.y < height
 
 func _has_floorwood_placeable_at_tile(tile_pos: Vector2i) -> bool:
-	for raw_entry in WorldSave.placed_entities:
-		if typeof(raw_entry) != TYPE_DICTIONARY:
-			continue
-		var entry: Dictionary = raw_entry as Dictionary
-		var item_id: String = String(entry.get("item_id", "")).strip_edges()
-		if item_id != FLOORWOOD_RUNTIME_ITEM_ID and item_id != FLOORWOOD_LEGACY_ITEM_ID:
-			continue
-		var tx: int = int(entry.get("tile_pos_x", -999999))
-		var ty: int = int(entry.get("tile_pos_y", -999999))
-		if tx == tile_pos.x and ty == tile_pos.y:
-			return true
-	return false
+	var cpos := _tile_to_chunk(tile_pos)
+	var entry := WorldSave.get_placed_entity_at_tile(cpos.x, cpos.y, tile_pos)
+	if entry.is_empty():
+		return false
+	var item_id: String = String(entry.get("item_id", "")).strip_edges()
+	return item_id == FLOORWOOD_RUNTIME_ITEM_ID or item_id == FLOORWOOD_LEGACY_ITEM_ID
 
 var chunk_occupied_tiles: Dictionary = {}
 
@@ -807,23 +797,19 @@ func _chunk_from_key(chunk_key: String) -> Vector2i:
 
 func _get_extra_wall_support_lookup_for_chunk(chunk_pos: Vector2i) -> Dictionary:
 	var out: Dictionary = {}
-	var margin: int = 1
-	var start_x: int = chunk_pos.x * chunk_size - margin
-	var start_y: int = chunk_pos.y * chunk_size - margin
-	var end_x: int = (chunk_pos.x + 1) * chunk_size - 1 + margin
-	var end_y: int = (chunk_pos.y + 1) * chunk_size - 1 + margin
-	for raw_entry in WorldSave.placed_entities:
-		if typeof(raw_entry) != TYPE_DICTIONARY:
-			continue
-		var entry: Dictionary = raw_entry as Dictionary
-		var item_id: String = BuildableCatalog.normalize_buildable_id(String(entry.get("item_id", "")))
-		if item_id != DOORWOOD_ITEM_ID:
-			continue
-		var tx: int = int(entry.get("tile_pos_x", -999999))
-		var ty: int = int(entry.get("tile_pos_y", -999999))
-		if tx < start_x or tx > end_x or ty < start_y or ty > end_y:
-			continue
-		out[Vector2i(tx, ty)] = true
+	# Miramos 3x3 chunks para cubrir el margen de 1 tile alrededor del chunk actual
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var cx := chunk_pos.x + dx
+			var cy := chunk_pos.y + dy
+			var entries := WorldSave.get_placed_entities_in_chunk(cx, cy)
+			for entry in entries:
+				var item_id: String = BuildableCatalog.normalize_buildable_id(String(entry.get("item_id", "")))
+				if item_id != DOORWOOD_ITEM_ID:
+					continue
+				var tx: int = int(entry.get("tile_pos_x", -999999))
+				var ty: int = int(entry.get("tile_pos_y", -999999))
+				out[Vector2i(tx, ty)] = true
 	return out
 
 

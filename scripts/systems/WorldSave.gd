@@ -14,24 +14,96 @@ var player_walls_by_chunk: Dictionary = {}  # chunk_key(String) -> tile_key(Stri
 func chunk_key(cx: int, cy: int) -> String:
 	return "%d,%d" % [cx, cy]
 
+func get_chunk_key_for_tile(tx: int, ty: int) -> String:
+	# Asumimos chunk_size = 32 para resolución interna si no se especifica.
+	var cx := int(floor(float(tx) / 32.0))
+	var cy := int(floor(float(ty) / 32.0))
+	return chunk_key(cx, cy)
+
 ## Entidades colocadas manualmente por el player en mundo (mesas, etc.)
-var placed_entities: Array[Dictionary] = []
-var placed_entity_data_by_uid: Dictionary = {}  # uid(String) -> data(Dictionary)
+## Almacenamiento canónico por chunk: chunk_key -> { uid -> entry }
+var placed_entities_by_chunk: Dictionary = {}
+## Índice auxiliar para O(1) removal y lookup: uid -> chunk_key
+var placed_entity_chunk_by_uid: Dictionary = {}
+## Datos persistentes por UID (inventarios, etc.): uid -> data
+var placed_entity_data_by_uid: Dictionary = {}
 
 const PLAYER_WALL_HP_KEY: String = "hp"
 
 func add_placed_entity(entry: Dictionary) -> void:
-	placed_entities.append(entry.duplicate(true))
+	var uid := String(entry.get("uid", ""))
+	if uid == "":
+		return
+
+	var tx := int(entry.get("tile_pos_x", 0))
+	var ty := int(entry.get("tile_pos_y", 0))
+	var ckey := String(entry.get("chunk_key", ""))
+	if ckey == "":
+		ckey = get_chunk_key_for_tile(tx, ty)
+
+	var final_entry := entry.duplicate(true)
+	final_entry["chunk_key"] = ckey
+
+	if not placed_entities_by_chunk.has(ckey):
+		placed_entities_by_chunk[ckey] = {}
+
+	placed_entities_by_chunk[ckey][uid] = final_entry
+	placed_entity_chunk_by_uid[uid] = ckey
 
 func remove_placed_entity(uid: String) -> void:
-	for i in range(placed_entities.size() - 1, -1, -1):
-		if String(placed_entities[i].get("uid", "")) == uid:
-			placed_entities.remove_at(i)
-			erase_placed_entity_data(uid)
-			return
+	if not placed_entity_chunk_by_uid.has(uid):
+		# Intento de remoción por UID que no existe en el índice.
+		# Podría ser porque no se cargó el índice o el UID es inválido.
+		return
+
+	var ckey := String(placed_entity_chunk_by_uid[uid])
+	if placed_entities_by_chunk.has(ckey):
+		placed_entities_by_chunk[ckey].erase(uid)
+		if placed_entities_by_chunk[ckey].is_empty():
+			placed_entities_by_chunk.erase(ckey)
+
+	placed_entity_chunk_by_uid.erase(uid)
+	erase_placed_entity_data(uid)
 
 func clear_placed_entities() -> void:
-	placed_entities.clear()
+	placed_entities_by_chunk.clear()
+	placed_entity_chunk_by_uid.clear()
+
+func get_placed_entities_in_chunk(cx: int, cy: int) -> Array[Dictionary]:
+	var ckey := chunk_key(cx, cy)
+	if not placed_entities_by_chunk.has(ckey):
+		return []
+	var dict: Dictionary = placed_entities_by_chunk[ckey]
+	var out: Array[Dictionary] = []
+	for uid in dict:
+		out.append((dict[uid] as Dictionary).duplicate(true))
+	return out
+
+func get_placed_entity_at_tile(cx: int, cy: int, tile_pos: Vector2i) -> Dictionary:
+	var ckey := chunk_key(cx, cy)
+	if not placed_entities_by_chunk.has(ckey):
+		return {}
+	var dict: Dictionary = placed_entities_by_chunk[ckey]
+	for uid in dict:
+		var entry: Dictionary = dict[uid]
+		if int(entry.get("tile_pos_x", -999999)) == tile_pos.x and \
+		   int(entry.get("tile_pos_y", -999999)) == tile_pos.y:
+			return entry.duplicate(true)
+	return {}
+
+func has_placed_entity_at_tile(cx: int, cy: int, tile_pos: Vector2i) -> bool:
+	return not get_placed_entity_at_tile(cx, cy, tile_pos).is_empty()
+
+func find_placed_entity(uid: String) -> Dictionary:
+	if not placed_entity_chunk_by_uid.has(uid):
+		return {}
+	var ckey := String(placed_entity_chunk_by_uid[uid])
+	if not placed_entities_by_chunk.has(ckey):
+		return {}
+	var dict: Dictionary = placed_entities_by_chunk[ckey]
+	if not dict.has(uid):
+		return {}
+	return (dict[uid] as Dictionary).duplicate(true)
 
 
 func set_placed_entity_data(uid: String, data: Dictionary) -> void:

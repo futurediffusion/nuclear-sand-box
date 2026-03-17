@@ -85,199 +85,214 @@ func load_chunk(chunk_pos: Vector2i) -> void:
 	queued_entity_chunks[chunk_pos] = true
 	prop_spawner.rebuild_chunk_occupied_tiles(chunk_pos, _make_spawn_ctx.call())
 
-	if not chunk_save.has(chunk_pos):
-		queued_entity_chunks.erase(chunk_pos)
-		entities_spawned_chunks[chunk_pos] = true
-		return
+	# Aunque no haya datos en 'chunk_save' (generación procedimental),
+	# siempre encolamos para buscar posibles 'placeables' manuales en WorldSave.
 	_enqueue_structure_tile_stage.call(chunk_pos)
 
 func enqueue_entities(chunk_pos: Vector2i) -> void:
 	var t0: int = Time.get_ticks_usec()
-	if not chunk_save.has(chunk_pos):
-		queued_entity_chunks.erase(chunk_pos)
-		entities_spawned_chunks[chunk_pos] = true
-		_record_stage_time.call(_STAGE_ENTITIES, chunk_pos, _us_to_ms(t0))
-		return
-
 	var cx: int = chunk_pos.x
 	var cy: int = chunk_pos.y
 	var chunk_key: String = _chunk_key_fn.call(chunk_pos)
 	var chunk_ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
 	var jobs: Array[Dictionary] = []
 
-	var ores_count: int = chunk_save[chunk_pos]["ores"].size()
-	var camps_count: int = chunk_save[chunk_pos]["camps"].size()
-	var placements_count: int = chunk_save[chunk_pos].get("placements", []).size()
-	Debug.log("chunk", "LOAD_ENTITIES chunk=(%d,%d) placements=%d ores=%d camps=%d" % [cx, cy, placements_count, ores_count, camps_count])
-	WorldSave.get_chunk_save(cx, cy)
+	# 1. Procedural/Saved data from World.chunk_save
+	if chunk_save.has(chunk_pos):
+		var ores_count: int = chunk_save[chunk_pos]["ores"].size()
+		var camps_count: int = chunk_save[chunk_pos]["camps"].size()
+		var placements_count: int = chunk_save[chunk_pos].get("placements", []).size()
+		Debug.log("chunk", "LOAD_ENTITIES chunk=(%d,%d) placements=%d ores=%d camps=%d" % [cx, cy, placements_count, ores_count, camps_count])
 
-	# 1) ORES
-	for d in chunk_save[chunk_pos]["ores"]:
-		var tpos: Vector2i = d["tile"]
-		var ore_uid: String = UID.make_uid("ore_copper", "", tpos)
-		var ore_state = WorldSave.get_entity_state(cx, cy, ore_uid)
-		var ore_init: Dictionary = {
-			"properties": {"entity_uid": ore_uid},
-			"worldsave": {
-				"cx": cx, "cy": cy, "uid": ore_uid,
-				"init_if_missing": ore_state == null,
+		# 1.1) ORES
+		for d in chunk_save[chunk_pos]["ores"]:
+			var tpos: Vector2i = d["tile"]
+			var ore_uid: String = UID.make_uid("ore_copper", "", tpos)
+			var ore_state = WorldSave.get_entity_state(cx, cy, ore_uid)
+			var ore_init: Dictionary = {
+				"properties": {"entity_uid": ore_uid},
+				"worldsave": {
+					"cx": cx, "cy": cy, "uid": ore_uid,
+					"init_if_missing": ore_state == null,
+				}
 			}
-		}
-		if ore_state != null:
-			ore_init["save_state"] = ore_state
-		elif d.has("remaining") and d["remaining"] != -1:
-			ore_init["save_state"] = {"remaining": int(d["remaining"])}
-		jobs.append({
-			"chunk_key": chunk_key, "kind": "ore",
-			"scene": copper_ore_scene, "tile": tpos,
-			"global_position": _tile_to_world.call(tpos),
-			"init_data": ore_init, "priority": chunk_ring,
-			"uid": ore_uid,
-		})
-
-	# 2) STONES
-	for d in chunk_save[chunk_pos].get("stones", []):
-		var tpos: Vector2i = d["tile"]
-		var stone_uid: String = UID.make_uid("ore_stone", "", tpos)
-		var stone_state = WorldSave.get_entity_state(cx, cy, stone_uid)
-		var stone_init: Dictionary = {
-			"properties": {"entity_uid": stone_uid},
-			"worldsave": {
-				"cx": cx, "cy": cy, "uid": stone_uid,
-				"init_if_missing": stone_state == null,
-			}
-		}
-		if stone_state != null:
-			stone_init["save_state"] = stone_state
-		elif d.has("remaining") and d["remaining"] != -1:
-			stone_init["save_state"] = {"remaining": int(d["remaining"])}
-		jobs.append({
-			"chunk_key": chunk_key, "kind": "stone_ore",
-			"scene": stone_ore_scene, "tile": tpos,
-			"global_position": _tile_to_world.call(tpos),
-			"init_data": stone_init, "priority": chunk_ring,
-			"uid": stone_uid,
-		})
-
-	# 3) TREES
-	for d in chunk_save[chunk_pos].get("trees", []):
-		var tpos: Vector2i = d["tile"]
-		var tree_uid: String = UID.make_uid("tree", "", tpos)
-		var tree_state = WorldSave.get_entity_state(cx, cy, tree_uid)
-		var tree_init: Dictionary = {
-			"properties": {
-				"entity_uid": tree_uid,
-				"entity_cx": cx,
-				"entity_cy": cy,
-			},
-			"worldsave": {
-				"cx": cx, "cy": cy, "uid": tree_uid,
-				"init_if_missing": tree_state == null,
-			}
-		}
-		if tree_state != null:
-			tree_init["save_state"] = tree_state
-		jobs.append({
-			"chunk_key": chunk_key, "kind": "tree",
-			"scene": tree_scene, "tile": tpos,
-			"global_position": _tile_to_world.call(tpos),
-			"init_data": tree_init, "priority": chunk_ring,
-			"uid": tree_uid,
-		})
-
-	# 4) GRASS TUFTS
-	for d in chunk_save[chunk_pos].get("grasses", []):
-		var tpos: Vector2i = d["tile"]
-		var grass_uid: String = UID.make_uid("grass", "", tpos)
-		var grass_state = WorldSave.get_entity_state(cx, cy, grass_uid)
-		var grass_init: Dictionary = {
-			"properties": {
-				"entity_uid": grass_uid,
-				"entity_cx": cx,
-				"entity_cy": cy,
-			},
-			"worldsave": {
-				"cx": cx, "cy": cy, "uid": grass_uid,
-				"init_if_missing": grass_state == null,
-			}
-		}
-		if grass_state != null:
-			grass_init["save_state"] = grass_state
-		jobs.append({
-			"chunk_key": chunk_key, "kind": "grass_tuft",
-			"scene": grass_tuft_scene, "tile": tpos,
-			"global_position": _tile_to_world.call(tpos),
-			"init_data": grass_init, "priority": chunk_ring,
-			"uid": grass_uid,
-		})
-
-	# 5) CAMPS
-	for c in chunk_save[chunk_pos]["camps"]:
-		var ct: Vector2i = c["tile"]
-		jobs.append({
-			"chunk_key": chunk_key, "kind": "camp",
-			"scene": bandit_camp_scene, "tile": ct,
-			"global_position": _tile_to_world.call(ct),
-			"init_data": {"properties": {"bandit_scene": bandit_scene, "max_bandits_alive": 0}},
-			"priority": chunk_ring,
-			"uid": UID.make_uid("camp_bandit", "", ct),
-		})
-	npc_simulator._ensure_spawn_records(chunk_pos)
-
-	# 3) PLACEMENTS (props + npc_keeper)
-	var spawned_count: int = 0
-	var spawned_npc_count: int = 0
-	var spawned_keeper_uids: Dictionary = {}
-	for p in chunk_save[chunk_pos].get("placements", []):
-		if typeof(p) != TYPE_DICTIONARY:
-			continue
-		var d: Dictionary = p
-		var kind: String = String(d.get("kind", ""))
-
-		if kind == "prop":
-			var prop_id: String = String(d.get("prop_id", ""))
-			var path: String = PropDB.scene_path(prop_id)
-			if path == "": continue
-			var ps: PackedScene = load(path) as PackedScene
-			if ps == null: continue
-			var ccell: Array = d.get("cell", [0, 0])
-			var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
+			if ore_state != null:
+				ore_init["save_state"] = ore_state
+			elif d.has("remaining") and d["remaining"] != -1:
+				ore_init["save_state"] = {"remaining": int(d["remaining"])}
 			jobs.append({
-				"chunk_key": chunk_key, "kind": "prop", "scene": ps, "tile": cell,
-				"global_position": _tile_to_world.call(cell),
-				"init_data": {"properties": {"z_index": tilemap.z_index + 5}},
+				"chunk_key": chunk_key, "kind": "ore",
+				"scene": copper_ore_scene, "tile": tpos,
+				"global_position": _tile_to_world.call(tpos),
+				"init_data": ore_init, "priority": chunk_ring,
+				"uid": ore_uid,
+			})
+
+		# 1.2) STONES
+		for d in chunk_save[chunk_pos].get("stones", []):
+			var tpos: Vector2i = d["tile"]
+			var stone_uid: String = UID.make_uid("ore_stone", "", tpos)
+			var stone_state = WorldSave.get_entity_state(cx, cy, stone_uid)
+			var stone_init: Dictionary = {
+				"properties": {"entity_uid": stone_uid},
+				"worldsave": {
+					"cx": cx, "cy": cy, "uid": stone_uid,
+					"init_if_missing": stone_state == null,
+				}
+			}
+			if stone_state != null:
+				stone_init["save_state"] = stone_state
+			elif d.has("remaining") and d["remaining"] != -1:
+				stone_init["save_state"] = {"remaining": int(d["remaining"])}
+			jobs.append({
+				"chunk_key": chunk_key, "kind": "stone_ore",
+				"scene": stone_ore_scene, "tile": tpos,
+				"global_position": _tile_to_world.call(tpos),
+				"init_data": stone_init, "priority": chunk_ring,
+				"uid": stone_uid,
+			})
+
+		# 1.3) TREES
+		for d in chunk_save[chunk_pos].get("trees", []):
+			var tpos: Vector2i = d["tile"]
+			var tree_uid: String = UID.make_uid("tree", "", tpos)
+			var tree_state = WorldSave.get_entity_state(cx, cy, tree_uid)
+			var tree_init: Dictionary = {
+				"properties": {
+					"entity_uid": tree_uid,
+					"entity_cx": cx,
+					"entity_cy": cy,
+				},
+				"worldsave": {
+					"cx": cx, "cy": cy, "uid": tree_uid,
+					"init_if_missing": tree_state == null,
+				}
+			}
+			if tree_state != null:
+				tree_init["save_state"] = tree_state
+			jobs.append({
+				"chunk_key": chunk_key, "kind": "tree",
+				"scene": tree_scene, "tile": tpos,
+				"global_position": _tile_to_world.call(tpos),
+				"init_data": tree_init, "priority": chunk_ring,
+				"uid": tree_uid,
+			})
+
+		# 1.4) GRASS TUFTS
+		for d in chunk_save[chunk_pos].get("grasses", []):
+			var tpos: Vector2i = d["tile"]
+			var grass_uid: String = UID.make_uid("grass", "", tpos)
+			var grass_state = WorldSave.get_entity_state(cx, cy, grass_uid)
+			var grass_init: Dictionary = {
+				"properties": {
+					"entity_uid": grass_uid,
+					"entity_cx": cx,
+					"entity_cy": cy,
+				},
+				"worldsave": {
+					"cx": cx, "cy": cy, "uid": grass_uid,
+					"init_if_missing": grass_state == null,
+				}
+			}
+			if grass_state != null:
+				grass_init["save_state"] = grass_state
+			jobs.append({
+				"chunk_key": chunk_key, "kind": "grass_tuft",
+				"scene": grass_tuft_scene, "tile": tpos,
+				"global_position": _tile_to_world.call(tpos),
+				"init_data": grass_init, "priority": chunk_ring,
+				"uid": grass_uid,
+			})
+
+		# 1.5) CAMPS
+		for c in chunk_save[chunk_pos]["camps"]:
+			var ct: Vector2i = c["tile"]
+			jobs.append({
+				"chunk_key": chunk_key, "kind": "camp",
+				"scene": bandit_camp_scene, "tile": ct,
+				"global_position": _tile_to_world.call(ct),
+				"init_data": {"properties": {"bandit_scene": bandit_scene, "max_bandits_alive": 0}},
 				"priority": chunk_ring,
-				"uid": UID.make_uid("prop_%s" % prop_id, "", cell),
+				"uid": UID.make_uid("camp_bandit", "", ct),
 			})
-			spawned_count += 1
+		npc_simulator._ensure_spawn_records(chunk_pos)
 
-		elif kind == "npc_keeper":
-			if tavern_keeper_scene == null: continue
-			var site_id: String = String(d.get("site_id", ""))
-			var keeper_uid: String = UID.make_uid("npc_keeper", site_id)
-			if spawned_keeper_uids.has(keeper_uid): continue
-			spawned_keeper_uids[keeper_uid] = true
-			var keeper_state = WorldSave.get_entity_state(cx, cy, keeper_uid)
-			if keeper_state == null:
-				WorldSave.set_entity_state(cx, cy, keeper_uid, {"spawned": true})
-			var ccell: Array = d.get("cell", [0, 0])
-			var counter_cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
-			var imin: Array = d.get("inner_min", [0, 0])
-			var imax: Array = d.get("inner_max", [0, 0])
-			jobs.append({
-				"chunk_key": chunk_key, "kind": "npc_keeper",
-				"scene": tavern_keeper_scene, "tile": counter_cell,
-				"global_position": _tile_to_world.call(counter_cell),
-				"init_data": {"properties": {
-					"entity_uid": keeper_uid, "_tilemap": tilemap,
-					"tavern_inner_min": Vector2i(int(imin[0]), int(imin[1])),
-					"tavern_inner_max": Vector2i(int(imax[0]), int(imax[1])),
-					"counter_tile": counter_cell,
-				}, "save_state": keeper_state},
-				"priority": chunk_ring, "uid": keeper_uid,
-			})
-			spawned_npc_count += 1
-			spawned_count += 1
+		# 1.6) PLACEMENTS (props + npc_keeper)
+		var spawned_keeper_uids: Dictionary = {}
+		for p in chunk_save[chunk_pos].get("placements", []):
+			if typeof(p) != TYPE_DICTIONARY:
+				continue
+			var d: Dictionary = p
+			var kind: String = String(d.get("kind", ""))
+
+			if kind == "prop":
+				var prop_id: String = String(d.get("prop_id", ""))
+				var path: String = PropDB.scene_path(prop_id)
+				if path == "": continue
+				var ps: PackedScene = load(path) as PackedScene
+				if ps == null: continue
+				var ccell: Array = d.get("cell", [0, 0])
+				var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
+				jobs.append({
+					"chunk_key": chunk_key, "kind": "prop", "scene": ps, "tile": cell,
+					"global_position": _tile_to_world.call(cell),
+					"init_data": {"properties": {"z_index": tilemap.z_index + 5}},
+					"priority": chunk_ring,
+					"uid": UID.make_uid("prop_%s" % prop_id, "", cell),
+				})
+
+			elif kind == "npc_keeper":
+				if tavern_keeper_scene == null: continue
+				var site_id: String = String(d.get("site_id", ""))
+				var keeper_uid: String = UID.make_uid("npc_keeper", site_id)
+				if spawned_keeper_uids.has(keeper_uid): continue
+				spawned_keeper_uids[keeper_uid] = true
+				var keeper_state = WorldSave.get_entity_state(cx, cy, keeper_uid)
+				if keeper_state == null:
+					WorldSave.set_entity_state(cx, cy, keeper_uid, {"spawned": true})
+				var ccell: Array = d.get("cell", [0, 0])
+				var counter_cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
+				var imin: Array = d.get("inner_min", [0, 0])
+				var imax: Array = d.get("inner_max", [0, 0])
+				jobs.append({
+					"chunk_key": chunk_key, "kind": "npc_keeper",
+					"scene": tavern_keeper_scene, "tile": counter_cell,
+					"global_position": _tile_to_world.call(counter_cell),
+					"init_data": {"properties": {
+						"entity_uid": keeper_uid, "_tilemap": tilemap,
+						"tavern_inner_min": Vector2i(int(imin[0]), int(imin[1])),
+						"tavern_inner_max": Vector2i(int(imax[0]), int(imax[1])),
+						"counter_tile": counter_cell,
+					}, "save_state": keeper_state},
+					"priority": chunk_ring, "uid": keeper_uid,
+				})
+
+	# 2. Manual Player Placeables from WorldSave
+	var placeables := WorldSave.get_placed_entities_in_chunk(cx, cy)
+	for entry in placeables:
+		var uid := String(entry.get("uid", ""))
+		var scene_path := String(entry.get("scene", ""))
+		if uid == "" or scene_path == "":
+			continue
+
+		var tx := int(entry.get("tile_pos_x", 0))
+		var ty := int(entry.get("tile_pos_y", 0))
+		var ps := load(scene_path) as PackedScene
+		if ps == null:
+			continue
+
+		jobs.append({
+			"chunk_key": chunk_key,
+			"kind": "placeable",
+			"scene": ps,
+			"tile": Vector2i(tx, ty),
+			"global_position": _tile_to_world.call(Vector2i(tx, ty)),
+			"init_data": {
+				"properties": {"placed_uid": uid}
+			},
+			"priority": chunk_ring,
+			"uid": uid,
+		})
 
 	if _spawn_queue != null and not jobs.is_empty():
 		_spawn_queue.enqueue_many(jobs)
@@ -285,7 +300,6 @@ func enqueue_entities(chunk_pos: Vector2i) -> void:
 		queued_entity_chunks.erase(chunk_pos)
 		entities_spawned_chunks[chunk_pos] = true
 
-	Debug.log("chunk", "SPAWNED chunk=(%d,%d) props=%d npcs=%d ores=%d camps=%d" % [cx, cy, spawned_count - spawned_npc_count, spawned_npc_count, ores_count, camps_count])
 	_record_stage_time.call(_STAGE_ENTITIES, chunk_pos, _us_to_ms(t0))
 
 # Parte de entidades del unload (world.gd gestiona el resto: colas de tiles/colisión)
@@ -330,6 +344,12 @@ func unload_entities(chunk_pos: Vector2i) -> void:
 
 	for e in chunk_entities[chunk_pos]:
 		if not is_instance_valid(e): continue
+
+		# Unregister from PlacementSystem if it's a placeable
+		if "placed_uid" in e:
+			var uid := String(e.placed_uid)
+			PlacementSystem.unregister_runtime_instance(uid)
+
 		if e.has_method("enter_lite_mode"):
 			e.enter_lite_mode()
 		if e.has_node("AIComponent"):
@@ -354,64 +374,86 @@ func snapshot_entities_to_world_save() -> void:
 			WorldSave.set_entity_state(cx, cy, uid, entity.get_save_state())
 
 func enqueue_prefetched_jobs(chunk_pos: Vector2i, priority_offset: int) -> void:
-	if _spawn_queue == null or not chunk_save.has(chunk_pos):
+	if _spawn_queue == null:
 		return
+
 	var jobs: Array[Dictionary] = []
 	var chunk_key: String = _chunk_key_fn.call(chunk_pos)
 	var chunk_ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
 	var priority: int = chunk_ring + priority_offset
-	for d in chunk_save[chunk_pos].get("ores", []):
-		var tpos: Vector2i = d["tile"]
-		jobs.append({
-			"chunk_key": chunk_key, "kind": "ore",
-			"scene": copper_ore_scene, "tile": tpos,
-			"global_position": _tile_to_world.call(tpos),
-			"priority": priority,
-			"uid": UID.make_uid("ore_copper", "", tpos),
-		})
-	for d in chunk_save[chunk_pos].get("stones", []):
-		var tpos: Vector2i = d["tile"]
-		jobs.append({
-			"chunk_key": chunk_key, "kind": "stone_ore",
-			"scene": stone_ore_scene, "tile": tpos,
-			"global_position": _tile_to_world.call(tpos),
-			"priority": priority,
-			"uid": UID.make_uid("ore_stone", "", tpos),
-		})
-	for d in chunk_save[chunk_pos].get("trees", []):
-		var tpos: Vector2i = d["tile"]
-		jobs.append({
-			"chunk_key": chunk_key, "kind": "tree",
-			"scene": tree_scene, "tile": tpos,
-			"global_position": _tile_to_world.call(tpos),
-			"priority": priority,
-			"uid": UID.make_uid("tree", "", tpos),
-		})
-	for d in chunk_save[chunk_pos].get("grasses", []):
-		var tpos: Vector2i = d["tile"]
-		jobs.append({
-			"chunk_key": chunk_key, "kind": "grass_tuft",
-			"scene": grass_tuft_scene, "tile": tpos,
-			"global_position": _tile_to_world.call(tpos),
-			"priority": priority,
-			"uid": UID.make_uid("grass", "", tpos),
-		})
-	for p in chunk_save[chunk_pos].get("placements", []):
-		if typeof(p) != TYPE_DICTIONARY or String(p.get("kind", "")) != "prop":
-			continue
-		var prop_id: String = String(p.get("prop_id", ""))
-		var path: String = PropDB.scene_path(prop_id)
-		if path == "": continue
-		var ps: PackedScene = load(path) as PackedScene
+
+	if chunk_save.has(chunk_pos):
+		for d in chunk_save[chunk_pos].get("ores", []):
+			var tpos: Vector2i = d["tile"]
+			jobs.append({
+				"chunk_key": chunk_key, "kind": "ore",
+				"scene": copper_ore_scene, "tile": tpos,
+				"global_position": _tile_to_world.call(tpos),
+				"priority": priority,
+				"uid": UID.make_uid("ore_copper", "", tpos),
+			})
+		for d in chunk_save[chunk_pos].get("stones", []):
+			var tpos: Vector2i = d["tile"]
+			jobs.append({
+				"chunk_key": chunk_key, "kind": "stone_ore",
+				"scene": stone_ore_scene, "tile": tpos,
+				"global_position": _tile_to_world.call(tpos),
+				"priority": priority,
+				"uid": UID.make_uid("ore_stone", "", tpos),
+			})
+		for d in chunk_save[chunk_pos].get("trees", []):
+			var tpos: Vector2i = d["tile"]
+			jobs.append({
+				"chunk_key": chunk_key, "kind": "tree",
+				"scene": tree_scene, "tile": tpos,
+				"global_position": _tile_to_world.call(tpos),
+				"priority": priority,
+				"uid": UID.make_uid("tree", "", tpos),
+			})
+		for d in chunk_save[chunk_pos].get("grasses", []):
+			var tpos: Vector2i = d["tile"]
+			jobs.append({
+				"chunk_key": chunk_key, "kind": "grass_tuft",
+				"scene": grass_tuft_scene, "tile": tpos,
+				"global_position": _tile_to_world.call(tpos),
+				"priority": priority,
+				"uid": UID.make_uid("grass", "", tpos),
+			})
+		for p in chunk_save[chunk_pos].get("placements", []):
+			if typeof(p) != TYPE_DICTIONARY or String(p.get("kind", "")) != "prop":
+				continue
+			var prop_id: String = String(p.get("prop_id", ""))
+			var path: String = PropDB.scene_path(prop_id)
+			if path == "": continue
+			var ps: PackedScene = load(path) as PackedScene
+			if ps == null: continue
+			var ccell: Array = p.get("cell", [0, 0])
+			var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
+			jobs.append({
+				"chunk_key": chunk_key, "kind": "prop", "scene": ps, "tile": cell,
+				"global_position": _tile_to_world.call(cell),
+				"priority": priority,
+				"uid": UID.make_uid("prop_%s" % prop_id, "", cell),
+			})
+
+	# Placeables from WorldSave
+	var cx := chunk_pos.x
+	var cy := chunk_pos.y
+	var placeables := WorldSave.get_placed_entities_in_chunk(cx, cy)
+	for entry in placeables:
+		var uid := String(entry.get("uid", ""))
+		var scene_path := String(entry.get("scene", ""))
+		if uid == "" or scene_path == "": continue
+		var tx := int(entry.get("tile_pos_x", 0))
+		var ty := int(entry.get("tile_pos_y", 0))
+		var ps := load(scene_path) as PackedScene
 		if ps == null: continue
-		var ccell: Array = p.get("cell", [0, 0])
-		var cell: Vector2i = Vector2i(int(ccell[0]), int(ccell[1]))
 		jobs.append({
-			"chunk_key": chunk_key, "kind": "prop", "scene": ps, "tile": cell,
-			"global_position": _tile_to_world.call(cell),
-			"priority": priority,
-			"uid": UID.make_uid("prop_%s" % prop_id, "", cell),
+			"chunk_key": chunk_key, "kind": "placeable", "scene": ps, "tile": Vector2i(tx, ty),
+			"global_position": _tile_to_world.call(Vector2i(tx, ty)),
+			"priority": priority, "uid": uid,
 		})
+
 	if not jobs.is_empty():
 		_spawn_queue.enqueue_many(jobs)
 
@@ -430,6 +472,12 @@ func _on_job_spawned(job: Dictionary, node: Node) -> void:
 	chunk_entities[chunk_pos].append(node)
 	var kind: String = String(job.get("kind", ""))
 	var uid: String = String(job.get("uid", ""))
+
+	if kind == "placeable":
+		PlacementSystem.register_runtime_instance(uid, node)
+		if node.has_method("load_persisted_data"):
+			node.call("load_persisted_data")
+
 	if kind == "ore" or kind == "stone_ore" or kind == "tree" or kind == "grass_tuft" or kind == "npc_keeper":
 		chunk_saveables[chunk_pos].append(node)
 	elif kind == "enemy":
