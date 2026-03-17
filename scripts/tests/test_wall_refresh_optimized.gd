@@ -36,7 +36,7 @@ func run():
 	if first == pos1:
 		print("  SUCCESS: Promoted chunk pos1 popped before normal chunk pos2.")
 	else:
-		print("  FAILURE: Promoted chunk should have priority.")
+		print("  FAILURE: Promoted chunk should have priority. Popped: ", first)
 		quit(1)
 
 	# 3. Test Cooldown
@@ -80,22 +80,62 @@ func run():
 		print("  FAILURE: Queue should be empty after purge.")
 		quit(1)
 
-	# 5. Test Multiple Hot Priority (LIFO-like for Hot)
-	print("Testing multiple Hot chunks...")
+	# 5. Test Intra-Hot Priority (Most Recent First)
+	print("Testing Intra-Hot Priority (Most Recent First)...")
 	queue.clear()
+	# pos1 activity, then pos2 activity
 	queue.record_activity(pos1)
 	queue.enqueue(pos1)
-	OS.delay_msec(10)
+	OS.delay_msec(50)
 	queue.record_activity(pos2)
 	queue.enqueue(pos2)
 
-	# Current implementation of pop_from_queue takes the first one that is NOT in cooldown.
-	# Since they are both new, it depends on order of enqueue in the array.
-	# _hot_queue.append(pos1) then _hot_queue.append(pos2)
-	# pop_next will return pos1 because it's first in the array and not in cooldown.
-	# Wait, if I want LIFO I should have used push_front or similar,
-	# but the requirement said O(1) prioritization.
-	# Actually, FIFO within the same tier is fine as long as Hot > Normal.
+	# pos2 should be first because it's more recent
+	first = queue.pop_next()
+	if first == pos2:
+		print("  SUCCESS: Most recent hot chunk pos2 popped first.")
+	else:
+		print("  FAILURE: Most recent hot chunk should be first. Popped: ", first)
+		quit(1)
+
+	# 6. Test Activity Refreshing Priority
+	print("Testing Activity Refreshing Priority...")
+	queue.clear()
+	queue.record_activity(pos1)
+	queue.enqueue(pos1)
+	OS.delay_msec(50)
+	queue.record_activity(pos2)
+	queue.enqueue(pos2)
+	OS.delay_msec(50)
+	queue.record_activity(pos1) # pos1 becomes most recent again
+
+	first = queue.pop_next()
+	if first == pos1:
+		print("  SUCCESS: Refreshed hot chunk pos1 popped first.")
+	else:
+		print("  FAILURE: Refreshed hot chunk should be first. Popped: ", first)
+		quit(1)
+
+	# 7. Test Demotion (Hot -> Normal)
+	print("Testing Demotion (Hot -> Normal)...")
+	queue.clear()
+	queue.record_activity(pos1)
+	queue.enqueue(pos1) # Hot
+	queue.enqueue(pos2) # Normal
+
+	print("  Waiting 2100ms for hot threshold (2000ms)...")
+	OS.delay_msec(2100)
+
+	# pos1 should have been demoted to Normal.
+	# Since pos2 was already in Normal and didn't have activity,
+	# the order in Normal depends on when they entered.
+	# pos2 was first in Normal, then pos1 was demoted and appended.
+	first = queue.pop_next()
+	if first == pos2:
+		print("  SUCCESS: Hot chunk pos1 demoted, normal chunk pos2 popped first.")
+	else:
+		print("  FAILURE: pos1 should have been demoted and placed after pos2. Popped: ", first)
+		quit(1)
 
 	print("All optimized WallRefreshQueue tests passed!")
 	quit(0)
