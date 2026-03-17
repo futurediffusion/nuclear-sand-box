@@ -64,28 +64,40 @@ func test_transitions():
 func test_persistence():
 	print("Testing Downed Persistence...")
 
+	RunClock.reset(100.0)
 	WorldSave.clear_chunk_enemy_spawns("0,0")
 
 	var enemy_id = "test_enemy"
 	var chunk_key = "0,0"
-	var resolve_at = RunClock.time + 100.0
+	var downed_at = RunClock.now()
+	var resolve_at = downed_at + 100.0
 
 	# Setup base state so mark_enemy_downed actually has something to modify
-	WorldSave.get_or_create_enemy_state(chunk_key, enemy_id, {})
+	WorldSave.get_or_create_enemy_state(chunk_key, enemy_id, {
+		"id": enemy_id,
+		"chunk_key": chunk_key,
+		"pos": Vector2.ZERO,
+		"hp": 0,
+		"is_dead": false,
+		"is_downed": false,
+		"version": 1
+	})
 
 	# Simulate marking as downed in WorldSave
-	WorldSave.mark_enemy_downed(chunk_key, enemy_id, resolve_at)
+	WorldSave.mark_enemy_downed(chunk_key, enemy_id, resolve_at, downed_at)
 
 	var state = WorldSave.get_enemy_state(chunk_key, enemy_id)
 	assert(state["is_downed"] == true, "State should be marked as downed")
-	assert(state["downed_resolve_at"] == resolve_at, "Resolution timestamp should match")
+	assert(is_equal_approx(float(state["downed_at"]), downed_at), "downed_at should match")
+	assert(is_equal_approx(float(state["downed_resolve_at"]), resolve_at), "Resolution timestamp should match")
 
 	# Simulate NpcSimulator reloading
 	var downed_comp = preload("res://scripts/components/DownedComponent.gd").new()
 	downed_comp.load_save_data(state)
 
 	assert(downed_comp.is_downed, "Component should restore downed state")
-	assert(downed_comp.downed_resolve_at == resolve_at, "Component should restore resolution timestamp")
+	assert(is_equal_approx(downed_comp.downed_at, downed_at), "Component should restore downed_at")
+	assert(is_equal_approx(downed_comp.downed_resolve_at, resolve_at), "Component should restore resolution timestamp")
 
 	print("SUCCESS: Downed Persistence")
 

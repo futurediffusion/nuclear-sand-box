@@ -25,25 +25,26 @@ func _process(_delta: float) -> void:
 	if not is_downed:
 		return
 
-	var now := RunClock.time
+	var now := RunClock.now()
 	var remaining := downed_resolve_at - now
 
 	if _progress_bar:
-		var total := downed_duration_seconds
+		var total := maxf(downed_duration_seconds, 0.001)
 		var elapsed := total - remaining
-		_progress_bar.value = (elapsed / total) * 100.0
+		_progress_bar.value = clampf((elapsed / total) * 100.0, 0.0, 100.0)
 		_progress_bar.visible = true
 
-	if remaining <= 0:
+	if remaining <= 0.0:
 		_resolve_downed()
 
-func enter_downed(resolve_at: float = -1.0) -> void:
+func enter_downed(resolve_at: float = -1.0, entered_at: float = -1.0) -> void:
 	if is_downed:
 		return
 
 	is_downed = true
-	downed_at = RunClock.time
-	if resolve_at < 0:
+	downed_at = RunClock.now() if entered_at < 0.0 else entered_at
+
+	if resolve_at < 0.0:
 		downed_resolve_at = downed_at + downed_duration_seconds
 	else:
 		downed_resolve_at = resolve_at
@@ -119,18 +120,22 @@ func _setup_ui() -> void:
 func can_take_finishing_blow() -> bool:
 	if not is_downed:
 		return true
-	return RunClock.time - downed_at >= grace_period
+	return RunClock.now() - downed_at >= grace_period
 
 func get_save_data() -> Dictionary:
 	return {
 		"is_downed": is_downed,
+		"downed_at": downed_at,
 		"downed_resolve_at": downed_resolve_at
 	}
 
 func load_save_data(data: Dictionary) -> void:
 	if data.get("is_downed", false):
-		enter_downed(data.get("downed_resolve_at", 0.0))
+		var saved_downed_at := float(data.get("downed_at", RunClock.now()))
+		var saved_resolve_at := float(data.get("downed_resolve_at", saved_downed_at + downed_duration_seconds))
+		enter_downed(saved_resolve_at, saved_downed_at)
+
+		if downed_resolve_at <= RunClock.now():
+			call_deferred("_resolve_downed")
 	else:
-		is_downed = false
-		if _progress_bar:
-			_progress_bar.visible = false
+		reset()

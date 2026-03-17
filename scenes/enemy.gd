@@ -357,7 +357,7 @@ func set_ai_attack_intent(attack_down: bool, aim_global_position: Vector2) -> vo
 	if _is_lite_mode and attack_down:
 		return
 	if attack_down:
-		last_engaged_time = RunClock.time
+		last_engaged_time = RunClock.now()
 	var ctrl := _ensure_ai_weapon_controller()
 	ctrl.set_attack_down(attack_down)
 	ctrl.set_aim_global_position(aim_global_position)
@@ -509,7 +509,7 @@ func exit_lite_mode() -> void:
 	EnemyRegistry.update_enemy_chunk(self)
 
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
-	last_engaged_time = RunClock.time
+	last_engaged_time = RunClock.now()
 	super.take_damage(dmg, from_pos)
 	if ai_component != null:
 		ai_component.wake_now()
@@ -565,7 +565,7 @@ func capture_save_state() -> Dictionary:
 		"equipped_weapon_id": equipped,
 		"alert": 0.0,
 		"last_seen_player_pos": Vector2.ZERO,
-		"last_active_time": maxf(last_engaged_time, RunClock.time),
+		"last_active_time": maxf(last_engaged_time, RunClock.now()),
 		"version": 1,
 	}
 	if downed_component != null:
@@ -582,7 +582,14 @@ func _on_entered_downed() -> void:
 		ai_component.set_downed()
 	if ai_weapon_controller != null:
 		ai_weapon_controller.set_attack_down(false)
-	WorldSave.mark_enemy_downed(enemy_chunk_key, entity_uid, downed_component.downed_resolve_at)
+
+	WorldSave.mark_enemy_downed(
+		enemy_chunk_key,
+		entity_uid,
+		downed_component.downed_resolve_at,
+		downed_component.downed_at
+	)
+
 	NpcProfileSystem.set_status(entity_uid, "downed")
 
 func _on_revived() -> void:
