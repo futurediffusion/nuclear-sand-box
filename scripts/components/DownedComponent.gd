@@ -90,12 +90,13 @@ func _setup_ui() -> void:
 	_progress_bar.min_value = 0
 	_progress_bar.max_value = 100
 	_progress_bar.step = 0.1
-	_progress_bar.show_percentage = false
 	_progress_bar.visible = false
 
-	# Posicionamiento básico debajo del personaje
-	_progress_bar.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	_progress_bar.position = Vector2(-_progress_bar.texture_under.get_width() / 2, 10)
+	# Posicionamiento simple world-space debajo del personaje
+	var w := float(_progress_bar.texture_under.get_width())
+	var h := float(_progress_bar.texture_under.get_height())
+	_progress_bar.custom_minimum_size = Vector2(w, h)
+	_progress_bar.position = Vector2(-w * 0.5, 10.0)
 
 	add_child(_progress_bar)
 
