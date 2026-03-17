@@ -70,7 +70,13 @@ func setup(p_owner_entity: Node) -> void:
 	owner_entity = p_owner_entity
 	_rng.seed = int(owner_entity.get_instance_id())
 	_lod_rng_seeded = true
-	_finish_off_downed_player = _randf() > 0.5
+	var min_chance: float = 0.2
+	var max_chance: float = 0.4
+	if GameManager != null:
+		min_chance = float(GameManager.finish_off_chance_min)
+		max_chance = float(GameManager.finish_off_chance_max)
+	var chance: float = _randf_range(min_chance, max_chance)
+	_finish_off_downed_player = _randf() < chance
 	_init_combat_style_window()
 	_find_player()
 	_schedule_sleep_check()
