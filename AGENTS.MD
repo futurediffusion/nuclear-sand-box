@@ -56,6 +56,7 @@ Script orquestador: `scripts/world/world.gd`
 | `NpcSimulator` | Node | `scripts/world/NpcSimulator.gd` | Tracking de enemigos activos, lite-mode (AI on/off por distancia), simulación data-only |
 | `ChunkPerfMonitor` | RefCounted | `scripts/world/ChunkPerfMonitor.gd` | Timings por stage, percentiles, auto-calibración de budgets |
 | `ChunkWallColliderCache` | RefCounted | `scripts/world/ChunkWallColliderCache.gd` | Caché de colliders de walls por chunk (dirty/hash/reuse/eviction) |
+| `WallRefreshQueue` | RefCounted | `scripts/world/WallRefreshQueue.gd` | Cola deduplicada de chunks para refresh diferido de colliders de walls (budget en `_process`) |
 | `ChunkGenerator` | RefCounted | `scripts/world/chunk_generator.gd` | Datos procedurales de tiles via `FastNoiseLite`; `apply_ground_terrain_ctx` |
 | `GroundPainter` | RefCounted | — | Terreno de GroundTileMap (dirt/grass) |
 | `CollisionBuilder` | RefCounted | — | `StaticBody2D` de muros por chunk, caché por hash |
@@ -297,6 +298,18 @@ Rol:
 - Adaptador único entre `PlayerWallSystem` y `WorldSave` para walls del player.
 - Expone API por caso de uso (`save_wall`, `remove_wall`, `load_chunk_walls`, `list_player_walls`).
 - Centraliza serialización/deserialización de `wall_data` sin cambiar el schema actual (`{"hp": int}`).
+
+### WALL REFRESH QUEUE (World Runtime)
+
+Ubicacion:
+
+- `scripts/world/WallRefreshQueue.gd`
+
+Rol:
+
+- Recibe chunks de walls marcados dirty desde `world.gd` sin rebuild inmediato.
+- Deduplica por chunk y drena la cola desde `_process`.
+- Budget fijo inicial: 1 rebuild de collider por frame para suavizar tirones de picos.
 
 ### ⏱️ AWAKE RAMP QUEUE (Autoload)
 

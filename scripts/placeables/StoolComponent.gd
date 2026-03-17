@@ -68,6 +68,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_refresh_interact_prompt_visibility()
 	_update_draw_order()
 
 
@@ -147,7 +148,7 @@ func _on_body_entered(body: Node) -> void:
 		return
 	_player_inside = true
 	_runtime_player_ref = weakref(body)
-	interact_icon.visible = true
+	_refresh_interact_prompt_visibility()
 	_update_draw_order()
 
 
@@ -159,11 +160,7 @@ func _on_body_exited(body: Node) -> void:
 		var cached: Node = _runtime_player_ref.get_ref() as Node
 		if cached == body:
 			_runtime_player_ref = null
-	if _is_player_still_seated_on_this(body):
-		interact_icon.visible = true
-		_update_draw_order()
-		return
-	interact_icon.visible = false
+	_refresh_interact_prompt_visibility()
 	_update_draw_order()
 
 
@@ -241,15 +238,18 @@ func _get_runtime_player() -> Node2D:
 func _update_seated_player_tracking(player: Node) -> void:
 	if player == null or not player.has_method("is_seated_on"):
 		_seated_player_ref = null
-		interact_icon.visible = _player_inside
+		_refresh_interact_prompt_visibility()
 		return
 	var is_on_this: bool = bool(player.call("is_seated_on", self))
 	if is_on_this:
 		_seated_player_ref = weakref(player)
-		interact_icon.visible = true
-		return
-	_seated_player_ref = null
-	interact_icon.visible = _player_inside
+	else:
+		_seated_player_ref = null
+	_refresh_interact_prompt_visibility()
+
+
+func _refresh_interact_prompt_visibility() -> void:
+	interact_icon.visible = _player_inside and (not UiManager.is_interact_prompt_suppressed())
 
 
 func _is_player_still_seated_on_this(player: Node) -> bool:
@@ -265,6 +265,7 @@ func _force_unseat_player() -> void:
 	if player.has_method("force_leave_seat"):
 		player.call("force_leave_seat")
 	_seated_player_ref = null
+	_refresh_interact_prompt_visibility()
 	_update_draw_order()
 
 

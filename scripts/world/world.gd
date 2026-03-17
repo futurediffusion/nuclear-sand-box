@@ -116,6 +116,7 @@ var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
 var _structural_wall_persistence: StructuralWallPersistence
 var _chunk_wall_collider_cache: ChunkWallColliderCache
+var _wall_refresh_queue: WallRefreshQueue
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -149,6 +150,7 @@ const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
 const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
+const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -166,6 +168,7 @@ const BIOME_ID_GRASSLAND: int = 1
 const BIOME_ID_DENSE_GRASS: int = 2
 
 func _ready() -> void:
+	_wall_refresh_queue = WallRefreshQueueScript.new()
 	_chunk_wall_collider_cache = ChunkWallColliderCacheScript.new()
 	_chunk_wall_collider_cache.setup({
 		"walls_tilemap": walls_tilemap,
@@ -483,8 +486,20 @@ func _process_tile_erase_queue() -> void:
 		unload_chunk(cpos)
 		budget -= 1
 
+func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
+	if _wall_refresh_queue == null:
+		return
+	var rebuild_budget: int = maxi(0, max_rebuilds_per_frame)
+	while rebuild_budget > 0 and _wall_refresh_queue.has_pending():
+		var chunk_pos: Vector2i = _wall_refresh_queue.pop_next()
+		if not loaded_chunks.has(chunk_pos):
+			continue
+		_ensure_chunk_wall_collision(chunk_pos)
+		rebuild_budget -= 1
+
 func _process(delta: float) -> void:
 	pipeline.process(delta)
+	_process_wall_refresh_queue(1)
 	_process_tile_erase_queue()
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
@@ -845,8 +860,8 @@ func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) ->
 		chunks_to_refresh[cpos] = true
 	for cpos in chunks_to_refresh.keys():
 		var chunk_pos: Vector2i = cpos as Vector2i
-		if loaded_chunks.has(chunk_pos):
-			_ensure_chunk_wall_collision(chunk_pos)
+		if loaded_chunks.has(chunk_pos) and _wall_refresh_queue != null:
+			_wall_refresh_queue.enqueue(chunk_pos)
 
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	if _chunk_wall_collider_cache != null:

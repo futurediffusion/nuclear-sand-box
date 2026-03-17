@@ -254,6 +254,9 @@ func _update_interact_prompt() -> void:
 	if _in_combat:
 		interact_icon.visible = false
 		return
+	if UiManager.is_interact_prompt_suppressed():
+		interact_icon.visible = false
+		return
 	# ✅ Mostrar icono SOLO si el player está dentro del área
 	interact_icon.visible = _player_nearby and (not dying)
 
@@ -263,7 +266,7 @@ func _update_interact_prompt() -> void:
 		sprite.flip_h = dx < 0.0
 
 	# Tecla E → placeholder (solo imprime)
-	if _player_nearby and Input.is_action_just_pressed("interact"):
+	if _player_nearby and (not UiManager.is_interact_prompt_suppressed()) and Input.is_action_just_pressed("interact"):
 		if _keeper_menu_ui != null and _keeper_menu_ui.is_owner(self):
 			_keeper_menu_ui.close_shop()
 		else:
@@ -279,6 +282,8 @@ func _open_shop() -> void:
 		return
 
 	if UiManager.is_interact_blocked():
+		return
+	if UiManager.is_interact_prompt_suppressed():
 		return
 
 	if _keeper_menu_ui.is_shop_open() and not _keeper_menu_ui.is_owner(self):

@@ -73,6 +73,15 @@ func is_interact_blocked() -> bool:
 	return Time.get_ticks_msec() < _block_interact_until_msec
 
 
+func is_interact_prompt_suppressed() -> bool:
+	for player in get_tree().get_nodes_in_group("player"):
+		if player == null:
+			continue
+		if player.has_method("is_seated") and bool(player.call("is_seated")):
+			return true
+	return false
+
+
 func _apply_mode() -> void:
 	var ui_open := is_ui_open()
 	if ui_open:

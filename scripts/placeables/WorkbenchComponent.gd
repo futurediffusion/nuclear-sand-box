@@ -45,6 +45,7 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_refresh_interact_prompt_visibility()
 	# Shake
 	if _shake_t > 0.0:
 		_shake_t -= delta
@@ -62,6 +63,8 @@ func _physics_process(delta: float) -> void:
 
 func _input(event: InputEvent) -> void:
 	if not _player_inside:
+		return
+	if UiManager.is_interact_prompt_suppressed():
 		return
 	if UiManager.is_interact_blocked():
 		return
@@ -124,17 +127,21 @@ func _on_body_entered(body: Node) -> void:
 	if not body.is_in_group("player"):
 		return
 	_player_inside = true
-	interact_icon.visible = true
+	_refresh_interact_prompt_visibility()
 
 
 func _on_body_exited(body: Node) -> void:
 	if not body.is_in_group("player"):
 		return
 	_player_inside = false
-	interact_icon.visible = false
+	_refresh_interact_prompt_visibility()
 	var menu := _get_workbench_menu()
 	if menu != null and menu.is_open():
 		menu.close_menu()
+
+
+func _refresh_interact_prompt_visibility() -> void:
+	interact_icon.visible = _player_inside and (not UiManager.is_interact_prompt_suppressed())
 
 
 func _get_workbench_menu() -> WorkbenchMenuUi:
