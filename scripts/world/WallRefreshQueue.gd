@@ -26,16 +26,23 @@ func record_activity(chunk_pos: Vector2i) -> void:
 	var now := Time.get_ticks_msec()
 	_activity_timestamps[chunk_pos] = now
 
-	# If it was in the normal queue, promote it to hot
-	if _enqueued_status.get(chunk_pos, 0) == 1:
+	var status = _enqueued_status.get(chunk_pos, 0)
+	if status == 1: # was normal, promote
 		_promote_to_hot(chunk_pos)
+	elif status == 2: # already hot, move to front (Most Recent First)
+		_hot_queue.erase(chunk_pos)
+		_hot_queue.push_front(chunk_pos)
 
 func enqueue(chunk_pos: Vector2i) -> void:
 	if _enqueued_status.has(chunk_pos):
+		# If it's already hot, calling enqueue again also refreshes its priority
+		if _enqueued_status[chunk_pos] == 2:
+			_hot_queue.erase(chunk_pos)
+			_hot_queue.push_front(chunk_pos)
 		return
 
 	if _is_hot(chunk_pos):
-		_hot_queue.append(chunk_pos)
+		_hot_queue.push_front(chunk_pos) # Most Recent First
 		_enqueued_status[chunk_pos] = 2
 	else:
 		_normal_queue.append(chunk_pos)
@@ -47,12 +54,15 @@ func has_pending() -> bool:
 func pop_next() -> Vector2i:
 	var now := Time.get_ticks_msec()
 
-	# 1. Try Hot Queue first
+	# 1. Maintenance: Demote "cold" chunks from Hot to Normal queue
+	_demote_cold_chunks(now)
+
+	# 2. Try Hot Queue first
 	var hot_chunk = _pop_from_queue(_hot_queue, now)
 	if hot_chunk != Vector2i(-999999, -999999):
 		return hot_chunk
 
-	# 2. Try Normal Queue
+	# 3. Try Normal Queue
 	return _pop_from_queue(_normal_queue, now)
 
 func purge_chunk(chunk_pos: Vector2i) -> void:
@@ -64,12 +74,26 @@ func purge_chunk(chunk_pos: Vector2i) -> void:
 
 func _is_hot(chunk_pos: Vector2i) -> bool:
 	var ts = _activity_timestamps.get(chunk_pos, 0)
+	if ts == 0: return false
 	return (Time.get_ticks_msec() - ts) < HOT_THRESHOLD_MS
 
 func _promote_to_hot(chunk_pos: Vector2i) -> void:
 	_normal_queue.erase(chunk_pos)
-	_hot_queue.append(chunk_pos)
+	_hot_queue.push_front(chunk_pos) # Most Recent First
 	_enqueued_status[chunk_pos] = 2
+
+func _demote_cold_chunks(now: int) -> void:
+	var i := 0
+	while i < _hot_queue.size():
+		var chunk_pos = _hot_queue[i]
+		# Use a local check with passed 'now' for consistency during this frame
+		var ts = _activity_timestamps.get(chunk_pos, 0)
+		if (now - ts) >= HOT_THRESHOLD_MS:
+			_hot_queue.remove_at(i)
+			_normal_queue.append(chunk_pos)
+			_enqueued_status[chunk_pos] = 1
+		else:
+			i += 1
 
 func _pop_from_queue(queue: Array[Vector2i], now: int) -> Vector2i:
 	for i in range(queue.size()):
@@ -84,7 +108,7 @@ func _pop_from_queue(queue: Array[Vector2i], now: int) -> Vector2i:
 		_enqueued_status.erase(chunk_pos)
 		_last_rebuild_timestamps[chunk_pos] = now
 
-		# Cleanup activity timestamp if it's old (optional, but keeps memory clean)
+		# Cleanup activity timestamp if it's old
 		if not _is_hot(chunk_pos):
 			_activity_timestamps.erase(chunk_pos)
 
