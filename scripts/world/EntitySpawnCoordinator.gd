@@ -361,7 +361,7 @@ func unload_entities(chunk_pos: Vector2i) -> void:
 	chunk_saveables.erase(chunk_pos)
 
 func register_manual_instance(uid: String, node: Node, tile_pos: Vector2i) -> void:
-	var cpos := _chunk_from_key_fn.call(WorldSave.get_chunk_key_for_tile(tile_pos.x, tile_pos.y))
+	var cpos: Vector2i = _chunk_from_key_fn.call(WorldSave.get_chunk_key_for_tile(tile_pos.x, tile_pos.y))
 	if cpos.x == -99999:
 		return
 
