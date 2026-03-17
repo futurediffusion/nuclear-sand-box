@@ -15,12 +15,18 @@ var _enqueued_status: Dictionary = {} # chunk_pos -> int (0: none, 1: normal, 2:
 var _activity_timestamps: Dictionary = {} # chunk_pos -> int (last activity)
 var _last_rebuild_timestamps: Dictionary = {} # chunk_pos -> int (last successful pop)
 
+# Revision System for merging changes
+var _requested_revisions: Dictionary = {} # chunk_pos -> int
+var _rebuilt_revisions: Dictionary = {}   # chunk_pos -> int
+
 func clear() -> void:
 	_hot_queue.clear()
 	_normal_queue.clear()
 	_enqueued_status.clear()
 	_activity_timestamps.clear()
 	_last_rebuild_timestamps.clear()
+	_requested_revisions.clear()
+	_rebuilt_revisions.clear()
 
 func record_activity(chunk_pos: Vector2i) -> void:
 	var now := Time.get_ticks_msec()
@@ -34,6 +40,9 @@ func record_activity(chunk_pos: Vector2i) -> void:
 		_hot_queue.push_front(chunk_pos)
 
 func enqueue(chunk_pos: Vector2i) -> void:
+	# Revision merge: every enqueue increments the requested revision
+	_requested_revisions[chunk_pos] = _requested_revisions.get(chunk_pos, 0) + 1
+
 	if _enqueued_status.has(chunk_pos):
 		# If it's already hot, calling enqueue again also refreshes its priority
 		if _enqueued_status[chunk_pos] == 2:
@@ -51,19 +60,42 @@ func enqueue(chunk_pos: Vector2i) -> void:
 func has_pending() -> bool:
 	return not _hot_queue.is_empty() or not _normal_queue.is_empty()
 
-func pop_next() -> Vector2i:
+## Selection Contract (Option A): Tries to pop the next ready chunk.
+## Returns { "ok": bool, "chunk_pos": Vector2i, "revision": int, "next_ready_in_ms": int }
+func try_pop_next() -> Dictionary:
 	var now := Time.get_ticks_msec()
 
 	# 1. Maintenance: Demote "cold" chunks from Hot to Normal queue
 	_demote_cold_chunks(now)
 
 	# 2. Try Hot Queue first
-	var hot_chunk = _pop_from_queue(_hot_queue, now)
-	if hot_chunk != Vector2i(-999999, -999999):
-		return hot_chunk
+	var hot_result = _try_pop_from_queue(_hot_queue, now)
+	if hot_result.ok:
+		return hot_result
 
 	# 3. Try Normal Queue
-	return _pop_from_queue(_normal_queue, now)
+	var normal_result = _try_pop_from_queue(_normal_queue, now)
+	if normal_result.ok:
+		return normal_result
+
+	# 4. Nothing ready this frame
+	var next_wait = -1
+	if hot_result.next_ready_in_ms != -1:
+		next_wait = hot_result.next_ready_in_ms
+	if normal_result.next_ready_in_ms != -1:
+		if next_wait == -1 or normal_result.next_ready_in_ms < next_wait:
+			next_wait = normal_result.next_ready_in_ms
+
+	return {
+		"ok": false,
+		"chunk_pos": Vector2i(-999999, -999999),
+		"revision": -1,
+		"next_ready_in_ms": next_wait
+	}
+
+func confirm_rebuild(chunk_pos: Vector2i, revision: int) -> void:
+	_rebuilt_revisions[chunk_pos] = revision
+	_last_rebuild_timestamps[chunk_pos] = Time.get_ticks_msec()
 
 func purge_chunk(chunk_pos: Vector2i) -> void:
 	_hot_queue.erase(chunk_pos)
@@ -71,6 +103,8 @@ func purge_chunk(chunk_pos: Vector2i) -> void:
 	_enqueued_status.erase(chunk_pos)
 	_activity_timestamps.erase(chunk_pos)
 	_last_rebuild_timestamps.erase(chunk_pos)
+	_requested_revisions.erase(chunk_pos)
+	_rebuilt_revisions.erase(chunk_pos)
 
 func _is_hot(chunk_pos: Vector2i) -> bool:
 	var ts = _activity_timestamps.get(chunk_pos, 0)
@@ -95,23 +129,38 @@ func _demote_cold_chunks(now: int) -> void:
 		else:
 			i += 1
 
-func _pop_from_queue(queue: Array[Vector2i], now: int) -> Vector2i:
+func _try_pop_from_queue(queue: Array[Vector2i], now: int) -> Dictionary:
+	var min_wait = -1
+
 	for i in range(queue.size()):
 		var chunk_pos = queue[i]
 
 		# Check cooldown
 		var last_rebuild = _last_rebuild_timestamps.get(chunk_pos, 0)
-		if (now - last_rebuild) < REFRESH_COOLDOWN_MS:
+		var elapsed = now - last_rebuild
+		if elapsed < REFRESH_COOLDOWN_MS:
+			var wait = REFRESH_COOLDOWN_MS - elapsed
+			if min_wait == -1 or wait < min_wait:
+				min_wait = wait
 			continue # Skip this chunk for now, it's in cooldown
 
 		queue.remove_at(i)
 		_enqueued_status.erase(chunk_pos)
-		_last_rebuild_timestamps[chunk_pos] = now
 
 		# Cleanup activity timestamp if it's old
 		if not _is_hot(chunk_pos):
 			_activity_timestamps.erase(chunk_pos)
 
-		return chunk_pos
+		return {
+			"ok": true,
+			"chunk_pos": chunk_pos,
+			"revision": _requested_revisions.get(chunk_pos, 0),
+			"next_ready_in_ms": 0
+		}
 
-	return Vector2i(-999999, -999999)
+	return {
+		"ok": false,
+		"chunk_pos": Vector2i(-999999, -999999),
+		"revision": -1,
+		"next_ready_in_ms": min_wait
+	}
