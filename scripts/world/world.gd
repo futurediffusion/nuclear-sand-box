@@ -506,6 +506,8 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 
 func _process(delta: float) -> void:
 	pipeline.process(delta)
+	if _wall_refresh_queue != null and Engine.get_process_frames() % 600 == 0:
+		_wall_refresh_queue.prune_old_activity(60000)
 	_process_wall_refresh_queue(1)
 	_process_tile_erase_queue()
 	if entity_coordinator != null and player:
@@ -634,6 +636,8 @@ func _apply_calibrated_perf_budgets() -> void:
 		pipeline.cliff_paint_chunks_per_tick = budgets["cliff_paint_chunks_per_tick"]
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
+	if _wall_refresh_queue != null:
+		_wall_refresh_queue.on_chunk_unloaded(chunk_pos)
 	_vegetation_root.unload_chunk(chunk_pos)
 	# Borrar suelo del WorldTileMap
 	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR])
