@@ -171,6 +171,7 @@ script = ExtResource("7_hurtbox")
 shape = SubResource("RectangleShape2D_keeper_hurtbox")
 
 [node name="DetectionArea" type="Area2D" parent="."]
+monitorable = false
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="DetectionArea"]
 shape = SubResource("CircleShape2D_rnc8v")

@@ -308,21 +308,86 @@ func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 
 func damage_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 20.0, allow_structural_feedback: bool = true) -> bool:
 	var hit_amount: int = maxi(1, amount)
 	var hit_radius: float = maxf(radius, 0.0)
-	var hit_player_wall: bool = false
+	var contact_tile: Vector2i = _world_to_tile(world_pos)
+	var direct_wall_category := BuildableCatalog.classify_wall_tile(_is_player_wall_tile(contact_tile), _is_structural_wall_tile(contact_tile))
+	if direct_wall_category == BuildableCatalog.CATEGORY_TILE_WALL_PLAYER:
+		return damage_player_wall_at_tile(contact_tile, hit_amount)
+	if direct_wall_category == BuildableCatalog.CATEGORY_TILE_WALL_STRUCTURAL:
+		if not allow_structural_feedback:
+			return false
+		return damage_structural_wall_at_tile(contact_tile, hit_amount)
 
-	if hit_radius > 0.0:
-		hit_player_wall = damage_player_wall_in_circle(world_pos, hit_radius, hit_amount)
-	if not hit_player_wall:
-		hit_player_wall = damage_player_wall_at_world_pos(world_pos, hit_amount)
-	if hit_player_wall:
-		return true
+	var tile_size_vec: Vector2 = _get_wall_tile_size_vec()
+	var player_tile: Vector2i = _find_nearest_player_wall_tile_for_hit(world_pos, hit_radius, tile_size_vec)
+	var structural_tile: Vector2i = WallTileResolverScript.find_nearest_structural_wall_tile(
+		world_pos,
+		hit_radius,
+		Callable(self, "_world_to_tile"),
+		Callable(self, "_is_valid_world_tile"),
+		Callable(self, "_is_structural_wall_tile"),
+		Callable(self, "_tile_to_world"),
+		tile_size_vec
+	)
+	var has_player: bool = player_tile.x >= 0 and player_tile.y >= 0
+	var has_structural: bool = structural_tile.x >= 0 and structural_tile.y >= 0
 
-	var structural_tile: Vector2i = WallTileResolverScript.find_nearest_structural_wall_tile(world_pos, hit_radius, Callable(self, "_world_to_tile"), Callable(self, "_is_valid_world_tile"), Callable(self, "_is_structural_wall_tile"), Callable(self, "_tile_to_world"), _get_wall_tile_size_vec())
-	if structural_tile.x < 0 or structural_tile.y < 0:
+	if not has_player and not has_structural:
 		return false
-	if not allow_structural_feedback:
-		return false
-	return damage_wall_at_tile(structural_tile, hit_amount)
+	if has_structural and not allow_structural_feedback:
+		return has_player and damage_player_wall_at_tile(player_tile, hit_amount)
+	if has_structural and not has_player:
+		return damage_structural_wall_at_tile(structural_tile, hit_amount)
+	if has_player and not has_structural:
+		return damage_player_wall_at_tile(player_tile, hit_amount)
+
+	var player_dist_sq: float = WallTileResolverScript.distance_sq_to_tile_bounds(world_pos, player_tile, Callable(self, "_tile_to_world"), tile_size_vec)
+	var structural_dist_sq: float = WallTileResolverScript.distance_sq_to_tile_bounds(world_pos, structural_tile, Callable(self, "_tile_to_world"), tile_size_vec)
+	if structural_dist_sq <= player_dist_sq + 0.0001:
+		return damage_structural_wall_at_tile(structural_tile, hit_amount)
+	return damage_player_wall_at_tile(player_tile, hit_amount)
+
+func _find_nearest_player_wall_tile_for_hit(world_center: Vector2, world_radius: float, tile_size_vec: Vector2) -> Vector2i:
+	var center_tile: Vector2i = _world_to_tile(world_center)
+	if _is_player_wall_tile(center_tile):
+		return center_tile
+
+	if world_radius <= 0.0:
+		var best_tile := Vector2i(-1, -1)
+		var found := false
+		var best_dist := 1.0e30
+		var search_radius: int = 2
+		for oy in range(-search_radius, search_radius + 1):
+			for ox in range(-search_radius, search_radius + 1):
+				var candidate: Vector2i = center_tile + Vector2i(ox, oy)
+				if not _is_valid_world_tile(candidate):
+					continue
+				if not _is_player_wall_tile(candidate):
+					continue
+				var dist: float = WallTileResolverScript.distance_sq_to_tile_bounds(world_center, candidate, Callable(self, "_tile_to_world"), tile_size_vec)
+				if not found or dist < best_dist:
+					best_dist = dist
+					best_tile = candidate
+					found = true
+		return best_tile
+
+	var tile_size: float = maxf(tile_size_vec.x, tile_size_vec.y)
+	var tile_radius: int = maxi(1, int(ceili(world_radius / tile_size)) + 1)
+	var candidate_tile: Vector2i = WallTileResolverScript.find_nearest_player_wall_tile_in_neighborhood(
+		world_center,
+		center_tile,
+		Callable(self, "_world_to_tile"),
+		Callable(self, "_is_valid_world_tile"),
+		Callable(self, "_is_player_wall_tile"),
+		Callable(self, "_tile_to_world"),
+		tile_size_vec,
+		tile_radius
+	)
+	if candidate_tile.x < 0 or candidate_tile.y < 0:
+		return Vector2i(-1, -1)
+	var dist_sq: float = WallTileResolverScript.distance_sq_to_tile_bounds(world_center, candidate_tile, Callable(self, "_tile_to_world"), tile_size_vec)
+	if dist_sq > world_radius * world_radius:
+		return Vector2i(-1, -1)
+	return candidate_tile
 
 func damage_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	var wall_category := BuildableCatalog.classify_wall_tile(_is_player_wall_tile(tile_pos), _is_structural_wall_tile(tile_pos))
