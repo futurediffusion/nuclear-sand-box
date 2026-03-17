@@ -209,6 +209,24 @@ func _is_flat_top_branch_tile(support_lookup: Dictionary, cell: Vector2i) -> boo
 	var east_wall: bool = support_lookup.has(cell + Vector2i(1, 0))
 	return west_wall or east_wall
 
+func _is_non_flat_branch_seam_candidate(support_lookup: Dictionary, spine_cell: Vector2i, side: int) -> bool:
+	if side != -1 and side != 1:
+		return false
+	var neighbor: Vector2i = spine_cell + Vector2i(side, 0)
+	if not support_lookup.has(neighbor):
+		return false
+	var branch_continues_away: bool = support_lookup.has(neighbor + Vector2i(side, 0))
+	if not branch_continues_away:
+		return false
+	var neighbor_north_free: bool = not support_lookup.has(neighbor + Vector2i(0, -1))
+	var neighbor_south_free: bool = not support_lookup.has(neighbor + Vector2i(0, 1))
+	if not (neighbor_north_free or neighbor_south_free):
+		return false
+	# El caso flat-top ya se maneja por la regla existente.
+	if neighbor_north_free and neighbor_south_free:
+		return false
+	return true
+
 func _should_keep_spine_side_strip(support_lookup: Dictionary, cell: Vector2i, side: int) -> bool:
 	if side != -1 and side != 1:
 		return false
@@ -219,7 +237,55 @@ func _should_keep_spine_side_strip(support_lookup: Dictionary, cell: Vector2i, s
 	if not (north_wall and south_wall):
 		return false
 	var neighbor: Vector2i = cell + Vector2i(side, 0)
-	return _is_flat_top_branch_tile(support_lookup, neighbor)
+	if _is_flat_top_branch_tile(support_lookup, neighbor):
+		return true
+	return _is_non_flat_branch_seam_candidate(support_lookup, cell, side)
+
+func _set_best_inner_corner_candidate(best_by_edge: Dictionary, edge_key: String, cell: Vector2i, side: String, score: int) -> void:
+	var previous: Dictionary = best_by_edge.get(edge_key, {})
+	var previous_score: int = int(previous.get("score", -999999))
+	if score <= previous_score:
+		return
+	best_by_edge[edge_key] = {
+		"cell": cell,
+		"side": side,
+		"score": score,
+	}
+
+func _collect_best_inner_corner_by_edge(wall_lookup: Dictionary, sealed_wall_lookup: Dictionary, start_x: int, end_x: int, start_y: int, end_y: int) -> Dictionary:
+	var best_by_edge: Dictionary = {}
+	for y in range(start_y, end_y + 1):
+		for x in range(start_x, end_x + 1):
+			var cell := Vector2i(x, y)
+			if not wall_lookup.has(cell) or sealed_wall_lookup.has(cell):
+				continue
+
+			if _is_bottom_left_inner_corner(wall_lookup, cell):
+				# No suprimir por anchor del tile inward:
+				# en configuraciones tipo Y con refuerzo inferior lateral,
+				# ese filtro abria huecos en ambos lados.
+				if _is_flat_top_branch_tile(wall_lookup, cell):
+					continue
+				var edge_key_east: String = "V:%d:%d" % [x + 1, y]
+				var score_east: int = 0
+				if wall_lookup.has(cell + Vector2i(0, -1)):
+					score_east += 10
+				if wall_lookup.has(cell + Vector2i(1, -1)):
+					score_east += 1
+				_set_best_inner_corner_candidate(best_by_edge, edge_key_east, cell, "E", score_east)
+
+			if _is_bottom_right_inner_corner(wall_lookup, cell):
+				# Mismo criterio simetrico del lado oeste.
+				if _is_flat_top_branch_tile(wall_lookup, cell):
+					continue
+				var edge_key_west: String = "V:%d:%d" % [x, y]
+				var score_west: int = 0
+				if wall_lookup.has(cell + Vector2i(0, -1)):
+					score_west += 10
+				if wall_lookup.has(cell + Vector2i(-1, -1)):
+					score_west += 1
+				_set_best_inner_corner_candidate(best_by_edge, edge_key_west, cell, "W", score_west)
+	return best_by_edge
 
 func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, walls_layer: int, walls_source_id: int, extra_support_lookup: Dictionary = {}) -> StaticBody2D:
 	if tilemap == null:
@@ -501,56 +567,14 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			shape_count += 1
 
 	# â”€â”€ Paso 6: inner corner plugs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-	var best_inner_corner_by_edge: Dictionary = {}
-	for y in range(start_y, end_y + 1):
-		for x in range(start_x, end_x + 1):
-			var cell := Vector2i(x, y)
-			if not wall_lookup.has(cell) or sealed_wall_lookup.has(cell):
-				continue
-
-			if _is_bottom_left_inner_corner(wall_lookup, cell):
-				var inward_cell_east: Vector2i = cell + Vector2i(1, 0)
-				if _is_north_branch_t_anchor(wall_lookup, inward_cell_east):
-					continue
-				var inward_has_vertical_span_east: bool = wall_lookup.has(inward_cell_east + Vector2i(0, -1)) and wall_lookup.has(inward_cell_east + Vector2i(0, 1))
-				if inward_has_vertical_span_east:
-					continue
-				var edge_key_east: String = "V:%d:%d" % [x + 1, y]
-				var score_east: int = 0
-				if wall_lookup.has(cell + Vector2i(0, -1)):
-					score_east += 10
-				if wall_lookup.has(cell + Vector2i(1, -1)):
-					score_east += 1
-				var prev_east: Dictionary = best_inner_corner_by_edge.get(edge_key_east, {})
-				var prev_east_score: int = int(prev_east.get("score", -999999))
-				if score_east > prev_east_score:
-					best_inner_corner_by_edge[edge_key_east] = {
-						"cell": cell,
-						"side": "E",
-						"score": score_east,
-					}
-
-			if _is_bottom_right_inner_corner(wall_lookup, cell):
-				var inward_cell_west: Vector2i = cell + Vector2i(-1, 0)
-				if _is_north_branch_t_anchor(wall_lookup, inward_cell_west):
-					continue
-				var inward_has_vertical_span_west: bool = wall_lookup.has(inward_cell_west + Vector2i(0, -1)) and wall_lookup.has(inward_cell_west + Vector2i(0, 1))
-				if inward_has_vertical_span_west:
-					continue
-				var edge_key_west: String = "V:%d:%d" % [x, y]
-				var score_west: int = 0
-				if wall_lookup.has(cell + Vector2i(0, -1)):
-					score_west += 10
-				if wall_lookup.has(cell + Vector2i(-1, -1)):
-					score_west += 1
-				var prev_west: Dictionary = best_inner_corner_by_edge.get(edge_key_west, {})
-				var prev_west_score: int = int(prev_west.get("score", -999999))
-				if score_west > prev_west_score:
-					best_inner_corner_by_edge[edge_key_west] = {
-						"cell": cell,
-						"side": "W",
-						"score": score_west,
-					}
+	var best_inner_corner_by_edge: Dictionary = _collect_best_inner_corner_by_edge(
+		wall_lookup,
+		sealed_wall_lookup,
+		start_x,
+		end_x,
+		start_y,
+		end_y
+	)
 
 	var sorted_inner_edges: Array = best_inner_corner_by_edge.keys()
 	sorted_inner_edges.sort()

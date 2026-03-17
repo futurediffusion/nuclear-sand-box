@@ -14,6 +14,9 @@ const COMMAND_SPAWN_MIN_DIST  := 56.0
 const COMMAND_SPAWN_MAX_DIST  := 110.0
 const DEFAULT_COMMAND_TILE_SIZE := 16.0
 const COMMAND_HISTORY_LIMIT   := 10
+const GIVE_SHORTCUTS: Dictionary = {
+	"ww": {"item_id": "wallwood", "amount": 200},
+}
 
 var _player: Node        = null
 var _world: Node         = null
@@ -90,7 +93,7 @@ func _setup_command_bar() -> void:
 	_command_input.offset_top    = 4.0
 	_command_input.offset_right  = -8.0
 	_command_input.offset_bottom = -4.0
-	_command_input.placeholder_text = "/give <item_id> <n>  |  /dog <n>  |  /summon enemy [n] [ox] [oy]  |  /spawn  |  /spawn_workbench"
+	_command_input.placeholder_text = "/give <item_id> <n>  |  /gv ww  |  /dog <n>  |  /summon enemy [n] [ox] [oy]  |  /spawn  |  /spawn_workbench"
 	_command_input.clear_button_enabled = true
 	_command_input.text_submitted.connect(_on_command_submitted)
 	_command_input.gui_input.connect(_on_command_gui_input)
@@ -180,6 +183,8 @@ func _navigate_command_history(direction: int) -> void:
 # ---------------------------------------------------------------------------
 func _execute_command(command_text: String) -> void:
 	if not command_text.begins_with(COMMAND_PREFIX):
+		if _try_execute_shortcut_without_prefix(command_text):
+			return
 		Debug.log("commands", "Comando inválido: falta '/' (%s)" % command_text)
 		return
 
@@ -196,6 +201,8 @@ func _execute_command(command_text: String) -> void:
 			_cmd_spawn_workbench()
 		"give":
 			_cmd_give(parts.slice(1))
+		"gv":
+			_cmd_give_shortcut(parts.slice(1))
 		"dog":
 			_cmd_give_gold(parts.slice(1))
 		"summon":
@@ -205,6 +212,33 @@ func _execute_command(command_text: String) -> void:
 				Debug.log("commands", "Uso: /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]")
 		_:
 			Debug.log("commands", "Comando desconocido: %s" % base_command)
+
+func _try_execute_shortcut_without_prefix(command_text: String) -> bool:
+	var parts := command_text.split(" ", false)
+	if parts.size() == 0:
+		return false
+	var base_command := String(parts[0]).to_lower()
+	if base_command != "gv":
+		return false
+	_cmd_give_shortcut(parts.slice(1))
+	return true
+
+func _cmd_give_shortcut(raw_args: Array) -> void:
+	if raw_args.is_empty():
+		Debug.log("commands", "Uso: /gv ww")
+		return
+	var shortcut_key := String(raw_args[0]).strip_edges().to_lower()
+	var shortcut_data: Variant = GIVE_SHORTCUTS.get(shortcut_key, null)
+	if not (shortcut_data is Dictionary):
+		Debug.log("commands", "Shortcut desconocido: %s" % shortcut_key)
+		return
+	var shortcut := shortcut_data as Dictionary
+	var item_id := String(shortcut.get("item_id", "")).strip_edges().to_lower()
+	var amount := int(shortcut.get("amount", 0))
+	if item_id.is_empty() or amount <= 0:
+		Debug.log("commands", "Shortcut invalido: %s" % shortcut_key)
+		return
+	_cmd_give([item_id, str(amount)])
 
 
 # ---------------------------------------------------------------------------

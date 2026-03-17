@@ -45,6 +45,10 @@ var _combat_block_pushed: bool = false
 var _last_hover_tile: Vector2i = Vector2i.ZERO
 var _has_last_hover_tile: bool = false
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var _drag_painting: bool = false
+var _drag_last_tile: Vector2i = Vector2i.ZERO
+var _has_drag_last_tile: bool = false
+var _drag_painted_wall_tiles: Dictionary = {}
 
 # Máscara de capas que bloquean colocación: WALLPROPS(16) + Resources(8) + Player(1)
 const BLOCK_MASK: int = CollisionLayers.WORLD_WALL_LAYER_MASK \
@@ -73,6 +77,8 @@ func begin_placement(item_id: String, icon: Texture2D = null) -> void:
 	_placement_mode = placement_mode
 	_last_hover_tile = Vector2i.ZERO
 	_has_last_hover_tile = false
+	_drag_painted_wall_tiles.clear()
+	_stop_drag_paint()
 	_acquire_combat_block()
 	_spawn_ghost(icon)
 
@@ -124,14 +130,21 @@ func _input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if not mb.pressed:
-			return
 		if mb.button_index == MOUSE_BUTTON_LEFT:
-			UiManager.block_combat_for(PLACEMENT_CLICK_COMBAT_BLOCK_MS)
-			if _can_place:
-				_do_place()
+			if mb.pressed:
+				if _is_drag_paint_enabled_for_current_item():
+					_drag_painting = true
+					_drag_last_tile = _get_mouse_tile()
+					_has_drag_last_tile = true
+				else:
+					_stop_drag_paint()
+				UiManager.block_combat_for(PLACEMENT_CLICK_COMBAT_BLOCK_MS)
+				if _can_place:
+					_do_place()
+			else:
+				_stop_drag_paint()
 			get_viewport().set_input_as_handled()
-		elif mb.button_index == MOUSE_BUTTON_RIGHT:
+		elif mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
 			cancel_placement()
 			get_viewport().set_input_as_handled()
 	elif event is InputEventKey:
@@ -144,6 +157,66 @@ func _input(event: InputEvent) -> void:
 func _process(_delta: float) -> void:
 	if _active and _ghost != null and is_instance_valid(_ghost):
 		_update_ghost()
+		_process_drag_tile_wall_paint()
+
+
+func _process_drag_tile_wall_paint() -> void:
+	if not _active:
+		return
+	if not _is_drag_paint_enabled_for_current_item():
+		return
+	if not _drag_painting:
+		return
+	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_stop_drag_paint()
+		return
+	var current_tile: Vector2i = _get_mouse_tile()
+	if not _has_drag_last_tile:
+		_drag_last_tile = current_tile
+		_has_drag_last_tile = true
+		UiManager.block_combat_for(PLACEMENT_CLICK_COMBAT_BLOCK_MS)
+		_do_place_at_tile(current_tile)
+		return
+	if current_tile == _drag_last_tile:
+		return
+	var segment_tiles: Array[Vector2i] = _build_drag_segment_tiles(_drag_last_tile, current_tile)
+	for i in range(1, segment_tiles.size()):
+		if not _active:
+			return
+		UiManager.block_combat_for(PLACEMENT_CLICK_COMBAT_BLOCK_MS)
+		_do_place_at_tile(segment_tiles[i])
+	_drag_last_tile = current_tile
+
+
+func _is_drag_paint_enabled_for_current_item() -> bool:
+	if _placement_mode == PLACEMENT_MODE_TILE_WALL:
+		return true
+	return PlacementCatalog.is_floorwood_item(_item_id)
+
+
+func _build_drag_segment_tiles(from_tile: Vector2i, to_tile: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	var x0: int = from_tile.x
+	var y0: int = from_tile.y
+	var x1: int = to_tile.x
+	var y1: int = to_tile.y
+	var dx: int = absi(x1 - x0)
+	var sx: int = 1 if x0 < x1 else -1
+	var dy: int = -absi(y1 - y0)
+	var sy: int = 1 if y0 < y1 else -1
+	var err: int = dx + dy
+	while true:
+		out.append(Vector2i(x0, y0))
+		if x0 == x1 and y0 == y1:
+			break
+		var e2: int = err * 2
+		if e2 >= dy:
+			err += dy
+			x0 += sx
+		if e2 <= dx:
+			err += dx
+			y0 += sy
+	return out
 
 
 func _ready() -> void:
@@ -303,6 +376,10 @@ func _get_mouse_tile() -> Vector2i:
 
 func _do_place() -> void:
 	var tile := _get_mouse_tile()
+	_do_place_at_tile(tile)
+
+
+func _do_place_at_tile(tile: Vector2i) -> void:
 	if not can_place_at(tile):
 		return
 
@@ -330,6 +407,8 @@ func _do_place() -> void:
 		refresh_door_pairing_around_tile(tile)
 		_play_tile_wall_place_sfx(tile)
 		placement_completed.emit(_item_id, tile)
+		if _drag_painting:
+			_drag_painted_wall_tiles[tile] = true
 		var remaining: int = 0
 		if inv.has_method("get_total"):
 			remaining = int(inv.call("get_total", _item_id))
@@ -616,6 +695,7 @@ func _cleanup() -> void:
 	_can_place  = false
 	_last_hover_tile = Vector2i.ZERO
 	_has_last_hover_tile = false
+	_stop_drag_paint()
 	if _ghost != null and is_instance_valid(_ghost):
 		_ghost.queue_free()
 	_ghost        = null
@@ -624,6 +704,28 @@ func _cleanup() -> void:
 
 func _exit_tree() -> void:
 	_release_combat_block()
+
+
+func _stop_drag_paint() -> void:
+	_flush_drag_paint_wall_collision()
+	_drag_painting = false
+	_drag_last_tile = Vector2i.ZERO
+	_has_drag_last_tile = false
+
+
+func _flush_drag_paint_wall_collision() -> void:
+	if _drag_painted_wall_tiles.is_empty():
+		return
+	var painted_tiles: Array[Vector2i] = []
+	for raw_tile in _drag_painted_wall_tiles.keys():
+		if raw_tile is Vector2i:
+			painted_tiles.append(raw_tile as Vector2i)
+	_drag_painted_wall_tiles.clear()
+	if painted_tiles.is_empty():
+		return
+	# Rebuild final al terminar trazo para evitar estados intermedios
+	# donde un segmento queda desincronizado hasta recargar.
+	_refresh_wall_collision_around_tiles(_find_world_node(), painted_tiles, 2)
 
 
 func _find_world_node() -> Node2D:
