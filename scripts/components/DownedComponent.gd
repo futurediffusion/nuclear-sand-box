@@ -25,7 +25,7 @@ func _process(_delta: float) -> void:
 	if not is_downed:
 		return
 
-	var now := Time.get_unix_time_from_system()
+	var now := RunClock.time
 	var remaining := downed_resolve_at - now
 
 	if _progress_bar:
@@ -42,7 +42,7 @@ func enter_downed(resolve_at: float = -1.0) -> void:
 		return
 
 	is_downed = true
-	downed_at = Time.get_unix_time_from_system()
+	downed_at = RunClock.time
 	if resolve_at < 0:
 		downed_resolve_at = downed_at + downed_duration_seconds
 	else:
@@ -119,7 +119,7 @@ func _setup_ui() -> void:
 func can_take_finishing_blow() -> bool:
 	if not is_downed:
 		return true
-	return Time.get_unix_time_from_system() - downed_at >= grace_period
+	return RunClock.time - downed_at >= grace_period
 
 func get_save_data() -> Dictionary:
 	return {

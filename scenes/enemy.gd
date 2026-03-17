@@ -324,7 +324,7 @@ func perform_attack(_target_position: Vector2) -> void:
 func queue_ai_attack_press(aim_global_position: Vector2) -> void:
 	if _is_lite_mode:
 		return
-	last_engaged_time = Time.get_unix_time_from_system()
+	last_engaged_time = RunClock.time
 	var ctrl := _ensure_ai_weapon_controller()
 	ctrl.queue_attack_press_with_aim(aim_global_position)
 	ctrl.set_attack_down(false)
@@ -357,7 +357,7 @@ func set_ai_attack_intent(attack_down: bool, aim_global_position: Vector2) -> vo
 	if _is_lite_mode and attack_down:
 		return
 	if attack_down:
-		last_engaged_time = Time.get_unix_time_from_system()
+		last_engaged_time = RunClock.time
 	var ctrl := _ensure_ai_weapon_controller()
 	ctrl.set_attack_down(attack_down)
 	ctrl.set_aim_global_position(aim_global_position)
@@ -509,7 +509,7 @@ func exit_lite_mode() -> void:
 	EnemyRegistry.update_enemy_chunk(self)
 
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
-	last_engaged_time = Time.get_unix_time_from_system()
+	last_engaged_time = RunClock.time
 	super.take_damage(dmg, from_pos)
 	if ai_component != null:
 		ai_component.wake_now()
@@ -565,7 +565,7 @@ func capture_save_state() -> Dictionary:
 		"equipped_weapon_id": equipped,
 		"alert": 0.0,
 		"last_seen_player_pos": Vector2.ZERO,
-		"last_active_time": maxf(last_engaged_time, Time.get_unix_time_from_system()),
+		"last_active_time": maxf(last_engaged_time, RunClock.time),
 		"version": 1,
 	}
 	if downed_component != null:

@@ -289,7 +289,7 @@ func mark_enemy_dead(chunk_key: String, enemy_id: String) -> void:
 	var copy: Dictionary = (state as Dictionary).duplicate(true)
 	copy["is_dead"] = true
 	copy["is_downed"] = false
-	copy["last_active_time"] = Time.get_unix_time_from_system()
+	copy["last_active_time"] = RunClock.time
 	set_enemy_state(chunk_key, enemy_id, copy)
 
 func mark_enemy_downed(chunk_key: String, enemy_id: String, resolve_at: float) -> void:
@@ -300,7 +300,7 @@ func mark_enemy_downed(chunk_key: String, enemy_id: String, resolve_at: float) -
 	copy["is_dead"] = false
 	copy["is_downed"] = true
 	copy["downed_resolve_at"] = resolve_at
-	copy["last_active_time"] = Time.get_unix_time_from_system()
+	copy["last_active_time"] = RunClock.time
 	set_enemy_state(chunk_key, enemy_id, copy)
 
 func get_or_create_enemy_state(chunk_key: String, enemy_id: String, default_state: Dictionary) -> Dictionary:
