@@ -1,7 +1,7 @@
 extends Node
 class_name AIComponent
 
-enum AIState { IDLE, CHASE, ATTACK, HURT, DEAD }
+enum AIState { IDLE, CHASE, ATTACK, HURT, DEAD, DOWNED }
 enum BowState { IDLE, CHARGING, COOLDOWN }
 
 @export_group("AI Combat")
@@ -81,7 +81,7 @@ func physics_tick(delta: float) -> void:
 	if sleeping:
 		_release_attack_input()
 		return
-	if current_state == AIState.DEAD:
+	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		_release_attack_input()
 		owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 		return
@@ -153,7 +153,7 @@ func _execute_light_tick(delta: float, force_hold_override: bool = false) -> voi
 	if _bow_state != BowState.CHARGING and not force_hold_override:
 		_release_attack_input()
 	match current_state:
-		AIState.IDLE, AIState.ATTACK, AIState.HURT, AIState.DEAD:
+		AIState.IDLE, AIState.ATTACK, AIState.HURT, AIState.DEAD, AIState.DOWNED:
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 			if current_state == AIState.HURT and owner_entity.hurt_t <= 0.0:
 				current_state = AIState.IDLE
@@ -181,7 +181,7 @@ func wake_now() -> void:
 		current_state = AIState.IDLE
 
 func set_hurt() -> void:
-	if current_state == AIState.DEAD:
+	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		return
 	wake_now()
 	current_state = AIState.HURT
@@ -190,6 +190,12 @@ func set_dead() -> void:
 	sleeping = false
 	current_state = AIState.DEAD
 	sleep_check_timer = null
+	_release_attack_input()
+	_reset_combat_state()
+
+func set_downed() -> void:
+	sleeping = false
+	current_state = AIState.DOWNED
 	_release_attack_input()
 	_reset_combat_state()
 
@@ -256,7 +262,7 @@ func _reset_bow_charge_state() -> void:
 	_bow_charge_target = 0.0
 
 func _update_state() -> void:
-	if current_state == AIState.DEAD:
+	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		return
 	if owner_entity.hurt_t > 0.0:
 		current_state = AIState.HURT
@@ -619,7 +625,7 @@ func _on_sleep_check_timeout() -> void:
 	sleep_check_timer = null
 	if not is_instance_valid(self) or owner_entity == null:
 		return
-	if current_state == AIState.DEAD:
+	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		return
 	if player == null or not is_instance_valid(player):
 		_find_player()
@@ -658,7 +664,7 @@ func on_enter_lite() -> void:
 func on_awake_from_lite() -> void:
 	if owner_entity == null:
 		return
-	if current_state == AIState.DEAD:
+	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		return
 	sleeping = false
 	current_state = AIState.IDLE

@@ -2,6 +2,7 @@ class_name CharacterBase
 extends CharacterBody2D
 
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
+const DownedComponentScript = preload("res://scripts/components/DownedComponent.gd")
 const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd")
 
 @export_group("Health")
@@ -22,9 +23,11 @@ const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd"
 @export var ignore_world_walls: bool = false
 
 @onready var health_component: Node = get_node_or_null("HealthComponent")
+@onready var downed_component: DownedComponent = get_node_or_null("DownedComponent") as DownedComponent
 
 var hp: int = 0
 var dying: bool = false
+var is_downed: bool = false
 var knock_vel: Vector2 = Vector2.ZERO
 var hurt_t: float = 0.0
 var _base_ready_initialized: bool = false
@@ -50,14 +53,31 @@ func _setup_health_component() -> void:
 	if health_component != null:
 		health_component.max_hp = max_hp
 		health_component.hp = max_hp
-		if not health_component.died.is_connected(die):
-			health_component.died.connect(die)
+		if not health_component.died.is_connected(_on_health_died):
+			health_component.died.connect(_on_health_died)
 		hp = health_component.hp
 	else:
 		hp = max_hp
 
+	if downed_component == null:
+		downed_component = DownedComponentScript.new()
+		downed_component.name = "DownedComponent"
+		add_child(downed_component)
+
+	if downed_component != null:
+		if not downed_component.entered_downed.is_connected(_on_entered_downed):
+			downed_component.entered_downed.connect(_on_entered_downed)
+		if not downed_component.revived.is_connected(_on_revived):
+			downed_component.revived.connect(_on_revived)
+		if not downed_component.died_final.is_connected(die_final):
+			downed_component.died_final.connect(die_final)
+
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if dying:
+		return
+
+	if is_downed:
+		die_final()
 		return
 
 	if health_component != null and health_component.has_method("take_damage"):
@@ -75,25 +95,60 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if hp <= 0:
 		_spawn_blood(blood_death_amount)
 		if health_component == null:
-			die()
+			_on_health_died()
 		return
 
 	play_hurt()
 	_play_hit_flash()
 
-func die() -> void:
+func _on_health_died() -> void:
+	if downed_component != null:
+		downed_component.enter_downed()
+	else:
+		die_final()
+
+func _on_entered_downed() -> void:
+	is_downed = true
+	hurt_t = 0.0
+	knock_vel = Vector2.ZERO
+	velocity = Vector2.ZERO
+	if has_node("AnimatedSprite2D"):
+		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
+		sprite.play("death")
+		# Pausar en el último frame
+		sprite.animation_finished.connect(func():
+			if is_downed and sprite.animation == "death":
+				sprite.stop()
+				sprite.frame = sprite.sprite_frames.get_frame_count("death") - 1
+		, CONNECT_ONE_SHOT)
+
+func _on_revived() -> void:
+	is_downed = false
+	if health_component != null:
+		health_component.heal(downed_component.downed_revive_hp)
+		hp = health_component.hp
+	if has_node("AnimatedSprite2D"):
+		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
+		sprite.play("idle")
+
+func die_final() -> void:
 	if dying:
 		return
 	dying = true
+	is_downed = false
 	hurt_t = 0.0
 	knock_vel = Vector2.ZERO
 	velocity = Vector2.ZERO
 	_on_before_die()
 	if has_node("AnimatedSprite2D"):
 		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
-		sprite.play("death")
-		await sprite.animation_finished
+		if sprite.animation != "death" or not sprite.is_playing():
+			sprite.play("death")
+			await sprite.animation_finished
 	_on_after_die()
+
+func die() -> void:
+	_on_health_died()
 
 func apply_knockback(force: Vector2) -> void:
 	knock_vel += force

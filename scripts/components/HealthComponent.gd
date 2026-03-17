@@ -32,11 +32,12 @@ func take_damage(amount: int) -> void:
 		died.emit()
 
 func heal(amount: int) -> void:
-	if amount <= 0 or is_dead():
+	if amount <= 0:
 		return
 	var prev_hp := hp
 	hp = min(max_hp, hp + amount)
 	if hp != prev_hp:
+		_dead_emitted = false
 		hp_changed.emit(hp, max_hp)
 
 func is_dead() -> bool:

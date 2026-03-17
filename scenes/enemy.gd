@@ -553,12 +553,13 @@ func capture_save_state() -> Dictionary:
 	var equipped: String = ""
 	if weapon_component != null:
 		equipped = String(weapon_component.current_weapon_id)
-	return {
+	var res := {
 		"id": entity_uid,
 		"chunk_key": enemy_chunk_key,
 		"pos": global_position,
 		"hp": hp,
 		"is_dead": hp <= 0 or dying,
+		"is_downed": is_downed,
 		"seed": enemy_seed,
 		"weapon_ids": weapon_ids,
 		"equipped_weapon_id": equipped,
@@ -567,9 +568,28 @@ func capture_save_state() -> Dictionary:
 		"last_active_time": maxf(last_engaged_time, Time.get_unix_time_from_system()),
 		"version": 1,
 	}
+	if downed_component != null:
+		res.merge(downed_component.get_save_data(), true)
+	return res
 
 func is_attacking() -> bool:
 	return attacking
+
+func _on_entered_downed() -> void:
+	super._on_entered_downed()
+	if ai_component != null:
+		ai_component.set_downed()
+	if ai_weapon_controller != null:
+		ai_weapon_controller.set_attack_down(false)
+	WorldSave.mark_enemy_downed(enemy_chunk_key, entity_uid, downed_component.downed_resolve_at)
+	NpcProfileSystem.set_status(entity_uid, "downed")
+
+func _on_revived() -> void:
+	super._on_revived()
+	if ai_component != null:
+		ai_component.wake_now()
+	WorldSave.set_enemy_state(enemy_chunk_key, entity_uid, capture_save_state())
+	NpcProfileSystem.set_status(entity_uid, "alive")
 
 func _on_before_die() -> void:
 	EnemyRegistry.unregister_enemy(self)
