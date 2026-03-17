@@ -15,10 +15,31 @@ var resources_gathered: int = 0
 var chunks_explored: int = 0
 var session_time_seconds: float = 0.0
 var threat_level: int = 0
-var keep_corpses: bool = false
 
-var finish_off_chance_min: float = 0.2
-var finish_off_chance_max: float = 0.4
+var _balance_config: BalanceConfig = null
+
+func configure(settings: BalanceConfig) -> void:
+	if settings == null:
+		_balance_config = BalanceConfig.new()
+	else:
+		_balance_config = settings
+
+	_balance_config.finish_off_chance_min = clampf(_balance_config.finish_off_chance_min, 0.0, 1.0)
+	_balance_config.finish_off_chance_max = clampf(_balance_config.finish_off_chance_max, 0.0, 1.0)
+
+	if _balance_config.finish_off_chance_min > _balance_config.finish_off_chance_max:
+		var temp: float = _balance_config.finish_off_chance_min
+		_balance_config.finish_off_chance_min = _balance_config.finish_off_chance_max
+		_balance_config.finish_off_chance_max = temp
+
+func get_keep_corpses() -> bool:
+	return _balance_config.keep_corpses if _balance_config else false
+
+func get_finish_off_chance_min() -> float:
+	return _balance_config.finish_off_chance_min if _balance_config else 0.2
+
+func get_finish_off_chance_max() -> float:
+	return _balance_config.finish_off_chance_max if _balance_config else 0.4
 
 func _ready() -> void:
 	Seed.initialize_run_seed()

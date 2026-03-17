@@ -282,9 +282,9 @@ func _update_state() -> void:
 		_was_player_downed = true
 		var min_chance: float = 0.2
 		var max_chance: float = 0.4
-		if GameManager != null:
-			min_chance = float(GameManager.finish_off_chance_min)
-			max_chance = float(GameManager.finish_off_chance_max)
+		if GameManager != null and GameManager.has_method("get_finish_off_chance_min"):
+			min_chance = float(GameManager.get_finish_off_chance_min())
+			max_chance = float(GameManager.get_finish_off_chance_max())
 		var chance: float = _randf_range(min_chance, max_chance)
 		_finish_off_downed_player = _randf() < chance
 
