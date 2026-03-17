@@ -66,8 +66,48 @@ var _warmup_tick_timer: float = 0.0
 var _awaiting_first_full_tick: bool = false
 var _finish_off_downed_player: bool = false
 var _was_player_downed: bool = false
+var _contract_valid: bool = false
+
+func _validate_owner_contract(actor: Node) -> bool:
+	var required_properties: Array[String] = [
+		"max_speed", "friction", "acceleration", "attack_range",
+		"detection_range", "ACTIVE_RADIUS_PX", "WAKE_HYSTERESIS_PX",
+		"SLEEP_CHECK_INTERVAL", "velocity", "hurt_t", "global_position"
+	]
+	for prop: String in required_properties:
+		if not (prop in actor):
+			push_error("[AIComponent] Contract validation failed for owner '%s': missing property '%s'" % [actor.name, prop])
+			return false
+
+	var required_methods: Array[String] = [
+		"queue_ai_attack_press"
+	]
+	for method: String in required_methods:
+		if not actor.has_method(method):
+			push_error("[AIComponent] Contract validation failed for owner '%s': missing method '%s'" % [actor.name, method])
+			return false
+
+	var weapon_component := actor.get_node_or_null("WeaponComponent")
+	if weapon_component == null:
+		push_warning("[AIComponent] Contract validation for owner '%s': 'WeaponComponent' is missing. Combat logic may be degraded." % actor.name)
+
+	var has_controller_method: bool = actor.has_method("_ensure_ai_weapon_controller")
+	var has_controller_node: bool = actor.get_node_or_null("AIWeaponController") != null
+	if not has_controller_method and not has_controller_node:
+		push_error("[AIComponent] Contract validation failed for owner '%s': missing method '_ensure_ai_weapon_controller' and 'AIWeaponController' node" % actor.name)
+		return false
+
+	return true
 
 func setup(p_owner_entity: Node) -> void:
+	_contract_valid = false
+	if p_owner_entity == null:
+		push_error("[AIComponent] setup() called with null owner_entity")
+		return
+	if not _validate_owner_contract(p_owner_entity):
+		return
+	_contract_valid = true
+
 	owner_entity = p_owner_entity
 	_rng.seed = int(owner_entity.get_instance_id())
 	_lod_rng_seeded = true
@@ -76,7 +116,7 @@ func setup(p_owner_entity: Node) -> void:
 	_schedule_sleep_check()
 
 func physics_tick(delta: float) -> void:
-	if owner_entity == null:
+	if not _contract_valid or owner_entity == null:
 		return
 	_update_timers(delta)
 	_update_combat_style_window(delta)
@@ -153,6 +193,8 @@ func physics_tick(delta: float) -> void:
 	_execute_light_tick(delta, force_full_tick)
 
 func _execute_light_tick(delta: float, force_hold_override: bool = false) -> void:
+	if not _contract_valid or owner_entity == null:
+		return
 	# Safety: lightweight tick must not cut bow hold while CHARGING (or while
 	# a full-rate override is active for the current frame).
 	if _bow_state != BowState.CHARGING and not force_hold_override:
@@ -267,6 +309,8 @@ func _reset_bow_charge_state() -> void:
 	_bow_charge_target = 0.0
 
 func _update_state() -> void:
+	if not _contract_valid or owner_entity == null:
+		return
 	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		return
 	if owner_entity.hurt_t > 0.0:
@@ -495,6 +539,8 @@ func _process_bow(ctrl: AIWeaponController, distance: float) -> void:
 		ctrl.set_attack_down(false)
 
 func _process_melee(aim_pos: Vector2, distance: float, delta: float) -> void:
+	if not _contract_valid or owner_entity == null:
+		return
 	_release_attack_input()
 	if distance > prefer_melee_distance:
 		var dir: Vector2 = owner_entity.global_position.direction_to(aim_pos)
@@ -510,7 +556,7 @@ func _process_melee(aim_pos: Vector2, distance: float, delta: float) -> void:
 	_melee_cooldown_t = _randf_range(melee_cooldown_min, melee_cooldown_max)
 
 func _get_ai_controller() -> AIWeaponController:
-	if owner_entity == null:
+	if not _contract_valid or owner_entity == null:
 		return null
 	if owner_entity.has_method("_ensure_ai_weapon_controller"):
 		return owner_entity.call("_ensure_ai_weapon_controller") as AIWeaponController
@@ -638,7 +684,7 @@ func _find_player() -> void:
 		player = players[0] as CharacterBody2D
 
 func _schedule_sleep_check() -> void:
-	if owner_entity == null:
+	if not _contract_valid or owner_entity == null:
 		return
 	if sleep_check_timer != null and sleep_check_timer.time_left > 0.0:
 		return
