@@ -22,7 +22,7 @@ func configure(settings: BalanceConfig) -> void:
 	if settings == null:
 		_balance_config = BalanceConfig.new()
 	else:
-		_balance_config = settings
+		_balance_config = settings.duplicate(true) as BalanceConfig
 
 	_balance_config.finish_off_chance_min = clampf(_balance_config.finish_off_chance_min, 0.0, 1.0)
 	_balance_config.finish_off_chance_max = clampf(_balance_config.finish_off_chance_max, 0.0, 1.0)
