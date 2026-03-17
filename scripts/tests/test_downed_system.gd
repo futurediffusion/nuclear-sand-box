@@ -52,6 +52,13 @@ func test_transitions():
 	downed.die_final()
 	assert(not downed.is_downed, "Should not be downed after final death")
 
+	# 5. Downed -> Reset (respawn)
+	health.take_damage(health.max_hp)
+	assert(downed.is_downed, "Should be downed again")
+	downed.reset()
+	assert(not downed.is_downed, "Should not be downed after reset")
+	assert(downed.downed_at == 0.0, "downed_at should be reset")
+
 	print("SUCCESS: Downed Transitions")
 
 func test_persistence():

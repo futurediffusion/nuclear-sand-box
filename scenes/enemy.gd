@@ -606,8 +606,10 @@ func _on_before_die() -> void:
 		ai_component.set_dead()
 
 func _on_after_die() -> void:
-	# El cadáver persiste hasta que NpcSimulator lo limpie al alejarse o descargar el chunk.
-	pass
+	# El cadáver persiste hasta que NpcSimulator lo limpie al alejarse o descargar el chunk,
+	# a menos que keep_corpses esté desactivado.
+	if not GameManager.keep_corpses:
+		queue_free()
 
 func _trigger_death_shake() -> void:
 	if ai_component == null or not is_instance_valid(ai_component.player):

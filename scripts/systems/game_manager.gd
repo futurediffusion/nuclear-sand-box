@@ -15,6 +15,7 @@ var resources_gathered: int = 0
 var chunks_explored: int = 0
 var session_time_seconds: float = 0.0
 var threat_level: int = 0
+var keep_corpses: bool = false
 
 func _ready() -> void:
 	Seed.initialize_run_seed()
