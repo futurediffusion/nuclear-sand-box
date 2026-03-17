@@ -68,7 +68,10 @@ func test_persistence():
 
 	var enemy_id = "test_enemy"
 	var chunk_key = "0,0"
-	var resolve_at = Time.get_unix_time_from_system() + 100.0
+	var resolve_at = RunClock.time + 100.0
+
+	# Setup base state so mark_enemy_downed actually has something to modify
+	WorldSave.get_or_create_enemy_state(chunk_key, enemy_id, {})
 
 	# Simulate marking as downed in WorldSave
 	WorldSave.mark_enemy_downed(chunk_key, enemy_id, resolve_at)

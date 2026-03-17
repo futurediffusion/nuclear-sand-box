@@ -318,7 +318,7 @@ func _can_despawn(node: Node, state: Dictionary) -> bool:
 		return true
 	if node.has_method("is_attacking") and bool(node.call("is_attacking")):
 		return false
-	var now: float = Time.get_unix_time_from_system()
+	var now: float = RunClock.time
 	var last_active: float = float(state.get("last_active_time", 0.0))
 	if node.has_method("capture_save_state"):
 		last_active = maxf(last_active, float(node.call("capture_save_state").get("last_active_time", 0.0)))

@@ -52,6 +52,7 @@ func save_world() -> void:
 		"faction_system":     FactionSystem.serialize(),
 		"site_system":        SiteSystem.serialize(),
 		"npc_profile_system": NpcProfileSystem.serialize(),
+		"run_clock":          RunClock.get_save_data(),
 	}
 
 	var json_str: String = JSON.stringify(data)
@@ -161,6 +162,10 @@ func load_world_save() -> bool:
 	if nps is Dictionary:
 		NpcProfileSystem.deserialize(nps)
 
+	var rc = data.get("run_clock", {})
+	if rc is Dictionary:
+		RunClock.load_save_data(rc)
+
 	# Restore chunk_save into world's existing dict (mutate in-place so references stay valid)
 	if _world != null:
 		var cs = _des(data.get("chunk_save", {}))
@@ -188,6 +193,7 @@ func new_game() -> void:
 	FactionSystem.reset()
 	SiteSystem.reset()
 	NpcProfileSystem.reset()
+	RunClock.reset()
 	# Generar semilla aleatoria real, ignorando debug_seed
 	var new_seed := int(Time.get_unix_time_from_system()) % 2147483647
 	if new_seed <= 0:
