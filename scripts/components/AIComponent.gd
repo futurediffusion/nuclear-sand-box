@@ -65,18 +65,12 @@ var _is_warming_up: bool = false
 var _warmup_tick_timer: float = 0.0
 var _awaiting_first_full_tick: bool = false
 var _finish_off_downed_player: bool = false
+var _was_player_downed: bool = false
 
 func setup(p_owner_entity: Node) -> void:
 	owner_entity = p_owner_entity
 	_rng.seed = int(owner_entity.get_instance_id())
 	_lod_rng_seeded = true
-	var min_chance: float = 0.2
-	var max_chance: float = 0.4
-	if GameManager != null:
-		min_chance = float(GameManager.finish_off_chance_min)
-		max_chance = float(GameManager.finish_off_chance_max)
-	var chance: float = _randf_range(min_chance, max_chance)
-	_finish_off_downed_player = _randf() < chance
 	_init_combat_style_window()
 	_find_player()
 	_schedule_sleep_check()
@@ -147,7 +141,10 @@ func physics_tick(delta: float) -> void:
 
 	if should_run_heavy:
 		_update_state()
-		_try_attack_logic(delta)
+		if current_state == AIState.ATTACK or current_state == AIState.CHASE:
+			_try_attack_logic(delta)
+		else:
+			_release_attack_input()
 		if _lod_interval > 0.0:
 			_lod_timer = _lod_interval * _rng.randf_range(0.3, 1.0)
 		else:
@@ -279,7 +276,23 @@ func _update_state() -> void:
 		current_state = AIState.IDLE
 		return
 
-	if "is_downed" in player and player.is_downed and not _finish_off_downed_player:
+	var player_is_downed = ("is_downed" in player) and player.is_downed
+
+	if player_is_downed and not _was_player_downed:
+		_was_player_downed = true
+		var min_chance: float = 0.2
+		var max_chance: float = 0.4
+		if GameManager != null:
+			min_chance = float(GameManager.finish_off_chance_min)
+			max_chance = float(GameManager.finish_off_chance_max)
+		var chance: float = _randf_range(min_chance, max_chance)
+		_finish_off_downed_player = _randf() < chance
+
+	if not player_is_downed and _was_player_downed:
+		_was_player_downed = false
+		_finish_off_downed_player = false
+
+	if player_is_downed and not _finish_off_downed_player:
 		current_state = AIState.IDLE
 		return
 
