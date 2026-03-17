@@ -9,6 +9,8 @@ const CommandSystemScript = preload("res://scripts/systems/CommandSystem.gd")
 @export_group("Balance Settings")
 @export var balance_config: BalanceConfig
 
+const DEFAULT_BALANCE_CONFIG: BalanceConfig = preload("res://data/resources/DefaultBalanceConfig.tres")
+
 @onready var game_over_panel: Control = $UI/GameOverPanel
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
 @onready var inv_menu = $UI/PlayerInventoryMenu
@@ -31,7 +33,7 @@ func _enter_tree() -> void:
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
 	if balance_config == null:
-		balance_config = BalanceConfig.new()
+		balance_config = DEFAULT_BALANCE_CONFIG
 	GameManager.configure(balance_config)
 	_remap_inventory_key_to_tab()
 	if AudioSystem != null and AudioSystem.has_method("register_sound_panel"):
