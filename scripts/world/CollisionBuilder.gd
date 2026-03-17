@@ -66,6 +66,25 @@ func _add_side_strip_top_tile(body: StaticBody2D, tilemap: TileMap, face: String
 
 	body.add_child(shape)
 
+func _add_side_strip_bottom_tile(body: StaticBody2D, tilemap: TileMap, face: String, cell: Vector2i, tile_size: Vector2, side_width: float, band_height: float) -> void:
+	var shape := CollisionShape2D.new()
+	shape.name = "SideStripBottom_%s_%d_%d" % [face, cell.x, cell.y]
+	shape.set_meta("aaa", {"kind": "side", "face": face, "south_free": true})
+	var rect := RectangleShape2D.new()
+	rect.size = Vector2(side_width, band_height)
+	shape.shape = rect
+
+	var center: Vector2 = tilemap.map_to_local(cell)
+	var side_x: float = center.x
+	if face == "W":
+		side_x += -tile_size.x * 0.5 + side_width * 0.5
+	else:
+		side_x += tile_size.x * 0.5 - side_width * 0.5
+	var center_y: float = center.y - tile_size.y * 0.5 + band_height * 0.5
+	shape.position = Vector2(side_x, center_y)
+
+	body.add_child(shape)
+
 func _add_upper_corner_south_band(body: StaticBody2D, tilemap: TileMap, cell: Vector2i, tile_size: Vector2, band_height: float, inset: float) -> void:
 	var shape := CollisionShape2D.new()
 	shape.name = "UpperCornerSouthBand_%d_%d" % [cell.x, cell.y]
@@ -179,6 +198,29 @@ func _is_bottom_right_inner_corner(support_lookup: Dictionary, cell: Vector2i) -
 	var north_wall: bool = support_lookup.has(cell + Vector2i(0, -1)) or support_lookup.has(cell + Vector2i(-1, -1))
 	return south_free and west_wall and east_free and north_wall
 
+func _is_flat_top_branch_tile(support_lookup: Dictionary, cell: Vector2i) -> bool:
+	if not support_lookup.has(cell):
+		return false
+	var north_free: bool = not support_lookup.has(cell + Vector2i(0, -1))
+	var south_free: bool = not support_lookup.has(cell + Vector2i(0, 1))
+	if not (north_free and south_free):
+		return false
+	var west_wall: bool = support_lookup.has(cell + Vector2i(-1, 0))
+	var east_wall: bool = support_lookup.has(cell + Vector2i(1, 0))
+	return west_wall or east_wall
+
+func _should_keep_spine_side_strip(support_lookup: Dictionary, cell: Vector2i, side: int) -> bool:
+	if side != -1 and side != 1:
+		return false
+	if not support_lookup.has(cell):
+		return false
+	var north_wall: bool = support_lookup.has(cell + Vector2i(0, -1))
+	var south_wall: bool = support_lookup.has(cell + Vector2i(0, 1))
+	if not (north_wall and south_wall):
+		return false
+	var neighbor: Vector2i = cell + Vector2i(side, 0)
+	return _is_flat_top_branch_tile(support_lookup, neighbor)
+
 func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, walls_layer: int, walls_source_id: int, extra_support_lookup: Dictionary = {}) -> StaticBody2D:
 	if tilemap == null:
 		return null
@@ -237,6 +279,8 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 	var south_runs: Array[Dictionary] = []
 	var raw_side_columns: Dictionary  = {"W": {}, "E": {}}
 	var upper_corner_south_bands: Array[Vector2i] = []
+	var top_side_strip_caps: Array[Dictionary] = []
+	var top_side_strip_caps_seen: Dictionary = {}
 
 	for raw_sealed_cell in sealed_wall_lookup.keys():
 		if not (raw_sealed_cell is Vector2i):
@@ -304,11 +348,25 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			if not wall_lookup.has(cell) or sealed_wall_lookup.has(cell):
 				continue
 
-			var north_free: bool    = not support_lookup.has(cell + Vector2i(0, -1))
-			var is_top_corner: bool = _is_top_left_corner(support_lookup, cell) or _is_top_right_corner(support_lookup, cell)
+			var north_free: bool    = not wall_lookup.has(cell + Vector2i(0, -1))
+			var south_free: bool    = not wall_lookup.has(cell + Vector2i(0, 1))
+			var north_wall: bool    = wall_lookup.has(cell + Vector2i(0, -1))
+			var south_wall: bool    = wall_lookup.has(cell + Vector2i(0, 1))
+			var is_top_corner: bool = _is_top_left_corner(wall_lookup, cell) or _is_top_right_corner(wall_lookup, cell)
 
 			if is_top_corner:
 				upper_corner_south_bands.append(cell)
+				if south_wall:
+					if _is_flat_top_branch_tile(wall_lookup, cell + Vector2i(-1, 0)) and wall_lookup.has(cell + Vector2i(-2, 0)):
+						var cap_key_w_south: String = "W:%d:%d:south" % [cell.x, cell.y]
+						if not top_side_strip_caps_seen.has(cap_key_w_south):
+							top_side_strip_caps_seen[cap_key_w_south] = true
+							top_side_strip_caps.append({"face": "W", "cell": cell, "edge": "south"})
+					if _is_flat_top_branch_tile(wall_lookup, cell + Vector2i(1, 0)) and wall_lookup.has(cell + Vector2i(2, 0)):
+						var cap_key_e_south: String = "E:%d:%d:south" % [cell.x, cell.y]
+						if not top_side_strip_caps_seen.has(cap_key_e_south):
+							top_side_strip_caps_seen[cap_key_e_south] = true
+							top_side_strip_caps.append({"face": "E", "cell": cell, "edge": "south"})
 				continue
 
 			# FIX: saltar TODOS los tiles de borde superior (north_free).
@@ -316,12 +374,35 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			# lo que dejaba pasar tiles de esquina "suaves" que generaban
 			# el blocker visible en la imagen.
 			if north_free:
+				if south_wall:
+					if _is_flat_top_branch_tile(wall_lookup, cell + Vector2i(-1, 0)) and wall_lookup.has(cell + Vector2i(-2, 0)):
+						var cap_key_w2_south: String = "W:%d:%d:south" % [cell.x, cell.y]
+						if not top_side_strip_caps_seen.has(cap_key_w2_south):
+							top_side_strip_caps_seen[cap_key_w2_south] = true
+							top_side_strip_caps.append({"face": "W", "cell": cell, "edge": "south"})
+					if _is_flat_top_branch_tile(wall_lookup, cell + Vector2i(1, 0)) and wall_lookup.has(cell + Vector2i(2, 0)):
+						var cap_key_e2_south: String = "E:%d:%d:south" % [cell.x, cell.y]
+						if not top_side_strip_caps_seen.has(cap_key_e2_south):
+							top_side_strip_caps_seen[cap_key_e2_south] = true
+							top_side_strip_caps.append({"face": "E", "cell": cell, "edge": "south"})
 				continue
 
+			if south_free and north_wall:
+				if _is_flat_top_branch_tile(wall_lookup, cell + Vector2i(-1, 0)) and wall_lookup.has(cell + Vector2i(-2, 0)):
+					var cap_key_w_north: String = "W:%d:%d:north" % [cell.x, cell.y]
+					if not top_side_strip_caps_seen.has(cap_key_w_north):
+						top_side_strip_caps_seen[cap_key_w_north] = true
+						top_side_strip_caps.append({"face": "W", "cell": cell, "edge": "north"})
+				if _is_flat_top_branch_tile(wall_lookup, cell + Vector2i(1, 0)) and wall_lookup.has(cell + Vector2i(2, 0)):
+					var cap_key_e_north: String = "E:%d:%d:north" % [cell.x, cell.y]
+					if not top_side_strip_caps_seen.has(cap_key_e_north):
+						top_side_strip_caps_seen[cap_key_e_north] = true
+						top_side_strip_caps.append({"face": "E", "cell": cell, "edge": "north"})
+
 			# Tile interior del muro â†’ side strips laterales
-			if not support_lookup.has(cell + Vector2i(-1, 0)):
+			if not wall_lookup.has(cell + Vector2i(-1, 0)) or _should_keep_spine_side_strip(wall_lookup, cell, -1):
 				_append_raw_side(raw_side_columns, "W", x, y)
-			if not support_lookup.has(cell + Vector2i(1, 0)):
+			if not wall_lookup.has(cell + Vector2i(1, 0)) or _should_keep_spine_side_strip(wall_lookup, cell, 1):
 				_append_raw_side(raw_side_columns, "E", x, y)
 
 	# â”€â”€ Paso 3: construir runs verticales para side strips â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -333,7 +414,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			var ys: Array = []
 			for raw_y in face_columns[col_x]:
 				var raw_cell := Vector2i(col_x, raw_y)
-				var is_top_corner: bool = _is_top_left_corner(support_lookup, raw_cell) or _is_top_right_corner(support_lookup, raw_cell)
+				var is_top_corner: bool = _is_top_left_corner(wall_lookup, raw_cell) or _is_top_right_corner(wall_lookup, raw_cell)
 				if is_top_corner:
 					continue
 				ys.append(raw_y)
@@ -358,6 +439,16 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			shape_count += 1
 
 	# â”€â”€ Paso 4: upper corner south bands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+	for cap in top_side_strip_caps:
+		var cap_face: String = String(cap.get("face", ""))
+		var cap_cell: Vector2i = cap.get("cell", Vector2i.ZERO)
+		var cap_edge: String = String(cap.get("edge", "south"))
+		if cap_edge == "north":
+			_add_side_strip_bottom_tile(body, tilemap, cap_face, cap_cell, tile_size, side_width, band_height)
+		else:
+			_add_side_strip_top_tile(body, tilemap, cap_face, cap_cell, tile_size, side_width, band_height)
+		shape_count += 1
+
 	for cap_cell in upper_corner_south_bands:
 		_add_upper_corner_south_band(body, tilemap, cap_cell, tile_size, band_height, inset)
 		shape_count += 1
@@ -376,7 +467,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 		var right_cell := Vector2i(x1, y)
 
 		# Lado izquierdo
-		if not _is_top_edge_tile(support_lookup, left_cell) and _should_add_corner_blocker(support_lookup, x0, y, -1):
+		if not _is_top_edge_tile(wall_lookup, left_cell) and _should_add_corner_blocker(wall_lookup, x0, y, -1):
 			var left_center: Vector2 = tilemap.map_to_local(left_cell)
 			var left_blocker := CollisionShape2D.new()
 			left_blocker.name = "CornerBlocker_%d_%d_left" % [x0, y]
@@ -393,7 +484,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			shape_count += 1
 
 		# Lado derecho
-		if not _is_top_edge_tile(support_lookup, right_cell) and _should_add_corner_blocker(support_lookup, x1, y, 1):
+		if not _is_top_edge_tile(wall_lookup, right_cell) and _should_add_corner_blocker(wall_lookup, x1, y, 1):
 			var right_center: Vector2 = tilemap.map_to_local(right_cell)
 			var right_blocker := CollisionShape2D.new()
 			right_blocker.name = "CornerBlocker_%d_%d_right" % [x1, y]
@@ -410,45 +501,91 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 			shape_count += 1
 
 	# â”€â”€ Paso 6: inner corner plugs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+	var best_inner_corner_by_edge: Dictionary = {}
 	for y in range(start_y, end_y + 1):
 		for x in range(start_x, end_x + 1):
 			var cell := Vector2i(x, y)
 			if not wall_lookup.has(cell) or sealed_wall_lookup.has(cell):
 				continue
-			var center: Vector2      = tilemap.map_to_local(cell)
-			var plug_center_y: float = center.y + tile_size.y * 0.5 - band_height - plug_height * 0.5 + 2.0
 
-			if _is_bottom_left_inner_corner(support_lookup, cell):
-				var left_plug := CollisionShape2D.new()
-				left_plug.name = "InnerCornerPlug_%d_%d_E" % [x, y]
-				left_plug.set_meta("kind", "inner_corner_plug")
-				left_plug.set_meta("side", "E")
-				left_plug.set_meta("aaa", {"kind": "inner_corner_plug", "side": "E"})
-				var left_plug_rect := RectangleShape2D.new()
-				left_plug_rect.size = Vector2(plug_width, plug_height)
-				left_plug.shape = left_plug_rect
-				left_plug.position = Vector2(
-					center.x + tile_size.x * 0.5 - plug_width * 0.5,
-					plug_center_y
-				)
-				body.add_child(left_plug)
-				shape_count += 1
+			if _is_bottom_left_inner_corner(wall_lookup, cell):
+				var inward_cell_east: Vector2i = cell + Vector2i(1, 0)
+				if _is_north_branch_t_anchor(wall_lookup, inward_cell_east):
+					continue
+				var inward_has_vertical_span_east: bool = wall_lookup.has(inward_cell_east + Vector2i(0, -1)) and wall_lookup.has(inward_cell_east + Vector2i(0, 1))
+				if inward_has_vertical_span_east:
+					continue
+				var edge_key_east: String = "V:%d:%d" % [x + 1, y]
+				var score_east: int = 0
+				if wall_lookup.has(cell + Vector2i(0, -1)):
+					score_east += 10
+				if wall_lookup.has(cell + Vector2i(1, -1)):
+					score_east += 1
+				var prev_east: Dictionary = best_inner_corner_by_edge.get(edge_key_east, {})
+				var prev_east_score: int = int(prev_east.get("score", -999999))
+				if score_east > prev_east_score:
+					best_inner_corner_by_edge[edge_key_east] = {
+						"cell": cell,
+						"side": "E",
+						"score": score_east,
+					}
 
-			if _is_bottom_right_inner_corner(support_lookup, cell):
-				var right_plug := CollisionShape2D.new()
-				right_plug.name = "InnerCornerPlug_%d_%d_W" % [x, y]
-				right_plug.set_meta("kind", "inner_corner_plug")
-				right_plug.set_meta("side", "W")
-				right_plug.set_meta("aaa", {"kind": "inner_corner_plug", "side": "W"})
-				var right_plug_rect := RectangleShape2D.new()
-				right_plug_rect.size = Vector2(plug_width, plug_height)
-				right_plug.shape = right_plug_rect
-				right_plug.position = Vector2(
-					center.x - tile_size.x * 0.5 + plug_width * 0.5,
-					plug_center_y
-				)
-				body.add_child(right_plug)
-				shape_count += 1
+			if _is_bottom_right_inner_corner(wall_lookup, cell):
+				var inward_cell_west: Vector2i = cell + Vector2i(-1, 0)
+				if _is_north_branch_t_anchor(wall_lookup, inward_cell_west):
+					continue
+				var inward_has_vertical_span_west: bool = wall_lookup.has(inward_cell_west + Vector2i(0, -1)) and wall_lookup.has(inward_cell_west + Vector2i(0, 1))
+				if inward_has_vertical_span_west:
+					continue
+				var edge_key_west: String = "V:%d:%d" % [x, y]
+				var score_west: int = 0
+				if wall_lookup.has(cell + Vector2i(0, -1)):
+					score_west += 10
+				if wall_lookup.has(cell + Vector2i(-1, -1)):
+					score_west += 1
+				var prev_west: Dictionary = best_inner_corner_by_edge.get(edge_key_west, {})
+				var prev_west_score: int = int(prev_west.get("score", -999999))
+				if score_west > prev_west_score:
+					best_inner_corner_by_edge[edge_key_west] = {
+						"cell": cell,
+						"side": "W",
+						"score": score_west,
+					}
+
+	var sorted_inner_edges: Array = best_inner_corner_by_edge.keys()
+	sorted_inner_edges.sort()
+	for edge_key in sorted_inner_edges:
+		var candidate: Dictionary = best_inner_corner_by_edge[edge_key]
+		var candidate_cell: Vector2i = candidate.get("cell", Vector2i.ZERO)
+		var candidate_side: String = String(candidate.get("side", ""))
+		var center: Vector2 = tilemap.map_to_local(candidate_cell)
+		var plug_center_y: float = center.y + tile_size.y * 0.5 - band_height - plug_height * 0.5 + 2.0
+		var plug := CollisionShape2D.new()
+		var plug_rect := RectangleShape2D.new()
+		plug_rect.size = Vector2(plug_width, plug_height)
+		plug.shape = plug_rect
+
+		if candidate_side == "E":
+			plug.name = "InnerCornerPlug_%d_%d_E" % [candidate_cell.x, candidate_cell.y]
+			plug.set_meta("kind", "inner_corner_plug")
+			plug.set_meta("side", "E")
+			plug.set_meta("aaa", {"kind": "inner_corner_plug", "side": "E"})
+			plug.position = Vector2(
+				center.x + tile_size.x * 0.5 - plug_width * 0.5,
+				plug_center_y
+			)
+		else:
+			plug.name = "InnerCornerPlug_%d_%d_W" % [candidate_cell.x, candidate_cell.y]
+			plug.set_meta("kind", "inner_corner_plug")
+			plug.set_meta("side", "W")
+			plug.set_meta("aaa", {"kind": "inner_corner_plug", "side": "W"})
+			plug.position = Vector2(
+				center.x - tile_size.x * 0.5 + plug_width * 0.5,
+				plug_center_y
+			)
+
+		body.add_child(plug)
+		shape_count += 1
 
 	if shape_count == 0:
 		body.queue_free()
