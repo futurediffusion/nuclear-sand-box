@@ -634,6 +634,8 @@ func _apply_calibrated_perf_budgets() -> void:
 		pipeline.cliff_paint_chunks_per_tick = budgets["cliff_paint_chunks_per_tick"]
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
+	if _wall_refresh_queue != null:
+		_wall_refresh_queue.purge_chunk(chunk_pos)
 	_vegetation_root.unload_chunk(chunk_pos)
 	# Borrar suelo del WorldTileMap
 	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR])
