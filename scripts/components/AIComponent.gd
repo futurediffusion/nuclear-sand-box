@@ -64,11 +64,13 @@ var _warmup_remaining: float = 0.0
 var _is_warming_up: bool = false
 var _warmup_tick_timer: float = 0.0
 var _awaiting_first_full_tick: bool = false
+var _finish_off_downed_player: bool = false
 
 func setup(p_owner_entity: Node) -> void:
 	owner_entity = p_owner_entity
 	_rng.seed = int(owner_entity.get_instance_id())
 	_lod_rng_seeded = true
+	_finish_off_downed_player = _randf() > 0.5
 	_init_combat_style_window()
 	_find_player()
 	_schedule_sleep_check()
@@ -268,6 +270,10 @@ func _update_state() -> void:
 		current_state = AIState.HURT
 		return
 	if player == null:
+		current_state = AIState.IDLE
+		return
+
+	if "is_downed" in player and player.is_downed and not _finish_off_downed_player:
 		current_state = AIState.IDLE
 		return
 

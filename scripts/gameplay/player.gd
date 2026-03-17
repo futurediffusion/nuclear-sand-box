@@ -63,6 +63,10 @@ const PLAYER_SIT_ANIMATION: StringName = &"sit"
 @onready var weapon_controller: PlayerWeaponController = get_node_or_null("PlayerWeaponController") as PlayerWeaponController
 @onready var ai_weapon_controller: AIWeaponController = get_node_or_null("AIWeaponController") as AIWeaponController
 
+@export_group("Death Feedback")
+@export var death_shake_duration: float = 0.28
+@export var death_shake_magnitude: float = 23.4
+
 @export_group("FX")
 @export var droplet_scene: PackedScene
 @export var splat_scene: PackedScene
@@ -766,6 +770,7 @@ func _resolve_world_node() -> Node:
 
 func _on_entered_downed() -> void:
 	super._on_entered_downed()
+	_trigger_death_shake()
 	weapon_sprite.visible = false
 	if footstep_audio_component != null:
 		footstep_audio_component.stop_loop()
@@ -775,7 +780,15 @@ func _on_revived() -> void:
 	weapon_sprite.visible = true
 	_update_hearts_ui()
 
+func _trigger_death_shake() -> void:
+	var cam := get_node_or_null("Camera2D")
+	if cam and cam.has_method("shake_impulse"):
+		cam.shake_impulse(death_shake_duration, death_shake_magnitude)
+	elif cam and cam.has_method("shake"):
+		cam.shake(death_shake_magnitude)
+
 func _on_before_die() -> void:
+	_trigger_death_shake()
 	_leave_seat(false)
 	weapon_sprite.visible = false
 	hurt_t = 0.0

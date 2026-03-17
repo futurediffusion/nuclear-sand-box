@@ -106,8 +106,10 @@ func _setup_ui() -> void:
 	# Posicionamiento simple world-space debajo del personaje
 	var w := float(_progress_bar.texture_under.get_width())
 	var h := float(_progress_bar.texture_under.get_height())
+	var bar_scale := 0.3
+	_progress_bar.scale = Vector2(bar_scale, bar_scale)
 	_progress_bar.custom_minimum_size = Vector2(w, h)
-	_progress_bar.position = Vector2(-w * 0.5, 10.0)
+	_progress_bar.position = Vector2(-w * bar_scale * 0.5, 10.0)
 
 	if _owner_character != null:
 		_owner_character.add_child(_progress_bar)

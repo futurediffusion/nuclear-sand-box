@@ -29,7 +29,7 @@ const DEFAULT_ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.
 
 @export_group("Death Feedback")
 @export var death_shake_duration: float = 0.28
-@export var death_shake_magnitude: float = 18.0
+@export var death_shake_magnitude: float = 23.4
 @export var death_sound_pitch_scale: float = 0.68
 @export var death_sound_volume_db: float = 2.0
 
@@ -577,6 +577,7 @@ func is_attacking() -> bool:
 
 func _on_entered_downed() -> void:
 	super._on_entered_downed()
+	_trigger_death_shake()
 	if ai_component != null:
 		ai_component.set_downed()
 	if ai_weapon_controller != null:
