@@ -115,6 +115,7 @@ func is_placing() -> bool:
 func remove_placed_entity(uid: String) -> void:
 	var removed_entry: Dictionary = WorldSave.find_placed_entity(uid)
 	WorldSave.remove_placed_entity(uid)
+	unregister_runtime_instance(uid)
 	if removed_entry.is_empty():
 		return
 	var removed_item_id: String = PlacementCatalog.normalize_item_id(String(removed_entry.get("item_id", "")))
@@ -534,7 +535,9 @@ func _spawn_placed_instance(entry: Dictionary, parent: Node) -> void:
 
 	# Evitar duplicados si el sistema de chunks ya lo spawneo
 	if runtime_placeable_instances_by_uid.has(uid):
-		return
+		var existing = runtime_placeable_instances_by_uid[uid]
+		if is_instance_valid(existing):
+			return
 
 	var scene_path := String(entry.get("scene", ""))
 	if scene_path == "":
@@ -548,12 +551,19 @@ func _spawn_placed_instance(entry: Dictionary, parent: Node) -> void:
 	if "placed_uid" in instance:
 		instance.placed_uid = uid
 
-	register_runtime_instance(uid, instance)
+	var tx: int = int(entry.get("tile_pos_x", 0))
+	var ty: int = int(entry.get("tile_pos_y", 0))
+
+	var world := _find_world_node()
+	if world != null and world.has_node("EntitySpawnCoordinator"):
+		var coordinator = world.get_node("EntitySpawnCoordinator")
+		coordinator.call("register_manual_instance", uid, instance, Vector2i(tx, ty))
+	else:
+		register_runtime_instance(uid, instance)
+
 	parent.add_child(instance)
 
 	if instance is Node2D:
-		var tx: int = int(entry.get("tile_pos_x", 0))
-		var ty: int = int(entry.get("tile_pos_y", 0))
 		(instance as Node2D).position = Vector2(tx * TILE_SIZE, ty * TILE_SIZE)
 
 	if instance.has_method("load_persisted_data"):
@@ -690,7 +700,8 @@ func _tile_key_to_pos(tile_key: String) -> Vector2i:
 
 
 func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
-	return Vector2i(int(floor(float(tile_pos.x) / 32.0)), int(floor(float(tile_pos.y) / 32.0)))
+	var csize := float(WorldSave.chunk_size)
+	return Vector2i(int(floor(float(tile_pos.x) / csize)), int(floor(float(tile_pos.y) / csize)))
 
 
 func _refresh_wall_collision_around_tiles(world_node: Node, center_tiles: Array[Vector2i], radius: int = 1) -> void:
@@ -755,7 +766,10 @@ func _set_door_vertical_layout_state(uid: String, is_vertical: bool) -> void:
 func _find_live_door_by_uid(uid: String) -> Node:
 	if uid == "":
 		return null
-	return runtime_placeable_instances_by_uid.get(uid, null)
+	var node = runtime_placeable_instances_by_uid.get(uid, null)
+	if node != null and is_instance_valid(node):
+		return node
+	return null
 
 
 func _cleanup() -> void:

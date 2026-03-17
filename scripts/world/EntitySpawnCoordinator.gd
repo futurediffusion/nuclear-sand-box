@@ -360,6 +360,20 @@ func unload_entities(chunk_pos: Vector2i) -> void:
 	chunk_entities.erase(chunk_pos)
 	chunk_saveables.erase(chunk_pos)
 
+func register_manual_instance(uid: String, node: Node, tile_pos: Vector2i) -> void:
+	var cpos := _chunk_from_key_fn.call(WorldSave.get_chunk_key_for_tile(tile_pos.x, tile_pos.y))
+	if cpos.x == -99999:
+		return
+
+	if not chunk_entities.has(cpos):
+		chunk_entities[cpos] = []
+
+	if not chunk_entities[cpos].has(node):
+		chunk_entities[cpos].append(node)
+
+	PlacementSystem.register_runtime_instance(uid, node)
+
+
 func snapshot_entities_to_world_save() -> void:
 	for chunk_pos in chunk_saveables.keys():
 		var cx: int = chunk_pos.x

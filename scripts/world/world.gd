@@ -280,6 +280,8 @@ func _ready() -> void:
 	_perf_monitor.alert_collider_ms = debug_chunk_perf_ring0_alert_collider_ms
 	_perf_monitor.alert_entities_ms = debug_chunk_perf_ring0_alert_entities_ms
 
+	WorldSave.chunk_size = chunk_size
+
 	SaveManager.register_world(self)
 	var _had_save := SaveManager.load_world_save()
 
