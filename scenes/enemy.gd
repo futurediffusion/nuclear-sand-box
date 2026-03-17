@@ -324,7 +324,7 @@ func perform_attack(_target_position: Vector2) -> void:
 func queue_ai_attack_press(aim_global_position: Vector2) -> void:
 	if _is_lite_mode:
 		return
-	last_engaged_time = RunClock.time
+	last_engaged_time = RunClock.now()
 	var ctrl := _ensure_ai_weapon_controller()
 	ctrl.queue_attack_press_with_aim(aim_global_position)
 	ctrl.set_attack_down(false)
