@@ -50,6 +50,9 @@ var _drag_last_tile: Vector2i = Vector2i.ZERO
 var _has_drag_last_tile: bool = false
 var _drag_painted_wall_tiles: Dictionary = {}
 
+## Tracking de instancias vivas en el mundo: uid(String) -> Node
+var runtime_placeable_instances_by_uid: Dictionary = {}
+
 # Máscara de capas que bloquean colocación: WALLPROPS(16) + Resources(8) + Player(1)
 const BLOCK_MASK: int = CollisionLayers.WORLD_WALL_LAYER_MASK \
 					  | CollisionLayers.RESOURCES_LAYER_MASK \
@@ -57,6 +60,19 @@ const BLOCK_MASK: int = CollisionLayers.WORLD_WALL_LAYER_MASK \
 
 
 # ── API pública ───────────────────────────────────────────────────────────────
+
+func register_runtime_instance(uid: String, node: Node) -> void:
+	if uid == "": return
+	runtime_placeable_instances_by_uid[uid] = node
+
+
+func unregister_runtime_instance(uid: String) -> void:
+	runtime_placeable_instances_by_uid.erase(uid)
+
+
+func clear_runtime_instances() -> void:
+	runtime_placeable_instances_by_uid.clear()
+
 
 func begin_placement(item_id: String, icon: Texture2D = null) -> void:
 	if _active:
@@ -95,22 +111,9 @@ func is_placing() -> bool:
 	return _active
 
 
-## Restaurar todas las entidades colocadas al cargar el mundo.
-func restore_placed_entities(world_node: Node) -> void:
-	var restored_door_tiles: Array[Vector2i] = []
-	for entry in WorldSave.placed_entities:
-		_spawn_placed_instance(entry, world_node)
-		if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
-			continue
-		var door_tile := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
-		restored_door_tiles.append(door_tile)
-	_refresh_all_door_pairings()
-	_refresh_wall_collision_around_tiles(world_node, restored_door_tiles)
-
-
 ## Quitar una entidad colocada por UID (por ejemplo, si la destruyen).
 func remove_placed_entity(uid: String) -> void:
-	var removed_entry: Dictionary = _find_placed_entity_entry_by_uid(uid)
+	var removed_entry: Dictionary = WorldSave.find_placed_entity(uid)
 	WorldSave.remove_placed_entity(uid)
 	if removed_entry.is_empty():
 		return
@@ -237,14 +240,12 @@ func can_place_at(tile_pos: Vector2i) -> bool:
 	if cliffs_tm != null and cliffs_tm.get_cell_source_id(0, tile_pos) != -1:
 		return false
 
-	# ── 2. Placed entities registry ──────────────────────────────────────────
-	for entry in WorldSave.placed_entities:
-		var ex: int = int(entry.get("tile_pos_x", -99999))
-		var ey: int = int(entry.get("tile_pos_y", -99999))
-		if ex == tile_pos.x and ey == tile_pos.y:
-			var existing_item_id := String(entry.get("item_id", ""))
-			if _can_share_tile_with_existing(existing_item_id):
-				continue
+	# ── 2. Placed entities registry (Chunk-based) ────────────────────────────
+	var cpos := _tile_to_chunk(tile_pos)
+	if WorldSave.has_placed_entity_at_tile(cpos.x, cpos.y, tile_pos):
+		var entry := WorldSave.get_placed_entity_at_tile(cpos.x, cpos.y, tile_pos)
+		var existing_item_id := String(entry.get("item_id", ""))
+		if not _can_share_tile_with_existing(existing_item_id):
 			return false
 
 	# ── 3. Physics shape query ────────────────────────────────────────────────
@@ -485,6 +486,7 @@ func _do_place_at_tile(tile: Vector2i) -> void:
 	# UID simple basado en tiempo + item_id
 	var placed_id := PlacementCatalog.normalize_item_id(_item_id)
 	var uid := "%s_%d" % [placed_id, Time.get_ticks_msec()]
+	var cpos := _tile_to_chunk(tile)
 
 	var entry: Dictionary = {
 		"uid":       uid,
@@ -493,12 +495,18 @@ func _do_place_at_tile(tile: Vector2i) -> void:
 		"tile_pos_y": tile.y,
 		"tier":      1,
 		"item_id":   placed_id,
+		"chunk_key": WorldSave.chunk_key(cpos.x, cpos.y)
 	}
 	WorldSave.add_placed_entity(entry)
 
 	var world := _find_world_node()
+	# No instanciamos directamente aquí.
+	# Al añadir a WorldSave, el sistema de chunks/EntitySpawnCoordinator
+	# lo detectará en el siguiente frame (o forzamos un refresh local).
+	# Para feedback inmediato, podemos instanciarlo manualmente si el chunk está cargado.
 	var parent: Node = world if world != null else get_tree().current_scene
 	_spawn_placed_instance(entry, parent)
+
 	if placed_id == DOORWOOD_ITEM_ID:
 		refresh_door_pairing_around_tile(tile)
 		var door_tiles: Array[Vector2i] = [tile]
@@ -521,6 +529,13 @@ func _do_place_at_tile(tile: Vector2i) -> void:
 
 
 func _spawn_placed_instance(entry: Dictionary, parent: Node) -> void:
+	var uid := String(entry.get("uid", ""))
+	if uid == "": return
+
+	# Evitar duplicados si el sistema de chunks ya lo spawneo
+	if runtime_placeable_instances_by_uid.has(uid):
+		return
+
 	var scene_path := String(entry.get("scene", ""))
 	if scene_path == "":
 		return
@@ -529,28 +544,30 @@ func _spawn_placed_instance(entry: Dictionary, parent: Node) -> void:
 		push_warning("[PlacementSystem] No se pudo cargar escena: %s" % scene_path)
 		return
 	var instance := packed.instantiate()
-	# Asignar UID antes de add_child para que _ready() (ej: chest) cargue persistencia correcta.
+
 	if "placed_uid" in instance:
-		instance.placed_uid = String(entry.get("uid", ""))
+		instance.placed_uid = uid
+
+	register_runtime_instance(uid, instance)
 	parent.add_child(instance)
+
 	if instance is Node2D:
 		var tx: int = int(entry.get("tile_pos_x", 0))
 		var ty: int = int(entry.get("tile_pos_y", 0))
 		(instance as Node2D).position = Vector2(tx * TILE_SIZE, ty * TILE_SIZE)
+
 	if instance.has_method("load_persisted_data"):
 		instance.call("load_persisted_data")
 
 
-func refresh_door_pairing_around_tile(_tile_pos: Vector2i) -> void:
-	_refresh_all_door_layouts()
+func refresh_door_pairing_around_tile(tile_pos: Vector2i) -> void:
+	_refresh_door_layouts_around_tile(tile_pos)
 
 
-func _refresh_all_door_pairings() -> void:
-	_refresh_all_door_layouts()
-
-
-func _refresh_all_door_layouts() -> void:
-	var door_uid_by_tile := _collect_door_uid_by_tile()
+func _refresh_door_layouts_around_tile(tile_pos: Vector2i) -> void:
+	# Recolectamos puertas en un vecindario de 3x3 chunks para asegurar pairings correctos
+	var center_chunk := _tile_to_chunk(tile_pos)
+	var door_uid_by_tile := _collect_door_uid_in_chunk_neighborhood(center_chunk)
 	if door_uid_by_tile.is_empty():
 		return
 
@@ -597,16 +614,20 @@ func _refresh_all_door_layouts() -> void:
 			_set_door_mirrored_state(uid, mirrored)
 
 
-func _collect_door_uid_by_tile() -> Dictionary:
+func _collect_door_uid_in_chunk_neighborhood(center_chunk: Vector2i) -> Dictionary:
 	var out: Dictionary = {}
-	for entry in WorldSave.placed_entities:
-		if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
-			continue
-		var tile := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
-		var uid := String(entry.get("uid", ""))
-		if uid == "":
-			continue
-		out[_tile_pos_to_key(tile)] = uid
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var cx := center_chunk.x + dx
+			var cy := center_chunk.y + dy
+			var entries := WorldSave.get_placed_entities_in_chunk(cx, cy)
+			for entry in entries:
+				if PlacementCatalog.normalize_item_id(String(entry.get("item_id", ""))) != DOORWOOD_ITEM_ID:
+					continue
+				var tile := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
+				var uid := String(entry.get("uid", ""))
+				if uid == "": continue
+				out[_tile_pos_to_key(tile)] = uid
 	return out
 
 
@@ -667,16 +688,10 @@ func _tile_key_to_pos(tile_key: String) -> Vector2i:
 		return Vector2i(-999999, -999999)
 	return Vector2i(int(parts[0]), int(parts[1]))
 
-func _find_placed_entity_entry_by_uid(uid: String) -> Dictionary:
-	if uid == "":
-		return {}
-	for raw_entry in WorldSave.placed_entities:
-		if typeof(raw_entry) != TYPE_DICTIONARY:
-			continue
-		var entry: Dictionary = raw_entry as Dictionary
-		if String(entry.get("uid", "")) == uid:
-			return entry.duplicate(true)
-	return {}
+
+func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
+	return Vector2i(int(floor(float(tile_pos.x) / 32.0)), int(floor(float(tile_pos.y) / 32.0)))
+
 
 func _refresh_wall_collision_around_tiles(world_node: Node, center_tiles: Array[Vector2i], radius: int = 1) -> void:
 	if center_tiles.is_empty():
@@ -740,15 +755,7 @@ func _set_door_vertical_layout_state(uid: String, is_vertical: bool) -> void:
 func _find_live_door_by_uid(uid: String) -> Node:
 	if uid == "":
 		return null
-	for candidate in get_tree().get_nodes_in_group("doorwood_placeable"):
-		if not (candidate is Node):
-			continue
-		var node := candidate as Node
-		if not is_instance_valid(node):
-			continue
-		if "placed_uid" in node and String(node.placed_uid) == uid:
-			return node
-	return null
+	return runtime_placeable_instances_by_uid.get(uid, null)
 
 
 func _cleanup() -> void:

@@ -37,7 +37,7 @@ func save_world() -> void:
 		"worldsave_enemy_spawns": _ser(WorldSave.enemy_spawns_by_chunk),
 		"worldsave_global_flags": _ser(WorldSave.global_flags),
 		"worldsave_player_walls": _ser(WorldSave.player_walls_by_chunk),
-		"placed_entities": _ser(WorldSave.placed_entities),
+		"placed_entities_by_chunk": _ser(WorldSave.placed_entities_by_chunk),
 		"placed_entity_data_by_uid": _ser(WorldSave.placed_entity_data_by_uid),
 		"faction_system":     FactionSystem.serialize(),
 		"site_system":        SiteSystem.serialize(),
@@ -103,13 +103,29 @@ func load_world_save() -> bool:
 	if ws_player_walls is Dictionary:
 		WorldSave.player_walls_by_chunk = ws_player_walls
 
-	# Restore placed entities (backward-compatible: defaults to empty array)
-	var placed_raw = _des(data.get("placed_entities", []))
-	WorldSave.placed_entities.clear()
-	if placed_raw is Array:
-		for entry in placed_raw:
-			if entry is Dictionary:
-				WorldSave.placed_entities.append(entry)
+	# --- Migration / Loading of placed entities ---
+	WorldSave.clear_placed_entities()
+
+	# Try loading the new chunk-based format first
+	var placed_chunk_raw = _des(data.get("placed_entities_by_chunk", {}))
+	if placed_chunk_raw is Dictionary and not placed_chunk_raw.is_empty():
+		WorldSave.placed_entities_by_chunk = placed_chunk_raw
+		# Rebuild index UID -> Chunk
+		WorldSave.placed_entity_chunk_by_uid.clear()
+		for ckey in WorldSave.placed_entities_by_chunk:
+			var dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
+			for uid in dict:
+				WorldSave.placed_entity_chunk_by_uid[uid] = ckey
+	else:
+		# FALLBACK / MIGRATION: detect legacy 'placed_entities' array
+		var placed_legacy = _des(data.get("placed_entities", []))
+		if placed_legacy is Array:
+			for entry in placed_legacy:
+				if entry is Dictionary:
+					# add_placed_entity will automatically resolve chunk_key and update indices
+					WorldSave.add_placed_entity(entry)
+			if not placed_legacy.is_empty():
+				Debug.log("save", "Migration: Converted %d legacy placed entities to chunk-based storage." % placed_legacy.size())
 
 	# Restore placed entity data by uid (backward-compatible: defaults to empty dictionary)
 	var placed_data_raw = _des(data.get("placed_entity_data_by_uid", {}))
@@ -155,6 +171,7 @@ func new_game() -> void:
 	WorldSave.player_walls_by_chunk.clear()
 	WorldSave.clear_placed_entities()
 	WorldSave.placed_entity_data_by_uid.clear()
+	PlacementSystem.clear_runtime_instances()
 	FactionSystem.reset()
 	SiteSystem.reset()
 	NpcProfileSystem.reset()
