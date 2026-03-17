@@ -7,6 +7,10 @@ const CommandSystemScript = preload("res://scripts/systems/CommandSystem.gd")
 @export var default_tavern_position: Vector2i = Vector2i.ZERO
 @export var keep_corpses: bool = false
 
+@export_group("Enemy Behavior")
+@export var finish_off_chance_min: float = 0.2
+@export var finish_off_chance_max: float = 0.4
+
 @onready var game_over_panel: Control = $UI/GameOverPanel
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
 @onready var inv_menu = $UI/PlayerInventoryMenu
@@ -29,6 +33,8 @@ func _enter_tree() -> void:
 func _ready() -> void:
 	Debug.log("boot", "Main._ready begin")
 	GameManager.keep_corpses = keep_corpses
+	GameManager.finish_off_chance_min = finish_off_chance_min
+	GameManager.finish_off_chance_max = finish_off_chance_max
 	_remap_inventory_key_to_tab()
 	if AudioSystem != null and AudioSystem.has_method("register_sound_panel"):
 		AudioSystem.register_sound_panel(sound_panel)

@@ -17,6 +17,9 @@ var session_time_seconds: float = 0.0
 var threat_level: int = 0
 var keep_corpses: bool = false
 
+var finish_off_chance_min: float = 0.2
+var finish_off_chance_max: float = 0.4
+
 func _ready() -> void:
 	Seed.initialize_run_seed()
 	Debug.log("boot", "RUN_SEED=%d use_debug_seed=%s" % [Seed.run_seed, str(Seed.use_debug_seed)])
