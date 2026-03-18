@@ -3,6 +3,7 @@
 [ext_resource type="Script" uid="uid://1m6wd4bptkr1" path="res://scripts/items/item_drop.gd" id="1_3580i"]
 [ext_resource type="AudioStream" uid="uid://c5xw7gjl56i14" path="res://art/Sounds/pickup.ogg" id="2_u8iln"]
 [ext_resource type="Resource" path="res://data/items/copper.tres" id="3_data"]
+[ext_resource type="Script" path="res://scripts/components/CarryableComponent.gd" id="4_carryable"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_c57pv"]
 
@@ -29,3 +30,6 @@ volume_db = 6.0
 [node name="MagnetDelay" type="Timer" parent="."]
 wait_time = 0.15
 one_shot = true
+
+[node name="CarryableComponent" type="Node" parent="."]
+script = ExtResource("4_carryable")

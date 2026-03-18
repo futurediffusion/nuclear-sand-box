@@ -437,6 +437,14 @@ func get_mouse_angle() -> float:
 func is_seated() -> bool:
 	return _is_seated
 
+func wants_carry_pickup() -> bool:
+	return secondary_action_state == SecondaryActionState.CARRY_SCAN or secondary_action_state == SecondaryActionState.CARRYING
+
+func try_carry_pickup(node: Node2D) -> bool:
+	if carry_component == null:
+		return false
+	return carry_component.try_pickup(node)
+
 func is_seated_on(seat_node: Node) -> bool:
 	if seat_node == null:
 		return false

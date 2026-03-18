@@ -166,6 +166,13 @@ func _try_pickup() -> void:
 		print("[ItemDrop] _try_pickup: NO player")
 		return
 
+	if _player.has_method("wants_carry_pickup") and _player.wants_carry_pickup():
+		if _player.has_method("try_carry_pickup") and _player.try_carry_pickup(self):
+			# Ya fue recogido por el componente de carry, ignorar inventario
+			monitoring = false
+			monitorable = false
+			return
+
 	var inv := _player.get_node_or_null("InventoryComponent")
 	if inv == null:
 		print("[ItemDrop] _try_pickup: NO InventoryComponent en player=", _player.name, " children=", _player.get_children())
