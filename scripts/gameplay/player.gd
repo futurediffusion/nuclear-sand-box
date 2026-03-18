@@ -109,6 +109,7 @@ var block_wiggle_t: float = 0.0
 
 enum SecondaryActionState { NONE, BLOCK, CARRY_SCAN, CARRYING }
 var secondary_action_state: int = SecondaryActionState.NONE
+var _secondary_stamina_locked: bool = false
 
 var _current_weapon_controller: WeaponController = null
 var _movement_control_mode: StringName = &"player"
@@ -391,6 +392,7 @@ func _reset_control_transient_state() -> void:
 	attack_push_vel = Vector2.ZERO
 	blocking = false
 	secondary_action_state = SecondaryActionState.NONE
+	_secondary_stamina_locked = false
 
 	if block_component != null:
 		block_component.set_block_requested(false)
@@ -461,46 +463,55 @@ func force_leave_seat() -> void:
 func _process_secondary_action(delta: float) -> void:
 	var pressed := Input.is_action_pressed("block")
 
-	# Guard: at 0 stamina, right-click must not trigger block or new carry scan
-	if pressed and stamina_component != null and stamina_component.current_stamina <= 0.0:
+	if not pressed:
+		# Botón soltado: limpiar lockout y todo el estado
+		_secondary_stamina_locked = false
+		if use_block_component and block_component != null:
+			block_component.set_block_requested(false)
 		if secondary_action_state == SecondaryActionState.CARRYING:
-			_force_drop_carryable()
+			_release_carryable()
+		secondary_action_state = SecondaryActionState.NONE
+		return
+
+	# Botón presionado pero bloqueado por stamina agotada — silencio total
+	if _secondary_stamina_locked:
 		if use_block_component and block_component != null:
 			block_component.set_block_requested(false)
 		secondary_action_state = SecondaryActionState.NONE
 		return
 
-	if pressed:
-		if secondary_action_state == SecondaryActionState.NONE:
-			secondary_action_state = SecondaryActionState.CARRY_SCAN
+	# Flujo normal
+	if secondary_action_state == SecondaryActionState.NONE:
+		secondary_action_state = SecondaryActionState.CARRY_SCAN
 
-		# Re-scan multiple times even if already carrying to allow stacking
-		if secondary_action_state == SecondaryActionState.CARRY_SCAN or secondary_action_state == SecondaryActionState.BLOCK or secondary_action_state == SecondaryActionState.CARRYING:
-			var found_carryable := _scan_for_carryable()
+	# Re-scan multiple times even if already carrying to allow stacking
+	if secondary_action_state == SecondaryActionState.CARRY_SCAN or secondary_action_state == SecondaryActionState.BLOCK or secondary_action_state == SecondaryActionState.CARRYING:
+		var found_carryable := _scan_for_carryable()
 
-			if carry_component != null and carry_component.is_carrying():
-				secondary_action_state = SecondaryActionState.CARRYING
-				if use_block_component and block_component != null:
-					block_component.set_block_requested(false)
-			else:
-				secondary_action_state = SecondaryActionState.BLOCK
-				if use_block_component and block_component != null:
-					block_component.set_block_requested(true)
+		if carry_component != null and carry_component.is_carrying():
+			secondary_action_state = SecondaryActionState.CARRYING
+			if use_block_component and block_component != null:
+				block_component.set_block_requested(false)
+		else:
+			secondary_action_state = SecondaryActionState.BLOCK
+			if use_block_component and block_component != null:
+				block_component.set_block_requested(true)
 
-		if secondary_action_state == SecondaryActionState.CARRYING:
-			if stamina_component != null:
-				var can_pay := stamina_component.spend_continuous(block_stamina_drain * 2.0, delta)
-				if not can_pay:
-					_force_drop_carryable()
-					secondary_action_state = SecondaryActionState.NONE
-	else:
+	if secondary_action_state == SecondaryActionState.CARRYING:
+		if stamina_component != null:
+			var can_pay := stamina_component.spend_continuous(block_stamina_drain * 2.0, delta)
+			if not can_pay:
+				_force_drop_carryable()
+				secondary_action_state = SecondaryActionState.NONE
+				_secondary_stamina_locked = true
+
+	# Detectar si BlockComponent agotó la stamina internamente
+	if secondary_action_state == SecondaryActionState.BLOCK:
 		if use_block_component and block_component != null:
-			block_component.set_block_requested(false)
-
-		if secondary_action_state == SecondaryActionState.CARRYING:
-			_release_carryable()
-
-		secondary_action_state = SecondaryActionState.NONE
+			if not block_component.is_blocking() and stamina_component != null and stamina_component.current_stamina <= 0.0:
+				block_component.set_block_requested(false)
+				secondary_action_state = SecondaryActionState.NONE
+				_secondary_stamina_locked = true
 
 func _scan_for_carryable() -> bool:
 	if carry_component == null:
@@ -721,7 +732,7 @@ func _legacy_block_input_and_drain(delta: float) -> void:
 
 func _is_currently_blocking() -> bool:
 	if use_block_component and block_component != null:
-		return block_component.is_blocking()
+		return block_component.is_blocking() and block_component.block_requested
 	return blocking
 
 func _legacy_is_hit_blocked(from_pos: Vector2) -> bool:

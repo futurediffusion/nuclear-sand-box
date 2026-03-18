@@ -4,6 +4,12 @@ class_name CarryableComponent
 @export var carry_offset: Vector2 = Vector2(0, -20)
 @export var disable_collision_on_carry: bool = true
 @export var drop_ground_offset: Vector2 = Vector2(0, 0)
+## Si true, solo se puede cargar cuando el padre tiene is_downed == true
+@export var require_downed: bool = false
+## Si false, siempre se suelta sin scatter (útil para personajes)
+@export var allow_scatter: bool = true
+## Si true, deshabilita _physics_process y _process del padre mientras es cargado
+@export var disable_process_on_carry: bool = false
 
 var _parent: Node2D
 var _carrier: Node2D = null
@@ -21,7 +27,11 @@ func _ready() -> void:
 	_parent.add_to_group("carryable")
 
 func can_pickup() -> bool:
-	return not _is_carried
+	if _is_carried:
+		return false
+	if require_downed:
+		return _parent.get("is_downed") == true
+	return true
 
 func pickup(carrier: Node2D) -> void:
 	if _is_carried or carrier == null or _parent == null:
@@ -37,6 +47,11 @@ func pickup(carrier: Node2D) -> void:
 		_original_collision_mask = _parent.collision_mask
 		_parent.collision_layer = 0
 		_parent.collision_mask = 0
+
+	# Freeze AI/physics while carried
+	if disable_process_on_carry:
+		_parent.set_physics_process(false)
+		_parent.set_process(false)
 
 	# Reparent to carrier
 	if _original_parent != null:
@@ -58,6 +73,9 @@ func drop(scatter: bool = false) -> void:
 		return
 
 	_is_carried = false
+
+	# Scatter solo si está permitido para este tipo de objeto
+	var do_scatter := scatter and allow_scatter
 
 	# Save elevated carry position BEFORE reparenting (coordinate space changes after)
 	var carry_global_pos := _parent.global_position
@@ -85,11 +103,16 @@ func drop(scatter: bool = false) -> void:
 		_parent.collision_layer = _original_collision_layer
 		_parent.collision_mask = _original_collision_mask
 
-	# Reset magnet so it doesn't fight the fall tween
+	# Restore AI/physics
+	if disable_process_on_carry:
+		_parent.set_physics_process(true)
+		_parent.set_process(true)
+
+	# Reset magnet so it doesn't fight the fall tween (items only)
 	if _parent.has_method("reset_magnet_delay"):
 		_parent.reset_magnet_delay()
 
-	if scatter:
+	if do_scatter:
 		var random_offset = Vector2(randf_range(-15, 15), randf_range(-15, 15))
 		var tw = create_tween()
 		tw.tween_property(_parent, "global_position", global_drop_pos + random_offset, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)

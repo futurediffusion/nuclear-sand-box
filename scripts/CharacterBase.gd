@@ -23,6 +23,10 @@ const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd"
 @export_group("Collision")
 @export var ignore_world_walls: bool = false
 
+@export_group("Carry")
+## Si true, este personaje puede ser cargado por otros cuando está en estado KO
+@export var carryable_when_downed: bool = true
+
 signal downed_entered
 signal revived
 signal dying_started
@@ -46,6 +50,7 @@ func _ready() -> void:
 	_base_ready_initialized = true
 	_apply_world_collision_policy()
 	_debug_validate_world_collision_setup("CharacterBase._ready")
+	_setup_carryable_when_downed()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_READY:
@@ -79,6 +84,18 @@ func _setup_health_component() -> void:
 			downed_component.died_final.connect(die_final)
 
 		_ensure_downed_bar_view()
+
+func _setup_carryable_when_downed() -> void:
+	if not carryable_when_downed:
+		return
+	if get_node_or_null("CarryableComponent") != null:
+		return
+	var cc := CarryableComponent.new()
+	cc.name = "CarryableComponent"
+	cc.require_downed = true
+	cc.allow_scatter = false
+	cc.disable_process_on_carry = true
+	add_child(cc)
 
 func _ensure_downed_bar_view() -> void:
 	if not has_node("DownedBarView"):
@@ -146,6 +163,11 @@ func _on_entered_downed() -> void:
 
 func _on_revived() -> void:
 	is_downed = false
+	# Si estábamos siendo cargados, soltarnos del cargador
+	var my_carryable := get_node_or_null("CarryableComponent") as CarryableComponent
+	if my_carryable != null and my_carryable._is_carried:
+		my_carryable.drop(false)
+	# Soltar cualquier cosa que nosotros estuviéramos cargando
 	var _cc := get_node_or_null("CarryComponent")
 	if _cc != null:
 		_cc.force_drop_all()
@@ -172,6 +194,10 @@ func die_final() -> void:
 	hurt_t = 0.0
 	knock_vel = Vector2.ZERO
 	velocity = Vector2.ZERO
+	# Si estábamos siendo cargados, soltarnos del cargador
+	var my_carryable := get_node_or_null("CarryableComponent") as CarryableComponent
+	if my_carryable != null and my_carryable._is_carried:
+		my_carryable.drop(false)
 
 	if DownedEncounterCoordinator != null and DownedEncounterCoordinator.has_method("notify_target_died_final"):
 		DownedEncounterCoordinator.notify_target_died_final(self)
