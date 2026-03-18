@@ -144,7 +144,8 @@ func _on_entered_downed() -> void:
 func _on_revived() -> void:
 	is_downed = false
 	if health_component != null:
-		health_component.heal(downed_component.downed_revive_hp)
+		var revive_hp := maxi(1, downed_component.downed_revive_hp)
+		health_component.set_hp_clamped(revive_hp)
 		hp = health_component.hp
 	if has_node("AnimatedSprite2D"):
 		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
@@ -183,6 +184,9 @@ func die_final() -> void:
 
 func die() -> void:
 	_on_health_died()
+
+func is_final_dead() -> bool:
+	return dying
 
 func apply_knockback(force: Vector2) -> void:
 	knock_vel += force

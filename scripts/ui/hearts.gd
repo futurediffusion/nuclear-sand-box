@@ -6,14 +6,12 @@ extends HBoxContainer
 @export var heart_scale: float = 4.0
 
 var _hearts: Array[TextureRect] = []
-var _player: Node = null
 
 func _ready() -> void:
 	alignment = BoxContainer.ALIGNMENT_BEGIN
 	# Separación va aquí, UNA VEZ, antes de construir los hijos
 	add_theme_constant_override("separation", 4)
 	_build()
-	call_deferred("_find_and_connect_player")
 
 func _build() -> void:
 	# Borrar hijos viejos
@@ -45,44 +43,13 @@ func _build() -> void:
 		add_child(t)
 		_hearts.append(t)
 
-func _find_and_connect_player() -> void:
-	var players := get_tree().get_nodes_in_group("player")
-	if players.size() == 0:
-		get_tree().create_timer(0.5).timeout.connect(_find_and_connect_player)
-		return
-
-	_player = players[0]
-
-	var health_comp := _player.get_node_or_null("HealthComponent")
-	if health_comp == null:
-		return
-
-	if health_comp.has_signal("hp_changed") and not health_comp.hp_changed.is_connected(_on_hp_changed):
-		health_comp.hp_changed.connect(_on_hp_changed)
-	elif not health_comp.damaged.is_connected(_on_player_damaged):
-		health_comp.damaged.connect(_on_player_damaged)
-
-	if not health_comp.died.is_connected(_on_player_died):
-		health_comp.died.connect(_on_player_died)
-
-	max_hearts = health_comp.max_hp
-	_build()
-	set_hp(health_comp.hp)
-
-func _on_hp_changed(current: int, _max: int) -> void:
-	set_hp(current)
-
-func _on_player_damaged(_amount: int) -> void:
-	if _player == null:
-		return
-	var health_comp := _player.get_node_or_null("HealthComponent")
-	if health_comp:
-		set_hp(health_comp.hp)
-
-func _on_player_died() -> void:
-	set_hp(0)
+func set_hearts(current_hp: int) -> void:
+	set_hp(current_hp)
 
 func set_hp(hp: int) -> void:
+	if max_hearts != _hearts.size():
+		_build()
+
 	for i in range(_hearts.size()):
 		if full_heart and empty_heart:
 			_hearts[i].texture = full_heart if i < hp else empty_heart

@@ -578,7 +578,7 @@ func capture_save_state() -> Dictionary:
 		"chunk_key": enemy_chunk_key,
 		"pos": global_position,
 		"hp": hp,
-		"is_dead": hp <= 0 or dying,
+		"is_dead": is_final_dead(),
 		"is_downed": is_downed,
 		"seed": enemy_seed,
 		"faction_id": faction_id,

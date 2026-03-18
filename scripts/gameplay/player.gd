@@ -250,10 +250,17 @@ func _find_hearts_ui_node(node: Node) -> Node:
 
 func _setup_health_component() -> void:
 	super._setup_health_component()
-	if health_component != null and health_component.has_signal("damaged") and not health_component.damaged.is_connected(_on_health_damaged):
-		health_component.damaged.connect(_on_health_damaged)
+	if health_component != null:
+		if health_component.has_signal("damaged") and not health_component.damaged.is_connected(_on_health_damaged):
+			health_component.damaged.connect(_on_health_damaged)
+		if health_component.has_signal("hp_changed") and not health_component.hp_changed.is_connected(_on_health_hp_changed):
+			health_component.hp_changed.connect(_on_health_hp_changed)
 	if character_hurtbox != null and not character_hurtbox.damaged.is_connected(_on_CharacterHurtbox_damaged):
 		character_hurtbox.damaged.connect(_on_CharacterHurtbox_damaged)
+
+func _on_health_hp_changed(current_hp: int, _max: int) -> void:
+	hp = current_hp
+	_update_hearts_ui()
 
 func _setup_stamina_component() -> void:
 	if stamina_component == null:
@@ -740,16 +747,18 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 		_spawn_droplets(droplet_count_hit, hit_dir)
 
 func _on_health_damaged(_amount: int) -> void:
-	hp = health_component.hp if health_component != null else hp
-	_update_hearts_ui()
+	pass
 
 func _on_CharacterHurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
 	take_damage(dmg, from_pos)
 
 func _update_hearts_ui() -> void:
-	if hearts_ui != null and hearts_ui.has_method("set_hearts"):
+	if hearts_ui != null:
 		hearts_ui.set("max_hearts", max_hp)
-		hearts_ui.call("set_hearts", hp)
+		if hearts_ui.has_method("set_hearts"):
+			hearts_ui.call("set_hearts", hp)
+		elif hearts_ui.has_method("set_hp"):
+			hearts_ui.call("set_hp", hp)
 
 func _resolve_walk_surface_id(world_pos: Vector2) -> StringName:
 	var world := _resolve_world_node()
