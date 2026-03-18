@@ -98,6 +98,10 @@ var attack_push_t: float = 0.0
 var blocking: bool = false
 var block_angle: float = 0.0
 @export var block_stamina_drain: float = 12.0
+
+@export_group("Carry")
+@export var carry_range: float = 60.0
+var carried_node: Node2D = null
 @export var block_hit_stamina_cost: float = 0.10
 @export var block_wiggle_deg: float = 60.0
 @export var block_wiggle_hz: float = 6.0
@@ -482,12 +486,33 @@ func _process_secondary_action(delta: float) -> void:
 		secondary_action_state = SecondaryActionState.NONE
 
 func _scan_for_carryable() -> bool:
-	# Stub method for future carryable logic
+	var candidates = get_tree().get_nodes_in_group("carryable")
+	var best_node: Node2D = null
+	var best_dist: float = carry_range * carry_range
+	for c in candidates:
+		if c is Node2D and is_instance_valid(c):
+			var dist_sq = global_position.distance_squared_to(c.global_position)
+			if dist_sq <= best_dist:
+				var comp = c.get_node_or_null("CarryableComponent")
+				if comp != null and comp.has_method("can_pickup") and comp.can_pickup():
+					best_dist = dist_sq
+					best_node = c
+
+	if best_node != null:
+		var comp = best_node.get_node("CarryableComponent")
+		if comp.has_method("pickup"):
+			comp.pickup(self)
+			carried_node = best_node
+			return true
+
 	return false
 
 func _force_drop_carryable() -> void:
-	# Stub method for dropping items
-	pass
+	if carried_node != null and is_instance_valid(carried_node):
+		var comp = carried_node.get_node_or_null("CarryableComponent")
+		if comp != null and comp.has_method("drop"):
+			comp.drop()
+	carried_node = null
 
 func _enter_seat(seat_node: Node, seat_world_pos: Vector2) -> void:
 	if dying:
