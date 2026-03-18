@@ -182,6 +182,9 @@ func delete_save() -> void:
 
 func new_game() -> void:
 	delete_save()
+	_pending_player_pos = Vector2.ZERO
+	_pending_player_inv = []
+	_pending_player_gold = -1
 	WorldSave.chunks.clear()
 	WorldSave.enemy_state_by_chunk.clear()
 	WorldSave.enemy_spawns_by_chunk.clear()

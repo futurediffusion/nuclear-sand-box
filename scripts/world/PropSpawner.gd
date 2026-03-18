@@ -23,6 +23,7 @@ const TAVERN_TABLE_SEED_FLAG: String = "tavern_tables_seeded_v1"
 const TAVERN_TABLE_SCENE_PATH: String = "res://scenes/placeables/table_world.tscn"
 const TAVERN_TABLE_ITEM_ID: String = "table"
 const TAVERN_STOOL_SEED_FLAG: String = "tavern_stools_seeded_v1"
+const TAVERN_TILES_SEED_FLAG: String = "tavern_tiles_seeded_v1"
 const TAVERN_STOOL_SCENE_PATH: String = "res://scenes/placeables/stool_world.tscn"
 const TAVERN_STOOL_ITEM_ID: String = "stool"
 
@@ -414,41 +415,47 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var door_x: int = x0 + bounds.size.x / 2
 	var structural_wall_default_hp: int = maxi(1, int(ctx.get("structural_wall_default_hp", 1)))
 
-	for cell in data.floor_cells:
-		_place_tile_persistent(chunk_pos, LAYER_FLOOR, cell, SRC_FLOOR, FLOOR_WOOD, ctx)
+	# Only write floor/wall tiles the first time. On subsequent loads the saved
+	# placed_tiles array already reflects the player's destruction state — re-writing
+	# here would restore destroyed tiles with full HP.
+	if not bool(WorldSave.global_flags.get(TAVERN_TILES_SEED_FLAG, false)):
+		for cell in data.floor_cells:
+			_place_tile_persistent(chunk_pos, LAYER_FLOOR, cell, SRC_FLOOR, FLOOR_WOOD, ctx)
 
-	for cell in data.wall_cells:
-		if USE_WALL_TERRAIN:
-			chunk_save[chunk_pos]["placed_tiles"].append({
-				"layer": LAYER_WALLS,
-				"tile": cell,
-				"source": -1,
-				"atlas": Vector2i(-1, -1),
-				"hp": structural_wall_default_hp,
-			})
-		else:
-			var atlas: Vector2i = WALL_MID
-			if cell.y == y0 + 1:
-				if cell.x == x0:
-					atlas = ROOF_CONT_RIGHT
-				elif cell.x == x1:
-					atlas = ROOF_CONT_LEFT
-				else:
-					atlas = WALL_MID
-			elif cell.y == y1:
-				if cell.x == x0:
-					atlas = WALL_END_LEFT
-				elif cell.x == x1:
-					atlas = WALL_END_RIGHT
-				elif cell.x == door_x - 1:
-					atlas = WALL_END_RIGHT
-				elif cell.x == door_x + 1:
-					atlas = WALL_END_LEFT
-				else:
-					atlas = WALL_MID
+		for cell in data.wall_cells:
+			if USE_WALL_TERRAIN:
+				chunk_save[chunk_pos]["placed_tiles"].append({
+					"layer": LAYER_WALLS,
+					"tile": cell,
+					"source": -1,
+					"atlas": Vector2i(-1, -1),
+					"hp": structural_wall_default_hp,
+				})
 			else:
-				atlas = ROOF_VERTICAL
-			_place_tile_persistent(chunk_pos, LAYER_WALLS, cell, SRC_WALLS, atlas, ctx)
+				var atlas: Vector2i = WALL_MID
+				if cell.y == y0 + 1:
+					if cell.x == x0:
+						atlas = ROOF_CONT_RIGHT
+					elif cell.x == x1:
+						atlas = ROOF_CONT_LEFT
+					else:
+						atlas = WALL_MID
+				elif cell.y == y1:
+					if cell.x == x0:
+						atlas = WALL_END_LEFT
+					elif cell.x == x1:
+						atlas = WALL_END_RIGHT
+					elif cell.x == door_x - 1:
+						atlas = WALL_END_RIGHT
+					elif cell.x == door_x + 1:
+						atlas = WALL_END_LEFT
+					else:
+						atlas = WALL_MID
+				else:
+					atlas = ROOF_VERTICAL
+				_place_tile_persistent(chunk_pos, LAYER_WALLS, cell, SRC_WALLS, atlas, ctx)
+
+		WorldSave.global_flags[TAVERN_TILES_SEED_FLAG] = true
 
 	for p in data.placements:
 		if _is_tavern_barrel_placement(p) or _is_tavern_table_placement(p) or _is_tavern_stool_placement(p):
