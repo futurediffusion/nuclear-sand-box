@@ -45,9 +45,15 @@ enum BowState { IDLE, CHARGING, COOLDOWN }
 
 var owner_entity = null  # tipado suelto — acepta EnemyAI o TavernKeeper vía duck typing
 var player: CharacterBody2D = null
+var current_target: CharacterBody2D = null
 var current_state: AIState = AIState.IDLE
 var sleeping: bool = false
 var sleep_check_timer: SceneTreeTimer = null
+
+var _current_target_ref: WeakRef = null
+var _current_target_id: int = -1
+var _ignored_target_id: int = -1
+var _ignore_target_until: float = 0.0
 
 var _bow_state: BowState = BowState.IDLE
 var _bow_charge_t: float = 0.0
@@ -69,7 +75,6 @@ var _warmup_remaining: float = 0.0
 var _is_warming_up: bool = false
 var _warmup_tick_timer: float = 0.0
 var _awaiting_first_full_tick: bool = false
-var _ignore_player_until: float = 0.0
 var _disengage_anchor: Vector2 = Vector2.ZERO
 var _perimeter_anchor: Vector2 = Vector2.ZERO
 var _current_downed_target_id: int = -1
@@ -125,15 +130,46 @@ func _validate_owner_contract(actor: Node) -> bool:
 	return true
 
 
+func set_current_target(target: Node) -> void:
+	if target == null:
+		clear_current_target()
+		return
+	current_target = target as CharacterBody2D
+	_current_target_ref = weakref(target)
+	_current_target_id = target.get_instance_id()
+
+func clear_current_target() -> void:
+	current_target = null
+	_current_target_ref = null
+	_current_target_id = -1
+
+func get_current_target() -> Node:
+	if current_target != null and is_instance_valid(current_target):
+		return current_target
+	if _current_target_ref != null:
+		var target = _current_target_ref.get_ref()
+		if target != null and is_instance_valid(target):
+			current_target = target as CharacterBody2D
+			return current_target
+
+	# Fallback
+	if player != null and is_instance_valid(player):
+		set_current_target(player)
+		return player
+
+	return null
+
 func setup(p_owner_entity: Node) -> void:
 	_contract_valid = false
 	owner_entity = null
 	player = null
+	clear_current_target()
 	sleep_check_timer = null
 
 	current_state = AIState.IDLE
 	sleeping = false
-	_ignore_player_until = 0.0
+	_ignore_target_until = 0.0
+	_ignored_target_id = -1
 	_disengage_anchor = Vector2.ZERO
 	_perimeter_anchor = Vector2.ZERO
 	_current_downed_target_id = -1
@@ -169,15 +205,17 @@ func physics_tick(delta: float) -> void:
 	if _is_warming_up:
 		_process_awake_warmup(delta)
 		return
-	if player == null or not is_instance_valid(player):
+	var target := get_current_target()
+	if target == null:
 		_player_find_timer = maxf(_player_find_timer - delta, 0.0)
 		if _player_find_timer <= 0.0:
 			_find_player()
 			_player_find_timer = 0.25
+			target = get_current_target()
 
 	var distance := INF
-	if player != null and is_instance_valid(player):
-		distance = owner_entity.global_position.distance_to(player.global_position)
+	if target != null:
+		distance = owner_entity.global_position.distance_to(target.global_position)
 
 	var force_full_tick := _bow_state == BowState.CHARGING
 	if _awaiting_first_full_tick:
@@ -243,10 +281,11 @@ func _execute_light_tick(delta: float, force_hold_override: bool = false) -> voi
 			if current_state == AIState.HURT and owner_entity.hurt_t <= 0.0:
 				current_state = AIState.IDLE
 		AIState.CHASE:
-			if player == null or not is_instance_valid(player):
+			var target = get_current_target()
+			if target == null:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 				return
-			var dir: Vector2 = owner_entity.global_position.direction_to(player.global_position)
+			var dir: Vector2 = owner_entity.global_position.direction_to(target.global_position)
 			var target_velocity: Vector2 = dir * float(owner_entity.max_speed)
 			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 		AIState.DISENGAGE:
@@ -370,16 +409,22 @@ func _update_state() -> void:
 	if owner_entity.hurt_t > 0.0:
 		current_state = AIState.HURT
 		return
-	if player == null:
+
+	var target = get_current_target()
+	if target == null:
 		current_state = AIState.IDLE
 		return
 
-	var player_is_downed = ("is_downed" in player) and player.is_downed
+	var target_is_downed = false
+	if target.has_method("is_downed"):
+		target_is_downed = target.call("is_downed")
+	elif "is_downed" in target:
+		target_is_downed = target.get("is_downed")
 
-	if player_is_downed:
+	if target_is_downed:
 		var policy: Dictionary = {}
 		if DownedEncounterCoordinator != null:
-			policy = DownedEncounterCoordinator.get_policy_for_enemy(owner_entity, player)
+			policy = DownedEncounterCoordinator.get_policy_for_enemy(owner_entity, target)
 
 		if not policy.get("active", false):
 			current_state = AIState.IDLE
@@ -392,7 +437,8 @@ func _update_state() -> void:
 			if current_state != AIState.DISENGAGE:
 				_release_attack_input()
 				current_state = AIState.DISENGAGE
-				_ignore_player_until = float(policy.get("ignore_until", 0.0))
+				_ignore_target_until = float(policy.get("ignore_until", 0.0))
+				_ignored_target_id = target.get_instance_id()
 				_compute_disengage_anchor(float(policy.get("safe_radius", 180.0)))
 			return
 
@@ -409,7 +455,7 @@ func _update_state() -> void:
 			is_executor = (enemy_uid == String(policy.get("executor_uid", "")))
 
 			if is_executor:
-				# Proceed with normal attack logic against downed player
+				# Proceed with normal attack logic against downed target
 				pass
 			else:
 				if current_state != AIState.HOLD_PERIMETER:
@@ -418,14 +464,14 @@ func _update_state() -> void:
 					_compute_perimeter_anchor(120.0)
 				return
 	else:
-		if RunClock.now() < _ignore_player_until:
+		if target.get_instance_id() == _ignored_target_id and RunClock.now() < _ignore_target_until:
 			if current_state != AIState.DISENGAGE:
 				current_state = AIState.DISENGAGE
 			return
 		elif current_state == AIState.DISENGAGE or current_state == AIState.HOLD_PERIMETER:
 			current_state = AIState.IDLE
 
-	var distance: float = owner_entity.global_position.distance_to(player.global_position)
+	var distance: float = owner_entity.global_position.distance_to(target.global_position)
 	var weapon_id_for_state := _get_weapon_id_for_state_decision(distance)
 	var engage_distance := _get_engage_distance_for_weapon(weapon_id_for_state)
 	var hysteresis := maxf(engage_hysteresis, 0.0)
@@ -442,26 +488,32 @@ func _update_state() -> void:
 			_:
 				current_state = AIState.ATTACK if distance <= engage_distance else AIState.CHASE
 
+	if (current_state == AIState.ATTACK or current_state == AIState.CHASE) and target != null:
+		if AggroTrackerService != null and AggroTrackerService.has_method("register_engagement"):
+			AggroTrackerService.register_engagement(owner_entity, target)
+
 func _compute_disengage_anchor(safe_radius: float) -> void:
-	if owner_entity == null or player == null:
+	var target = get_current_target()
+	if owner_entity == null or target == null:
 		return
-	var player_pos: Vector2 = player.global_position
+	var target_pos: Vector2 = target.global_position
 	var my_pos: Vector2 = owner_entity.global_position
-	var dir_away: Vector2 = my_pos - player_pos
+	var dir_away: Vector2 = my_pos - target_pos
 	if dir_away.length_squared() < 1.0:
 		dir_away = Vector2.RIGHT.rotated(_randf() * TAU)
 	var angle_offset: float = _randf_range(-PI/4.0, PI/4.0)
 	var final_dir: Vector2 = dir_away.normalized().rotated(angle_offset)
-	_disengage_anchor = player_pos + final_dir * safe_radius
+	_disengage_anchor = target_pos + final_dir * safe_radius
 
 func _compute_perimeter_anchor(perimeter_radius: float) -> void:
-	if owner_entity == null or player == null:
+	var target = get_current_target()
+	if owner_entity == null or target == null:
 		return
-	var player_pos: Vector2 = player.global_position
+	var target_pos: Vector2 = target.global_position
 	var enemy_uid_hash := hash(str(owner_entity.get_instance_id()))
 	var angle: float = fmod(absf(float(enemy_uid_hash)), TAU)
 	var offset: Vector2 = Vector2.RIGHT.rotated(angle) * perimeter_radius
-	_perimeter_anchor = player_pos + offset
+	_perimeter_anchor = target_pos + offset
 
 func _get_engage_distance_for_state() -> float:
 	return _get_engage_distance_for_weapon(_get_weapon_id_for_state_decision())
@@ -480,8 +532,10 @@ func _get_weapon_id_for_state_decision(distance: float = -1.0) -> String:
 	var weapon_component := owner_entity.get_node_or_null("WeaponComponent") as WeaponComponent
 	if weapon_component == null:
 		return ""
-	if distance < 0.0 and player != null and is_instance_valid(player):
-		distance = owner_entity.global_position.distance_to(player.global_position)
+	if distance < 0.0:
+		var target = get_current_target()
+		if target != null:
+			distance = owner_entity.global_position.distance_to(target.global_position)
 	if distance < 0.0:
 		return weapon_component.get_current_weapon_id()
 	var selection := _update_weapon_selection(distance)
@@ -494,10 +548,11 @@ func _execute_state(delta: float) -> void:
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 		AIState.CHASE:
 			_release_attack_input()
-			if player == null:
+			var target = get_current_target()
+			if target == null:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 				return
-			var dir: Vector2 = owner_entity.global_position.direction_to(player.global_position)
+			var dir: Vector2 = owner_entity.global_position.direction_to(target.global_position)
 			var target_velocity: Vector2 = dir * float(owner_entity.max_speed)
 			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 		AIState.ATTACK:
@@ -531,7 +586,8 @@ func _execute_state(delta: float) -> void:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 
 func _try_attack_logic(delta: float) -> void:
-	if owner_entity == null or player == null:
+	var target = get_current_target()
+	if owner_entity == null or target == null:
 		_release_attack_input()
 		return
 
@@ -539,7 +595,7 @@ func _try_attack_logic(delta: float) -> void:
 	if ctrl == null:
 		return
 
-	var aim_pos := player.global_position
+	var aim_pos := target.global_position
 	ctrl.set_aim_global_position(aim_pos)
 
 	var distance: float = owner_entity.global_position.distance_to(aim_pos)
@@ -822,14 +878,18 @@ func _on_sleep_check_timeout() -> void:
 		return
 	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
 		return
-	if player == null or not is_instance_valid(player):
+
+	var target = get_current_target()
+	if target == null:
 		_find_player()
-	if player == null:
+		target = get_current_target()
+
+	if target == null:
 		sleeping = false
 		_schedule_sleep_check()
 		return
 
-	var distance: float = owner_entity.global_position.distance_to(player.global_position)
+	var distance: float = owner_entity.global_position.distance_to(target.global_position)
 	var wake_distance: float = maxf(float(owner_entity.ACTIVE_RADIUS_PX - owner_entity.WAKE_HYSTERESIS_PX), 0.0)
 	if sleeping:
 		if distance <= wake_distance:
@@ -849,6 +909,8 @@ func on_owner_exit_tree() -> void:
 	_cancel_awake_ramp()
 	_release_attack_input()
 	_reset_bow_charge_state()
+	if AggroTrackerService != null and AggroTrackerService.has_method("clear_enemy"):
+		AggroTrackerService.clear_enemy(owner_entity)
 
 func on_enter_lite() -> void:
 	_cancel_awake_ramp()

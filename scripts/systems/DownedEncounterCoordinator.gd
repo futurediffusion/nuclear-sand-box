@@ -15,12 +15,15 @@ enum Verdict {
 @export var spare_safe_radius: float = 180.0
 @export var finish_perimeter_radius: float = 120.0
 @export var encounter_radius: float = 220.0
+@export var engagement_memory_seconds: float = 5.0
+@export var max_participant_distance: float = 480.0
 
-# active sessions: target_instance_id -> session dict
+# active sessions: encounter_key -> session dict
 var _sessions: Dictionary = {}
 
 # session shape:
 # {
+#     "encounter_key": String,
 #     "target_id": int,
 #     "target_ref": WeakRef,
 #     "group_id": String,
@@ -78,22 +81,22 @@ func get_policy_for_enemy(enemy: Node, target: Node) -> Dictionary:
 	if enemy_uid == "":
 		enemy_uid = str(enemy.get_instance_id())
 
-	# Try to reuse existing session or create a new one
+	var encounter_key := _make_encounter_key(target, faction_id, group_id)
 	var session: Dictionary
-	if _sessions.has(target_id):
-		session = _sessions[target_id]
-		# If the session is stale (ignore_until has passed for SPARE), clear it out
-		if session["resolved_at"] > 0.0 and session["verdict"] == Verdict.SPARE and RunClock.now() > session["ignore_until"]:
-			_sessions.erase(target_id)
-			session = _create_session(target, faction_id, group_id, enemy_uid, enemy)
-			_sessions[target_id] = session
-		else:
-			# Ensure the querying enemy is a participant if in range and matches context
-			if not session["participant_uids"].has(enemy_uid):
-				session["participant_uids"].append(enemy_uid)
+
+	if _sessions.has(encounter_key):
+		session = _sessions[encounter_key]
+		# The session remains alive until explicitly cleared on revive/death
+		# Add the querying enemy if it's not already in and matches context (and should be part of it based on logic if needed)
+		if not session["participant_uids"].has(enemy_uid):
+			# Option: Only add them if they had aggro or are close?
+			# For now, if they query, we just add them to the session's participants.
+			# But really _create_session will gather from AggroTrackerService.
+			session["participant_uids"].append(enemy_uid)
+			session["participant_uids"].sort()
 	else:
-		session = _create_session(target, faction_id, group_id, enemy_uid, enemy)
-		_sessions[target_id] = session
+		session = _create_session(encounter_key, target, faction_id, group_id, enemy_uid, enemy)
+		_sessions[encounter_key] = session
 
 	# If unresolved, roll verdict
 	if session["verdict"] == Verdict.NONE:
@@ -107,8 +110,33 @@ func get_policy_for_enemy(enemy: Node, target: Node) -> Dictionary:
 		"safe_radius": session["safe_radius"]
 	}
 
-func _create_session(target: Node, faction_id: String, group_id: String, triggering_enemy_uid: String, triggering_enemy: Node) -> Dictionary:
+func _make_encounter_key(target: Node, faction_id: String, group_id: String) -> String:
+	var target_id := target.get_instance_id()
+	var group_id_or_fallback := group_id if group_id != "" else faction_id
+	return "%s|%s|%s" % [str(target_id), faction_id, group_id_or_fallback]
+
+func _get_session_for_enemy_and_target(enemy: Node, target: Node) -> Variant:
+	if enemy == null or target == null:
+		return null
+
+	var faction_id: String = ""
+	if enemy.has_method("get_faction_id"):
+		faction_id = enemy.call("get_faction_id")
+	elif "faction_id" in enemy:
+		faction_id = String(enemy.get("faction_id"))
+
+	var group_id: String = ""
+	if enemy.has_method("get_group_id"):
+		group_id = enemy.call("get_group_id")
+	elif "group_id" in enemy:
+		group_id = String(enemy.get("group_id"))
+
+	var key := _make_encounter_key(target, faction_id, group_id)
+	return _sessions.get(key, null)
+
+func _create_session(encounter_key: String, target: Node, faction_id: String, group_id: String, triggering_enemy_uid: String, triggering_enemy: Node) -> Dictionary:
 	var session: Dictionary = {
+		"encounter_key": encounter_key,
 		"target_id": target.get_instance_id(),
 		"target_ref": weakref(target),
 		"group_id": group_id,
@@ -122,27 +150,15 @@ func _create_session(target: Node, faction_id: String, group_id: String, trigger
 		"safe_radius": spare_safe_radius
 	}
 
-	# Gather nearby participants
-	if triggering_enemy != null and triggering_enemy.is_inside_tree():
-		var my_chunk_opt: Variant = null
-		if EnemyRegistry != null and EnemyRegistry.has_method("world_to_chunk"):
-			my_chunk_opt = EnemyRegistry.world_to_chunk(triggering_enemy.global_position)
-
-		var nearby_enemies: Array[Node2D] = []
-		if my_chunk_opt != null:
-			var my_chunk: Vector2i = my_chunk_opt
-			nearby_enemies = EnemyRegistry.get_bucket_neighborhood(my_chunk)
-		else:
-			# Fallback if registry not available, though less efficient
-			nearby_enemies = []
-			for node in triggering_enemy.get_tree().get_nodes_in_group("enemy"):
-				if node is Node2D:
-					nearby_enemies.append(node)
-
+	# Gather participants using AggroTrackerService
+	if AggroTrackerService != null and AggroTrackerService.has_method("get_recent_attackers"):
+		var recent_attackers: Array[Node] = AggroTrackerService.get_recent_attackers(target, engagement_memory_seconds)
 		var target_pos: Vector2 = target.global_position
-		for e in nearby_enemies:
+
+		for e in recent_attackers:
 			if e == null or not is_instance_valid(e) or e.is_queued_for_deletion():
 				continue
+
 			var e_faction_id: String = ""
 			if e.has_method("get_faction_id"):
 				e_faction_id = e.call("get_faction_id")
@@ -155,20 +171,26 @@ func _create_session(target: Node, faction_id: String, group_id: String, trigger
 			elif "group_id" in e:
 				e_group_id = String(e.get("group_id"))
 
-			if e_faction_id != faction_id and e_group_id != group_id:
+			if e_faction_id != faction_id:
 				continue
 
-			if e.global_position.distance_to(target_pos) <= encounter_radius:
-				var e_uid: String = ""
-				if e.has_method("get_enemy_uid"):
-					e_uid = e.call("get_enemy_uid")
-				elif "entity_uid" in e:
-					e_uid = String(e.get("entity_uid"))
-				if e_uid == "":
-					e_uid = str(e.get_instance_id())
+			if group_id != "" and e_group_id != group_id:
+				continue
 
-				if not session["participant_uids"].has(e_uid):
-					session["participant_uids"].append(e_uid)
+			var dist := e.global_position.distance_to(target_pos)
+			if dist > max_participant_distance:
+				continue
+
+			var e_uid: String = ""
+			if e.has_method("get_enemy_uid"):
+				e_uid = e.call("get_enemy_uid")
+			elif "entity_uid" in e:
+				e_uid = String(e.get("entity_uid"))
+			if e_uid == "":
+				e_uid = str(e.get_instance_id())
+
+			if not session["participant_uids"].has(e_uid):
+				session["participant_uids"].append(e_uid)
 
 	# Ensure triggering enemy is always included
 	if not session["participant_uids"].has(triggering_enemy_uid):
@@ -190,9 +212,10 @@ func _resolve_verdict(session: Dictionary, faction_id: String) -> void:
 	var roll: float = randf()
 	if roll < finish_chance:
 		session["verdict"] = Verdict.FINISH
-		# Deterministic selection: first in sorted list of participants
+		# Deterministic executor selection: hash of key mod participant count
 		if session["participant_uids"].size() > 0:
-			session["executor_uid"] = session["participant_uids"][0]
+			var idx: int = int(abs(hash(session["encounter_key"]))) % session["participant_uids"].size()
+			session["executor_uid"] = session["participant_uids"][idx]
 	else:
 		session["verdict"] = Verdict.SPARE
 		session["ignore_until"] = RunClock.now() + spare_ignore_seconds
@@ -207,15 +230,18 @@ func clear_target_session(target: Node) -> void:
 	if target == null:
 		return
 	var target_id := target.get_instance_id()
-	_sessions.erase(target_id)
+	var keys_to_erase: Array[String] = []
+	for k in _sessions.keys():
+		var s: Dictionary = _sessions[k]
+		if int(s.get("target_id", -1)) == target_id:
+			keys_to_erase.append(String(k))
+	for k in keys_to_erase:
+		_sessions.erase(k)
 
 func notify_target_revived(target: Node) -> void:
-	# Since AIComponent caches _ignore_player_until, we can safely clear the session
-	# when the player revives to ensure the next downed event starts fresh.
-	if target == null:
-		return
-	var target_id := target.get_instance_id()
-	_sessions.erase(target_id)
+	# AIComponent caches _ignore_target_until. We clear the session
+	# when the target revives to ensure the next downed event starts fresh.
+	clear_target_session(target)
 
 func notify_target_died_final(target: Node) -> void:
 	clear_target_session(target)
