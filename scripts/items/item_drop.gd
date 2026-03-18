@@ -88,6 +88,11 @@ func _resolve_item_data() -> void:
 		print("[ItemDrop] using legacy item_id=", item_id)
 
 func _process(delta: float) -> void:
+	var carry = get_node_or_null("CarryableComponent")
+	if carry != null and carry._is_carried:
+		# If being carried, don't do any floating/magnet/throw processing
+		return
+
 	_t += delta
 
 	# =========================
@@ -166,6 +171,20 @@ func _try_pickup() -> void:
 		print("[ItemDrop] _try_pickup: NO player")
 		return
 
+	# --- CARRY PICKUP PATH ---
+	if _player.has_method("wants_carry_pickup") and _player.wants_carry_pickup():
+		if _player.has_method("try_carry_pickup"):
+			var carry_success: bool = _player.try_carry_pickup(self)
+			if carry_success:
+				print("[ItemDrop] _try_pickup: successfully picked up by carry system")
+				_magnet_on = false
+				monitoring = false
+				monitorable = false
+				return
+			else:
+				print("[ItemDrop] _try_pickup: carry pickup failed, falling back to inventory")
+
+	# --- LEGACY INVENTORY PATH ---
 	var inv := _player.get_node_or_null("InventoryComponent")
 	if inv == null:
 		print("[ItemDrop] _try_pickup: NO InventoryComponent en player=", _player.name, " children=", _player.get_children())
@@ -193,6 +212,7 @@ func _try_pickup() -> void:
 	monitorable = false
 	spr.visible = false
 	queue_free()
+
 
 
 func _update_scatter(delta: float) -> void:
