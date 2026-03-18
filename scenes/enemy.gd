@@ -75,6 +75,8 @@ var _is_lite_mode: bool = false
 var entity_uid: String = ""
 var enemy_chunk_key: String = ""
 var enemy_seed: int = 0
+var faction_id: String = "bandits"
+var group_id: String = ""
 var last_engaged_time: float = 0.0
 var _enemy_death_sound: AudioStream = DEFAULT_ENEMY_DEATH_SOUND
 var _enemy_death_volume_db: float = 2.0
@@ -539,6 +541,8 @@ func apply_save_state(state: Dictionary) -> void:
 	entity_uid = String(state.get("id", entity_uid))
 	enemy_chunk_key = String(state.get("chunk_key", enemy_chunk_key))
 	enemy_seed = int(state.get("seed", enemy_seed))
+	faction_id = String(state.get("faction_id", faction_id))
+	group_id = String(state.get("group_id", group_id))
 	global_position = Vector2(state.get("pos", global_position))
 	if state.has("hp"):
 		hp = int(state.get("hp", hp))
@@ -577,6 +581,8 @@ func capture_save_state() -> Dictionary:
 		"is_dead": hp <= 0 or dying,
 		"is_downed": is_downed,
 		"seed": enemy_seed,
+		"faction_id": faction_id,
+		"group_id": group_id,
 		"weapon_ids": weapon_ids,
 		"equipped_weapon_id": equipped,
 		"alert": 0.0,
@@ -590,6 +596,15 @@ func capture_save_state() -> Dictionary:
 
 func is_attacking() -> bool:
 	return attacking
+
+func get_enemy_uid() -> String:
+	return entity_uid
+
+func get_group_id() -> String:
+	return group_id
+
+func get_faction_id() -> String:
+	return faction_id
 
 func _on_character_downed_entered() -> void:
 	_trigger_death_shake()
