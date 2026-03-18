@@ -3,6 +3,7 @@ extends CharacterBody2D
 
 const HealthComponentScript = preload("res://scripts/components/HealthComponent.gd")
 const DownedComponentScript = preload("res://scripts/components/DownedComponent.gd")
+const DownedBarViewScene = preload("res://scenes/ui/DownedBarView.tscn")
 const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd")
 
 @export_group("Health")
@@ -71,6 +72,14 @@ func _setup_health_component() -> void:
 			downed_component.revived.connect(_on_revived)
 		if not downed_component.died_final.is_connected(die_final):
 			downed_component.died_final.connect(die_final)
+
+		_ensure_downed_bar_view()
+
+func _ensure_downed_bar_view() -> void:
+	if not has_node("DownedBarView"):
+		var view := DownedBarViewScene.instantiate()
+		view.name = "DownedBarView"
+		add_child(view)
 
 func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if dying:

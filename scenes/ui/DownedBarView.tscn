@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bq7kqg5wq8h4q"]
+
+[ext_resource type="Script" path="res://scripts/ui/DownedBarView.gd" id="1_dw8g1"]
+
+[node name="DownedBarView" type="TextureProgressBar"]
+script = ExtResource("1_dw8g1")
