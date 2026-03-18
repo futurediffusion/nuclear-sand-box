@@ -44,6 +44,12 @@ shader_parameter/screen_size = Vector2(1920, 1080)
 [node name="Main" type="Node2D"]
 scale = Vector2(2.5, 2.5)
 script = ExtResource("1_sugp2")
+world_map_size = null
+default_tavern_position = null
+keep_corpses = null
+finish_off_chance_min = null
+finish_off_chance_max = null
+debug_input_logs = null
 
 [node name="WarmupManager" type="Node" parent="."]
 script = ExtResource("21_warmup")
@@ -55,7 +61,6 @@ npc_enemy_hit_volume_db = -11.5
 wood_hit_volume_db = -12.5
 stone_hit_volume_db = -9.5
 grass_destroy_volume_db = -7.5
-grass_touch_volume_db = 7.0
 walking_grass_loop_volume_db = 1.0
 walking_dirt_loop_volume_db = -3.0
 walking_wood_loop_volume_db = -12.0

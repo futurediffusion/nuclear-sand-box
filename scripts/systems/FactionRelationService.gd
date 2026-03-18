@@ -1,5 +1,5 @@
 extends Node
-class_name FactionRelationService
+
 
 var _faction_hostilities: Dictionary = {}
 
