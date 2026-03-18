@@ -545,9 +545,12 @@ func apply_save_state(state: Dictionary) -> void:
 	group_id = String(state.get("group_id", group_id))
 	global_position = Vector2(state.get("pos", global_position))
 	if state.has("hp"):
-		hp = int(state.get("hp", hp))
-		if health_component != null:
-			health_component.hp = hp
+		var saved_hp := int(state.get("hp", hp))
+		if health_component != null and health_component.has_method("set_hp_clamped"):
+			health_component.set_hp_clamped(saved_hp)
+			hp = health_component.hp
+		else:
+			hp = maxi(0, saved_hp)
 	if bool(state.get("is_dead", false)):
 		queue_free()
 		return
