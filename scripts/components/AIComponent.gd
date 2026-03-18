@@ -68,20 +68,38 @@ var _finish_off_downed_player: bool = false
 var _was_player_downed: bool = false
 var _contract_valid: bool = false
 
+func _has_property(obj: Object, property_name: String) -> bool:
+	if obj == null:
+		return false
+	for prop in obj.get_property_list():
+		if String(prop.get("name", "")) == property_name:
+			return true
+	return false
+
 func _validate_owner_contract(actor: Node) -> bool:
 	var required_properties: Array[String] = [
-		"max_speed", "friction", "acceleration", "attack_range",
-		"detection_range", "ACTIVE_RADIUS_PX", "WAKE_HYSTERESIS_PX",
-		"SLEEP_CHECK_INTERVAL", "velocity", "hurt_t", "global_position"
+		"max_speed",
+		"friction",
+		"acceleration",
+		"attack_range",
+		"detection_range",
+		"ACTIVE_RADIUS_PX",
+		"WAKE_HYSTERESIS_PX",
+		"SLEEP_CHECK_INTERVAL",
+		"velocity",
+		"hurt_t",
+		"global_position"
 	]
+
 	for prop: String in required_properties:
-		if not (prop in actor):
+		if not _has_property(actor, prop):
 			push_error("[AIComponent] Contract validation failed for owner '%s': missing property '%s'" % [actor.name, prop])
 			return false
 
 	var required_methods: Array[String] = [
 		"queue_ai_attack_press"
 	]
+
 	for method: String in required_methods:
 		if not actor.has_method(method):
 			push_error("[AIComponent] Contract validation failed for owner '%s': missing method '%s'" % [actor.name, method])
@@ -99,16 +117,27 @@ func _validate_owner_contract(actor: Node) -> bool:
 
 	return true
 
+
 func setup(p_owner_entity: Node) -> void:
 	_contract_valid = false
+	owner_entity = null
+	player = null
+	sleep_check_timer = null
+
+	current_state = AIState.IDLE
+	sleeping = false
+	_finish_off_downed_player = false
+	_was_player_downed = false
+
 	if p_owner_entity == null:
 		push_error("[AIComponent] setup() called with null owner_entity")
 		return
+
 	if not _validate_owner_contract(p_owner_entity):
 		return
-	_contract_valid = true
 
 	owner_entity = p_owner_entity
+	_contract_valid = true
 	_rng.seed = int(owner_entity.get_instance_id())
 	_lod_rng_seeded = true
 	_init_combat_style_window()
