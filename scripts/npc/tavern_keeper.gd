@@ -383,6 +383,12 @@ func play_hurt() -> void:
 	await sprite.animation_finished
 	hurt_t = 0.0
 
+## Intentional carry release: deposits ItemDrops into a nearby chest if present,
+## otherwise releases items to the ground. Call from AI behavior.
+func release_carry() -> void:
+	if carry_component != null:
+		carry_component.release_with_chest_check()
+
 func _on_before_die() -> void:
 	if carry_component != null:
 		carry_component.force_drop_all()

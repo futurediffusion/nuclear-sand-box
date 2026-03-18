@@ -538,8 +538,9 @@ func _force_drop_carryable() -> void:
 		carry_component.force_drop_all()
 
 func _release_carryable() -> void:
-	if carry_component != null:
-		carry_component.release_all()
+	if carry_component == null:
+		return
+	carry_component.release_with_chest_check()
 
 func _enter_seat(seat_node: Node, seat_world_pos: Vector2) -> void:
 	if dying:

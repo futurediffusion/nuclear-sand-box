@@ -244,6 +244,53 @@ func _get_chest_ui() -> CanvasLayer:
 	return _get_container_ui()
 
 
+func has_player_nearby() -> bool:
+	return _player_inside
+
+## Returns true if [pos] is within the chest's interaction area.
+## Used by non-player characters that do not trigger the Area2D mask.
+func is_position_nearby(pos: Vector2) -> bool:
+	# chest_area is 52×40 centered ~(16,21) from origin; use 50px radius for safety
+	return global_position.distance_to(pos) <= 50.0
+
+
+## Inserts up to [amount] of [item_id] into available slots.
+## Returns the actually inserted amount. Syncs persistence if anything was inserted.
+func try_insert_item(item_id: String, amount: int) -> int:
+	if item_id == "" or amount <= 0:
+		return 0
+	var remaining := amount
+	# Stack onto existing matching slots
+	for i in range(stored_slots.size()):
+		if remaining <= 0:
+			break
+		var slot = stored_slots[i]
+		if slot is Dictionary and String(slot.get("id", "")) == item_id:
+			var current: int = int(slot.get("count", 0))
+			var space := max_stack - current
+			if space > 0:
+				var add := mini(space, remaining)
+				stored_slots[i] = {"id": item_id, "count": current + add}
+				remaining -= add
+	# Fill empty/null slots
+	for i in range(stored_slots.size()):
+		if remaining <= 0:
+			break
+		if stored_slots[i] == null:
+			var add := mini(max_stack, remaining)
+			stored_slots[i] = {"id": item_id, "count": add}
+			remaining -= add
+	# Append new slots if under max_slots
+	while remaining > 0 and stored_slots.size() < max_slots:
+		var add := mini(max_stack, remaining)
+		stored_slots.append({"id": item_id, "count": add})
+		remaining -= add
+	var inserted := amount - remaining
+	if inserted > 0:
+		sync_persistence_data()
+	return inserted
+
+
 func get_container_max_slots() -> int:
 	return maxi(1, max_slots)
 

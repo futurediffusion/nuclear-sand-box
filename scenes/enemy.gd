@@ -611,6 +611,12 @@ func get_group_id() -> String:
 func get_faction_id() -> String:
 	return faction_id
 
+## Intentional carry release: deposits ItemDrops into a nearby chest if present,
+## otherwise releases items to the ground. Call from AI behavior.
+func release_carry() -> void:
+	if carry_component != null:
+		carry_component.release_with_chest_check()
+
 func _on_character_downed_entered() -> void:
 	_trigger_death_shake()
 	if carry_component != null:

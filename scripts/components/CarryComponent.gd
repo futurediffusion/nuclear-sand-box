@@ -1,6 +1,8 @@
 extends Node2D
 class_name CarryComponent
 
+const _FALLBACK_PICKUP_SFX: AudioStream = preload("res://art/Sounds/pickup.ogg")
+
 @export var stack_base_offset: Vector2 = Vector2(0, -18)
 @export var stack_item_offset: Vector2 = Vector2(0, -8)
 
@@ -66,6 +68,85 @@ func _clean_invalid_nodes() -> void:
 	if valid_nodes.size() != _carried_nodes.size():
 		_carried_nodes = valid_nodes
 		_update_stack_positions()
+
+func get_carried_nodes() -> Array[Node2D]:
+	_clean_invalid_nodes()
+	return _carried_nodes.duplicate()
+
+## Remove a single node from carry without scattering.
+## Use for items being consumed (e.g. transferred to chest).
+func consume_node(node: Node2D) -> void:
+	var idx := _carried_nodes.find(node)
+	if idx == -1:
+		return
+	_carried_nodes.remove_at(idx)
+	if is_instance_valid(node):
+		var carryable := node.get_node_or_null("CarryableComponent")
+		if carryable != null and carryable.has_method("drop"):
+			carryable.drop(false)
+	_update_stack_positions()
+
+## Intentional release: deposits ItemDrop nodes into a nearby chest if one exists,
+## then releases any remaining carried nodes normally.
+## Bodies (CharacterBase) are never deposited and are released instead.
+func release_with_chest_check() -> void:
+	if not is_carrying():
+		return
+	var origin := (get_parent() as Node2D)
+	if origin == null:
+		release_all()
+		return
+	var chest := _find_nearby_chest(origin.global_position)
+	if chest == null:
+		release_all()
+		return
+	_dump_to_chest(chest, origin.global_position)
+	# Release anything that didn't go into the chest (bodies, chest full, etc.)
+	if is_carrying():
+		release_all()
+
+func _find_nearby_chest(pos: Vector2) -> ContainerPlaceable:
+	for node in get_tree().get_nodes_in_group("interactable"):
+		if node is ContainerPlaceable:
+			var chest := node as ContainerPlaceable
+			if chest.is_position_nearby(pos):
+				return chest
+	return null
+
+func _dump_to_chest(chest: ContainerPlaceable, origin_pos: Vector2) -> void:
+	var to_deposit := get_carried_nodes()
+	var sound_index := 0
+	for node in to_deposit:
+		if not is_instance_valid(node):
+			continue
+		# Bodies cannot go into chests
+		if node is CharacterBase:
+			continue
+		if not (node is ItemDrop):
+			continue
+		var item_drop := node as ItemDrop
+		var item_id := item_drop.item_id
+		var amount := item_drop.amount
+		if item_id == "" or amount <= 0:
+			continue
+		var inserted := chest.try_insert_item(item_id, amount)
+		if inserted <= 0:
+			continue
+		consume_node(node)
+		item_drop.queue_free()
+		# Staggered pickup sound (tutututu)
+		var sfx: AudioStream = item_drop.pickup_sfx
+		if sfx == null:
+			sfx = _FALLBACK_PICKUP_SFX
+		if sfx != null:
+			var delay := sound_index * 0.09
+			if delay == 0.0:
+				AudioSystem.play_2d(sfx, origin_pos, null, &"SFX")
+			else:
+				get_tree().create_timer(delay).timeout.connect(
+					func(): if is_instance_valid(self): AudioSystem.play_2d(sfx, origin_pos, null, &"SFX")
+				)
+		sound_index += 1
 
 func _update_stack_positions() -> void:
 	for i in range(_carried_nodes.size()):
