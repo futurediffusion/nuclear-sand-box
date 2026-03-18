@@ -44,11 +44,15 @@ func pickup(carrier: Node2D) -> void:
 		_carrier.add_child(_parent)
 		_parent.global_position = global_pos
 
-	# Move to carry offset
-	var tw = create_tween()
-	tw.tween_property(_parent, "position", carry_offset, 0.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+func update_carry_position(target_offset: Vector2) -> void:
+	if not _is_carried or _parent == null:
+		return
 
-func drop() -> void:
+	carry_offset = target_offset
+	var tw = create_tween()
+	tw.tween_property(_parent, "position", target_offset, 0.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+func drop(scatter: bool = false) -> void:
 	if not _is_carried or _parent == null:
 		return
 
@@ -66,6 +70,15 @@ func drop() -> void:
 		get_tree().current_scene.add_child(_parent)
 
 	_parent.global_position = global_drop_pos
+
+	if scatter:
+		var random_offset = Vector2(randf_range(-15, 15), randf_range(-15, 15))
+		var tw = create_tween()
+		tw.tween_property(_parent, "global_position", global_drop_pos + random_offset, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	else:
+		# Just drop straight down (simulate placing)
+		var tw = create_tween()
+		tw.tween_property(_parent, "global_position", global_drop_pos, 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 	# Restore collision
 	if _parent is CollisionObject2D and disable_collision_on_carry:

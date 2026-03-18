@@ -35,15 +35,18 @@ func try_pickup(node: Node2D) -> bool:
 	return false
 
 func release_all() -> void:
-	force_drop_all()
+	_drop_all(false)
 
 func force_drop_all() -> void:
+	_drop_all(true)
+
+func _drop_all(scatter: bool) -> void:
 	for i in range(_carried_nodes.size() - 1, -1, -1):
 		var node = _carried_nodes[i]
 		if is_instance_valid(node):
 			var carryable = node.get_node_or_null("CarryableComponent")
 			if carryable != null and carryable.has_method("drop"):
-				carryable.drop()
+				carryable.drop(scatter)
 	_carried_nodes.clear()
 
 func is_carrying() -> bool:
@@ -69,14 +72,6 @@ func _update_stack_positions() -> void:
 		var node = _carried_nodes[i]
 		if is_instance_valid(node):
 			var carryable = node.get_node_or_null("CarryableComponent")
-			if carryable != null:
-				# Override the internal offset or move the node directly
-				# Since CarryableComponent manages its own offset internally, we can adjust the item relative to the anchor
-				# CarryableComponent puts the item at its carry_offset relative to the carrier (our anchor)
-				# So we just update carryable's carry_offset
-				if "carry_offset" in carryable:
-					carryable.carry_offset = stack_item_offset * i
-
-				# If we want to animate it right now:
-				var tw = create_tween()
-				tw.tween_property(node, "position", stack_item_offset * i, 0.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+			if carryable != null and carryable.has_method("update_carry_position"):
+				var target_offset = stack_item_offset * i
+				carryable.update_carry_position(target_offset)

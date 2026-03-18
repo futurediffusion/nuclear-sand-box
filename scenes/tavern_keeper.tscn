@@ -7,6 +7,7 @@
 [ext_resource type="Texture2D" uid="uid://vje5af61y85f" path="res://art/sprites/GOBLIN1-Shee-walkt.png" id="5_7ccs8"]
 [ext_resource type="Texture2D" uid="uid://cj70iqi85uw61" path="res://art/ui/ekey.png" id="6_rnc8v"]
 [ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="7_hurtbox"]
+[ext_resource type="Script" path="res://scripts/components/CarryComponent.gd" id="8_carry"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_l7ece")
@@ -175,3 +176,6 @@ monitorable = false
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="DetectionArea"]
 shape = SubResource("CircleShape2D_rnc8v")
+
+[node name="CarryComponent" type="Node2D" parent="."]
+script = ExtResource("8_carry")
