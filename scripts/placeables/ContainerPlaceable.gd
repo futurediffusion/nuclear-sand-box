@@ -250,8 +250,9 @@ func has_player_nearby() -> bool:
 ## Returns true if [pos] is within the chest's interaction area.
 ## Used by non-player characters that do not trigger the Area2D mask.
 func is_position_nearby(pos: Vector2) -> bool:
-	# chest_area is 52×40 centered ~(16,21) from origin; use 50px radius for safety
-	return global_position.distance_to(pos) <= 50.0
+	# chest_area is 52×40 centered ~(16,21) from origin; far corner ~59px from root.
+	# Use 70px to cover all approach angles with margin.
+	return global_position.distance_to(pos) <= 70.0
 
 
 ## Inserts up to [amount] of [item_id] into available slots.

@@ -106,10 +106,16 @@ func release_with_chest_check() -> void:
 		release_all()
 
 func _find_nearby_chest(pos: Vector2) -> ContainerPlaceable:
+	var carrier := get_parent()
+	var carrier_is_player := carrier != null and carrier.is_in_group("player")
 	for node in get_tree().get_nodes_in_group("interactable"):
 		if node is ContainerPlaceable:
 			var chest := node as ContainerPlaceable
-			if chest.is_position_nearby(pos):
+			# Player: use the precise Area2D detection (has_player_nearby).
+			# Others: fall back to distance check.
+			var nearby := (carrier_is_player and chest.has_player_nearby()) \
+				or chest.is_position_nearby(pos)
+			if nearby:
 				return chest
 	return null
 
