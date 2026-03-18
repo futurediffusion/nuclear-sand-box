@@ -171,24 +171,21 @@ func _validate_core_components() -> bool:
 			assert(false, "[Enemy] Missing required core component 'AIWeaponController' on '%s'" % name)
 		valid = false
 
-	if debug_enemy_setup_logs:
+	if OS.is_debug_build():
 		var inv_count := _count_children_by_name("InventoryComponent")
 		if inv_count > 1:
 			push_error("[Enemy] Duplicate core component 'InventoryComponent' detected on '%s'" % name)
-			if OS.is_debug_build():
-				assert(false, "[Enemy] Duplicate core component 'InventoryComponent' detected on '%s'" % name)
+			assert(false, "[Enemy] Duplicate core component 'InventoryComponent' detected on '%s'" % name)
 			valid = false
 		var weapon_count := _count_children_by_name("WeaponComponent")
 		if weapon_count > 1:
 			push_error("[Enemy] Duplicate core component 'WeaponComponent' detected on '%s'" % name)
-			if OS.is_debug_build():
-				assert(false, "[Enemy] Duplicate core component 'WeaponComponent' detected on '%s'" % name)
+			assert(false, "[Enemy] Duplicate core component 'WeaponComponent' detected on '%s'" % name)
 			valid = false
 		var ctrl_count := _count_children_by_name("AIWeaponController")
 		if ctrl_count > 1:
 			push_error("[Enemy] Duplicate core component 'AIWeaponController' detected on '%s'" % name)
-			if OS.is_debug_build():
-				assert(false, "[Enemy] Duplicate core component 'AIWeaponController' detected on '%s'" % name)
+			assert(false, "[Enemy] Duplicate core component 'AIWeaponController' detected on '%s'" % name)
 			valid = false
 
 	return valid
