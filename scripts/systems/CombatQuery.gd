@@ -8,6 +8,11 @@ static func has_wall_between(context: Node, from_pos: Vector2, to_pos: Vector2, 
 		return false
 	if from_pos == to_pos:
 		return false
+	# Tilemap-based check (primary): cubre toda el área del tile, no solo las bandas delgadas de CollisionBuilder
+	if WorldSave.wall_tile_blocker_fn.is_valid():
+		if WorldSave.wall_tile_blocker_fn.call(from_pos, to_pos):
+			return true
+	# Raycast de físicas (fallback): para cuerpos de pared que no son tiles
 	return not find_first_wall_hit(context, from_pos, to_pos, excluded_nodes).is_empty()
 
 static func is_owner_related(owner_node: Node, candidate: Node) -> bool:

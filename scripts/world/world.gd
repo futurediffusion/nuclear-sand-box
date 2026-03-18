@@ -452,6 +452,8 @@ func _ready() -> void:
 		if not _player_wall_system.structural_wall_hit.is_connected(_on_wall_hit_activity):
 			_player_wall_system.structural_wall_hit.connect(_on_wall_hit_activity)
 
+	WorldSave.wall_tile_blocker_fn = _has_wall_tile_between
+
 	await update_chunks(current_player_chunk)
 
 
@@ -761,6 +763,39 @@ func _on_ground_fallback_debug(chunk_pos: Vector2i, total_cells: int, missing_ce
 
 func _world_to_tile(world_pos: Vector2) -> Vector2i:
 	return tilemap.local_to_map(tilemap.to_local(world_pos))
+
+func _has_wall_tile_between(from_pos: Vector2, to_pos: Vector2) -> bool:
+	if walls_tilemap == null:
+		return false
+	var from_tile := walls_tilemap.local_to_map(walls_tilemap.to_local(from_pos))
+	var to_tile := walls_tilemap.local_to_map(walls_tilemap.to_local(to_pos))
+	if from_tile == to_tile:
+		return false
+	return _tile_line_has_wall(from_tile, to_tile)
+
+func _tile_line_has_wall(from_tile: Vector2i, to_tile: Vector2i) -> bool:
+	var dx := absi(to_tile.x - from_tile.x)
+	var dy := absi(to_tile.y - from_tile.y)
+	var sx := 1 if to_tile.x > from_tile.x else -1
+	var sy := 1 if to_tile.y > from_tile.y else -1
+	var x := from_tile.x
+	var y := from_tile.y
+	var err := dx - dy
+	while true:
+		var cell := Vector2i(x, y)
+		if cell != from_tile and cell != to_tile:
+			if walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, cell) == SRC_WALLS:
+				return true
+		if x == to_tile.x and y == to_tile.y:
+			break
+		var e2 := err * 2
+		if e2 > -dy:
+			err -= dy
+			x += sx
+		if e2 < dx:
+			err += dx
+			y += sy
+	return false
 
 func _tile_to_world(tile_pos: Vector2i) -> Vector2:
 	return tilemap.to_global(tilemap.map_to_local(tile_pos))
