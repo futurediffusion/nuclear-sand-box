@@ -122,9 +122,43 @@ func player_debug(message: String) -> void:
 	if DEBUG_PLAYER:
 		print(message)
 
+func _validate_core_components() -> bool:
+	var valid := true
+
+	if inventory_component == null:
+		inventory_component = get_node_or_null("InventoryComponent") as InventoryComponent
+	if weapon_component == null:
+		weapon_component = get_node_or_null("WeaponComponent") as WeaponComponent
+	if weapon_controller == null:
+		weapon_controller = get_node_or_null("PlayerWeaponController") as PlayerWeaponController
+
+	if inventory_component == null:
+		push_error("[Player] Missing required core component 'InventoryComponent' on 'Player'")
+		if OS.is_debug_build():
+			assert(false, "[Player] Missing required core component 'InventoryComponent' on 'Player'")
+		valid = false
+
+	if weapon_component == null:
+		push_error("[Player] Missing required core component 'WeaponComponent' on 'Player'")
+		if OS.is_debug_build():
+			assert(false, "[Player] Missing required core component 'WeaponComponent' on 'Player'")
+		valid = false
+
+	if weapon_controller == null:
+		push_error("[Player] Missing required core component 'PlayerWeaponController' on 'Player'")
+		if OS.is_debug_build():
+			assert(false, "[Player] Missing required core component 'PlayerWeaponController' on 'Player'")
+		valid = false
+
+	return valid
+
 func _ready() -> void:
 	super._ready()
 	Debug.log("boot", "Player ready begin")
+
+	if not _validate_core_components():
+		return
+
 	_ensure_sit_animation()
 	sprite.play("idle")
 	sprite.flip_h = false
@@ -228,10 +262,7 @@ func _setup_stamina_component() -> void:
 
 func _setup_inventory_component() -> void:
 	if inventory_component == null:
-		inventory_component = InventoryComponentScript.new()
-		inventory_component.name = "InventoryComponent"
-		add_child(inventory_component)
-		Debug.log("inv", "[INV] InventoryComponent creado en Player")
+		return
 
 	if SaveManager._pending_player_inv.size() > 0:
 		inventory_component.slots = SaveManager._pending_player_inv.duplicate(true)
@@ -257,9 +288,7 @@ func _grant_starting_loadout() -> void:
 
 func _setup_weapon_component() -> void:
 	if weapon_component == null:
-		weapon_component = WeaponComponent.new()
-		weapon_component.name = "WeaponComponent"
-		add_child(weapon_component)
+		return
 
 	if inventory_component != null:
 		weapon_component.setup_from_inventory(inventory_component)
@@ -278,14 +307,12 @@ func _ensure_weapon_controller() -> PlayerWeaponController:
 	return ensure_player_weapon_controller()
 
 func ensure_player_weapon_controller() -> PlayerWeaponController:
-	if weapon_controller != null:
-		return weapon_controller
-	weapon_controller = PlayerWeaponController.new()
-	weapon_controller.name = "PlayerWeaponController"
-	add_child(weapon_controller)
 	return weapon_controller
 
 func ensure_ai_weapon_controller() -> AIWeaponController:
+	# AIWeaponController for the player is intentionally kept lazy
+	# because it's only occasionally used when the player loses control.
+	# We don't force it to be in the scene tree by default to avoid clutter.
 	if ai_weapon_controller != null:
 		return ai_weapon_controller
 	ai_weapon_controller = AIWeaponControllerScript.new()
