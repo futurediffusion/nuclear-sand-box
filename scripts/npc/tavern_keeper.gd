@@ -34,6 +34,7 @@ const AIWeaponControllerScript = preload("res://scripts/weapons/AIWeaponControll
 @onready var interact_icon: Sprite2D = $InteractIcon
 @onready var detection_area: Area2D          = $DetectionArea
 @onready var character_hurtbox: CharacterHurtbox = get_node_or_null("Hurtbox") as CharacterHurtbox
+@onready var carry_component: CarryComponent = get_node_or_null("CarryComponent") as CarryComponent
 @export var shop_copper_stock: int = 30
 @export var shop_stone_stock: int = 50
 
@@ -383,6 +384,8 @@ func play_hurt() -> void:
 	hurt_t = 0.0
 
 func _on_before_die() -> void:
+	if carry_component != null:
+		carry_component.force_drop_all()
 	if _ai_component_node != null:
 		_ai_component_node.set_dead()
 	if _keeper_menu_ui != null and _keeper_menu_ui.is_owner(self):

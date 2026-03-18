@@ -54,6 +54,7 @@ const DEFAULT_ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.
 @onready var weapon_component: WeaponComponent = get_node_or_null("WeaponComponent") as WeaponComponent
 @onready var ai_weapon_controller: AIWeaponController = get_node_or_null("AIWeaponController") as AIWeaponController
 @onready var character_hurtbox: CharacterHurtbox = get_node_or_null("Hurtbox") as CharacterHurtbox
+@onready var carry_component: CarryComponent = get_node_or_null("CarryComponent") as CarryComponent
 
 var weapon_follow_speed: float = 25.0
 var attack_snap_speed: float = 50.0
@@ -611,6 +612,8 @@ func get_faction_id() -> String:
 
 func _on_character_downed_entered() -> void:
 	_trigger_death_shake()
+	if carry_component != null:
+		carry_component.force_drop_all()
 	if ai_component != null:
 		ai_component.set_downed()
 	if ai_weapon_controller != null:
@@ -637,6 +640,8 @@ func _on_character_dying_started() -> void:
 		GameEvents.emit_entity_died(entity_uid, "enemy", global_position, null)
 	_play_death_sound()
 	_trigger_death_shake()
+	if carry_component != null:
+		carry_component.force_drop_all()
 	attacking = false
 	set_ai_attack_intent(false, global_position)
 	set_physics_process(false)
