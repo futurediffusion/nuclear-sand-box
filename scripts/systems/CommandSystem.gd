@@ -129,7 +129,10 @@ func _setup_command_bar() -> void:
 	_command_input.offset_top    = 4.0
 	_command_input.offset_right  = -8.0
 	_command_input.offset_bottom = -4.0
-	_command_input.placeholder_text = "/give <item_id> <n>  |  /gv <alias|item_id>  |  /gv list  |  /dog <n>  |  /summon enemy [n] [ox] [oy]"
+	if Debug.dev_cheats_enabled:
+		_command_input.placeholder_text = "/give <item_id> <n>  |  /gv <alias>  |  /dog <n>  |  /sellall <id> <p>  |  /buydbg <id> <n> <p>"
+	else:
+		_command_input.placeholder_text = "/give <item_id> <n>  |  /gv <alias|item_id>  |  /gv list  |  /dog <n>  |  /summon enemy [n] [ox] [oy]"
 	_command_input.clear_button_enabled = true
 	_command_input.text_submitted.connect(_on_command_submitted)
 	_command_input.gui_input.connect(_on_command_gui_input)
@@ -246,6 +249,34 @@ func _execute_command(command_text: String) -> void:
 				_cmd_summon_enemy(parts.slice(2))
 			else:
 				Debug.log("commands", "Uso: /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]")
+			"sellall", "sc":
+				if not Debug.dev_cheats_enabled:
+					Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+				else:
+					if base_command == "sc":
+						var new_parts: Array[String] = ["copper"]
+						new_parts.append_array(parts.slice(1))
+						_cmd_sellall(new_parts)
+					else:
+						_cmd_sellall(parts.slice(1))
+			"buydbg", "med":
+				if not Debug.dev_cheats_enabled:
+					Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+				else:
+					if base_command == "med":
+						_cmd_buydbg(["medkit", "1", "20"])
+					else:
+						_cmd_buydbg(parts.slice(1))
+			"g50":
+				if not Debug.dev_cheats_enabled:
+					Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+				else:
+					_cmd_give_gold(["50"])
+			"c3":
+				if not Debug.dev_cheats_enabled:
+					Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+				else:
+					_cmd_give(["copper", "3"])
 		_:
 			Debug.log("commands", "Comando desconocido: %s" % base_command)
 
@@ -254,10 +285,28 @@ func _try_execute_shortcut_without_prefix(command_text: String) -> bool:
 	if parts.size() == 0:
 		return false
 	var base_command := String(parts[0]).to_lower()
-	if base_command != "gv":
-		return false
-	_cmd_give_shortcut(parts.slice(1))
-	return true
+
+	match base_command:
+		"gv":
+			_cmd_give_shortcut(parts.slice(1))
+			return true
+		"sc", "med", "g50", "c3":
+			if not Debug.dev_cheats_enabled:
+				return false
+			match base_command:
+				"sc":
+					var new_parts: Array[String] = ["copper"]
+					new_parts.append_array(parts.slice(1))
+					_cmd_sellall(new_parts)
+				"med":
+					_cmd_buydbg(["medkit", "1", "20"])
+				"g50":
+					_cmd_give_gold(["50"])
+				"c3":
+					_cmd_give(["copper", "3"])
+			return true
+
+	return false
 
 func _cmd_give_shortcut(raw_args: Array) -> void:
 	if raw_args.is_empty():
@@ -560,6 +609,46 @@ func _join_to_string(values: Array) -> String:
 
 
 ## /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]
+func _cmd_sellall(raw_args: Array) -> void:
+	if raw_args.size() < 2:
+		Debug.log("commands", "Uso: /sellall <item_id> <price>")
+		return
+	var item_id := String(raw_args[0]).to_lower()
+	var price := String(raw_args[1]).to_int()
+
+	var inventory := _get_player_inventory()
+	if inventory == null:
+		Debug.log("commands", "No se encontró InventoryComponent del jugador")
+		return
+
+	if inventory.has_method("sell_all"):
+		inventory.call("sell_all", item_id, price)
+		Debug.log("commands", "Se vendió todo '%s' a %s cada uno (si lo tenías)" % [item_id, price])
+	else:
+		Debug.log("commands", "El inventario no soporta sell_all")
+
+func _cmd_buydbg(raw_args: Array) -> void:
+	if raw_args.size() < 3:
+		Debug.log("commands", "Uso: /buydbg <item_id> <amount> <price>")
+		return
+	var item_id := String(raw_args[0]).to_lower()
+	var amount := String(raw_args[1]).to_int()
+	var price := String(raw_args[2]).to_int()
+
+	var inventory := _get_player_inventory()
+	if inventory == null:
+		Debug.log("commands", "No se encontró InventoryComponent del jugador")
+		return
+
+	if inventory.has_method("buy_item"):
+		var amount_bought: int = int(inventory.call("buy_item", item_id, amount, price))
+		if amount_bought > 0:
+			Debug.log("commands", "Se compró %s de '%s' por %s oro cada uno" % [amount_bought, item_id, price])
+		else:
+			Debug.log("commands", "Fallo al comprar '%s': sin oro o sin espacio" % item_id)
+	else:
+		Debug.log("commands", "El inventario no soporta buy_item")
+
 func _cmd_summon_enemy(raw_args: Array) -> void:
 	if ENEMY_SCENE == null or _world == null:
 		Debug.log("commands", "No se pudo invocar enemy: escena o world no disponible")

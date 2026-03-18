@@ -148,10 +148,6 @@ func _ready() -> void:
 	if inventory_component != null and DEBUG_PLAYER:
 		inventory_component.debug_print()
 	Debug.log("boot", "Player ready end")
-	var db := get_node("/root/ItemDB")
-	print("ItemDB=", db)
-	print("Copper item=", db.get_item("copper"))
-	print("Copper icon=", db.get_icon("copper"))
 
 func _setup_components() -> void:
 	if movement_component != null:
@@ -489,24 +485,6 @@ func _input(event: InputEvent) -> void:
 			if weapon_component != null:
 				weapon_component.equip_next()
 			return
-
-	if inventory_component == null:
-		return
-	if event is InputEventKey and event.pressed and not event.echo:
-		var key_event := event as InputEventKey
-		if key_event.keycode == KEY_1:
-			inventory_component.add_item("copper", 3)
-			if DEBUG_PLAYER: inventory_component.debug_print()
-		elif key_event.keycode == KEY_2:
-			inventory_component.sell_all("copper", 5)
-			if DEBUG_PLAYER: inventory_component.debug_print()
-		elif key_event.keycode == KEY_3:
-			inventory_component.buy_item("medkit", 1, 20)
-			if DEBUG_PLAYER: inventory_component.debug_print()
-		elif key_event.keycode == KEY_4:
-			inventory_component.gold += 50
-			Debug.log("inv", "[INV] cheat +50 gold. gold=%s" % inventory_component.gold)
-			if DEBUG_PLAYER: inventory_component.debug_print()
 
 func _physics_process(delta: float) -> void:
 	if dying or is_downed:
