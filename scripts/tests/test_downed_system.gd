@@ -30,21 +30,21 @@ func test_transitions():
 	# CharacterBase logic usually connects these, let's do it manually for the test
 	health.died.connect(func(): downed.enter_downed())
 
-	# 1. Alive -> Downed
+	# 1. Alive -> Downed (Overkill test A)
 	assert(not downed.is_downed, "Should start alive")
-	health.take_damage(health.max_hp)
+	health.take_damage(health.max_hp + 10)
 	assert(downed.is_downed, "Should be downed after lethal damage")
-	assert(health.hp <= 0, "HP should be 0 or less")
+	assert(health.hp == 0, "HP should be exactly 0, not negative")
 
-	# 2. Downed -> Revived
+	# 2. Downed -> Revived (Revive valid test B)
 	downed.revive()
 	assert(not downed.is_downed, "Should not be downed after revive")
-	# Simulate CharacterBase._on_revived logic
-	health.heal(1)
-	assert(health.hp == 1, "Should have 1 HP after revive")
+	# Simulate CharacterBase._on_revived logic with set_hp_clamped
+	health.set_hp_clamped(maxi(1, downed.downed_revive_hp))
+	assert(health.hp >= 1, "Should have at least 1 HP after revive")
 	assert(not health.is_dead(), "Health should report not dead")
 
-	# 3. Alive -> Downed again (verifying fix for _dead_emitted)
+	# 3. Alive -> Downed again (Damage after revive test C)
 	health.take_damage(1)
 	assert(downed.is_downed, "Should be downed again after lethal damage")
 
@@ -87,7 +87,8 @@ func test_persistence():
 	WorldSave.mark_enemy_downed(chunk_key, enemy_id, resolve_at, downed_at)
 
 	var state = WorldSave.get_enemy_state(chunk_key, enemy_id)
-	assert(state["is_downed"] == true, "State should be marked as downed")
+	assert(state["is_downed"] == true, "State should be marked as downed (Test D)")
+	assert(state["is_dead"] == false, "State should NOT be marked as dead when downed (Test D)")
 	assert(is_equal_approx(float(state["downed_at"]), downed_at), "downed_at should match")
 	assert(is_equal_approx(float(state["downed_resolve_at"]), resolve_at), "Resolution timestamp should match")
 
@@ -98,6 +99,12 @@ func test_persistence():
 	assert(downed_comp.is_downed, "Component should restore downed state")
 	assert(is_equal_approx(downed_comp.downed_at, downed_at), "Component should restore downed_at")
 	assert(is_equal_approx(downed_comp.downed_resolve_at, resolve_at), "Component should restore resolution timestamp")
+
+	# Simulate marking as dead in WorldSave (Test E)
+	WorldSave.mark_enemy_dead(chunk_key, enemy_id)
+	var dead_state = WorldSave.get_enemy_state(chunk_key, enemy_id)
+	assert(dead_state["is_dead"] == true, "State should be marked as dead (Test E)")
+	assert(dead_state["is_downed"] == false, "State should NOT be marked as downed when dead (Test E)")
 
 	print("SUCCESS: Downed Persistence")
 

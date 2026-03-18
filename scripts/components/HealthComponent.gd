@@ -14,18 +14,30 @@ func _ready() -> void:
 	hp = max_hp
 	hp_changed.emit(hp, max_hp)
 
+func set_hp_clamped(value: int) -> void:
+	var new_hp = clampi(value, 0, max_hp)
+	var prev_hp = hp
+	hp = new_hp
+
+	if hp > 0:
+		_dead_emitted = false
+
+	if hp != prev_hp:
+		hp_changed.emit(hp, max_hp)
+
 func take_damage(amount: int) -> void:
 	if is_dead():
 		return
 
-	var prev_visible_hp := maxi(hp, 0)
 	var final_damage: int = maxi(1, amount - armor)
-	hp -= final_damage
+	var new_hp := maxi(0, hp - final_damage)
+
+	var hp_did_change = (hp != new_hp)
+	hp = new_hp
 	damaged.emit(final_damage)
 
-	var current_visible_hp := maxi(hp, 0)
-	if current_visible_hp != prev_visible_hp:
-		hp_changed.emit(current_visible_hp, max_hp)
+	if hp_did_change:
+		hp_changed.emit(hp, max_hp)
 
 	if hp <= 0 and not _dead_emitted:
 		_dead_emitted = true
@@ -34,16 +46,10 @@ func take_damage(amount: int) -> void:
 func heal(amount: int) -> void:
 	if amount <= 0:
 		return
-	var prev_hp := hp
-	hp = min(max_hp, hp + amount)
-	if hp != prev_hp:
-		_dead_emitted = false
-		hp_changed.emit(hp, max_hp)
+	set_hp_clamped(hp + amount)
 
 func is_dead() -> bool:
 	return hp <= 0
 
 func reset() -> void:
-	_dead_emitted = false
-	hp = max_hp
-	hp_changed.emit(hp, max_hp)
+	set_hp_clamped(max_hp)
