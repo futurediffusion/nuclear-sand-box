@@ -153,13 +153,10 @@ func _tick_data_only(delta: float) -> void:
 			var enemy_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
 			var dist: float = enemy_pos.distance_to(player_pos)
 			var is_dead: bool = bool(state.get("is_dead", false))
-			if dist < spawn_r and not is_dead and not active_enemies.has(enemy_id) and not spawning_enemy_ids.has(enemy_id):
+			var node := _get_active_enemy_node(enemy_id)
+			if dist < spawn_r and not is_dead and node == null and not spawning_enemy_ids.has(enemy_id):
 				enqueue_spawn(chunk_pos, enemy_id, state)
-			elif active_enemies.has(enemy_id):
-				var node := _get_active_enemy_node(enemy_id)
-				if node == null:
-					continue
-
+			elif node != null:
 				if dist > despawn_r:
 					if _can_despawn(node, state):
 						despawn_enemy(enemy_id)
