@@ -86,14 +86,14 @@ func get_policy_for_enemy(enemy: Node, target: Node) -> Dictionary:
 
 	if _sessions.has(encounter_key):
 		session = _sessions[encounter_key]
-		# The session remains alive until explicitly cleared on revive/death
-		# Add the querying enemy if it's not already in and matches context (and should be part of it based on logic if needed)
+
+		# Only add the querying enemy if they are not already a participant,
+		# and they actually pass the strict aggro/context checks.
 		if not session["participant_uids"].has(enemy_uid):
-			# Option: Only add them if they had aggro or are close?
-			# For now, if they query, we just add them to the session's participants.
-			# But really _create_session will gather from AggroTrackerService.
-			session["participant_uids"].append(enemy_uid)
-			session["participant_uids"].sort()
+			var valid_participants := _gather_participants(target, faction_id, group_id)
+			if valid_participants.has(enemy_uid):
+				session["participant_uids"].append(enemy_uid)
+				session["participant_uids"].sort()
 	else:
 		session = _create_session(encounter_key, target, faction_id, group_id, enemy_uid, enemy)
 		_sessions[encounter_key] = session
@@ -150,7 +150,21 @@ func _create_session(encounter_key: String, target: Node, faction_id: String, gr
 		"safe_radius": spare_safe_radius
 	}
 
-	# Gather participants using AggroTrackerService
+	# Gather participants using strictly AggroTrackerService
+	var valid_participants := _gather_participants(target, faction_id, group_id)
+
+	for uid in valid_participants:
+		if not session["participant_uids"].has(uid):
+			session["participant_uids"].append(uid)
+
+	# Sort for deterministic executor selection
+	session["participant_uids"].sort()
+
+	return session
+
+func _gather_participants(target: Node, faction_id: String, group_id: String) -> Array[String]:
+	var valid_uids: Array[String] = []
+
 	if AggroTrackerService != null and AggroTrackerService.has_method("get_recent_attackers"):
 		var recent_attackers: Array[Node] = AggroTrackerService.get_recent_attackers(target, engagement_memory_seconds)
 		var target_pos: Vector2 = target.global_position
@@ -189,17 +203,10 @@ func _create_session(encounter_key: String, target: Node, faction_id: String, gr
 			if e_uid == "":
 				e_uid = str(e.get_instance_id())
 
-			if not session["participant_uids"].has(e_uid):
-				session["participant_uids"].append(e_uid)
+			if not valid_uids.has(e_uid):
+				valid_uids.append(e_uid)
 
-	# Ensure triggering enemy is always included
-	if not session["participant_uids"].has(triggering_enemy_uid):
-		session["participant_uids"].append(triggering_enemy_uid)
-
-	# Sort for deterministic executor selection
-	session["participant_uids"].sort()
-
-	return session
+	return valid_uids
 
 func _resolve_verdict(session: Dictionary, faction_id: String) -> void:
 	var hostility_modifier: float = 0.0
