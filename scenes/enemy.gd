@@ -131,10 +131,76 @@ func _connect_hurtbox() -> void:
 func _on_character_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
 	take_damage(dmg, from_pos)
 
+func _validate_core_components() -> bool:
+	var valid := true
+
+	# We must assign the nodes because `get_node_or_null` might return null initially if not in the right order
+	# or if we are validating before `_ready` runs on them.
+	# Actually, since they are `@onready var` they should be populated.
+	# But just in case, we'll try to get them if they are null.
+	if ai_component == null:
+		ai_component = get_node_or_null("AIComponent") as AIComponent
+	if inventory_component == null:
+		inventory_component = get_node_or_null("InventoryComponent") as InventoryComponent
+	if weapon_component == null:
+		weapon_component = get_node_or_null("WeaponComponent") as WeaponComponent
+	if ai_weapon_controller == null:
+		ai_weapon_controller = get_node_or_null("AIWeaponController") as AIWeaponController
+
+	if ai_component == null:
+		push_error("[Enemy] Missing required core component 'AIComponent' on '%s'" % name)
+		if OS.is_debug_build():
+			assert(false, "[Enemy] Missing required core component 'AIComponent' on '%s'" % name)
+		valid = false
+
+	if inventory_component == null:
+		push_error("[Enemy] Missing required core component 'InventoryComponent' on '%s'" % name)
+		if OS.is_debug_build():
+			assert(false, "[Enemy] Missing required core component 'InventoryComponent' on '%s'" % name)
+		valid = false
+
+	if weapon_component == null:
+		push_error("[Enemy] Missing required core component 'WeaponComponent' on '%s'" % name)
+		if OS.is_debug_build():
+			assert(false, "[Enemy] Missing required core component 'WeaponComponent' on '%s'" % name)
+		valid = false
+
+	if ai_weapon_controller == null:
+		push_error("[Enemy] Missing required core component 'AIWeaponController' on '%s'" % name)
+		if OS.is_debug_build():
+			assert(false, "[Enemy] Missing required core component 'AIWeaponController' on '%s'" % name)
+		valid = false
+
+	if debug_enemy_setup_logs:
+		var inv_count := _count_children_by_name("InventoryComponent")
+		if inv_count > 1:
+			push_error("[Enemy] Duplicate core component 'InventoryComponent' detected on '%s'" % name)
+			if OS.is_debug_build():
+				assert(false, "[Enemy] Duplicate core component 'InventoryComponent' detected on '%s'" % name)
+			valid = false
+		var weapon_count := _count_children_by_name("WeaponComponent")
+		if weapon_count > 1:
+			push_error("[Enemy] Duplicate core component 'WeaponComponent' detected on '%s'" % name)
+			if OS.is_debug_build():
+				assert(false, "[Enemy] Duplicate core component 'WeaponComponent' detected on '%s'" % name)
+			valid = false
+		var ctrl_count := _count_children_by_name("AIWeaponController")
+		if ctrl_count > 1:
+			push_error("[Enemy] Duplicate core component 'AIWeaponController' detected on '%s'" % name)
+			if OS.is_debug_build():
+				assert(false, "[Enemy] Duplicate core component 'AIWeaponController' detected on '%s'" % name)
+			valid = false
+
+	return valid
+
 func _run_setup_once() -> void:
 	if _setup_done:
 		_setup_log("already_initialized")
 		return
+
+	if not _validate_core_components():
+		return
+
 	_setup_done = true
 
 	_setup_components()
@@ -144,26 +210,13 @@ func _run_setup_once() -> void:
 	_setup_weapon_component()
 
 func _setup_components() -> void:
-	if ai_component == null:
-		ai_component = AIComponentScript.new()
-		ai_component.name = "AIComponent"
-		add_child(ai_component)
 	if ai_component != null:
 		ai_component.setup(self)
-	else:
-		push_warning("[Enemy] Missing AIComponent")
 
 func _setup_inventory_component() -> void:
-	_count_component_duplicates_once()
-	if inventory_component == null:
-		inventory_component = get_node_or_null("InventoryComponent") as InventoryComponent
 	if inventory_component != null:
 		_setup_log("setup_inventory reuse")
 		return
-	inventory_component = InventoryComponentScript.new()
-	inventory_component.name = "InventoryComponent"
-	add_child(inventory_component)
-	_setup_log("setup_inventory create")
 
 func _grant_temporary_starting_weapon() -> void:
 	if inventory_component == null:
@@ -183,16 +236,9 @@ func _grant_temporary_starting_weapon() -> void:
 		_setup_log("grant_bow skip already_present")
 
 func _setup_weapon_component() -> void:
-	_count_component_duplicates_once()
 	if weapon_component == null:
-		weapon_component = get_node_or_null("WeaponComponent") as WeaponComponent
-	if weapon_component == null:
-		weapon_component = WeaponComponentScript.new()
-		weapon_component.name = "WeaponComponent"
-		add_child(weapon_component)
-		_setup_log("setup_weapon create")
-	else:
-		_setup_log("setup_weapon reuse")
+		return
+	_setup_log("setup_weapon reuse")
 
 	if inventory_component != null:
 		weapon_component.setup_from_inventory(inventory_component)
@@ -209,41 +255,9 @@ func _setup_weapon_component() -> void:
 	weapon_component.equip_runtime_weapon(self, ctrl)
 
 func _ensure_ai_weapon_controller() -> AIWeaponController:
-	_count_component_duplicates_once()
-	if ai_weapon_controller == null:
-		ai_weapon_controller = get_node_or_null("AIWeaponController") as AIWeaponController
 	if ai_weapon_controller != null:
 		_setup_log("setup_ai_controller reuse")
-		return ai_weapon_controller
-	ai_weapon_controller = AIWeaponControllerScript.new()
-	ai_weapon_controller.name = "AIWeaponController"
-	add_child(ai_weapon_controller)
-	_setup_log("setup_ai_controller create")
 	return ai_weapon_controller
-
-
-func _count_component_duplicates_once() -> void:
-	if not debug_enemy_setup_logs:
-		return
-
-	if not _logged_duplicate_inventory_count:
-		_logged_duplicate_inventory_count = true
-		var inv_count := _count_children_by_name("InventoryComponent")
-		if inv_count > 1:
-			_setup_log("duplicate inventory_count=%d" % inv_count)
-
-	if not _logged_duplicate_weapon_count:
-		_logged_duplicate_weapon_count = true
-		var weapon_count := _count_children_by_name("WeaponComponent")
-		if weapon_count > 1:
-			_setup_log("duplicate weapon_count=%d" % weapon_count)
-
-	if not _logged_duplicate_controller_count:
-		_logged_duplicate_controller_count = true
-		var ctrl_count := _count_children_by_name("AIWeaponController")
-		if ctrl_count > 1:
-			_setup_log("duplicate ai_controller_count=%d" % ctrl_count)
-
 
 func _count_children_by_name(node_name: String) -> int:
 	var total := 0

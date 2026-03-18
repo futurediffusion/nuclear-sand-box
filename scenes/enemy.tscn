@@ -11,6 +11,9 @@
 [ext_resource type="Script" uid="uid://fs8idwdgvpd3" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
 [ext_resource type="Script" uid="uid://dp25cru3why2a" path="res://scripts/components/AIComponent.gd" id="8_ai"]
 [ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="9_hurtbox"]
+[ext_resource type="Script" uid="uid://dng8wgnb2a8d4" path="res://scripts/components/InventoryComponent.gd" id="9_inv"]
+[ext_resource type="Script" uid="uid://b6p8j0x2k1w1w" path="res://scripts/components/WeaponComponent.gd" id="10_weap"]
+[ext_resource type="Script" uid="uid://d6a8r1p1x1w1w" path="res://scripts/weapons/AIWeaponController.gd" id="11_actrl"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_ipns3"]
 atlas = ExtResource("6_nenq2")
@@ -184,3 +187,12 @@ position = Vector2(20, 0)
 
 [node name="ArrowMuzzle" type="Marker2D" parent="WeaponPivot"]
 position = Vector2(10, 0)
+
+[node name="InventoryComponent" type="Node" parent="."]
+script = ExtResource("9_inv")
+
+[node name="WeaponComponent" type="Node" parent="."]
+script = ExtResource("10_weap")
+
+[node name="AIWeaponController" type="Node" parent="."]
+script = ExtResource("11_actrl")

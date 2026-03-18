@@ -18,6 +18,9 @@
 [ext_resource type="Script" uid="uid://ctgv8fsqlh1dp" path="res://scripts/components/WallOcclusionComponent.gd" id="12_wall"]
 [ext_resource type="Script" path="res://scripts/components/VFXComponent.gd" id="13_vfx"]
 [ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="17_qfm1y"]
+[ext_resource type="Script" uid="uid://dng8wgnb2a8d4" path="res://scripts/components/InventoryComponent.gd" id="18_inv"]
+[ext_resource type="Script" uid="uid://b6p8j0x2k1w1w" path="res://scripts/components/WeaponComponent.gd" id="19_weap"]
+[ext_resource type="Script" uid="uid://c6a8r1p1x1w1w" path="res://scripts/weapons/PlayerWeaponController.gd" id="20_pctrl"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_smehm")
@@ -231,3 +234,12 @@ script = ExtResource("17_qfm1y")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
 shape = SubResource("CapsuleShape2D_fulsm")
+
+[node name="InventoryComponent" type="Node" parent="."]
+script = ExtResource("18_inv")
+
+[node name="WeaponComponent" type="Node" parent="."]
+script = ExtResource("19_weap")
+
+[node name="PlayerWeaponController" type="Node" parent="."]
+script = ExtResource("20_pctrl")
