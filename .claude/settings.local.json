@@ -45,7 +45,9 @@
       "Bash(cat:*)",
       "Bash(grep:*)",
       "Bash(ls:*)",
-      "Bash(cmd.exe /c \"cd /d \\\\\"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\\\\\" && godot --path . --check-only --script scripts/world/PlayerWallSystem.gd 2>&1\" | head -20)"
+      "Bash(cmd.exe /c \"cd /d \\\\\"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\\\\\" && godot --path . --check-only --script scripts/world/PlayerWallSystem.gd 2>&1\" | head -20)",
+      "Bash(/tmp/check_bits.txt:*)",
+      "Read(//tmp/**)"
     ]
   }
 }

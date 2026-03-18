@@ -67,6 +67,7 @@ const PLAYER_SIT_ANIMATION: StringName = &"sit"
 @export_group("Death Feedback")
 @export var death_shake_duration: float = 0.28
 @export var death_shake_magnitude: float = 23.4
+@export var finisher_shake_multiplier: float = 2.0
 
 @export_group("FX")
 @export var droplet_scene: PackedScene
@@ -905,13 +906,16 @@ func _on_character_revived() -> void:
 
 func _trigger_death_shake() -> void:
 	var cam := get_node_or_null("Camera2D")
+	var mul := finisher_shake_multiplier if _is_finisher_death else 1.0
 	if cam and cam.has_method("shake_impulse"):
-		cam.shake_impulse(death_shake_duration, death_shake_magnitude)
+		cam.shake_impulse(death_shake_duration * mul, death_shake_magnitude * mul)
 	elif cam and cam.has_method("shake"):
-		cam.shake(death_shake_magnitude)
+		cam.shake(death_shake_magnitude * mul)
 
 func _on_character_dying_started() -> void:
 	_trigger_death_shake()
+	if _is_finisher_death and use_vfx_component and vfx_component != null:
+		vfx_component.play_hit_vfx(Vector2.DOWN, true)
 	_leave_seat(false)
 	_force_drop_carryable()
 	secondary_action_state = SecondaryActionState.NONE

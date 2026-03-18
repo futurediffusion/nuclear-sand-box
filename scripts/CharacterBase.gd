@@ -38,6 +38,7 @@ signal death_finished
 var hp: int = 0
 var dying: bool = false
 var is_downed: bool = false
+var _is_finisher_death: bool = false
 var knock_vel: Vector2 = Vector2.ZERO
 var hurt_t: float = 0.0
 var _base_ready_initialized: bool = false
@@ -110,8 +111,10 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if is_downed:
 		if downed_component != null and downed_component.has_method("can_take_finishing_blow"):
 			if downed_component.call("can_take_finishing_blow"):
+				_is_finisher_death = true
 				die_final()
 		else:
+			_is_finisher_death = true
 			die_final()
 		return
 
@@ -266,7 +269,8 @@ func _apply_knockback_step(delta: float) -> void:
 	knock_vel = knock_vel.move_toward(Vector2.ZERO, knockback_friction * delta)
 
 func _on_before_die() -> void:
-	pass
+	if _is_finisher_death:
+		_spawn_blood(blood_death_amount)
 
 func _update_animation() -> void:
 	pass

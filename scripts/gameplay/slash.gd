@@ -126,8 +126,11 @@ func _try_damage(raw_target: Node) -> void:
 
 	var target_world_pos: Vector2 = _resolve_target_world_pos(target, target_hurtbox)
 
-	if _is_target_blocked_by_wall(target, target_hurtbox):
-		return
+	# Destructibles (hit) son objetos físicos — si el hitbox los toca, están al alcance.
+	# El check de pared solo aplica a entidades con take_damage (enemigos con hurtbox).
+	if not target.has_method("hit"):
+		if _is_target_blocked_by_wall(target, target_hurtbox):
+			return
 
 	var id := target.get_instance_id()
 	if already_hit.has(id):

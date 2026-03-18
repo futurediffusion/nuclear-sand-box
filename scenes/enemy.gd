@@ -30,6 +30,7 @@ const DEFAULT_ENEMY_DEATH_SOUND: AudioStream = preload("res://art/Sounds/impact.
 @export_group("Death Feedback")
 @export var death_shake_duration: float = 0.28
 @export var death_shake_magnitude: float = 23.4
+@export var finisher_shake_multiplier: float = 2.0
 @export var death_sound_pitch_scale: float = 0.68
 @export var death_sound_volume_db: float = 2.0
 
@@ -665,10 +666,11 @@ func _trigger_death_shake() -> void:
 	if not p.has_node("Camera2D"):
 		return
 	var cam := p.get_node("Camera2D")
+	var mul := finisher_shake_multiplier if _is_finisher_death else 1.0
 	if cam and cam.has_method("shake_impulse"):
-		cam.shake_impulse(death_shake_duration, death_shake_magnitude)
+		cam.shake_impulse(death_shake_duration * mul, death_shake_magnitude * mul)
 	elif cam and cam.has_method("shake"):
-		cam.shake(death_shake_magnitude)
+		cam.shake(death_shake_magnitude * mul)
 
 func _play_death_sound() -> void:
 	if _enemy_death_sound == null:

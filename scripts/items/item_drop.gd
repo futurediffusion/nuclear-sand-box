@@ -153,11 +153,22 @@ func _process(delta: float) -> void:
 	if _magnet_on and _player != null:
 		var d := global_position.distance_to(_player.global_position)
 		if d <= magnet_range:
-			global_position = global_position.move_toward(_player.global_position, magnet_speed * delta)
+			# No atraer si el inventario está lleno y no hay modo carry activo
+			var can_accept := false
+			if _player.has_method("wants_carry_pickup") and _player.wants_carry_pickup():
+				can_accept = true
+			else:
+				var inv := _player.get_node_or_null("InventoryComponent")
+				if inv != null and inv.has_method("has_space_for"):
+					can_accept = inv.has_space_for(item_id, 1)
+				else:
+					can_accept = true
 
-			# si ya casi toca, intentar pickup
-			if d < 12.0:
-				_try_pickup()
+			if can_accept:
+				global_position = global_position.move_toward(_player.global_position, magnet_speed * delta)
+				# si ya casi toca, intentar pickup
+				if d < 12.0:
+					_try_pickup()
 				
 func _on_body_entered(body: Node) -> void:
 	if body.is_in_group("player"):
