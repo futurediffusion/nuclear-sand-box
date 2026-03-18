@@ -595,7 +595,7 @@ func _try_attack_logic(delta: float) -> void:
 	if ctrl == null:
 		return
 
-	var aim_pos := target.global_position
+	var aim_pos: Vector2 = target.global_position
 	ctrl.set_aim_global_position(aim_pos)
 
 	var distance: float = owner_entity.global_position.distance_to(aim_pos)
