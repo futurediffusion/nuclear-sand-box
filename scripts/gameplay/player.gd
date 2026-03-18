@@ -156,6 +156,11 @@ func _ready() -> void:
 	super._ready()
 	Debug.log("boot", "Player ready begin")
 
+	downed_entered.connect(_on_character_downed_entered)
+	revived.connect(_on_character_revived)
+	dying_started.connect(_on_character_dying_started)
+	death_finished.connect(_on_character_death_finished)
+
 	if not _validate_core_components():
 		return
 
@@ -773,15 +778,13 @@ func _resolve_world_node() -> Node:
 	_world_node_ref = weakref(world)
 	return world
 
-func _on_entered_downed() -> void:
-	super._on_entered_downed()
+func _on_character_downed_entered() -> void:
 	_trigger_death_shake()
 	weapon_sprite.visible = false
 	if footstep_audio_component != null:
 		footstep_audio_component.stop_loop()
 
-func _on_revived() -> void:
-	super._on_revived()
+func _on_character_revived() -> void:
 	weapon_sprite.visible = true
 	_update_hearts_ui()
 
@@ -792,17 +795,14 @@ func _trigger_death_shake() -> void:
 	elif cam and cam.has_method("shake"):
 		cam.shake(death_shake_magnitude)
 
-func _on_before_die() -> void:
+func _on_character_dying_started() -> void:
 	_trigger_death_shake()
 	_leave_seat(false)
 	weapon_sprite.visible = false
-	hurt_t = 0.0
 	attacking = false
 	attack_push_t = 0.0
-	knock_vel = Vector2.ZERO
-	velocity = Vector2.ZERO
 
-func _on_after_die() -> void:
+func _on_character_death_finished() -> void:
 	GameManager.player_died.emit()
 
 func respawn(pos: Vector2) -> void:

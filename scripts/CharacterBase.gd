@@ -23,6 +23,11 @@ const CollisionLayersScript = preload("res://scripts/systems/CollisionLayers.gd"
 @export_group("Collision")
 @export var ignore_world_walls: bool = false
 
+signal downed_entered
+signal revived
+signal dying_started
+signal death_finished
+
 @onready var health_component: Node = get_node_or_null("HealthComponent")
 @onready var downed_component: DownedComponent = get_node_or_null("DownedComponent") as DownedComponent
 
@@ -134,6 +139,7 @@ func _on_entered_downed() -> void:
 				sprite.stop()
 				sprite.frame = sprite.sprite_frames.get_frame_count("death") - 1
 		, CONNECT_ONE_SHOT)
+	downed_entered.emit()
 
 func _on_revived() -> void:
 	is_downed = false
@@ -143,6 +149,7 @@ func _on_revived() -> void:
 	if has_node("AnimatedSprite2D"):
 		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
 		sprite.play("idle")
+	revived.emit()
 
 func die_final() -> void:
 	if dying:
@@ -152,6 +159,7 @@ func die_final() -> void:
 	hurt_t = 0.0
 	knock_vel = Vector2.ZERO
 	velocity = Vector2.ZERO
+	dying_started.emit()
 	_on_before_die()
 	if has_node("AnimatedSprite2D"):
 		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
@@ -159,6 +167,7 @@ func die_final() -> void:
 			sprite.play("death")
 			await sprite.animation_finished
 	_on_after_die()
+	death_finished.emit()
 
 func die() -> void:
 	_on_health_died()
