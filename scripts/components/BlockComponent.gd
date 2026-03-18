@@ -3,23 +3,27 @@ class_name BlockComponent
 
 var player: Player = null
 var blocking: bool = false
+var block_requested: bool = false
 var block_angle: float = 0.0
 var block_wiggle_t: float = 0.0
 
 func setup(p_player: Player) -> void:
 	player = p_player
 
+func set_block_requested(requested: bool) -> void:
+	block_requested = requested
+
 func tick(delta: float) -> void:
 	if player == null:
 		return
 
-	if Input.is_action_just_pressed("block"):
+	if block_requested and not blocking:
 		if player.stamina_component != null and player.stamina_component.current_stamina > 0.0:
 			blocking = true
 			block_wiggle_t = 0.0
 			player.emit_signal("block_started")
 
-	if Input.is_action_just_released("block") and blocking:
+	if not block_requested and blocking:
 		blocking = false
 		player.emit_signal("block_ended")
 		player.player_debug("[BLOCK] desactivado")
