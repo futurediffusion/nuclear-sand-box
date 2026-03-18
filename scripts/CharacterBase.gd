@@ -149,6 +149,12 @@ func _on_revived() -> void:
 	if has_node("AnimatedSprite2D"):
 		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
 		sprite.play("idle")
+
+	if DownedEncounterCoordinator != null and DownedEncounterCoordinator.has_method("notify_target_revived"):
+		DownedEncounterCoordinator.notify_target_revived(self)
+	if AggroTrackerService != null and AggroTrackerService.has_method("clear_target"):
+		AggroTrackerService.clear_target(self)
+
 	revived.emit()
 
 func die_final() -> void:
@@ -159,6 +165,12 @@ func die_final() -> void:
 	hurt_t = 0.0
 	knock_vel = Vector2.ZERO
 	velocity = Vector2.ZERO
+
+	if DownedEncounterCoordinator != null and DownedEncounterCoordinator.has_method("notify_target_died_final"):
+		DownedEncounterCoordinator.notify_target_died_final(self)
+	if AggroTrackerService != null and AggroTrackerService.has_method("clear_target"):
+		AggroTrackerService.clear_target(self)
+
 	dying_started.emit()
 	_on_before_die()
 	if has_node("AnimatedSprite2D"):
