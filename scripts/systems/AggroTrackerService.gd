@@ -1,5 +1,4 @@
 extends Node
-class_name AggroTrackerService
 
 # tracking internal data:
 # _engagements[target_id] = Dictionary[enemy_instance_id -> { "enemy_ref": WeakRef, "target_ref": WeakRef, "timestamp": float }]
