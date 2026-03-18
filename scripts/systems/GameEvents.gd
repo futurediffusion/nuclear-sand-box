@@ -3,6 +3,7 @@ extends Node
 signal entity_died(uid: String, kind: String, pos: Vector2, killer: Node)
 signal loot_spawned(item_id: String, amount: int, pos: Vector2, source_uid: String)
 signal item_picked(item_id: String, amount: int, picker: Node)
+signal resource_harvested(kind: String, world_pos: Vector2)
 
 @export var debug_events := false
 
@@ -21,3 +22,7 @@ func emit_loot_spawned(item_id: String, amount: int, pos: Vector2, source_uid: S
 func emit_item_picked(item_id: String, amount: int, picker: Node) -> void:
 	Debug.log("events", "[EVT] item_picked item_id=%s amount=%s picker=%s" % [item_id, amount, picker])
 	emit_signal("item_picked", item_id, amount, picker)
+
+func emit_resource_harvested(kind: String, world_pos: Vector2) -> void:
+	Debug.log("events", "[EVT] resource_harvested kind=%s pos=%s" % [kind, world_pos])
+	emit_signal("resource_harvested", kind, world_pos)

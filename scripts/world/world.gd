@@ -111,6 +111,7 @@ var chunk_save: Dictionary = {}
 var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
+var _settlement_intel: SettlementIntel
 var _player_wall_system: PlayerWallSystem
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
@@ -145,6 +146,7 @@ const PLAYER_WALL_FALLBACK_ATLAS: Vector2i = Vector2i(0, 0)
 const PLAYER_WALL_ISOLATED_ATLAS: Vector2i = Vector2i(0, 1)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
+const SettlementIntelScript := preload("res://scripts/world/SettlementIntel.gd")
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
@@ -454,6 +456,12 @@ func _ready() -> void:
 
 	WorldSave.wall_tile_blocker_fn = _has_wall_tile_between
 
+	_settlement_intel = SettlementIntelScript.new()
+	_settlement_intel.setup({
+		"world_to_tile": Callable(self, "_world_to_tile"),
+		"tile_to_world": Callable(self, "_tile_to_world"),
+	})
+
 	await update_chunks(current_player_chunk)
 
 
@@ -513,6 +521,8 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 		rebuild_budget -= 1
 
 func _process(delta: float) -> void:
+	if _settlement_intel != null:
+		_settlement_intel.process(delta)
 	pipeline.process(delta)
 	_process_wall_refresh_queue(1)
 	_process_tile_erase_queue()
@@ -976,6 +986,16 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 
 
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.
+func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionary = {}) -> void:
+	if _settlement_intel != null:
+		_settlement_intel.record_interest_event(kind, world_pos, metadata)
+
+func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dictionary]:
+	if _settlement_intel == null:
+		return []
+	return _settlement_intel.get_interest_markers_near(world_pos, radius)
+
+
 func _paint_outer_ground_band() -> void:
 	var band: int = 10
 	var cells: Array[Vector2i] = []

@@ -113,6 +113,8 @@ func hit(by: Node) -> void:
 	var origin := global_position + Vector2(0.0, -10.0)
 	ore_hit.emit(resolved_item_id, amount, origin, by)
 	request_drop.emit(resolved_item_id, amount, origin, by)
+	if GameEvents != null:
+		GameEvents.emit_resource_harvested("stone_mined", origin)
 
 	if use_systems:
 		_spawn_drop(amount)

@@ -338,6 +338,8 @@ func _fell_tree() -> void:
 	# Persist death immediately so tree won't respawn on next chunk load
 	WorldSave.set_entity_state(entity_cx, entity_cy, entity_uid, {"dead": true})
 
+	if GameEvents != null:
+		GameEvents.emit_resource_harvested("wood_chopped", global_position)
 	Debug.log("tree", "felled uid=%s dropped=%d" % [entity_uid, wood_count])
 	get_tree().create_timer(0.5).timeout.connect(queue_free)
 

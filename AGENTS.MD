@@ -478,4 +478,24 @@ Para mantener el proyecto estable y escalable:
   - reglas de spawn,
   - interacción con inventario/economía,
   - comportamiento al descargar/cargar chunk.
+
+---
+
+## 1️⃣1️⃣ SUBSISTEMAS DE INTELIGENCIA DE ASENTAMIENTO
+
+### `SettlementIntel` (`scripts/world/SettlementIntel.gd`)
+Registra "interest markers" que representan actividad visible del jugador en el mundo.
+
+**Markers persistentes:** `workbench` — existe mientras el placeable exista en WorldSave.
+**Markers temporales (TTL 150-180s):** `copper_mined`, `stone_mined`, `wood_chopped`, `structure_placed`.
+
+Deduplicación: si ocurre la misma actividad a < 96px de un marker del mismo tipo, se refresca en vez de crear copia.
+
+API:
+- `record_interest_event(kind, world_pos, metadata)` — registrar evento
+- `get_interest_markers_near(world_pos, radius) -> Array[Dictionary]` — consultar
+- `clear_invalid_persistent_markers()` — limpiar workbenches eliminados
+- `mark_interest_scan_dirty_near(world_pos)` — forzar rescan
+
+Fuentes de datos: `GameEvents.resource_harvested` (minería/tala), `PlacementSystem.placement_completed` (construcción), `WorldSave.placed_entities_by_chunk` (workbench scan).
 - Mantener este archivo actualizado cuando cambie la realidad jugable del proyecto.
