@@ -37,6 +37,45 @@ var spawning_enemy_ids: Dictionary = {}  # enemy_id -> true
 var _lite_timer: float = 0.0
 var _sim_timer: float = 0.0
 
+# ---------------------------------------------------------------------------
+# Helpers de Tracking
+# ---------------------------------------------------------------------------
+
+func _clear_enemy_tracking(enemy_id: String, clear_spawning: bool = true) -> void:
+	active_enemies.erase(enemy_id)
+	active_enemy_chunk.erase(enemy_id)
+	if clear_spawning:
+		spawning_enemy_ids.erase(enemy_id)
+
+func _get_active_enemy_node(enemy_id: String) -> Node:
+	if not active_enemies.has(enemy_id):
+		return null
+	var node_v = active_enemies[enemy_id]
+	if typeof(node_v) != TYPE_OBJECT or not is_instance_valid(node_v):
+		if debug_counts:
+			Debug.log("npc_data", "[NpcSimulator] Cleared stale active enemy ref: %s (invalid)" % enemy_id)
+		_clear_enemy_tracking(enemy_id, false)
+		return null
+	var node: Node = node_v as Node
+	if node.is_queued_for_deletion():
+		if debug_counts:
+			Debug.log("npc_data", "[NpcSimulator] Cleared stale active enemy ref: %s (queued for deletion)" % enemy_id)
+		_clear_enemy_tracking(enemy_id, false)
+		return null
+	return node
+
+func _get_active_enemy_chunk_key(enemy_id: String) -> String:
+	return String(active_enemy_chunk.get(enemy_id, ""))
+
+func _has_live_active_enemy(enemy_id: String) -> bool:
+	return _get_active_enemy_node(enemy_id) != null
+
+func _register_active_enemy(enemy_id: String, chunk_key: String, node: Node) -> void:
+	active_enemies[enemy_id] = node
+	active_enemy_chunk[enemy_id] = chunk_key
+	spawning_enemy_ids.erase(enemy_id)
+
+
 func setup(ctx: Dictionary) -> void:
 	player = ctx.get("player")
 	bandit_scene = ctx.get("bandit_scene")
@@ -117,13 +156,10 @@ func _tick_data_only(delta: float) -> void:
 			if dist < spawn_r and not is_dead and not active_enemies.has(enemy_id) and not spawning_enemy_ids.has(enemy_id):
 				enqueue_spawn(chunk_pos, enemy_id, state)
 			elif active_enemies.has(enemy_id):
-				var node_v = active_enemies[enemy_id]
-				if typeof(node_v) != TYPE_OBJECT or not is_instance_valid(node_v):
-					active_enemies.erase(enemy_id)
-					active_enemy_chunk.erase(enemy_id)
+				var node := _get_active_enemy_node(enemy_id)
+				if node == null:
 					continue
 
-				var node: Node = node_v as Node
 				if dist > despawn_r:
 					if _can_despawn(node, state):
 						despawn_enemy(enemy_id)
@@ -157,19 +193,17 @@ func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> 
 	_spawn_queue.enqueue(job)
 
 func despawn_enemy(enemy_id: String) -> void:
-	if not active_enemies.has(enemy_id):
-		return
-	var node_v = active_enemies[enemy_id]
-	var chunk_key: String = String(active_enemy_chunk.get(enemy_id, ""))
-	if typeof(node_v) == TYPE_OBJECT and is_instance_valid(node_v):
-		var node: Node = node_v as Node
+	var node := _get_active_enemy_node(enemy_id)
+	var chunk_key := _get_active_enemy_chunk_key(enemy_id)
+	if node != null:
 		if node.has_method("capture_save_state"):
 			var state: Dictionary = node.call("capture_save_state")
 			if node.has_node("DownedComponent"):
 				var downed := node.get_node("DownedComponent")
 				if downed.has_method("get_save_data"):
 					state.merge(downed.call("get_save_data"), true)
-			WorldSave.set_enemy_state(chunk_key, enemy_id, state)
+			if chunk_key != "":
+				WorldSave.set_enemy_state(chunk_key, enemy_id, state)
 		if node.has_node("AIComponent"):
 			var ai := node.get_node_or_null("AIComponent")
 			if ai != null and ai.has_method("on_owner_exit_tree"):
@@ -180,16 +214,12 @@ func despawn_enemy(enemy_id: String) -> void:
 				ctrl.call("clear_transient_input")
 		EnemyRegistry.unregister_enemy(node)
 		node.queue_free()
-	active_enemies.erase(enemy_id)
-	active_enemy_chunk.erase(enemy_id)
-	spawning_enemy_ids.erase(enemy_id)
+	_clear_enemy_tracking(enemy_id, true)
 
 # Llamado desde World._on_spawn_queue_job_spawned cuando kind == "enemy"
 func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 	var enemy_id: String = String(job.get("uid", ""))
-	spawning_enemy_ids.erase(enemy_id)
-	active_enemies[enemy_id] = node
-	active_enemy_chunk[enemy_id] = String(job.get("chunk_key", ""))
+	_register_active_enemy(enemy_id, String(job.get("chunk_key", "")), node)
 
 	var save_state: Dictionary = job.get("init_data", {}).get("save_state", {})
 	if node.has_node("DownedComponent"):
@@ -215,23 +245,29 @@ func on_enemy_job_skipped(job: Dictionary) -> void:
 
 # Llamado desde World._on_entity_died
 func on_entity_died(uid: String) -> void:
-	if active_enemy_chunk.has(uid):
-		WorldSave.mark_enemy_dead(String(active_enemy_chunk[uid]), uid)
-		# No borrar de active_enemies todavía si queremos que el cadáver persista un poco o por si acaso,
-		# pero NpcSimulator usualmente limpia en despawn.
-		# active_enemies.erase(uid)
-		# active_enemy_chunk.erase(uid)
+	var chunk_key := _get_active_enemy_chunk_key(uid)
+	if chunk_key != "":
+		WorldSave.mark_enemy_dead(chunk_key, uid)
+		# We do not clear tracking here to allow the corpse to persist if enabled.
+		# despawn_enemy() will handle full cleanup when the chunk is unloaded or out of range.
 	spawning_enemy_ids.erase(uid)
 	NpcProfileSystem.set_status(uid, "dead")
 
 # Llamado desde World.unload_chunk_entities
 func on_chunk_unloaded(chunk_key: String) -> void:
+	var ids_to_despawn: Array[String] = []
 	for enemy_id in active_enemy_chunk.keys():
-		if String(active_enemy_chunk[enemy_id]) == chunk_key:
-			despawn_enemy(String(enemy_id))
+		if _get_active_enemy_chunk_key(String(enemy_id)) == chunk_key:
+			ids_to_despawn.append(String(enemy_id))
+	for enemy_id in ids_to_despawn:
+		despawn_enemy(enemy_id)
+
+	var spawning_to_erase: Array[String] = []
 	for enemy_id in spawning_enemy_ids.keys():
 		if String(enemy_id).begins_with("e:%s:" % chunk_key):
-			spawning_enemy_ids.erase(enemy_id)
+			spawning_to_erase.append(String(enemy_id))
+	for enemy_id in spawning_to_erase:
+		spawning_enemy_ids.erase(enemy_id)
 
 # ---------------------------------------------------------------------------
 # Internos
