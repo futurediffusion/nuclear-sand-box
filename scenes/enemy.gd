@@ -108,6 +108,11 @@ func _ready() -> void:
 		set_physics_process(false)
 		return
 
+	downed_entered.connect(_on_character_downed_entered)
+	revived.connect(_on_character_revived)
+	dying_started.connect(_on_character_dying_started)
+	death_finished.connect(_on_character_death_finished)
+
 	_apply_sound_panel_overrides()
 	add_to_group("enemy")
 	sprite.play("idle")
@@ -586,8 +591,7 @@ func capture_save_state() -> Dictionary:
 func is_attacking() -> bool:
 	return attacking
 
-func _on_entered_downed() -> void:
-	super._on_entered_downed()
+func _on_character_downed_entered() -> void:
 	_trigger_death_shake()
 	if ai_component != null:
 		ai_component.set_downed()
@@ -603,14 +607,13 @@ func _on_entered_downed() -> void:
 
 	NpcProfileSystem.set_status(entity_uid, "downed")
 
-func _on_revived() -> void:
-	super._on_revived()
+func _on_character_revived() -> void:
 	if ai_component != null:
 		ai_component.wake_now()
 	WorldSave.set_enemy_state(enemy_chunk_key, entity_uid, capture_save_state())
 	NpcProfileSystem.set_status(entity_uid, "alive")
 
-func _on_before_die() -> void:
+func _on_character_dying_started() -> void:
 	EnemyRegistry.unregister_enemy(self)
 	if GameEvents != null and GameEvents.has_method("emit_entity_died"):
 		GameEvents.emit_entity_died(entity_uid, "enemy", global_position, null)
@@ -619,12 +622,10 @@ func _on_before_die() -> void:
 	attacking = false
 	set_ai_attack_intent(false, global_position)
 	set_physics_process(false)
-	velocity = Vector2.ZERO
-	knock_vel = Vector2.ZERO
 	if ai_component != null:
 		ai_component.set_dead()
 
-func _on_after_die() -> void:
+func _on_character_death_finished() -> void:
 	# El cadáver persiste hasta que NpcSimulator lo limpie al alejarse o descargar el chunk,
 	# a menos que keep_corpses esté desactivado.
 	var should_keep_corpses: bool = false
