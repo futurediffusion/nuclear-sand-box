@@ -1,6 +1,11 @@
 extends Node
 class_name AIComponent
 
+const WEAPON_BOW: StringName = &"bow"
+const WEAPON_IRONPIPE: StringName = &"ironpipe"
+const COMBAT_STYLE_RANGED: StringName = &"ranged"
+const COMBAT_STYLE_MELEE: StringName = &"melee"
+
 enum AIState { IDLE, CHASE, ATTACK, HURT, DEAD, DOWNED }
 enum BowState { IDLE, CHARGING, COOLDOWN }
 
@@ -50,7 +55,7 @@ var _bow_charge_target: float = 0.0
 var _bow_cooldown_t: float = 0.0
 var _melee_cooldown_t: float = 0.0
 var _last_weapon_id: String = ""
-var _combat_style: StringName = &"ranged"
+var _combat_style: StringName = COMBAT_STYLE_RANGED
 var _style_t: float = 0.0
 var _style_duration: float = 0.0
 var _style_swap_cd_t: float = 0.0
@@ -393,7 +398,7 @@ func _get_engage_distance_for_weapon(weapon_id: String) -> float:
 	if owner_entity == null:
 		return prefer_melee_distance
 	var engage_distance := maxf(prefer_melee_distance, owner_entity.attack_range)
-	if weapon_id == "bow":
+	if weapon_id == WEAPON_BOW:
 		return maxf(prefer_bow_distance + maxf(bow_engage_buffer, 0.0), engage_distance)
 	return engage_distance
 
@@ -455,11 +460,11 @@ func _try_attack_logic(delta: float) -> void:
 	_sync_weapon_state_with_equipped(weapon_id)
 	_debug_combat_status(distance, current_weapon_id, target_weapon_id)
 
-	if weapon_id == "bow":
+	if weapon_id == WEAPON_BOW:
 		_process_bow(ctrl, distance)
 		return
 
-	if weapon_id == "ironpipe":
+	if weapon_id == WEAPON_IRONPIPE:
 		_process_melee(aim_pos, distance, delta)
 		return
 
@@ -475,24 +480,24 @@ func _update_weapon_selection(distance: float) -> Dictionary:
 	var current_weapon_id := weapon_component.get_current_weapon_id()
 	var target_weapon_id := current_weapon_id
 
-	if current_weapon_id == "bow":
+	if current_weapon_id == WEAPON_BOW:
 		if distance <= prefer_melee_distance:
-			target_weapon_id = "ironpipe"
-	elif current_weapon_id == "ironpipe":
+			target_weapon_id = WEAPON_IRONPIPE
+	elif current_weapon_id == WEAPON_IRONPIPE:
 		if distance >= prefer_bow_distance:
-			target_weapon_id = "bow"
+			target_weapon_id = WEAPON_BOW
 	else:
 		if distance >= prefer_bow_distance:
-			target_weapon_id = "bow"
+			target_weapon_id = WEAPON_BOW
 		elif distance <= prefer_melee_distance:
-			target_weapon_id = "ironpipe"
+			target_weapon_id = WEAPON_IRONPIPE
 
 	target_weapon_id = _apply_combat_style_bias(target_weapon_id, current_weapon_id, distance)
 
 	if target_weapon_id != "" and target_weapon_id != current_weapon_id:
 		if _style_swap_cd_t > 0.0:
 			return {"weapon_id": current_weapon_id, "current_weapon_id": current_weapon_id, "target_weapon_id": target_weapon_id}
-		if _bow_state == BowState.CHARGING and target_weapon_id != "bow":
+		if _bow_state == BowState.CHARGING and target_weapon_id != WEAPON_BOW:
 			_release_attack_input()
 			_bow_state = BowState.IDLE
 			_bow_charge_t = 0.0
@@ -526,7 +531,7 @@ func _debug_combat_status(distance: float, current_weapon_id: String, target_wea
 func _on_weapon_switched(weapon_id: String) -> void:
 	_release_attack_input()
 	_last_weapon_id = weapon_id
-	if weapon_id != "bow":
+	if weapon_id != WEAPON_BOW:
 		_bow_state = BowState.IDLE
 		_bow_charge_t = 0.0
 		_bow_charge_target = 0.0
@@ -536,7 +541,7 @@ func _sync_weapon_state_with_equipped(current_weapon_id: String) -> void:
 	if current_weapon_id == "" or current_weapon_id == _last_weapon_id:
 		return
 	_release_attack_input()
-	if current_weapon_id != "bow":
+	if current_weapon_id != WEAPON_BOW:
 		_bow_state = BowState.IDLE
 		_bow_charge_t = 0.0
 		_bow_charge_target = 0.0
@@ -639,23 +644,23 @@ func _apply_combat_style_bias(target_weapon_id: String, current_weapon_id: Strin
 		return target_weapon_id
 
 	if distance <= prefer_melee_distance:
-		return "ironpipe"
+		return WEAPON_IRONPIPE
 
-	if _combat_style == &"melee":
-		return "ironpipe"
+	if _combat_style == COMBAT_STYLE_MELEE:
+		return WEAPON_IRONPIPE
 
-	if _combat_style == &"ranged":
+	if _combat_style == COMBAT_STYLE_RANGED:
 		if distance >= prefer_bow_distance:
-			return "bow"
-		if current_weapon_id == "bow":
-			return "bow"
+			return WEAPON_BOW
+		if current_weapon_id == WEAPON_BOW:
+			return WEAPON_BOW
 
 	return target_weapon_id
 
 func _roll_combat_style() -> StringName:
 	if _randf() < clampf(style_ranged_bias, 0.0, 1.0):
-		return &"ranged"
-	return &"melee"
+		return COMBAT_STYLE_RANGED
+	return COMBAT_STYLE_MELEE
 
 func _randf() -> float:
 	return _rng.randf()
