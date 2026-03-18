@@ -37,6 +37,36 @@ var _sessions: Dictionary = {}
 #     "safe_radius": float
 # }
 
+func _extract_faction_id(node: Node) -> String:
+	if node.has_method("get_faction_id"):
+		return node.call("get_faction_id")
+	elif "faction_id" in node:
+		return String(node.get("faction_id"))
+	return ""
+
+func _extract_group_id(node: Node) -> String:
+	if node.has_method("get_group_id"):
+		return node.call("get_group_id")
+	elif "group_id" in node:
+		return String(node.get("group_id"))
+	return ""
+
+func _extract_enemy_uid(node: Node) -> String:
+	var uid: String = ""
+	if node.has_method("get_enemy_uid"):
+		uid = node.call("get_enemy_uid")
+	elif "entity_uid" in node:
+		uid = String(node.get("entity_uid"))
+
+	if uid == "":
+		uid = str(node.get_instance_id())
+	return uid
+
+func _is_enemy_uid_in_session(enemy_uid: String, session: Dictionary) -> bool:
+	if session.has("participant_uids"):
+		return session["participant_uids"].has(enemy_uid)
+	return false
+
 func get_policy_for_enemy(enemy: Node, target: Node) -> Dictionary:
 	var empty_policy: Dictionary = {
 		"active": false,
@@ -58,45 +88,23 @@ func get_policy_for_enemy(enemy: Node, target: Node) -> Dictionary:
 	if not is_target_downed:
 		return empty_policy
 
-	var target_id := target.get_instance_id()
-
-	var faction_id: String = ""
-	if enemy.has_method("get_faction_id"):
-		faction_id = enemy.call("get_faction_id")
-	elif "faction_id" in enemy:
-		faction_id = String(enemy.get("faction_id"))
-
-	var group_id: String = ""
-	if enemy.has_method("get_group_id"):
-		group_id = enemy.call("get_group_id")
-	elif "group_id" in enemy:
-		group_id = String(enemy.get("group_id"))
-
-	var enemy_uid: String = ""
-	if enemy.has_method("get_enemy_uid"):
-		enemy_uid = enemy.call("get_enemy_uid")
-	elif "entity_uid" in enemy:
-		enemy_uid = String(enemy.get("entity_uid"))
-
-	if enemy_uid == "":
-		enemy_uid = str(enemy.get_instance_id())
+	var faction_id := _extract_faction_id(enemy)
+	var group_id := _extract_group_id(enemy)
+	var enemy_uid := _extract_enemy_uid(enemy)
 
 	var encounter_key := _make_encounter_key(target, faction_id, group_id)
 	var session: Dictionary
 
 	if _sessions.has(encounter_key):
 		session = _sessions[encounter_key]
-
-		# Only add the querying enemy if they are not already a participant,
-		# and they actually pass the strict aggro/context checks.
-		if not session["participant_uids"].has(enemy_uid):
-			var valid_participants := _gather_participants(target, faction_id, group_id)
-			if valid_participants.has(enemy_uid):
-				session["participant_uids"].append(enemy_uid)
-				session["participant_uids"].sort()
 	else:
-		session = _create_session(encounter_key, target, faction_id, group_id, enemy_uid, enemy)
+		session = _create_session(encounter_key, target, faction_id, group_id)
+		if session.is_empty():
+			return empty_policy
 		_sessions[encounter_key] = session
+
+	if not _is_enemy_uid_in_session(enemy_uid, session):
+		return empty_policy
 
 	# If unresolved, roll verdict
 	if session["verdict"] == Verdict.NONE:
@@ -119,29 +127,26 @@ func _get_session_for_enemy_and_target(enemy: Node, target: Node) -> Variant:
 	if enemy == null or target == null:
 		return null
 
-	var faction_id: String = ""
-	if enemy.has_method("get_faction_id"):
-		faction_id = enemy.call("get_faction_id")
-	elif "faction_id" in enemy:
-		faction_id = String(enemy.get("faction_id"))
-
-	var group_id: String = ""
-	if enemy.has_method("get_group_id"):
-		group_id = enemy.call("get_group_id")
-	elif "group_id" in enemy:
-		group_id = String(enemy.get("group_id"))
+	var faction_id := _extract_faction_id(enemy)
+	var group_id := _extract_group_id(enemy)
 
 	var key := _make_encounter_key(target, faction_id, group_id)
 	return _sessions.get(key, null)
 
-func _create_session(encounter_key: String, target: Node, faction_id: String, group_id: String, triggering_enemy_uid: String, triggering_enemy: Node) -> Dictionary:
+func _create_session(encounter_key: String, target: Node, faction_id: String, group_id: String) -> Dictionary:
+	# Gather participants strictly from AggroTrackerService
+	var valid_participants := _gather_participants(target, faction_id, group_id)
+
+	if valid_participants.is_empty():
+		return {}
+
 	var session: Dictionary = {
 		"encounter_key": encounter_key,
 		"target_id": target.get_instance_id(),
 		"target_ref": weakref(target),
 		"group_id": group_id,
 		"faction_id": faction_id,
-		"participant_uids": [],
+		"participant_uids": valid_participants,
 		"verdict": Verdict.NONE,
 		"executor_uid": "",
 		"created_at": RunClock.now(),
@@ -149,16 +154,6 @@ func _create_session(encounter_key: String, target: Node, faction_id: String, gr
 		"ignore_until": 0.0,
 		"safe_radius": spare_safe_radius
 	}
-
-	# Gather participants using strictly AggroTrackerService
-	var valid_participants := _gather_participants(target, faction_id, group_id)
-
-	for uid in valid_participants:
-		if not session["participant_uids"].has(uid):
-			session["participant_uids"].append(uid)
-
-	# Sort for deterministic executor selection
-	session["participant_uids"].sort()
 
 	return session
 
@@ -173,17 +168,8 @@ func _gather_participants(target: Node, faction_id: String, group_id: String) ->
 			if e == null or not is_instance_valid(e) or e.is_queued_for_deletion():
 				continue
 
-			var e_faction_id: String = ""
-			if e.has_method("get_faction_id"):
-				e_faction_id = e.call("get_faction_id")
-			elif "faction_id" in e:
-				e_faction_id = String(e.get("faction_id"))
-
-			var e_group_id: String = ""
-			if e.has_method("get_group_id"):
-				e_group_id = e.call("get_group_id")
-			elif "group_id" in e:
-				e_group_id = String(e.get("group_id"))
+			var e_faction_id := _extract_faction_id(e)
+			var e_group_id := _extract_group_id(e)
 
 			if e_faction_id != faction_id:
 				continue
@@ -195,17 +181,11 @@ func _gather_participants(target: Node, faction_id: String, group_id: String) ->
 			if dist > max_participant_distance:
 				continue
 
-			var e_uid: String = ""
-			if e.has_method("get_enemy_uid"):
-				e_uid = e.call("get_enemy_uid")
-			elif "entity_uid" in e:
-				e_uid = String(e.get("entity_uid"))
-			if e_uid == "":
-				e_uid = str(e.get_instance_id())
-
+			var e_uid := _extract_enemy_uid(e)
 			if not valid_uids.has(e_uid):
 				valid_uids.append(e_uid)
 
+	valid_uids.sort()
 	return valid_uids
 
 func _resolve_verdict(session: Dictionary, faction_id: String) -> void:
@@ -258,12 +238,6 @@ func can_enemy_finish_target(enemy: Node, target: Node) -> bool:
 	if not bool(policy.get("active", false)):
 		return false
 
-	var enemy_uid: String = ""
-	if enemy.has_method("get_enemy_uid"):
-		enemy_uid = enemy.call("get_enemy_uid")
-	elif "entity_uid" in enemy:
-		enemy_uid = String(enemy.get("entity_uid"))
-	if enemy_uid == "":
-		enemy_uid = str(enemy.get_instance_id())
+	var enemy_uid := _extract_enemy_uid(enemy)
 
 	return int(policy.get("verdict", Verdict.NONE)) == Verdict.FINISH and String(policy.get("executor_uid", "")) == enemy_uid
