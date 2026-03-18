@@ -102,6 +102,10 @@ var block_angle: float = 0.0
 @export var block_wiggle_deg: float = 60.0
 @export var block_wiggle_hz: float = 6.0
 var block_wiggle_t: float = 0.0
+
+enum SecondaryActionState { NONE, BLOCK, CARRY_SCAN, CARRYING }
+var secondary_action_state: int = SecondaryActionState.NONE
+
 var _current_weapon_controller: WeaponController = null
 var _movement_control_mode: StringName = &"player"
 var _combat_control_mode: StringName = &"player"
@@ -376,9 +380,12 @@ func _reset_control_transient_state() -> void:
 	attack_push_t = 0.0
 	attack_push_vel = Vector2.ZERO
 	blocking = false
+	secondary_action_state = SecondaryActionState.NONE
 
-	if block_component != null and block_component.is_blocking():
-		block_component.blocking = false
+	if block_component != null:
+		block_component.set_block_requested(false)
+		if block_component.is_blocking():
+			block_component.blocking = false
 
 	var hitbox := get_node_or_null("CharacterHitbox")
 	if hitbox != null and hitbox.has_method("deactivate"):
@@ -440,6 +447,47 @@ func toggle_stool_seat(seat_node: Node, seat_world_pos: Vector2) -> bool:
 
 func force_leave_seat() -> void:
 	_leave_seat(true)
+
+func _process_secondary_action(delta: float) -> void:
+	var pressed := Input.is_action_pressed("block")
+
+	if pressed:
+		if secondary_action_state == SecondaryActionState.NONE:
+			secondary_action_state = SecondaryActionState.CARRY_SCAN
+
+		if secondary_action_state == SecondaryActionState.CARRY_SCAN or secondary_action_state == SecondaryActionState.BLOCK:
+			var found_carryable := _scan_for_carryable()
+			if found_carryable:
+				secondary_action_state = SecondaryActionState.CARRYING
+				if use_block_component and block_component != null:
+					block_component.set_block_requested(false)
+			else:
+				secondary_action_state = SecondaryActionState.BLOCK
+				if use_block_component and block_component != null:
+					block_component.set_block_requested(true)
+
+		if secondary_action_state == SecondaryActionState.CARRYING:
+			if stamina_component != null:
+				var can_pay := stamina_component.spend_continuous(block_stamina_drain * 2.0, delta)
+				if not can_pay:
+					_force_drop_carryable()
+					secondary_action_state = SecondaryActionState.NONE
+	else:
+		if use_block_component and block_component != null:
+			block_component.set_block_requested(false)
+
+		if secondary_action_state == SecondaryActionState.CARRYING:
+			_force_drop_carryable()
+
+		secondary_action_state = SecondaryActionState.NONE
+
+func _scan_for_carryable() -> bool:
+	# Stub method for future carryable logic
+	return false
+
+func _force_drop_carryable() -> void:
+	# Stub method for dropping items
+	pass
 
 func _enter_seat(seat_node: Node, seat_world_pos: Vector2) -> void:
 	if dying:
@@ -544,8 +592,11 @@ func _physics_process(delta: float) -> void:
 		attack_push_vel = Vector2.ZERO
 		attacking = false
 		blocking = false
-		if block_component != null and block_component.is_blocking():
-			block_component.blocking = false
+		secondary_action_state = SecondaryActionState.NONE
+		if block_component != null:
+			block_component.set_block_requested(false)
+			if block_component.is_blocking():
+				block_component.blocking = false
 		if footstep_audio_component != null:
 			footstep_audio_component.stop_loop()
 		_update_animation()
@@ -562,6 +613,8 @@ func _physics_process(delta: float) -> void:
 
 	_update_facing_from_mouse()
 	_update_mouse_angle()
+
+	_process_secondary_action(delta)
 
 	if attacking:
 		_snap_to_attack_angle(delta)
@@ -828,6 +881,7 @@ func respawn(pos: Vector2) -> void:
 	attack_push_t = 0.0
 	attack_push_vel = Vector2.ZERO
 	blocking = false
+	secondary_action_state = SecondaryActionState.NONE
 	if health_component != null and health_component.has_method("reset"):
 		health_component.reset()
 		hp = health_component.hp
