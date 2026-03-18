@@ -6,7 +6,7 @@ const WEAPON_IRONPIPE: StringName = &"ironpipe"
 const COMBAT_STYLE_RANGED: StringName = &"ranged"
 const COMBAT_STYLE_MELEE: StringName = &"melee"
 
-enum AIState { IDLE, CHASE, ATTACK, HURT, DEAD, DOWNED }
+enum AIState { IDLE, CHASE, ATTACK, HURT, DEAD, DOWNED, DISENGAGE, HOLD_PERIMETER }
 enum BowState { IDLE, CHARGING, COOLDOWN }
 
 @export_group("AI Combat")
@@ -69,8 +69,10 @@ var _warmup_remaining: float = 0.0
 var _is_warming_up: bool = false
 var _warmup_tick_timer: float = 0.0
 var _awaiting_first_full_tick: bool = false
-var _finish_off_downed_player: bool = false
-var _was_player_downed: bool = false
+var _ignore_player_until: float = 0.0
+var _disengage_anchor: Vector2 = Vector2.ZERO
+var _perimeter_anchor: Vector2 = Vector2.ZERO
+var _current_downed_target_id: int = -1
 var _contract_valid: bool = false
 
 func _has_property(obj: Object, property_name: String) -> bool:
@@ -131,8 +133,10 @@ func setup(p_owner_entity: Node) -> void:
 
 	current_state = AIState.IDLE
 	sleeping = false
-	_finish_off_downed_player = false
-	_was_player_downed = false
+	_ignore_player_until = 0.0
+	_disengage_anchor = Vector2.ZERO
+	_perimeter_anchor = Vector2.ZERO
+	_current_downed_target_id = -1
 
 	if p_owner_entity == null:
 		push_error("[AIComponent] setup() called with null owner_entity")
@@ -245,6 +249,22 @@ func _execute_light_tick(delta: float, force_hold_override: bool = false) -> voi
 			var dir: Vector2 = owner_entity.global_position.direction_to(player.global_position)
 			var target_velocity: Vector2 = dir * float(owner_entity.max_speed)
 			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
+		AIState.DISENGAGE:
+			var dist: float = owner_entity.global_position.distance_to(_disengage_anchor)
+			if dist > 20.0:
+				var dir: Vector2 = owner_entity.global_position.direction_to(_disengage_anchor)
+				var target_velocity: Vector2 = dir * float(owner_entity.max_speed * 0.7)
+				owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
+			else:
+				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
+		AIState.HOLD_PERIMETER:
+			var dist: float = owner_entity.global_position.distance_to(_perimeter_anchor)
+			if dist > 40.0:
+				var dir: Vector2 = owner_entity.global_position.direction_to(_perimeter_anchor)
+				var target_velocity: Vector2 = dir * float(owner_entity.max_speed * 0.5)
+				owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
+			else:
+				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 
 func is_sleeping() -> bool:
 	return sleeping
@@ -356,23 +376,54 @@ func _update_state() -> void:
 
 	var player_is_downed = ("is_downed" in player) and player.is_downed
 
-	if player_is_downed and not _was_player_downed:
-		_was_player_downed = true
-		var min_chance: float = 0.2
-		var max_chance: float = 0.4
-		if GameManager != null and GameManager.has_method("get_finish_off_chance_min"):
-			min_chance = float(GameManager.get_finish_off_chance_min())
-			max_chance = float(GameManager.get_finish_off_chance_max())
-		var chance: float = _randf_range(min_chance, max_chance)
-		_finish_off_downed_player = _randf() < chance
+	if player_is_downed:
+		var policy: Dictionary = {}
+		if DownedEncounterCoordinator != null:
+			policy = DownedEncounterCoordinator.get_policy_for_enemy(owner_entity, player)
 
-	if not player_is_downed and _was_player_downed:
-		_was_player_downed = false
-		_finish_off_downed_player = false
+		if not policy.get("active", false):
+			current_state = AIState.IDLE
+			_release_attack_input()
+			return
 
-	if player_is_downed and not _finish_off_downed_player:
-		current_state = AIState.IDLE
-		return
+		var verdict: int = int(policy.get("verdict", 0))
+
+		if verdict == DownedEncounterCoordinator.Verdict.SPARE:
+			if current_state != AIState.DISENGAGE:
+				_release_attack_input()
+				current_state = AIState.DISENGAGE
+				_ignore_player_until = float(policy.get("ignore_until", 0.0))
+				_compute_disengage_anchor(float(policy.get("safe_radius", 180.0)))
+			return
+
+		elif verdict == DownedEncounterCoordinator.Verdict.FINISH:
+			var is_executor := false
+			var enemy_uid: String = ""
+			if owner_entity.has_method("get_enemy_uid"):
+				enemy_uid = owner_entity.call("get_enemy_uid")
+			elif "entity_uid" in owner_entity:
+				enemy_uid = String(owner_entity.get("entity_uid"))
+			if enemy_uid == "":
+				enemy_uid = str(owner_entity.get_instance_id())
+
+			is_executor = (enemy_uid == String(policy.get("executor_uid", "")))
+
+			if is_executor:
+				# Proceed with normal attack logic against downed player
+				pass
+			else:
+				if current_state != AIState.HOLD_PERIMETER:
+					_release_attack_input()
+					current_state = AIState.HOLD_PERIMETER
+					_compute_perimeter_anchor(120.0)
+				return
+	else:
+		if RunClock.now() < _ignore_player_until:
+			if current_state != AIState.DISENGAGE:
+				current_state = AIState.DISENGAGE
+			return
+		elif current_state == AIState.DISENGAGE or current_state == AIState.HOLD_PERIMETER:
+			current_state = AIState.IDLE
 
 	var distance: float = owner_entity.global_position.distance_to(player.global_position)
 	var weapon_id_for_state := _get_weapon_id_for_state_decision(distance)
@@ -390,6 +441,27 @@ func _update_state() -> void:
 				current_state = AIState.ATTACK if distance <= attack_enter_threshold else AIState.CHASE
 			_:
 				current_state = AIState.ATTACK if distance <= engage_distance else AIState.CHASE
+
+func _compute_disengage_anchor(safe_radius: float) -> void:
+	if owner_entity == null or player == null:
+		return
+	var player_pos: Vector2 = player.global_position
+	var my_pos: Vector2 = owner_entity.global_position
+	var dir_away: Vector2 = my_pos - player_pos
+	if dir_away.length_squared() < 1.0:
+		dir_away = Vector2.RIGHT.rotated(_randf() * TAU)
+	var angle_offset: float = _randf_range(-PI/4.0, PI/4.0)
+	var final_dir: Vector2 = dir_away.normalized().rotated(angle_offset)
+	_disengage_anchor = player_pos + final_dir * safe_radius
+
+func _compute_perimeter_anchor(perimeter_radius: float) -> void:
+	if owner_entity == null or player == null:
+		return
+	var player_pos: Vector2 = player.global_position
+	var enemy_uid_hash := hash(str(owner_entity.get_instance_id()))
+	var angle: float = fmod(absf(float(enemy_uid_hash)), TAU)
+	var offset: Vector2 = Vector2.RIGHT.rotated(angle) * perimeter_radius
+	_perimeter_anchor = player_pos + offset
 
 func _get_engage_distance_for_state() -> float:
 	return _get_engage_distance_for_weapon(_get_weapon_id_for_state_decision())
@@ -439,6 +511,24 @@ func _execute_state(delta: float) -> void:
 		AIState.DEAD:
 			_release_attack_input()
 			owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
+		AIState.DISENGAGE:
+			_release_attack_input()
+			var dist: float = owner_entity.global_position.distance_to(_disengage_anchor)
+			if dist > 20.0:
+				var dir: Vector2 = owner_entity.global_position.direction_to(_disengage_anchor)
+				var target_velocity: Vector2 = dir * float(owner_entity.max_speed * 0.7)
+				owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
+			else:
+				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
+		AIState.HOLD_PERIMETER:
+			_release_attack_input()
+			var dist: float = owner_entity.global_position.distance_to(_perimeter_anchor)
+			if dist > 40.0:
+				var dir: Vector2 = owner_entity.global_position.direction_to(_perimeter_anchor)
+				var target_velocity: Vector2 = dir * float(owner_entity.max_speed * 0.5)
+				owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
+			else:
+				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 
 func _try_attack_logic(delta: float) -> void:
 	if owner_entity == null or player == null:

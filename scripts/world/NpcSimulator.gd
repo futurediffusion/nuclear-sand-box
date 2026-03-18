@@ -307,6 +307,9 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 			Vector2(-48, 0), Vector2(48, 0), Vector2(0, -48), Vector2(0, 48),
 			Vector2(-96, 0), Vector2(96, 0), Vector2(0, -96), Vector2(0, 96),
 		]
+		var camp_index: int = _chunk_save[chunk_pos].get("camps", []).find(camp)
+		var camp_group_id: String = "camp:%s:%03d" % [chunk_key, camp_index]
+
 		for offset in primary_offsets:
 			var enemy_id: String = "e:%s:%03d" % [chunk_key, spawn_index]
 			var chosen_offset: Vector2 = offset
@@ -326,6 +329,8 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 				"pos": enemy_pos,
 				"seed": Seed.chunk_seed(chunk_pos.x, chunk_pos.y) ^ spawn_index,
 				"hp": 3,
+				"faction_id": "bandits",
+				"group_id": camp_group_id,
 				"loadout": {"weapon_ids": ["ironpipe", "bow"], "equipped_weapon_id": "ironpipe"},
 			}
 			records.append(record)
@@ -336,6 +341,8 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 				"hp": 3,
 				"is_dead": false,
 				"seed": int(record["seed"]),
+				"faction_id": "bandits",
+				"group_id": camp_group_id,
 				"weapon_ids": ["ironpipe", "bow"],
 				"equipped_weapon_id": "ironpipe",
 				"alert": 0.0,
