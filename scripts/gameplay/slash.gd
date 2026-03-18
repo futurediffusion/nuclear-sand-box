@@ -364,7 +364,10 @@ func _get_world_node() -> Node:
 
 func _on_body_entered(body: Node) -> void:
 	if CombatQueryScript.is_wall_collider(body) and CombatQueryScript.resolve_damage_target(body).is_empty():
-		_try_damage_player_walls_prioritized()
+		# Solo activar daño a paredes si es un cuerpo de pared real del mundo,
+		# no un prop estático sin método hit() que esté en la misma layer.
+		if body.is_in_group("world_wall_body"):
+			_try_damage_player_walls_prioritized()
 		return
 	_try_damage(body)
 

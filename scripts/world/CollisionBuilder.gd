@@ -340,6 +340,7 @@ func build_chunk_walls(tilemap: TileMap, chunk_pos: Vector2i, chunk_size: int, w
 	body.name = "WallCollisionBody_%d_%d" % [chunk_pos.x, chunk_pos.y]
 	body.collision_layer = CollisionLayersScript.WORLD_WALL_LAYER_MASK
 	body.collision_mask  = CollisionLayersScript.WORLD_WALL_COLLIDER_MASK
+	body.add_to_group("world_wall_body")
 
 	var shape_count: int = 0
 	var south_runs: Array[Dictionary] = []
