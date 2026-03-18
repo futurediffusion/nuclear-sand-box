@@ -249,24 +249,28 @@ func _execute_command(command_text: String) -> void:
 				_cmd_summon_enemy(parts.slice(2))
 			else:
 				Debug.log("commands", "Uso: /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]")
-		"sellall", "sc":
+		"sellall":
 			if not Debug.dev_cheats_enabled:
 				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
 			else:
-				if base_command == "sc":
-					var new_parts: Array[String] = ["copper"]
-					new_parts.append_array(parts.slice(1))
-					_cmd_sellall(new_parts)
-				else:
-					_cmd_sellall(parts.slice(1))
-		"buydbg", "med":
+				_cmd_sellall(parts.slice(1))
+		"sc":
 			if not Debug.dev_cheats_enabled:
 				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
 			else:
-				if base_command == "med":
-					_cmd_buydbg(["medkit", "1", "20"])
-				else:
-					_cmd_buydbg(parts.slice(1))
+				var new_parts: Array[String] = ["copper"]
+				new_parts.append_array(parts.slice(1))
+				_cmd_sellall(new_parts)
+		"buydbg":
+			if not Debug.dev_cheats_enabled:
+				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+			else:
+				_cmd_buydbg(parts.slice(1))
+		"med":
+			if not Debug.dev_cheats_enabled:
+				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+			else:
+				_cmd_buydbg(["medkit", "1", "20"])
 		"g50":
 			if not Debug.dev_cheats_enabled:
 				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
@@ -290,20 +294,27 @@ func _try_execute_shortcut_without_prefix(command_text: String) -> bool:
 		"gv":
 			_cmd_give_shortcut(parts.slice(1))
 			return true
-		"sc", "med", "g50", "c3":
+		"sc":
 			if not Debug.dev_cheats_enabled:
 				return false
-			match base_command:
-				"sc":
-					var new_parts: Array[String] = ["copper"]
-					new_parts.append_array(parts.slice(1))
-					_cmd_sellall(new_parts)
-				"med":
-					_cmd_buydbg(["medkit", "1", "20"])
-				"g50":
-					_cmd_give_gold(["50"])
-				"c3":
-					_cmd_give(["copper", "3"])
+			var new_parts: Array[String] = ["copper"]
+			new_parts.append_array(parts.slice(1))
+			_cmd_sellall(new_parts)
+			return true
+		"med":
+			if not Debug.dev_cheats_enabled:
+				return false
+			_cmd_buydbg(["medkit", "1", "20"])
+			return true
+		"g50":
+			if not Debug.dev_cheats_enabled:
+				return false
+			_cmd_give_gold(["50"])
+			return true
+		"c3":
+			if not Debug.dev_cheats_enabled:
+				return false
+			_cmd_give(["copper", "3"])
 			return true
 
 	return false
