@@ -162,7 +162,7 @@ func _gather_participants(target: Node, faction_id: String, group_id: String) ->
 
 	if AggroTrackerService != null and AggroTrackerService.has_method("get_recent_attackers"):
 		var recent_attackers: Array[Node] = AggroTrackerService.get_recent_attackers(target, engagement_memory_seconds)
-		var target_pos: Vector2 = target.global_position
+		var target_pos: Vector2 = (target as Node2D).global_position
 
 		for e in recent_attackers:
 			if e == null or not is_instance_valid(e) or e.is_queued_for_deletion():
@@ -177,7 +177,7 @@ func _gather_participants(target: Node, faction_id: String, group_id: String) ->
 			if group_id != "" and e_group_id != group_id:
 				continue
 
-			var dist := e.global_position.distance_to(target_pos)
+			var dist: float = (e as Node2D).global_position.distance_to(target_pos)
 			if dist > max_participant_distance:
 				continue
 
