@@ -21,6 +21,7 @@
 [ext_resource type="Script" uid="uid://dng8wgnb2a8d4" path="res://scripts/components/InventoryComponent.gd" id="18_inv"]
 [ext_resource type="Script" uid="uid://b6p8j0x2k1w1w" path="res://scripts/components/WeaponComponent.gd" id="19_weap"]
 [ext_resource type="Script" uid="uid://c6a8r1p1x1w1w" path="res://scripts/weapons/PlayerWeaponController.gd" id="20_pctrl"]
+[ext_resource type="Script" path="res://scripts/components/CarryComponent.gd" id="21_carry"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_smehm")
@@ -243,3 +244,6 @@ script = ExtResource("19_weap")
 
 [node name="PlayerWeaponController" type="Node" parent="."]
 script = ExtResource("20_pctrl")
+
+[node name="CarryComponent" type="Node2D" parent="."]
+script = ExtResource("21_carry")

@@ -62,6 +62,7 @@ const PLAYER_SIT_ANIMATION: StringName = &"sit"
 @onready var weapon_component: WeaponComponent = get_node_or_null("WeaponComponent") as WeaponComponent
 @onready var weapon_controller: PlayerWeaponController = get_node_or_null("PlayerWeaponController") as PlayerWeaponController
 @onready var ai_weapon_controller: AIWeaponController = get_node_or_null("AIWeaponController") as AIWeaponController
+@onready var carry_component: CarryComponent = get_node_or_null("CarryComponent") as CarryComponent
 
 @export_group("Death Feedback")
 @export var death_shake_duration: float = 0.28
@@ -101,7 +102,6 @@ var block_angle: float = 0.0
 
 @export_group("Carry")
 @export var carry_range: float = 60.0
-var carried_node: Node2D = null
 @export var block_hit_stamina_cost: float = 0.10
 @export var block_wiggle_deg: float = 60.0
 @export var block_wiggle_hz: float = 6.0
@@ -156,6 +156,12 @@ func _validate_core_components() -> bool:
 		push_error("[Player] Missing required core component 'PlayerWeaponController' on 'Player'")
 		if OS.is_debug_build():
 			assert(false, "[Player] Missing required core component 'PlayerWeaponController' on 'Player'")
+		valid = false
+
+	if carry_component == null:
+		push_error("[Player] Missing required core component 'CarryComponent' on 'Player'")
+		if OS.is_debug_build():
+			assert(false, "[Player] Missing required core component 'CarryComponent' on 'Player'")
 		valid = false
 
 	return valid
@@ -459,9 +465,11 @@ func _process_secondary_action(delta: float) -> void:
 		if secondary_action_state == SecondaryActionState.NONE:
 			secondary_action_state = SecondaryActionState.CARRY_SCAN
 
-		if secondary_action_state == SecondaryActionState.CARRY_SCAN or secondary_action_state == SecondaryActionState.BLOCK:
+		# Re-scan multiple times even if already carrying to allow stacking
+		if secondary_action_state == SecondaryActionState.CARRY_SCAN or secondary_action_state == SecondaryActionState.BLOCK or secondary_action_state == SecondaryActionState.CARRYING:
 			var found_carryable := _scan_for_carryable()
-			if found_carryable:
+
+			if carry_component != null and carry_component.is_carrying():
 				secondary_action_state = SecondaryActionState.CARRYING
 				if use_block_component and block_component != null:
 					block_component.set_block_requested(false)
@@ -486,6 +494,8 @@ func _process_secondary_action(delta: float) -> void:
 		secondary_action_state = SecondaryActionState.NONE
 
 func _scan_for_carryable() -> bool:
+	if carry_component == null:
+		return false
 	var candidates = get_tree().get_nodes_in_group("carryable")
 	var best_node: Node2D = null
 	var best_dist: float = carry_range * carry_range
@@ -493,26 +503,18 @@ func _scan_for_carryable() -> bool:
 		if c is Node2D and is_instance_valid(c):
 			var dist_sq = global_position.distance_squared_to(c.global_position)
 			if dist_sq <= best_dist:
-				var comp = c.get_node_or_null("CarryableComponent")
-				if comp != null and comp.has_method("can_pickup") and comp.can_pickup():
+				if carry_component.can_pickup(c):
 					best_dist = dist_sq
 					best_node = c
 
 	if best_node != null:
-		var comp = best_node.get_node("CarryableComponent")
-		if comp.has_method("pickup"):
-			comp.pickup(self)
-			carried_node = best_node
-			return true
+		return carry_component.try_pickup(best_node)
 
 	return false
 
 func _force_drop_carryable() -> void:
-	if carried_node != null and is_instance_valid(carried_node):
-		var comp = carried_node.get_node_or_null("CarryableComponent")
-		if comp != null and comp.has_method("drop"):
-			comp.drop()
-	carried_node = null
+	if carry_component != null:
+		carry_component.force_drop_all()
 
 func _enter_seat(seat_node: Node, seat_world_pos: Vector2) -> void:
 	if dying:
