@@ -194,7 +194,12 @@ func _is_target_blocked_by_wall(target: Node, target_hurtbox: Area2D = null) -> 
 	if not (target is Node2D):
 		return false
 
+	# Usar la posición del dueño (atacante), no la del slash.
+	# El slash es Area2D y barre a través de las paredes — su global_position puede estar
+	# del lado del objetivo cuando se detecta la colisión, haciendo que el check falle.
 	var from_pos := global_position
+	if owner_node is Node2D:
+		from_pos = (owner_node as Node2D).global_position
 
 	var excluded: Array = [self, target]
 	if owner_node != null:

@@ -1,6 +1,8 @@
 extends Area2D
 class_name CharacterHitbox
 
+const CombatQueryScript := preload("res://scripts/systems/CombatQuery.gd")
+
 @export var damage: int = 1
 @export var knockback_force: float = 300.0
 @export var hit_once: bool = true
@@ -26,6 +28,9 @@ func _on_area_entered(area: Area2D) -> void:
 
 	var hurtbox := area as CharacterHurtbox
 	if hit_once and _hit_bodies.has(hurtbox):
+		return
+
+	if CombatQueryScript.has_wall_between(self, global_position, hurtbox.global_position):
 		return
 
 	_hit_bodies.append(hurtbox)
