@@ -960,3 +960,20 @@ func _update_seated_facing_from_mouse_motion(event: InputEvent) -> void:
 		return
 	# Mantiene el lado inicial al sentarse y solo gira cuando hay movimiento horizontal real.
 	sprite.flip_h = motion.relative.x < 0.0
+
+# --- Carry Pickup API ---
+
+func is_secondary_action_pressed() -> bool:
+	return Input.is_action_pressed("block")
+
+func wants_carry_pickup() -> bool:
+	if not is_secondary_action_pressed():
+		return false
+	return secondary_action_state in [SecondaryActionState.CARRY_SCAN, SecondaryActionState.BLOCK, SecondaryActionState.CARRYING]
+
+func try_carry_pickup(node: Node2D) -> bool:
+	if carry_component != null:
+		return carry_component.try_pickup(node)
+	return false
+
+# ------------------------
