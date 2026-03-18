@@ -15,12 +15,11 @@ func _ready() -> void:
 	hp_changed.emit(hp, max_hp)
 
 func set_hp_clamped(value: int) -> void:
-	var new_hp = clampi(value, 0, max_hp)
-	var prev_hp = hp
+	var new_hp := clampi(value, 0, max_hp)
+	var prev_hp := hp
 	hp = new_hp
 
-	if hp > 0:
-		_dead_emitted = false
+	_dead_emitted = hp <= 0
 
 	if hp != prev_hp:
 		hp_changed.emit(hp, max_hp)
