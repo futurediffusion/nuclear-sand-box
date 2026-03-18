@@ -130,6 +130,9 @@ func _on_entered_downed() -> void:
 	hurt_t = 0.0
 	knock_vel = Vector2.ZERO
 	velocity = Vector2.ZERO
+	var _cc := get_node_or_null("CarryComponent")
+	if _cc != null:
+		_cc.force_drop_all()
 	if has_node("AnimatedSprite2D"):
 		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
 		sprite.play("death")
@@ -143,6 +146,9 @@ func _on_entered_downed() -> void:
 
 func _on_revived() -> void:
 	is_downed = false
+	var _cc := get_node_or_null("CarryComponent")
+	if _cc != null:
+		_cc.force_drop_all()
 	if health_component != null:
 		var revive_hp := maxi(1, downed_component.downed_revive_hp)
 		health_component.set_hp_clamped(revive_hp)
@@ -171,6 +177,10 @@ func die_final() -> void:
 		DownedEncounterCoordinator.notify_target_died_final(self)
 	if AggroTrackerService != null and AggroTrackerService.has_method("clear_target"):
 		AggroTrackerService.clear_target(self)
+
+	var _cc := get_node_or_null("CarryComponent")
+	if _cc != null:
+		_cc.force_drop_all()
 
 	dying_started.emit()
 	_on_before_die()

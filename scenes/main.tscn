@@ -46,9 +46,6 @@ scale = Vector2(2.5, 2.5)
 script = ExtResource("1_sugp2")
 world_map_size = null
 default_tavern_position = null
-keep_corpses = null
-finish_off_chance_min = null
-finish_off_chance_max = null
 debug_input_logs = null
 
 [node name="WarmupManager" type="Node" parent="."]

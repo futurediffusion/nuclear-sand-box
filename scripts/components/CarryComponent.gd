@@ -1,8 +1,8 @@
 extends Node2D
 class_name CarryComponent
 
-@export var stack_base_offset: Vector2 = Vector2(0, -30)
-@export var stack_item_offset: Vector2 = Vector2(0, -15)
+@export var stack_base_offset: Vector2 = Vector2(0, -18)
+@export var stack_item_offset: Vector2 = Vector2(0, -8)
 
 var _carried_nodes: Array[Node2D] = []
 var _carry_anchor: Marker2D

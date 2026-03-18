@@ -170,6 +170,8 @@ func _try_pickup() -> void:
 	if _player == null:
 		print("[ItemDrop] _try_pickup: NO player")
 		return
+	if _player.get("is_downed") or _player.get("dying"):
+		return
 
 	# --- CARRY PICKUP PATH ---
 	if _player.has_method("wants_carry_pickup") and _player.wants_carry_pickup():
@@ -232,6 +234,21 @@ func _finish_scatter() -> void:
 	_scattering = false
 	global_position = _scatter_target
 	spr.position.y = _base_y
+
+func reset_magnet_delay() -> void:
+	_magnet_on = false
+	monitoring = true
+	monitorable = true
+	magnet_delay.start()
+	call_deferred("_recheck_player_overlap")
+
+func _recheck_player_overlap() -> void:
+	if _player != null:
+		return
+	for body in get_overlapping_bodies():
+		if body.is_in_group("player"):
+			_player = body as Node2D
+			break
 	
 func throw_from(origin: Vector2, dir: Vector2, speed: float, up_boost: float = 260.0) -> void:
 	_scattering = false

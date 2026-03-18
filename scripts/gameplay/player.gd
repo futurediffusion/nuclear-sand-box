@@ -461,6 +461,15 @@ func force_leave_seat() -> void:
 func _process_secondary_action(delta: float) -> void:
 	var pressed := Input.is_action_pressed("block")
 
+	# Guard: at 0 stamina, right-click must not trigger block or new carry scan
+	if pressed and stamina_component != null and stamina_component.current_stamina <= 0.0:
+		if secondary_action_state == SecondaryActionState.CARRYING:
+			_force_drop_carryable()
+		if use_block_component and block_component != null:
+			block_component.set_block_requested(false)
+		secondary_action_state = SecondaryActionState.NONE
+		return
+
 	if pressed:
 		if secondary_action_state == SecondaryActionState.NONE:
 			secondary_action_state = SecondaryActionState.CARRY_SCAN
@@ -489,7 +498,7 @@ func _process_secondary_action(delta: float) -> void:
 			block_component.set_block_requested(false)
 
 		if secondary_action_state == SecondaryActionState.CARRYING:
-			_force_drop_carryable()
+			_release_carryable()
 
 		secondary_action_state = SecondaryActionState.NONE
 
@@ -515,6 +524,10 @@ func _scan_for_carryable() -> bool:
 func _force_drop_carryable() -> void:
 	if carry_component != null:
 		carry_component.force_drop_all()
+
+func _release_carryable() -> void:
+	if carry_component != null:
+		carry_component.release_all()
 
 func _enter_seat(seat_node: Node, seat_world_pos: Vector2) -> void:
 	if dying:
@@ -869,6 +882,8 @@ func _resolve_world_node() -> Node:
 
 func _on_character_downed_entered() -> void:
 	_trigger_death_shake()
+	_force_drop_carryable()
+	secondary_action_state = SecondaryActionState.NONE
 	weapon_sprite.visible = false
 	if footstep_audio_component != null:
 		footstep_audio_component.stop_loop()
@@ -887,6 +902,8 @@ func _trigger_death_shake() -> void:
 func _on_character_dying_started() -> void:
 	_trigger_death_shake()
 	_leave_seat(false)
+	_force_drop_carryable()
+	secondary_action_state = SecondaryActionState.NONE
 	weapon_sprite.visible = false
 	attacking = false
 	attack_push_t = 0.0
@@ -909,6 +926,7 @@ func respawn(pos: Vector2) -> void:
 	attack_push_vel = Vector2.ZERO
 	blocking = false
 	secondary_action_state = SecondaryActionState.NONE
+	_force_drop_carryable()
 	if health_component != null and health_component.has_method("reset"):
 		health_component.reset()
 		hp = health_component.hp

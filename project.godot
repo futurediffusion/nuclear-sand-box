@@ -16,10 +16,10 @@ config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.svg"
 
 [autoload]
+
 AggroTrackerService="*res://scripts/systems/AggroTrackerService.gd"
 FactionRelationService="*res://scripts/systems/FactionRelationService.gd"
 DownedEncounterCoordinator="*res://scripts/systems/DownedEncounterCoordinator.gd"
-
 ShopService="*res://scripts/systems/shop_service.gd"
 Seed="*res://scripts/systems/Seed.gd"
 SaveManager="*res://scripts/systems/SaveManager.gd"
