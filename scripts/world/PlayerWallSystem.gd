@@ -183,8 +183,11 @@ func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	var cpos := _tile_to_chunk(tile_pos)
 	if wall_persistence.has_wall(cpos, tile_pos):
 		return false
+	# Tile huérfano (en tilemap sin persistence) → auto-limpiar en lugar de bloquear
 	if walls_tilemap.get_cell_source_id(walls_map_layer, tile_pos) != -1:
-		return false
+		if _is_structural_wall_tile(tile_pos):
+			return false
+		walls_tilemap.erase_cell(walls_map_layer, tile_pos)
 	if cliffs_tilemap.get_cell_source_id(0, tile_pos) != -1:
 		return false
 	var cpos_check := _tile_to_chunk(tile_pos)
@@ -431,6 +434,8 @@ func remove_structural_wall_at_tile(tile_pos: Vector2i, drop_item: bool = false)
 		reconnect_neighbors = _collect_existing_wall_neighbors(tile_pos)
 		_apply_wall_terrain_connect(reconnect_neighbors)
 		_enforce_removed_wall_tile_cleared(tile_pos)
+	var extended_scope_s := _collect_scope_for_cells(_collect_reconnect_neighborhood(tile_pos))
+	_erase_orphan_tilemap_cells_in_scope(extended_scope_s)
 	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	if drop_item and structural_wall_drop_enabled and structural_wall_drop_amount > 0:
 		_emit_structural_wall_drop(tile_pos)
@@ -470,6 +475,8 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 		reconnect_neighbors = _collect_existing_wall_neighbors(tile_pos)
 		_apply_wall_terrain_connect(reconnect_neighbors)
 		_enforce_removed_wall_tile_cleared(tile_pos)
+	var extended_scope_p := _collect_scope_for_cells(_collect_reconnect_neighborhood(tile_pos))
+	_erase_orphan_tilemap_cells_in_scope(extended_scope_p)
 	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	if drop_item and player_wall_drop_enabled and player_wall_drop_amount > 0:
 		_emit_player_wall_drop(tile_pos)
@@ -492,6 +499,15 @@ func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
 		player_tiles_dict[tile_pos] = true
 	var player_tiles: Array[Vector2i] = _dict_keys_to_vector2i_array(player_tiles_dict)
 	_apply_player_wall_tiles_strict(player_tiles)
+	# Garantía: aunque _apply_player_wall_tiles_strict falle, cada entrada de persistence debe tener tile
+	for tile_pos in player_tiles:
+		if walls_tilemap.get_cell_source_id(walls_map_layer, tile_pos) != src_walls:
+			_force_place_player_wall_tile(tile_pos)
+	if not player_tiles.is_empty():
+		var apply_extended_scope := _collect_scope_for_cells(
+			_collect_scope_for_cells(player_tiles)
+		)
+		_erase_orphan_tilemap_cells_in_scope(apply_extended_scope)
 
 func _get_wall_tile_size_vec() -> Vector2:
 	var tile_size_vec: Vector2 = Vector2(32.0, 32.0)
@@ -510,6 +526,20 @@ func _enforce_removed_wall_tile_cleared(tile_pos: Vector2i) -> bool:
 		return false
 	walls_tilemap.erase_cell(walls_map_layer, tile_pos)
 	return true
+
+## Borra cualquier tile con source src_walls que no esté respaldado por persistence.
+## Usado para limpiar tiles huérfanos que terrain connect puede crear fuera del scope habitual.
+func _erase_orphan_tilemap_cells_in_scope(scope: Array[Vector2i]) -> void:
+	for cell in scope:
+		if not _is_valid_world_tile(cell):
+			continue
+		if walls_tilemap.get_cell_source_id(walls_map_layer, cell) != src_walls:
+			continue
+		if _is_player_wall_tile(cell):
+			continue
+		if _is_structural_wall_tile(cell):
+			continue
+		walls_tilemap.erase_cell(walls_map_layer, cell)
 
 func _emit_player_wall_hit(tile_pos: Vector2i) -> void:
 	emit_signal("player_wall_hit", tile_pos)
@@ -603,8 +633,7 @@ func _capture_existing_player_walls_in_cells(cells: Array[Vector2i]) -> Dictiona
 	for cell in cells:
 		if not _is_valid_world_tile(cell):
 			continue
-		if walls_tilemap.get_cell_source_id(walls_map_layer, cell) != src_walls:
-			continue
+		# Usar persistence (no tilemap) para incluir paredes que ya son fantasma
 		if _is_player_wall_tile(cell):
 			out[cell] = true
 	return out
@@ -646,7 +675,9 @@ func _apply_player_wall_tiles_strict(player_tiles: Array[Vector2i]) -> bool:
 	if valid_tiles.is_empty():
 		return false
 	var scope_cells: Array[Vector2i] = _collect_scope_for_cells(valid_tiles)
-	var existing_player_walls: Dictionary = _capture_existing_player_walls_in_cells(scope_cells)
+	# Expandir a 2 celdas: terrain connect actualiza vecinos de los vecinos fuera del scope original
+	var connect_scope: Array[Vector2i] = _collect_scope_for_cells(scope_cells)
+	var existing_player_walls: Dictionary = _capture_existing_player_walls_in_cells(connect_scope)
 	var protected_structural_cells: Dictionary = _capture_existing_structural_walls_in_cells(scope_cells)
 	var player_connect_cells: Dictionary = existing_player_walls.duplicate(true)
 	for tile_pos in valid_tiles:
@@ -674,6 +705,8 @@ func _apply_player_wall_tiles_strict(player_tiles: Array[Vector2i]) -> bool:
 			return false
 
 	_reconcile_wall_ownership_in_scope(scope_cells, valid_tiles_dict)
+	# Restaurar cualquier tile que el terrain connect interno de _reconcile haya eliminado
+	_ensure_wall_cells_exist(player_connect_list)
 
 	for tile_pos in valid_tiles:
 		if walls_tilemap.get_cell_source_id(walls_map_layer, tile_pos) != src_walls:

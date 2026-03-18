@@ -44,7 +44,8 @@
       "Bash(find:*)",
       "Bash(cat:*)",
       "Bash(grep:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(cmd.exe /c \"cd /d \\\\\"C:\\\\Users\\\\walva\\\\OneDrive\\\\Documentos\\\\nuclear-sand-box\\\\\" && godot --path . --check-only --script scripts/world/PlayerWallSystem.gd 2>&1\" | head -20)"
     ]
   }
 }

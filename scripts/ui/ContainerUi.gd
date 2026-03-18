@@ -20,6 +20,7 @@ const DEFAULT_INVENTORY_ITEM_SELECT_VOLUME_DB: float = 0.0
 const DEFAULT_SHIFT_TRANSFER_VOLUME_DB: float = 0.0
 const DEFAULT_UI_SLOT_PLACE_VOLUME_DB: float = 0.0
 const TRANSFER_DOWN_SEMITONE_OFFSET: float = -2.0
+const DEFAULT_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 
 @export var chest_columns: int = 5
 @export var chest_rows: int = 3
@@ -270,7 +271,10 @@ func end_drag(_slot_index: int, _mouse_position: Vector2) -> void:
 	if player_target != -1:
 		_transfer_chest_to_player_slot(drag_from_slot, player_target, drag_amount)
 		_play_slot_place_sfx()
+		_clear_drag_visual()
+		return
 
+	_drop_chest_slot_to_world(drag_from_slot, drag_amount)
 	_clear_drag_visual()
 
 
@@ -767,3 +771,55 @@ func _resolve_sound_panel() -> SoundPanel:
 	if node is SoundPanel:
 		return node as SoundPanel
 	return null
+
+
+func _drop_chest_slot_to_world(slot_index: int, amount: int) -> void:
+	var stack = _chest_get_slot(slot_index)
+	if stack == null:
+		return
+	var item_id := _slot_id(stack)
+	var available := _slot_count(stack)
+	if item_id == "" or available <= 0:
+		return
+	var drop_amount := mini(amount, available)
+	if drop_amount <= 0:
+		return
+
+	var remaining := available - drop_amount
+	var slots_array := _chest_inv.get("slots", []) as Array
+	if remaining <= 0:
+		slots_array[slot_index] = null
+	else:
+		slots_array[slot_index] = {"id": item_id, "count": remaining}
+	_chest_inv["slots"] = slots_array
+
+	_persist_chest_data()
+	_refresh_chest_slots()
+
+	var item_data: ItemData = null
+	var item_db := get_node_or_null("/root/ItemDB")
+	if item_db != null and item_db.has_method("get_item"):
+		item_data = item_db.get_item(item_id)
+
+	var world_pos := _resolve_world_drop_position()
+	LootSystem.spawn_drop(item_data, item_id, drop_amount, world_pos, _resolve_world_drop_parent(), {"drop_scene": DEFAULT_DROP_SCENE})
+
+
+func _resolve_world_drop_position() -> Vector2:
+	var players := get_tree().get_nodes_in_group("player")
+	if players.size() > 0 and players[0] is Node2D:
+		var player := players[0] as Node2D
+		if player.has_method("get_world_mouse_pos"):
+			return player.call("get_world_mouse_pos") as Vector2
+		return player.global_position + Vector2(0, 16)
+	var scene := get_tree().current_scene
+	if scene is Node2D:
+		return (scene as Node2D).global_position
+	return Vector2.ZERO
+
+
+func _resolve_world_drop_parent() -> Node:
+	var current_scene := get_tree().current_scene
+	if current_scene != null:
+		return current_scene
+	return get_tree().root
