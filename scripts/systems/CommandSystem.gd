@@ -249,34 +249,34 @@ func _execute_command(command_text: String) -> void:
 				_cmd_summon_enemy(parts.slice(2))
 			else:
 				Debug.log("commands", "Uso: /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]")
-			"sellall", "sc":
-				if not Debug.dev_cheats_enabled:
-					Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+		"sellall", "sc":
+			if not Debug.dev_cheats_enabled:
+				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+			else:
+				if base_command == "sc":
+					var new_parts: Array[String] = ["copper"]
+					new_parts.append_array(parts.slice(1))
+					_cmd_sellall(new_parts)
 				else:
-					if base_command == "sc":
-						var new_parts: Array[String] = ["copper"]
-						new_parts.append_array(parts.slice(1))
-						_cmd_sellall(new_parts)
-					else:
-						_cmd_sellall(parts.slice(1))
-			"buydbg", "med":
-				if not Debug.dev_cheats_enabled:
-					Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+					_cmd_sellall(parts.slice(1))
+		"buydbg", "med":
+			if not Debug.dev_cheats_enabled:
+				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+			else:
+				if base_command == "med":
+					_cmd_buydbg(["medkit", "1", "20"])
 				else:
-					if base_command == "med":
-						_cmd_buydbg(["medkit", "1", "20"])
-					else:
-						_cmd_buydbg(parts.slice(1))
-			"g50":
-				if not Debug.dev_cheats_enabled:
-					Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
-				else:
-					_cmd_give_gold(["50"])
-			"c3":
-				if not Debug.dev_cheats_enabled:
-					Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
-				else:
-					_cmd_give(["copper", "3"])
+					_cmd_buydbg(parts.slice(1))
+		"g50":
+			if not Debug.dev_cheats_enabled:
+				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+			else:
+				_cmd_give_gold(["50"])
+		"c3":
+			if not Debug.dev_cheats_enabled:
+				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
+			else:
+				_cmd_give(["copper", "3"])
 		_:
 			Debug.log("commands", "Comando desconocido: %s" % base_command)
 
