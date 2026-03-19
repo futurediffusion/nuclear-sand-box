@@ -37,8 +37,11 @@ var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _tick_timer: float = 0.0
 
 # TEST extortion
+const DEBUG_ALERTED_CHASE: bool = true    # TEST: scout del grupo alerted persigue al player; pon false para desactivar
+const DEBUG_EXTORTION_ONE_HIT: bool = true  # TEST: un golpe de advertencia y retiran; pon false para aggro normal
 var _player: Node2D = null
-var _active_extortions: Dictionary = {}  # group_id -> {leader_id, assigned_ids, attacked}
+var _active_extortions: Dictionary = {}   # group_id -> {leader_id, assigned_ids, attacked}
+var _extortion_suppressed: Dictionary = {}  # enemy_id -> RunClock time hasta re-activar AIComponent
 
 # Cached world-level item/resource lists (rebuilt once per tick, shared across all enemies)
 var _all_drops_cache: Array    = []   # Array of ItemDrop nodes
@@ -81,27 +84,50 @@ func _physics_process(_delta: float) -> void:
 			node.velocity = vel.normalized() * (vel.length() + FRICTION_COMPENSATION)
 		# Idle (vel == 0): don't override, let enemy friction decelerate naturally
 
-	# TEST extortion — override velocity toward player for assigned NPCs
-	if _player != null and is_instance_valid(_player):
+	# TEST extortion — mover assigned hacia player + golpe único de advertencia
+	if DEBUG_EXTORTION_ONE_HIT and _player != null and is_instance_valid(_player):
 		var player_pos: Vector2 = _player.global_position
+		var now: float = RunClock.now()
+
+		# liberar suppress_ai cuando vence el periodo post-golpe
+		var expired: Array = []
+		for eid in _extortion_suppressed:
+			if now >= _extortion_suppressed[eid]:
+				expired.append(eid)
+		for eid in expired:
+			_extortion_suppressed.erase(eid)
+			var rnode = _npc_simulator._get_active_enemy_node(eid)
+			if rnode != null and "suppress_ai" in rnode:
+				rnode.suppress_ai = false
+
+		# jobs activos: forzar suppress_ai cada frame + mover + comprobar melee
 		for gid in _active_extortions:
 			var job: Dictionary = _active_extortions[gid]
 			if job.get("attacked", false):
 				continue
 			for eid in job["assigned_ids"]:
 				var enode = _npc_simulator._get_active_enemy_node(eid)
-				if enode == null or not enode.has_method("is_world_behavior_eligible") \
-						or not enode.is_world_behavior_eligible():
+				if enode == null:
 					continue
+				# forzar suppress_ai cada frame (inmune al sleep-check timer)
+				if "suppress_ai" in enode:
+					enode.suppress_ai = true
+				# mover hacia player
 				var to_player: Vector2 = player_pos - enode.global_position
 				var dist: float = to_player.length()
 				if dist > 1.0:
 					enode.velocity = to_player.normalized() * (55.0 + FRICTION_COMPENSATION)
-				# melee check
-				var atk_range: float = 76.0  # 60 default + 16 margin
+				# comprobar melee — solo el primero que llega golpea
+				var atk_range: float = 76.0
 				if "attack_range" in enode:
 					atk_range = enode.attack_range + 16.0
 				if dist <= atk_range:
+					# habilitar weapon pipeline para este único golpe
+					if "suppress_ai" in enode:
+						enode._pending_extortion_strike = true
+						# forzar cooldown a 0 para que el arma no bloquee el golpe
+						if enode.weapon_component != null and enode.weapon_component.current_weapon != null:
+							enode.weapon_component.current_weapon.set("_cooldown", 0.0)
 					if enode.has_method("queue_ai_attack_press"):
 						enode.queue_ai_attack_press(player_pos)
 					job["attacked"] = true
@@ -109,8 +135,28 @@ func _physics_process(_delta: float) -> void:
 					for aid: String in job["assigned_ids"]:
 						if _behaviors.has(aid):
 							_behaviors[aid]._enter_return_home()
+						_extortion_suppressed[aid] = now + 7.0  # 7 s sin re-aggro para llegar a casa
 					Debug.log("extortion", "[EXTORT TEST] attack delivered group=%s by=%s" % [gid, eid])
-					break  # one attacker is enough
+					break  # un solo golpe por job
+
+	# TEST alerted scout chase — un solo NPC persigue al player cuando el grupo está "alerted"
+	# Para desactivar: pon DEBUG_ALERTED_CHASE = false arriba
+	if DEBUG_ALERTED_CHASE and _player != null and is_instance_valid(_player):
+		var ap: Vector2 = _player.global_position
+		for gid in BanditGroupMemory.get_all_group_ids():
+			var g: Dictionary = BanditGroupMemory.get_group(gid)
+			if String(g.get("current_group_intent", "")) != "alerted":
+				continue
+			var scout_id: String = BanditGroupMemory.get_scout(gid)
+			if scout_id == "":
+				continue
+			var snode = _npc_simulator._get_active_enemy_node(scout_id)
+			if snode == null or not snode.has_method("is_world_behavior_eligible") \
+					or not snode.is_world_behavior_eligible():
+				continue
+			var to_p: Vector2 = ap - snode.global_position
+			if to_p.length() > 1.0:
+				snode.velocity = to_p.normalized() * (55.0 + FRICTION_COMPENSATION)
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +168,7 @@ func _process(delta: float) -> void:
 		return
 	if _group_intel != null:
 		_group_intel.tick(delta)
+	_consume_extortion_queue()  # TEST extortion: cada frame para mínima latencia
 	_tick_timer += delta
 	if _tick_timer < TICK_INTERVAL:
 		return
@@ -131,7 +178,6 @@ func _process(delta: float) -> void:
 	_ensure_behaviors_for_active_enemies()
 	_tick_behaviors()
 	_prune_behaviors()
-	_consume_extortion_queue()  # TEST extortion
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +367,7 @@ func _consume_extortion_queue() -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
 
-	# clean completed jobs from previous tick
+	# limpiar jobs completados
 	var done: Array = []
 	for gid in _active_extortions:
 		if _active_extortions[gid].get("attacked", false):
@@ -329,6 +375,10 @@ func _consume_extortion_queue() -> void:
 	for gid in done:
 		_active_extortions.erase(gid)
 		Debug.log("extortion", "[EXTORT TEST] job cleaned group=%s" % gid)
+
+	# TEST extortion: solo 1 job activo a la vez — evita que todas las bandas converjan
+	if not _active_extortions.is_empty():
+		return
 
 	# start new jobs for groups with extorting intent not yet active
 	for gid in BanditGroupMemory.get_all_group_ids():
@@ -365,6 +415,11 @@ func _consume_extortion_queue() -> void:
 			"assigned_ids": assigned,
 			"attacked":     false,
 		}
+		# TEST extortion: suppress_ai inmediato para que no dispare arco en el gap pre-physics
+		for aid in assigned:
+			var anode = _npc_simulator._get_active_enemy_node(aid)
+			if anode != null and "suppress_ai" in anode:
+				anode.suppress_ai = true
 		Debug.log("extortion", "[EXTORT TEST] job started group=%s leader=%s assigned=%d" % [
 			gid, leader_id, assigned.size()])
 

@@ -74,6 +74,8 @@ var _logged_duplicate_controller_count: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
 var _sep_timer: float = 0.0
 var _is_lite_mode: bool = false
+var suppress_ai: bool = false             # TEST extortion: bloquea combat AI (BanditBehaviorLayer)
+var _pending_extortion_strike: bool = false  # TEST extortion: permite 1 tick de weapon pipeline aunque suppress_ai=true
 var entity_uid: String = ""
 var enemy_chunk_key: String = ""
 var enemy_seed: int = 0
@@ -303,24 +305,26 @@ func _physics_process(delta: float) -> void:
 		hurt_t -= delta
 
 	var sleeping_now := ai_component != null and ai_component.is_sleeping()
-	var can_run_full_ai := not _is_lite_mode and ai_component != null and not sleeping_now
+	var can_run_full_ai := not _is_lite_mode and ai_component != null and not sleeping_now and not suppress_ai  # TEST extortion
 	if can_run_full_ai:
 		ai_component.physics_tick(delta)
 	else:
-		set_ai_attack_intent(false, global_position)
+		if not _pending_extortion_strike:  # TEST extortion: preservar aim del player si hay golpe pendiente
+			set_ai_attack_intent(false, global_position)
 		if _is_lite_mode:
 			if velocity.length_squared() > 0.0001:
 				velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 		else:
 			velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
-	if can_run_full_ai:
+	if can_run_full_ai or _pending_extortion_strike:  # TEST extortion: _pending permite 1 golpe melee
 		# IMPORTANT: mantener orden del pipeline para evitar eventos stale.
 		# AI -> controller -> weapon_component -> weapon
 		if ai_weapon_controller != null:
 			ai_weapon_controller.physics_tick()
 		if weapon_component != null:
 			weapon_component.tick(delta)
+		_pending_extortion_strike = false  # TEST extortion: consumir tras 1 tick
 
 	if sleeping_now != _was_sleeping_last_frame:
 		_set_sleep_visual_state(sleeping_now)
