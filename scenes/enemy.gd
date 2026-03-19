@@ -450,7 +450,7 @@ func _set_sleep_visual_state(sleeping_now: bool) -> void:
 func _update_animation() -> void:
 	if hurt_t > 0.0:
 		return
-	if velocity.length() > 10.0:
+	if velocity.length() > 4.0:
 		sprite.play("walk")
 	else:
 		sprite.play("idle")

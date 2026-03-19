@@ -45,7 +45,12 @@ var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
 var _is_ready: bool             = false
 
-# agent_id → {goal, waypoints, index, timestamp}
+# Optional world bounds in tile coords — tiles outside are treated as blocked.
+# Set via setup ctx key "world_tile_rect" (Rect2i). Left unset = no bounds check.
+var _world_tile_rect: Rect2i = Rect2i()
+var _has_world_bounds: bool  = false
+
+# agent_id → {goal, waypoints, index, timestamp, path_failed}
 var _cache: Dictionary = {}
 
 
@@ -63,7 +68,12 @@ func setup(ctx: Dictionary) -> void:
 		_walls_tilemap  != null and is_instance_valid(_walls_tilemap)  and
 		_world_to_tile_cb.is_valid() and _tile_to_world_cb.is_valid()
 	)
-	Debug.log("npc_path", "[NPS] setup ready=%s" % str(_is_ready))
+	if ctx.has("world_tile_rect"):
+		var r = ctx["world_tile_rect"]
+		if r is Rect2i and (r as Rect2i).size != Vector2i.ZERO:
+			_world_tile_rect   = r as Rect2i
+			_has_world_bounds  = true
+	Debug.log("npc_path", "[NPS] setup ready=%s bounds=%s" % [str(_is_ready), str(_world_tile_rect)])
 
 
 func is_ready() -> bool:
@@ -88,13 +98,17 @@ func get_next_waypoint(agent_id: String, current_pos: Vector2,
 	var interval: float   = float(opts.get("repath_interval", REPATH_INTERVAL))
 
 	var needs_repath: bool = (
-		wpts.is_empty()
+		wpts.is_empty() and not c.get("path_failed", false)
 		or (c["goal"] as Vector2).distance_squared_to(goal) > GOAL_CHANGED_DIST_SQ
 		or (RunClock.now() - float(c["timestamp"])) >= interval
 	)
 
 	if needs_repath:
 		_compute_path(agent_id, current_pos, goal, c)
+
+	# No valid path found — stay put rather than walking into a wall
+	if c.get("path_failed", false):
+		return current_pos
 
 	return _advance_and_get(c, current_pos, goal)
 
@@ -128,22 +142,33 @@ func clear_agent(agent_id: String) -> void:
 func _ensure_cache(agent_id: String) -> Dictionary:
 	if not _cache.has(agent_id):
 		_cache[agent_id] = {
-			"goal":      Vector2.ZERO,
-			"waypoints": [],
-			"index":     0,
-			"timestamp": -999.0,
+			"goal":        Vector2.ZERO,
+			"waypoints":   [],
+			"index":       0,
+			"timestamp":   -999.0,
+			"path_failed": false,
 		}
 	return _cache[agent_id]
 
 
 func _compute_path(agent_id: String, start: Vector2, goal: Vector2, c: Dictionary) -> void:
-	c["goal"]      = goal
-	c["index"]     = 0
-	c["timestamp"] = RunClock.now()
+	c["goal"]        = goal
+	c["index"]       = 0
+	c["timestamp"]   = RunClock.now()
+	c["path_failed"] = false
 	(c["waypoints"] as Array).clear()
 
 	var st: Vector2i = _world_to_tile_cb.call(start)
 	var gt: Vector2i = _world_to_tile_cb.call(goal)
+
+	# Clamp start/goal to world bounds so A* never receives out-of-world tiles
+	if _has_world_bounds:
+		var bx0: int = _world_tile_rect.position.x
+		var by0: int = _world_tile_rect.position.y
+		var bx1: int = _world_tile_rect.end.x - 1
+		var by1: int = _world_tile_rect.end.y - 1
+		st = Vector2i(clampi(st.x, bx0, bx1), clampi(st.y, by0, by1))
+		gt = Vector2i(clampi(gt.x, bx0, bx1), clampi(gt.y, by0, by1))
 
 	# Fast path: Bresenham clear at any distance → skip A* entirely
 	# Build a small placed-blocker set just for the corridor to keep this cheap
@@ -165,8 +190,9 @@ func _compute_path(agent_id: String, start: Vector2, goal: Vector2, c: Dictionar
 		raw = _run_astar(st, gt, MAX_PAD, MAX_WINDOW_RETRY)
 
 	if raw.is_empty():
-		# Both attempts failed — fall back to direct movement
-		(c["waypoints"] as Array).append(goal)
+		# No path found — mark failed so caller stays put instead of walking into walls.
+		# Next repath cycle will retry automatically.
+		c["path_failed"] = true
 		Debug.log("npc_path", "[NPS] no path agent=%s %s→%s" % [agent_id, str(st), str(gt)])
 		return
 
@@ -253,6 +279,9 @@ func _advance_and_get(c: Dictionary, current_pos: Vector2, goal: Vector2) -> Vec
 ## Returns true if tile is blocked by any static obstacle.
 ## placed_blockers is a pre-built set (Dictionary{Vector2i→bool}) for efficiency.
 func _is_blocked(tile: Vector2i, placed_blockers: Dictionary) -> bool:
+	# Tiles outside the valid world area are always blocked
+	if _has_world_bounds and not _world_tile_rect.has_point(tile):
+		return true
 	# Cliff tiles
 	if is_instance_valid(_cliffs_tilemap) \
 			and _cliffs_tilemap.get_cell_source_id(CLIFFS_LAYER, tile) != -1:

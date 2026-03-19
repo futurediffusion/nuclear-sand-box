@@ -48,6 +48,10 @@ const RESOURCE_WATCH_DURATION: float = 10.0   # s before giving up a watch posit
 const IDLE_WAIT_MIN: float         = 2.0
 const IDLE_WAIT_MAX: float         = 6.0
 
+# ── Stuck detection ───────────────────────────────────────────────────────────
+const STUCK_CHECK_INTERVAL: float    = 2.5    # s between progress checks
+const STUCK_MIN_PROGRESS_SQ: float   = 20.0 * 20.0  # must move 20 px per interval
+
 # ── Identity ─────────────────────────────────────────────────────────────────
 var state: State    = State.IDLE_AT_HOME
 var home_pos: Vector2  = Vector2.ZERO
@@ -76,6 +80,10 @@ var _loot_target_id: int = 0   # instance_id of target ItemDrop
 # RESOURCE_WATCH
 var _resource_watch_pos: Vector2   = Vector2.ZERO
 var _resource_watch_timer: float   = 0.0
+
+# STUCK detection (PATROL / APPROACH_INTEREST)
+var _stuck_check_pos: Vector2 = Vector2.ZERO
+var _stuck_timer: float       = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +120,7 @@ func tick(delta: float, ctx: Dictionary) -> void:
 			_enter_return_home()
 
 	_tick_state(delta, ctx, node_pos)
+	_check_stuck(delta, node_pos)
 
 
 func get_desired_velocity() -> Vector2:
@@ -161,6 +170,28 @@ func _get_home_return_dist() -> float:
 
 func _get_max_patrol_time() -> float:
 	return DEFAULT_MAX_PATROL_TIME
+
+
+# ---------------------------------------------------------------------------
+# Stuck detection
+# ---------------------------------------------------------------------------
+
+## Detects NPCs that haven't progressed in PATROL or APPROACH_INTEREST and
+## resets them to idle so they pick a new target instead of wall-hugging.
+func _check_stuck(delta: float, node_pos: Vector2) -> void:
+	match state:
+		State.PATROL, State.APPROACH_INTEREST:
+			_stuck_timer += delta
+			if _stuck_timer >= STUCK_CHECK_INTERVAL:
+				var moved_sq: float = node_pos.distance_squared_to(_stuck_check_pos)
+				_stuck_check_pos = node_pos
+				_stuck_timer     = 0.0
+				if moved_sq < STUCK_MIN_PROGRESS_SQ:
+					_invalidate_npc_path()
+					_enter_idle_at_home()
+		_:
+			_stuck_check_pos = node_pos
+			_stuck_timer     = 0.0
 
 
 # ---------------------------------------------------------------------------
