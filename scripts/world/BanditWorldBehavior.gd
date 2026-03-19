@@ -27,8 +27,9 @@ const _SPEED_BY_ROLE: Dictionary = {
 }
 
 # Safety leash: how far from home before being forced RETURN_HOME
+# Leader roam reaches up to 160*1.8 = 288 px — leash must be well above that
 const _HOME_RETURN_DIST_BY_ROLE: Dictionary = {
-	"leader":    280.0,
+	"leader":    520.0,
 	"bodyguard": 760.0,
 	"scavenger": 3200.0,
 }
@@ -79,8 +80,8 @@ func setup(cfg: Dictionary) -> void:
 	_raw_leader_pos = home_pos
 	if role == "bodyguard":
 		var angle: float = _rng.randf_range(0.0, TAU)
-		_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(24.0, 60.0)
-		_jitter_timer  = _rng.randf_range(3.0, 9.0)
+		_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(40.0, 80.0)
+		_jitter_timer  = _rng.randf_range(2.0, 5.0)
 	if role == "leader":
 		_leader_roam_timer = _rng.randf_range(8.0, 18.0)
 
@@ -115,9 +116,9 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	if role == "bodyguard":
 		_jitter_timer -= delta
 		if _jitter_timer <= 0.0:
-			_jitter_timer  = _rng.randf_range(3.0, 9.0)
+			_jitter_timer  = _rng.randf_range(2.0, 5.0)
 			var angle: float = _rng.randf_range(0.0, TAU)
-			_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(24.0, 72.0)
+			_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(40.0, 88.0)
 		if ctx.has("leader_pos"):
 			_raw_leader_pos   = ctx["leader_pos"] as Vector2
 			ctx["leader_pos"] = _raw_leader_pos + _follow_offset
@@ -168,7 +169,7 @@ func _try_find_work(ctx: Dictionary) -> void:
 
 	# Bodyguard: escort leader when they've moved well away from home
 	if role == "bodyguard":
-		if _raw_leader_pos.distance_squared_to(home_pos) > 120.0 * 120.0:
+		if _raw_leader_pos.distance_squared_to(home_pos) > 72.0 * 72.0:
 			state        = State.FOLLOW_LEADER
 			_state_timer = 0.0
 			return
@@ -235,7 +236,10 @@ func _try_leader_roam() -> void:
 		var reported: Array = BanditGroupMemory.get_reported_resources(group_id)
 		if not reported.is_empty():
 			var pick: Dictionary = reported[_rng.randi() % reported.size()] as Dictionary
-			var rpos: Vector2    = pick.get("pos", Vector2.ZERO)
+			var pos_raw          = pick.get("pos", null)
+			if not (pos_raw is Vector2):
+				return  # datos corruptos de sesión anterior — ignorar
+			var rpos: Vector2 = pos_raw
 			if rpos != Vector2.ZERO and rpos.distance_squared_to(home_pos) > 64.0 * 64.0:
 				_move_target = rpos
 				state        = State.APPROACH_INTEREST

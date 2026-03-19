@@ -39,7 +39,7 @@ enum State {
 # ── Spatial ──────────────────────────────────────────────────────────────────
 const ARRIVED_DIST_SQ: float     = 12.0 * 12.0
 const COLLECT_DIST_SQ: float     = 16.0 * 16.0  # close enough to collect a drop
-const FOLLOW_STOP_DIST_SQ: float = 32.0 * 32.0
+const FOLLOW_STOP_DIST_SQ: float = 20.0 * 20.0
 const DEFAULT_HOME_RETURN_DIST: float = 192.0
 
 # ── Timing ───────────────────────────────────────────────────────────────────

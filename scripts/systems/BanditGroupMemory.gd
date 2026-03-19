@@ -50,6 +50,13 @@ func remove_member(group_id: String, member_id: String) -> void:
 	if String(g["leader_id"]) == member_id:
 		g["leader_id"] = ""
 		Debug.log("bandit_group", "[BGM] leader died group=%s" % group_id)
+	# Release any resource claim held by this member
+	if g.has("resource_claims"):
+		var claims: Dictionary = g["resource_claims"]
+		for key in claims.keys():
+			if String(claims[key]) == member_id:
+				claims.erase(key)
+				break
 	Debug.log("bandit_group", "[BGM] member removed id=%s group=%s remaining=%d" % [
 		member_id, group_id, (g["member_ids"] as Array).size()])
 
@@ -134,7 +141,13 @@ func get_reported_resources(group_id: String) -> Array:
 		return []
 	if not _groups[group_id].has("reported_resources"):
 		return []
-	return _groups[group_id]["reported_resources"]
+	# Trim stale entries on every read so the list doesn't grow unbounded
+	var arr: Array = _groups[group_id]["reported_resources"]
+	var now: float = RunClock.now()
+	for i in range(arr.size() - 1, -1, -1):
+		if now - float((arr[i] as Dictionary).get("time", 0.0)) > 90.0:
+			arr.remove_at(i)
+	return arr
 
 
 ## Mark a resource cell as claimed by member_id.
@@ -215,6 +228,9 @@ func serialize() -> Dictionary:
 	var out: Dictionary = {}
 	for gid: String in _groups:
 		var g: Dictionary = _groups[gid].duplicate(true)
+		# Strip ephemeral session-only fields (contain Vector2 that can't round-trip JSON)
+		g.erase("reported_resources")
+		g.erase("resource_claims")
 		# Vector2 → plain dict (JSON-safe)
 		var hwp: Vector2 = g.get("home_world_pos", Vector2.ZERO)
 		g["home_world_pos"] = {"x": hwp.x, "y": hwp.y}
