@@ -299,8 +299,12 @@ func _execute_light_tick(delta: float, force_hold_override: bool = false) -> voi
 			if target == null:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 				return
-			var my_pos: Vector2     = owner_entity.global_position
-			var target_pos: Vector2 = target.global_position
+			var my_pos: Vector2 = owner_entity.global_position
+			var dist_now: float = (my_pos as Vector2).distance_to(target.global_position)
+			# usar posición real si en acquire; usar last_seen_player_pos si reteniendo desde lejos
+			var target_pos: Vector2 = target.global_position \
+					if dist_now <= _get_effective_acquire_radius() \
+					else last_seen_player_pos
 			var dir: Vector2
 			var pid: String = _get_owner_path_id()
 			if pid != "" and NpcPathService.is_ready():
@@ -528,8 +532,9 @@ func _update_state() -> void:
 					current_state = AIState.ATTACK if distance <= attack_exit_threshold else AIState.CHASE
 				AIState.CHASE:
 					current_state = AIState.ATTACK if distance <= attack_enter_threshold else AIState.CHASE
-		# else: retain_ok pero fuera de acquire → seguir en CHASE hacia last_seen_player_pos
-		# (sin cambiar estado; _execute_state CHASE usa last_seen_player_pos)
+		else:
+			# retain_ok pero fuera de acquire → bajar a CHASE (ATTACK sin rango no tiene sentido)
+			current_state = AIState.CHASE
 	else:
 		# adquirir si entra en acquire_radius
 		if distance <= eff_acquire:
@@ -975,11 +980,15 @@ func _on_sleep_check_timeout() -> void:
 			wake_now()
 	else:
 		if distance > owner_entity.ACTIVE_RADIUS_PX:
-			sleeping = true
-			current_state = AIState.IDLE
-			_release_attack_input()
-			_reset_combat_state()
-			_cancel_awake_ramp()
+			# No dormir si el actor está en chase retenido activo
+			var retain_active: bool = distance <= _get_effective_retain_radius() \
+					or (RunClock.now() - last_seen_target_time) <= lost_target_timeout
+			if not retain_active:
+				sleeping = true
+				current_state = AIState.IDLE
+				_release_attack_input()
+				_reset_combat_state()
+				_cancel_awake_ramp()
 
 	_schedule_sleep_check()
 
