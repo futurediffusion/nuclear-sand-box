@@ -74,8 +74,9 @@ var _logged_duplicate_controller_count: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
 var _sep_timer: float = 0.0
 var _is_lite_mode: bool = false
-var suppress_ai: bool = false             # TEST extortion: bloquea combat AI (BanditBehaviorLayer)
-var _pending_extortion_strike: bool = false  # TEST extortion: permite 1 tick de weapon pipeline aunque suppress_ai=true
+var suppress_ai: bool = false                # TEST extortion: bloquea combat AI mientras orquestador externo controla al NPC
+var _pending_extortion_strike: bool = false  # true → weapon pipeline corre 1 tick aunque suppress_ai=true
+var _scripted_action_timer: float = 0.0     # cuenta atrás de retreat-lock; mantiene suppress_ai=true automáticamente
 var entity_uid: String = ""
 var enemy_chunk_key: String = ""
 var enemy_seed: int = 0
@@ -297,6 +298,13 @@ func _physics_process(delta: float) -> void:
 	if hp <= 0:
 		return
 
+	# TEST extortion — retreat-lock timer: mantiene suppress_ai=true hasta que expire
+	if _scripted_action_timer > 0.0:
+		_scripted_action_timer -= delta
+		suppress_ai = true
+		if _scripted_action_timer <= 0.0:
+			end_scripted_action()
+
 	if _last_chunk_pos == Vector2.INF or global_position.distance_squared_to(_last_chunk_pos) >= 1.0:
 		EnemyRegistry.update_enemy_chunk(self)
 		_last_chunk_pos = global_position
@@ -344,6 +352,22 @@ func _physics_process(delta: float) -> void:
 
 	_apply_knockback_step(delta)
 	move_and_slide()
+
+## Lanza un único golpe melee de advertencia y bloquea el re-aggro durante retreat_lock_seconds.
+## Llamar cuando el NPC ya está en melee range. BanditBehaviorLayer (y futuros orquestadores) usan esto.
+func begin_scripted_warning_strike(target_pos: Vector2, retreat_lock_seconds: float) -> void:
+	_scripted_action_timer = maxf(retreat_lock_seconds, 0.1)
+	suppress_ai = true
+	_pending_extortion_strike = true
+	if weapon_component != null and weapon_component.current_weapon != null:
+		weapon_component.current_weapon.set("_cooldown", 0.0)  # garantizar que cooldown no bloquea
+	queue_ai_attack_press(target_pos)
+
+## Cancela la acción scriptada y devuelve el control al AIComponent.
+func end_scripted_action() -> void:
+	_scripted_action_timer = 0.0
+	suppress_ai = false
+	_pending_extortion_strike = false
 
 func perform_attack(_target_position: Vector2) -> void:
 	# Legacy entrypoint intentionally disabled to prevent duplicate attacks.

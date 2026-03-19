@@ -40,8 +40,7 @@ var _tick_timer: float = 0.0
 const DEBUG_ALERTED_CHASE: bool = true    # TEST: scout del grupo alerted persigue al player; pon false para desactivar
 const DEBUG_EXTORTION_ONE_HIT: bool = true  # TEST: un golpe de advertencia y retiran; pon false para aggro normal
 var _player: Node2D = null
-var _active_extortions: Dictionary = {}   # group_id -> {leader_id, assigned_ids, attacked}
-var _extortion_suppressed: Dictionary = {}  # enemy_id -> RunClock time hasta re-activar AIComponent
+var _active_extortions: Dictionary = {}  # group_id -> {leader_id, assigned_ids, attacked}
 
 # Cached world-level item/resource lists (rebuilt once per tick, shared across all enemies)
 var _all_drops_cache: Array    = []   # Array of ItemDrop nodes
@@ -87,20 +86,7 @@ func _physics_process(_delta: float) -> void:
 	# TEST extortion — mover assigned hacia player + golpe único de advertencia
 	if DEBUG_EXTORTION_ONE_HIT and _player != null and is_instance_valid(_player):
 		var player_pos: Vector2 = _player.global_position
-		var now: float = RunClock.now()
 
-		# liberar suppress_ai cuando vence el periodo post-golpe
-		var expired: Array = []
-		for eid in _extortion_suppressed:
-			if now >= _extortion_suppressed[eid]:
-				expired.append(eid)
-		for eid in expired:
-			_extortion_suppressed.erase(eid)
-			var rnode = _npc_simulator._get_active_enemy_node(eid)
-			if rnode != null and "suppress_ai" in rnode:
-				rnode.suppress_ai = false
-
-		# jobs activos: forzar suppress_ai cada frame + mover + comprobar melee
 		for gid in _active_extortions:
 			var job: Dictionary = _active_extortions[gid]
 			if job.get("attacked", false):
@@ -109,7 +95,7 @@ func _physics_process(_delta: float) -> void:
 				var enode = _npc_simulator._get_active_enemy_node(eid)
 				if enode == null:
 					continue
-				# forzar suppress_ai cada frame (inmune al sleep-check timer)
+				# suprimir combat AI durante el acercamiento (inmune al sleep-check timer)
 				if "suppress_ai" in enode:
 					enode.suppress_ai = true
 				# mover hacia player
@@ -117,25 +103,18 @@ func _physics_process(_delta: float) -> void:
 				var dist: float = to_player.length()
 				if dist > 1.0:
 					enode.velocity = to_player.normalized() * (55.0 + FRICTION_COMPENSATION)
-				# comprobar melee — solo el primero que llega golpea
+				# comprobar melee — solo el primero que llega dispara el golpe único
 				var atk_range: float = 76.0
 				if "attack_range" in enode:
 					atk_range = enode.attack_range + 16.0
 				if dist <= atk_range:
-					# habilitar weapon pipeline para este único golpe
-					if "suppress_ai" in enode:
-						enode._pending_extortion_strike = true
-						# forzar cooldown a 0 para que el arma no bloquee el golpe
-						if enode.weapon_component != null and enode.weapon_component.current_weapon != null:
-							enode.weapon_component.current_weapon.set("_cooldown", 0.0)
-					if enode.has_method("queue_ai_attack_press"):
-						enode.queue_ai_attack_press(player_pos)
+					if enode.has_method("begin_scripted_warning_strike"):
+						enode.begin_scripted_warning_strike(player_pos, 7.0)
 					job["attacked"] = true
 					BanditGroupMemory.update_intent(gid, "idle")
 					for aid: String in job["assigned_ids"]:
 						if _behaviors.has(aid):
 							_behaviors[aid]._enter_return_home()
-						_extortion_suppressed[aid] = now + 7.0  # 7 s sin re-aggro para llegar a casa
 					Debug.log("extortion", "[EXTORT TEST] attack delivered group=%s by=%s" % [gid, eid])
 					break  # un solo golpe por job
 
