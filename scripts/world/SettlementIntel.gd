@@ -78,6 +78,8 @@ func process(delta: float) -> void:
 		var m: Dictionary = _markers[i]
 		if not bool(m.get("persistent", false)):
 			if _elapsed >= float(m.get("expires_at", 0.0)):
+				Debug.log("intel", "[MARKER] expired kind=%s tile=%s" % [
+					m.get("kind", "?"), str(m.get("tile_pos", Vector2i.ZERO))])
 				_markers.remove_at(i)
 		i -= 1
 
@@ -115,6 +117,7 @@ func record_interest_event(kind: String, world_pos: Vector2, meta: Dictionary = 
 				m["expires_at"] = _elapsed + ttl
 			if not meta.is_empty():
 				m["metadata"] = meta
+			Debug.log("intel", "[MARKER] refreshed kind=%s tile=%s" % [kind, str(tile_pos)])
 			return
 
 	var marker: Dictionary = {
@@ -128,6 +131,8 @@ func record_interest_event(kind: String, world_pos: Vector2, meta: Dictionary = 
 		"metadata":   meta,
 	}
 	_markers.append(marker)
+	Debug.log("intel", "[MARKER] created kind=%s tile=%s persistent=%s" % [
+		kind, str(tile_pos), str(persistent)])
 
 
 func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dictionary]:
@@ -139,11 +144,15 @@ func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dicti
 	return result
 
 
-func clear_invalid_persistent_markers() -> void:
+## Re-scan WorldSave for workbench placeables and sync persistent markers.
+## Call this when a workbench may have been placed or removed outside a signal.
+func rescan_workbench_markers() -> void:
 	_scan_workbenches()
 
 
-func mark_interest_scan_dirty_near(_world_pos: Vector2) -> void:
+## Mark the workbench scan as dirty so it runs on the next process() tick.
+## Note: scope is global (no per-zone filtering currently).
+func mark_interest_scan_dirty() -> void:
 	_dirty = true
 
 
@@ -200,6 +209,7 @@ func _scan_workbenches() -> void:
 		if m.get("kind", "") == "workbench":
 			var uid: String = String(m.get("metadata", {}).get("uid", ""))
 			if uid != "" and not live_uids.has(uid):
+				Debug.log("intel", "[MARKER] persistent removed kind=workbench uid=%s" % uid)
 				_markers.remove_at(i)
 		i -= 1
 
@@ -217,6 +227,7 @@ func _scan_workbenches() -> void:
 		var entry: Dictionary = live_uids[uid]
 		var tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
 		var wpos := _tile_to_world(tile)
+		Debug.log("intel", "[MARKER] workbench found uid=%s tile=%s" % [str(uid), str(tile)])
 		_markers.append({
 			"id":         "workbench_" + str(uid),
 			"kind":       "workbench",

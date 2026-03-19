@@ -1001,6 +1001,7 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 
 
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.
+## SettlementIntel — interest marker facade
 func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionary = {}) -> void:
 	if _settlement_intel != null:
 		_settlement_intel.record_interest_event(kind, world_pos, metadata)
@@ -1010,6 +1011,15 @@ func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dicti
 		return []
 	return _settlement_intel.get_interest_markers_near(world_pos, radius)
 
+func rescan_workbench_markers() -> void:
+	if _settlement_intel != null:
+		_settlement_intel.rescan_workbench_markers()
+
+func mark_interest_scan_dirty() -> void:
+	if _settlement_intel != null:
+		_settlement_intel.mark_interest_scan_dirty()
+
+## SettlementIntel — base detection facade
 func get_detected_bases_near(world_pos: Vector2, radius: float) -> Array[Dictionary]:
 	if _settlement_intel == null:
 		return []

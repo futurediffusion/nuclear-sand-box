@@ -494,42 +494,44 @@ Eventos de actividad efímera o persistente. No implican una base.
 
 Deduplicación: misma `kind` a < 96px → refresh en lugar de copia nueva.
 
-API markers:
-- `record_interest_event(kind, world_pos, metadata)` — registrar evento
-- `get_interest_markers_near(world_pos, radius) -> Array[Dictionary]` — consultar
-- `clear_invalid_persistent_markers()` — limpiar workbenches eliminados
-- `mark_interest_scan_dirty_near(world_pos)` — forzar rescan workbench
+**Fuentes:** `GameEvents.resource_harvested` (minería/tala), `PlacementSystem.placement_completed` (construcción), `WorldSave.placed_entities_by_chunk` (workbench scan periódico).
 
-Fuentes: `GameEvents.resource_harvested`, `PlacementSystem.placement_completed`, `WorldSave.placed_entities_by_chunk`.
+**Dirty scope:** el flag `_dirty` es **global** (no por zona). Cuando se marca dirty, el siguiente tick rescana todos los workbenches en WorldSave. No hay filtrado por proximidad todavía.
+
+API markers (también expuesta como fachada en `world.gd`):
+- `record_interest_event(kind, world_pos, metadata)` — registrar evento manualmente
+- `get_interest_markers_near(world_pos, radius) -> Array[Dictionary]` — consultar
+- `rescan_workbench_markers()` — forzar rescan de workbenches inmediato (nombre honesto: solo rescana workbenches)
+- `mark_interest_scan_dirty()` — marcar dirty para rescan en próximo tick (scope global)
 
 #### Capa 2 — Base Detection
 Detecta cierres reales: walls del jugador + doorwood + espacio interior cerrado.
 
-**Heurística (por cada doorwood en WorldSave):**
+**Heurística (por cada doorwood en WorldSave cerca del jugador):**
 1. Ventana 25×25 tiles alrededor de la puerta
 2. Cargar walls del jugador (`WorldSave.player_walls_by_chunk`) dentro de la ventana
-3. Validar que la puerta tiene ≥ 2 walls adyacentes cardinalmente
-4. BFS desde cada vecino libre de la puerta; si el fill sale del borde → exterior (descartado)
-5. Si hay un fill contenido con ≥ 4 tiles interiores → base detectada
+3. Validar ≥ 2 walls cardinalmente adyacentes a la puerta
+4. BFS desde cada vecino libre; si el fill sale del borde → exterior (descartado)
+5. Fill contenido con ≥ 4 tiles interiores y ≥ 4 walls en ventana → base detectada
 
 **Datos de una base:**
 `id`, `center_world_pos`, `center_tile`, `door_tile`, `interior_tile_count`, `bounds`, `wall_count`, `updated_at`
 
-**Triggers de rescan:**
-- Colocar/romper una wall → `_mark_walls_dirty_and_refresh_for_tiles` en world.gd
-- Wall destruida → señal `player_wall_drop`
-- Colocar doorwood/wallwood → `PlacementSystem.placement_completed`
-- Periódico: cada 10s usando la posición del jugador
+**Triggers de rescan de bases:**
+- Colocar/romper wall → `_mark_walls_dirty_and_refresh_for_tiles` en world.gd → `mark_base_scan_dirty_near`
+- Wall destruida → señal `player_wall_drop` → `mark_base_scan_dirty_near`
+- Colocar doorwood/wallwood → `PlacementSystem.placement_completed` → `mark_base_scan_dirty_near`
+- Periódico: cada 10s usando posición del jugador vía `player_pos_getter`
 
-API bases:
+API bases (también expuesta como fachada en `world.gd`):
 - `rescan_bases_near(world_pos, radius)` — forzar rescan inmediato
 - `get_detected_bases_near(world_pos, radius) -> Array[Dictionary]`
 - `has_detected_base_near(world_pos, radius) -> bool`
-- `mark_base_scan_dirty_near(world_pos)` — marcar dirty
+- `mark_base_scan_dirty_near(world_pos)` — marcar dirty (scope global actualmente, world_pos ignorado)
 
 **Limitaciones MVP:**
-- Eliminación de doorwood no tiene señal → el stale marker desaparece al siguiente rescan (≤10s)
-- Rooms > 25×25 tiles no se detectan (ventana fija)
+- Eliminación de doorwood sin señal → stale base desaparece en ≤10s
+- Rooms > 25×25 tiles no se detectan
 - No persiste entre sesiones
-- Un solo doorwood por base; múltiples puertas generan múltiples detecciones independientes
-- Mantener este archivo actualizado cuando cambie la realidad jugable del proyecto.
+- Múltiples puertas generan entradas de base independientes
+- `mark_base_scan_dirty_near` ignora el world_pos (dirty es global)
