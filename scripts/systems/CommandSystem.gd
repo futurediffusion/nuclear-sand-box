@@ -249,6 +249,8 @@ func _execute_command(command_text: String) -> void:
 				_cmd_summon_enemy(parts.slice(2))
 			else:
 				Debug.log("commands", "Uso: /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]")
+		"gotocamp", "camp":
+			_cmd_goto_camp()
 		"sellall":
 			if not Debug.dev_cheats_enabled:
 				Debug.log("commands", "Comando de dev_cheats deshabilitado: %s" % base_command)
@@ -659,6 +661,55 @@ func _cmd_buydbg(raw_args: Array) -> void:
 			Debug.log("commands", "Fallo al comprar '%s': sin oro o sin espacio" % item_id)
 	else:
 		Debug.log("commands", "El inventario no soporta buy_item")
+
+## /gotocamp — teletransporta al player a un campamento bandido aleatorio
+func _cmd_goto_camp() -> void:
+	if _player == null:
+		Debug.log("commands", "/gotocamp: player no disponible")
+		return
+
+	# Collect unique home positions from all registered groups
+	var candidates: Array[Vector2] = []
+	for gid in BanditGroupMemory.get_all_group_ids():
+		var g: Dictionary = BanditGroupMemory.get_group(String(gid))
+		var hp = g.get("home_world_pos", null)
+		if hp is Vector2 and (hp as Vector2) != Vector2.ZERO:
+			candidates.append(hp as Vector2)
+
+	# Fallback: scan WorldSave directly (catches unloaded chunks)
+	if candidates.is_empty():
+		var seen: Dictionary = {}
+		for chunk_key in WorldSave.enemy_state_by_chunk:
+			for eid in WorldSave.enemy_state_by_chunk[chunk_key]:
+				var st = WorldSave.enemy_state_by_chunk[chunk_key][eid]
+				if not (st is Dictionary):
+					continue
+				var hp = (st as Dictionary).get("home_world_pos", null)
+				var key_str: String = ""
+				if hp is Vector2:
+					key_str = str(hp)
+				elif hp is Dictionary:
+					key_str = "%s_%s" % [str((hp as Dictionary).get("x", 0)), str((hp as Dictionary).get("y", 0))]
+				if key_str == "" or seen.has(key_str):
+					continue
+				seen[key_str] = true
+				var pos: Vector2
+				if hp is Vector2:
+					pos = hp as Vector2
+				else:
+					pos = Vector2(float((hp as Dictionary).get("x", 0.0)), float((hp as Dictionary).get("y", 0.0)))
+				if pos != Vector2.ZERO:
+					candidates.append(pos)
+
+	if candidates.is_empty():
+		Debug.log("commands", "/gotocamp: no se encontraron campamentos")
+		return
+
+	candidates.shuffle()
+	var dest: Vector2 = candidates[0]
+	(_player as Node2D).global_position = dest
+	Debug.log("commands", "/gotocamp → %s" % str(dest))
+
 
 func _cmd_summon_enemy(raw_args: Array) -> void:
 	if ENEMY_SCENE == null or _world == null:

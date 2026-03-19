@@ -125,7 +125,8 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	# Safety: force RETURN_HOME if strayed too far from home
 	var _home_dist: float = _get_home_return_dist()
 	if state != State.RETURN_HOME and state != State.IDLE_AT_HOME \
-			and state != State.LOOT_APPROACH and state != State.EXTORT_RETREAT:
+			and state != State.LOOT_APPROACH \
+			and state != State.EXTORT_APPROACH and state != State.EXTORT_RETREAT:
 		if node_pos.distance_squared_to(home_pos) > _home_dist * _home_dist:
 			_enter_return_home()
 
