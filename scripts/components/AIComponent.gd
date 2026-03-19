@@ -329,6 +329,9 @@ func _execute_light_tick(delta: float, force_hold_override: bool = false) -> voi
 				owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 			else:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
+				# Anchor reached — resume normal routine instead of freezing here
+				current_state = AIState.IDLE
+				_release_attack_input()
 		AIState.HOLD_PERIMETER:
 			var dist: float = owner_entity.global_position.distance_to(_perimeter_anchor)
 			if dist > 40.0:
@@ -468,11 +471,15 @@ func _update_state() -> void:
 
 		if verdict == DownedEncounterCoordinator.Verdict.SPARE:
 			if current_state != AIState.DISENGAGE:
-				_release_attack_input()
-				current_state = AIState.DISENGAGE
-				_ignore_target_until = float(policy.get("ignore_until", 0.0))
-				_ignored_target_id = target.get_instance_id()
-				_compute_disengage_anchor(float(policy.get("safe_radius", 180.0)))
+				# Don't re-enter DISENGAGE if we already reached the anchor
+				var at_anchor: bool = _disengage_anchor != Vector2.ZERO and \
+						owner_entity.global_position.distance_squared_to(_disengage_anchor) <= 24.0 * 24.0
+				if not at_anchor:
+					_release_attack_input()
+					current_state = AIState.DISENGAGE
+					_ignore_target_until = float(policy.get("ignore_until", 0.0))
+					_ignored_target_id = target.get_instance_id()
+					_compute_disengage_anchor(float(policy.get("safe_radius", 180.0)))
 			return
 
 		elif verdict == DownedEncounterCoordinator.Verdict.FINISH:
@@ -491,15 +498,23 @@ func _update_state() -> void:
 				# Proceed with normal attack logic against downed target
 				pass
 			else:
-				if current_state != AIState.HOLD_PERIMETER:
-					_release_attack_input()
-					current_state = AIState.HOLD_PERIMETER
-					_compute_perimeter_anchor(120.0)
+				# Non-executor: brief retreat then return to idle (not a permanent orbit)
+				if current_state != AIState.DISENGAGE:
+					var at_anchor: bool = _disengage_anchor != Vector2.ZERO and \
+							owner_entity.global_position.distance_squared_to(_disengage_anchor) <= 24.0 * 24.0
+					if not at_anchor:
+						_release_attack_input()
+						current_state = AIState.DISENGAGE
+						_compute_disengage_anchor(120.0)
 				return
 	else:
 		if target.get_instance_id() == _ignored_target_id and RunClock.now() < _ignore_target_until:
 			if current_state != AIState.DISENGAGE:
-				current_state = AIState.DISENGAGE
+				# Don't re-enter DISENGAGE if already at anchor (arrived, now idling)
+				var at_anchor: bool = _disengage_anchor != Vector2.ZERO and \
+						owner_entity.global_position.distance_squared_to(_disengage_anchor) <= 24.0 * 24.0
+				if not at_anchor:
+					current_state = AIState.DISENGAGE
 			return
 		elif current_state == AIState.DISENGAGE or current_state == AIState.HOLD_PERIMETER:
 			current_state = AIState.IDLE
