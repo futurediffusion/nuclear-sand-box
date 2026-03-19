@@ -13,6 +13,7 @@ const DEFAULT_BALANCE_CONFIG: BalanceConfig = preload("res://data/resources/Defa
 
 @onready var game_over_panel: Control = $UI/GameOverPanel
 @onready var retry_button: Button = $UI/GameOverPanel/VBoxContainer/RetryButton
+@onready var quit_button: Button  = $UI/GameOverPanel/VBoxContainer/QUIT
 @onready var inv_menu = $UI/PlayerInventoryMenu
 @onready var player: Node = $Player
 @onready var world: Node2D = $World
@@ -46,6 +47,7 @@ func _ready() -> void:
 	game_over_panel.process_mode = Node.PROCESS_MODE_WHEN_PAUSED
 	game_over_panel.visible = false
 	retry_button.pressed.connect(_on_retry_pressed)
+	quit_button.pressed.connect(_on_quit_pressed)
 	if not GameManager.player_died.is_connected(_on_player_died_from_manager):
 		GameManager.player_died.connect(_on_player_died_from_manager)
 
@@ -70,6 +72,11 @@ func _on_player_died_from_manager() -> void:
 
 func on_player_died() -> void:
 	_on_player_died_from_manager()
+
+
+func _on_quit_pressed() -> void:
+	get_tree().paused = false
+	get_tree().quit()
 
 
 func _on_retry_pressed() -> void:

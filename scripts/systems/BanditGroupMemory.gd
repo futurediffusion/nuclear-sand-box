@@ -112,6 +112,68 @@ func get_groups_for_faction(faction_id: String) -> Array:
 # Internal factory
 # ---------------------------------------------------------------------------
 
+## Scavenger reports a resource to group memory.
+## Deduplicates by 32 px grid cell; trims entries older than 90 s.
+func report_resource(group_id: String, pos: Vector2, reporter_id: String) -> void:
+	if not _groups.has(group_id):
+		return
+	if not _groups[group_id].has("reported_resources"):
+		_groups[group_id]["reported_resources"] = []
+	var key: String = _res_pos_key(pos)
+	var now: float  = RunClock.now()
+	var arr: Array  = _groups[group_id]["reported_resources"]
+	for i in range(arr.size() - 1, -1, -1):
+		var e: Dictionary = arr[i]
+		if now - float(e.get("time", 0.0)) > 90.0 or String(e.get("res_key", "")) == key:
+			arr.remove_at(i)
+	arr.append({"pos": pos, "reporter_id": reporter_id, "res_key": key, "time": now})
+
+
+func get_reported_resources(group_id: String) -> Array:
+	if not _groups.has(group_id):
+		return []
+	if not _groups[group_id].has("reported_resources"):
+		return []
+	return _groups[group_id]["reported_resources"]
+
+
+## Mark a resource cell as claimed by member_id.
+func claim_resource(group_id: String, res_key: String, member_id: String) -> void:
+	if not _groups.has(group_id) or res_key == "":
+		return
+	if not _groups[group_id].has("resource_claims"):
+		_groups[group_id]["resource_claims"] = {}
+	_groups[group_id]["resource_claims"][res_key] = member_id
+
+
+## Release any resource cell previously claimed by this member.
+func release_resource_by_member(group_id: String, member_id: String) -> void:
+	if not _groups.has(group_id):
+		return
+	if not _groups[group_id].has("resource_claims"):
+		return
+	var claims: Dictionary = _groups[group_id]["resource_claims"]
+	for key in claims.keys():
+		if String(claims[key]) == member_id:
+			claims.erase(key)
+			return
+
+
+## Returns true if res_key is claimed by a *different* member.
+func is_resource_claimed_by_other(group_id: String, res_key: String, member_id: String) -> bool:
+	if not _groups.has(group_id) or res_key == "":
+		return false
+	if not _groups[group_id].has("resource_claims"):
+		return false
+	var claimer: String = String(_groups[group_id]["resource_claims"].get(res_key, ""))
+	return claimer != "" and claimer != member_id
+
+
+## Stable 32 px grid key for a world position.
+static func _res_pos_key(pos: Vector2) -> String:
+	return "%d_%d" % [int(pos.x / 32.0), int(pos.y / 32.0)]
+
+
 func promote_leader(group_id: String, npc_id: String) -> void:
 	if not _groups.has(group_id):
 		return
@@ -140,6 +202,8 @@ func _make_group(group_id: String, faction_id: String, home_world_pos: Vector2) 
 		"extortion_pending":          false,
 		"last_extortion_request_time": 0.0,
 		"scout_npc_id":               "",
+		"reported_resources":         [],   # [{pos, reporter_id, res_key, time}]
+		"resource_claims":            {},   # {res_key -> member_id}
 	}
 
 

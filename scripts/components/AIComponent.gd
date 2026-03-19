@@ -271,7 +271,11 @@ func physics_tick(delta: float) -> void:
 
 	if should_run_heavy:
 		_update_state()
-		if current_state == AIState.ATTACK or current_state == AIState.CHASE:
+		# _try_attack_logic solo cuando el target está en rango visible:
+		# ATTACK siempre, CHASE solo si aún dentro de acquire_radius (no en chase retenido)
+		var can_attack: bool = current_state == AIState.ATTACK or \
+				(current_state == AIState.CHASE and distance <= _get_effective_acquire_radius())
+		if can_attack:
 			_try_attack_logic(delta)
 		else:
 			_release_attack_input()
