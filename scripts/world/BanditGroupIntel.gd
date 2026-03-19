@@ -182,22 +182,41 @@ func _pick_best_interest(markers: Array, bases: Array) -> Dictionary:
 func _pick_scout(group_id: String, g: Dictionary) -> String:
 	var member_ids: Array = g.get("member_ids", [])
 	var leader_id: String = String(g.get("leader_id", ""))
-	# Prefer a currently sleeping (idle) non-leader
+
+	# Priority: scavenger+sleeping > bodyguard+sleeping > scavenger+alive > bodyguard+alive > any alive non-leader
+	var best_scav_sleep:  String = ""
+	var best_guard_sleep: String = ""
+	var best_scav_alive:  String = ""
+	var best_guard_alive: String = ""
+	var best_any_alive:   String = ""
+
 	for mid in member_ids:
 		var id: String = String(mid)
 		if id == leader_id:
 			continue
 		var node = _npc_simulator._get_active_enemy_node(id)
-		if node != null and node.is_sleeping():
-			return id
-	# Fallback: any live non-leader
-	for mid in member_ids:
-		var id: String = String(mid)
-		if id == leader_id:
+		if node == null:
 			continue
-		if _npc_simulator._get_active_enemy_node(id) != null:
-			return id
-	return ""
+		var r: String = String(NpcProfileSystem.get_profile(id).get("role", ""))
+		var sleeping: bool = node.is_sleeping()
+		if r == "scavenger":
+			if sleeping and best_scav_sleep == "":
+				best_scav_sleep = id
+			elif best_scav_alive == "":
+				best_scav_alive = id
+		elif r == "bodyguard":
+			if sleeping and best_guard_sleep == "":
+				best_guard_sleep = id
+			elif best_guard_alive == "":
+				best_guard_alive = id
+		if best_any_alive == "":
+			best_any_alive = id
+
+	if best_scav_sleep  != "": return best_scav_sleep
+	if best_guard_sleep != "": return best_guard_sleep
+	if best_scav_alive  != "": return best_scav_alive
+	if best_guard_alive != "": return best_guard_alive
+	return best_any_alive
 
 
 # ---------------------------------------------------------------------------

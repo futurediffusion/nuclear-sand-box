@@ -137,6 +137,11 @@ func _tick_behaviors() -> void:
 
 		beh.tick(TICK_INTERVAL, ctx)
 
+		# Sync cargo_count back to WorldSave so it survives despawn/reload
+		var save_state_ref: Dictionary = _get_save_state_for(enemy_id)
+		if not save_state_ref.is_empty():
+			save_state_ref["cargo_count"] = beh.cargo_count
+
 		# Handle collection (actual node interaction lives here, not in behavior)
 		if beh.pending_collect_id != 0:
 			_handle_collection(beh)
@@ -159,15 +164,21 @@ func _handle_collection(beh: BanditWorldBehavior) -> void:
 	if drop_node == null or drop_node.is_queued_for_deletion():
 		return
 
-	# Read amount before freeing
+	# Read amount + sound before freeing
 	var collected_amount: int = 1
 	if drop_node.has_method("get") and drop_node.get("amount") != null:
 		collected_amount = int(drop_node.get("amount"))
+	var drop_pos: Vector2 = drop_node.global_position
+	var pickup_sfx = drop_node.get("pickup_sfx") if drop_node.has_method("get") else null
 
 	# Increment cargo (clamp to capacity)
 	var prev: int = beh.cargo_count
 	beh.cargo_count = mini(beh.cargo_count + collected_amount, beh.cargo_capacity)
 	drop_node.queue_free()
+	AudioSystem.play_2d(
+		pickup_sfx if pickup_sfx is AudioStream else AudioSystem.default_pickup_sfx,
+		drop_pos
+	)
 
 	Debug.log("bandit_ai", "[BanditBL] collected drop id=%s role=%s cargo=%d→%d/%d" % [
 		beh.member_id, beh.role, prev, beh.cargo_count, beh.cargo_capacity])
@@ -227,10 +238,11 @@ func _ensure_behaviors_for_active_enemies() -> void:
 			continue
 		var beh := BanditWorldBehavior.new()
 		beh.setup({
-			"home_pos":  _get_home_pos(save_state),
-			"role":      String(save_state.get("role", "scavenger")),
-			"group_id":  String(save_state.get("group_id", "")),
-			"member_id": enemy_id_str,
+			"home_pos":      _get_home_pos(save_state),
+			"role":          String(save_state.get("role", "scavenger")),
+			"group_id":      String(save_state.get("group_id", "")),
+			"member_id":     enemy_id_str,
+			"cargo_count":   int(save_state.get("cargo_count", 0)),
 		})
 		_behaviors[enemy_id_str] = beh
 		Debug.log("bandit_ai", "[BanditBL] behavior created id=%s role=%s group=%s cargo_cap=%d home=%s" % [

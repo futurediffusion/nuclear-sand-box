@@ -88,6 +88,7 @@ func setup(cfg: Dictionary) -> void:
 	group_id       = cfg.get("group_id",       "")
 	member_id      = cfg.get("member_id",      "")
 	cargo_capacity = cfg.get("cargo_capacity", 3)
+	cargo_count    = cfg.get("cargo_count",    0)
 	_rng.randomize()
 	_move_target = home_pos
 	state        = State.IDLE_AT_HOME

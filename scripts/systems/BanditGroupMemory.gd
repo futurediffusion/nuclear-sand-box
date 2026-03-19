@@ -112,6 +112,12 @@ func get_groups_for_faction(faction_id: String) -> Array:
 # Internal factory
 # ---------------------------------------------------------------------------
 
+func promote_leader(group_id: String, npc_id: String) -> void:
+	if not _groups.has(group_id):
+		return
+	_groups[group_id]["leader_id"] = npc_id
+	Debug.log("bandit_group", "[BGM] leader promoted id=%s group=%s" % [npc_id, group_id])
+
 func set_scout(group_id: String, npc_id: String) -> void:
 	if not _groups.has(group_id):
 		return

@@ -259,6 +259,14 @@ func on_entity_died(uid: String) -> void:
 			var gid: String = String((dead_state as Dictionary).get("group_id", ""))
 			if gid != "":
 				BanditGroupMemory.remove_member(gid, uid)
+				# If the leader just died, promote the first live non-dead member
+				var g_after: Dictionary = BanditGroupMemory.get_group(gid)
+				if String(g_after.get("leader_id", "")) == "":
+					for mid in g_after.get("member_ids", []):
+						var mid_str: String = String(mid)
+						if NpcProfileSystem.get_status(mid_str) != "dead":
+							BanditGroupMemory.promote_leader(gid, mid_str)
+							break
 	spawning_enemy_ids.erase(uid)
 	NpcProfileSystem.set_status(uid, "dead")
 
