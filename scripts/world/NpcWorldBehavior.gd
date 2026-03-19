@@ -105,9 +105,10 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	var node_pos: Vector2 = ctx.get("node_pos", home_pos)
 
 	# Safety: force RETURN_HOME if strayed too far from home
+	var _home_dist: float = _get_home_return_dist()
 	if state != State.RETURN_HOME and state != State.IDLE_AT_HOME \
 			and state != State.LOOT_APPROACH:
-		if node_pos.distance_squared_to(home_pos) > HOME_RETURN_DIST * HOME_RETURN_DIST:
+		if node_pos.distance_squared_to(home_pos) > _home_dist * _home_dist:
 			_enter_return_home()
 
 	_tick_state(delta, ctx, node_pos)
@@ -155,6 +156,12 @@ func _get_patrol_radius() -> float:
 func _get_speed() -> float:
 	return 55.0
 
+func _get_home_return_dist() -> float:
+	return HOME_RETURN_DIST
+
+func _get_max_patrol_time() -> float:
+	return MAX_PATROL_TIME
+
 
 # ---------------------------------------------------------------------------
 # Pathfinding helpers
@@ -188,7 +195,7 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 		State.PATROL:
 			_desired_velocity = _pathfind_dir(node_pos, _move_target) * _get_speed()
 			if node_pos.distance_squared_to(_move_target) < ARRIVED_DIST_SQ \
-					or _state_timer > MAX_PATROL_TIME:
+					or _state_timer > _get_max_patrol_time():
 				_enter_idle_at_home()
 
 		State.RETURN_HOME:
@@ -203,7 +210,7 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 		State.APPROACH_INTEREST:
 			_desired_velocity = _pathfind_dir(node_pos, _move_target) * _get_speed()
 			if node_pos.distance_squared_to(_move_target) < ARRIVED_DIST_SQ \
-					or _state_timer > MAX_PATROL_TIME:
+					or _state_timer > _get_max_patrol_time():
 				_enter_idle_at_home()
 
 		State.FOLLOW_LEADER:
@@ -246,7 +253,7 @@ func _tick_loot_approach(node_pos: Vector2) -> void:
 		_enter_idle_at_home()
 
 	# Abort if taking too long (drop might be unreachable)
-	elif _state_timer > MAX_PATROL_TIME:
+	elif _state_timer > _get_max_patrol_time():
 		_loot_target_id = 0
 		_enter_idle_at_home()
 
