@@ -338,13 +338,14 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 					pass  # scavengers keep their own work
 
 		"extorting":
-			if role == "leader":
-				var g: Dictionary = BanditGroupMemory.get_group(group_id)
-				var interest_pos: Vector2 = g.get("last_interest_pos", home_pos)
-				if interest_pos.distance_squared_to(home_pos) > 1.0:
-					_move_target = interest_pos
-					state        = State.APPROACH_INTEREST
-					_state_timer = 0.0
+			match role:
+				"leader", "bodyguard":
+					var g: Dictionary = BanditGroupMemory.get_group(group_id)
+					var interest_pos: Vector2 = g.get("last_interest_pos", home_pos)
+					if interest_pos.distance_squared_to(home_pos) > 1.0:
+						enter_extort_approach(interest_pos)
+				_:
+					pass  # scavengers keep their own work
 
 		"alerted":
 			# One designated scout investigates; others hold their current state
@@ -362,7 +363,8 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 
 		"idle":
 			# Wind down any active group pursuit when returning to idle
-			if state == State.APPROACH_INTEREST or state == State.FOLLOW_LEADER:
+			if state == State.APPROACH_INTEREST or state == State.FOLLOW_LEADER \
+					or state == State.EXTORT_APPROACH:
 				_enter_return_home()
 
 

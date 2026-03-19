@@ -284,6 +284,23 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 		if node.has_node("AIComponent"):
 			node.get_node("AIComponent").call("set_downed")
 
+	# Hydrate AIComponent with tactical memory so the NPC appears "already in process"
+	var mode_hint: String = String(save_state.get("ai_mode_hint", ""))
+	if mode_hint != "" and mode_hint != "idle":
+		var ai_node = node.get_node_or_null("AIComponent")
+		if ai_node != null:
+			var lsp = save_state.get("ai_last_seen_player_pos", null)
+			if lsp is Vector2 and (lsp as Vector2) != Vector2.ZERO:
+				ai_node.last_seen_player_pos  = lsp as Vector2
+				ai_node.last_seen_target_time = float(save_state.get("ai_last_seen_time", 0.0))
+			# Wake the NPC immediately if it spawns close to the player during a hunt
+			if (mode_hint == "hunting" or mode_hint == "alerted") and player != null \
+					and is_instance_valid(player):
+				var spawn_pos: Vector2 = Vector2(save_state.get("pos", Vector2.ZERO))
+				if spawn_pos.distance_to(player.global_position) < 600.0:
+					if ai_node.has_method("wake_now"):
+						ai_node.call("wake_now")
+
 # Llamado desde World._on_spawn_queue_job_skipped cuando kind == "enemy"
 func on_enemy_job_skipped(job: Dictionary) -> void:
 	spawning_enemy_ids.erase(String(job.get("uid", "")))
@@ -540,6 +557,18 @@ func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float) 
 		state["pos"] = next
 	state["world_behavior"] = beh.export_state()
 	state["cargo_count"]    = beh.cargo_count
+
+	# Tactical memory — read group intent so the spawned node can hit the ground running
+	var gid: String = String(state.get("group_id", ""))
+	if gid != "":
+		var g: Dictionary = BanditGroupMemory.get_group(gid)
+		var intent: String = String(g.get("current_group_intent", "idle"))
+		state["ai_mode_hint"] = intent
+		if intent == "hunting" or intent == "alerted":
+			var lip: Vector2 = g.get("last_interest_pos", Vector2.ZERO)
+			if lip != Vector2.ZERO:
+				state["ai_last_seen_player_pos"] = lip
+				state["ai_last_seen_time"]       = RunClock.now()
 
 
 func _prewarm_chunk(chunk_key: String) -> void:

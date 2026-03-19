@@ -32,8 +32,10 @@ enum State {
 	RETURN_HOME,
 	APPROACH_INTEREST,
 	FOLLOW_LEADER,
-	LOOT_APPROACH,     # moving toward a visible ItemDrop
-	RESOURCE_WATCH,    # patrolling tight area around a resource node
+	LOOT_APPROACH,      # moving toward a visible ItemDrop
+	RESOURCE_WATCH,     # orbiting a resource node
+	EXTORT_APPROACH,    # moving toward extortion target (data-only + live)
+	EXTORT_RETREAT,     # returning home after extortion attempt
 }
 
 # ── Spatial ──────────────────────────────────────────────────────────────────
@@ -77,9 +79,16 @@ var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 # LOOT_APPROACH
 var _loot_target_id: int = 0   # instance_id of target ItemDrop
 
-# RESOURCE_WATCH
-var _resource_watch_pos: Vector2   = Vector2.ZERO
-var _resource_watch_timer: float   = 0.0
+# RESOURCE_WATCH — orbit state
+var _resource_watch_pos: Vector2    = Vector2.ZERO
+var _resource_watch_timer: float    = 0.0
+var _resource_orbit_radius: float   = 38.0   # px; fixed per session
+var _resource_orbit_angle: float    = 0.0    # current angle (radians)
+var _resource_orbit_dir: float      = 1.0    # +1 CCW, -1 CW
+var _resource_orbit_step: float     = 0.6    # rad advanced per waypoint
+
+# Last known node position — lets enter_resource_watch compute initial angle
+var _last_node_pos: Vector2 = Vector2.ZERO
 
 # STUCK detection (PATROL / APPROACH_INTEREST)
 var _stuck_check_pos: Vector2 = Vector2.ZERO
@@ -111,11 +120,12 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	_state_timer += delta
 	_desired_velocity = Vector2.ZERO
 	var node_pos: Vector2 = ctx.get("node_pos", home_pos)
+	_last_node_pos = node_pos
 
 	# Safety: force RETURN_HOME if strayed too far from home
 	var _home_dist: float = _get_home_return_dist()
 	if state != State.RETURN_HOME and state != State.IDLE_AT_HOME \
-			and state != State.LOOT_APPROACH:
+			and state != State.LOOT_APPROACH and state != State.EXTORT_RETREAT:
 		if node_pos.distance_squared_to(home_pos) > _home_dist * _home_dist:
 			_enter_return_home()
 
@@ -145,14 +155,34 @@ func enter_loot_approach(drop_id: int) -> void:
 	_state_timer = 0.0
 	_invalidate_npc_path()
 
-## Enter RESOURCE_WATCH, patrolling tightly around resource_pos.
+## Begin moving toward an extortion target position.
+func enter_extort_approach(target_pos: Vector2) -> void:
+	_move_target = target_pos
+	state        = State.EXTORT_APPROACH
+	_state_timer = 0.0
+	_invalidate_npc_path()
+
+## Enter RESOURCE_WATCH, orbiting resource_pos at a fixed radius.
 func enter_resource_watch(resource_pos: Vector2) -> void:
 	_resource_watch_pos   = resource_pos
 	_resource_watch_timer = 0.0
-	var angle: float = _rng.randf_range(0.0, TAU)
-	_move_target = resource_pos + Vector2(cos(angle), sin(angle)) * 18.0
-	state        = State.RESOURCE_WATCH
-	_state_timer = 0.0
+	state                 = State.RESOURCE_WATCH
+	_state_timer          = 0.0
+
+	# Orbit parameters — fixed for the duration of this watch session
+	_resource_orbit_radius = _rng.randf_range(32.0, 44.0)
+	_resource_orbit_dir    = 1.0 if _rng.randf() > 0.5 else -1.0
+	_resource_orbit_step   = _rng.randf_range(0.45, 0.75)
+
+	# Initial angle: from resource center toward the NPC (place first waypoint
+	# near where we already are so we don't cut through the center)
+	var from_res: Vector2 = _last_node_pos - resource_pos
+	if from_res.length_squared() > 4.0:
+		_resource_orbit_angle = atan2(from_res.y, from_res.x)
+	else:
+		_resource_orbit_angle = _rng.randf_range(0.0, TAU)
+
+	_move_target = resource_pos + Vector2(cos(_resource_orbit_angle), sin(_resource_orbit_angle)) * _resource_orbit_radius
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +285,18 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 		State.RESOURCE_WATCH:
 			_tick_resource_watch(delta, node_pos)
 
+		State.EXTORT_APPROACH:
+			_desired_velocity = _pathfind_dir(node_pos, _move_target) * _get_speed()
+			# Arrived or timed out → fall back home
+			if node_pos.distance_squared_to(_move_target) < ARRIVED_DIST_SQ \
+					or _state_timer > _get_max_patrol_time() * 0.4:
+				_enter_extort_retreat()
+
+		State.EXTORT_RETREAT:
+			_desired_velocity = _pathfind_dir(node_pos, home_pos) * (_get_speed() * 0.7)
+			if node_pos.distance_squared_to(home_pos) < ARRIVED_DIST_SQ:
+				_enter_idle_at_home()
+
 
 func _tick_loot_approach(node_pos: Vector2) -> void:
 	if _loot_target_id == 0 or not is_instance_id_valid(_loot_target_id):
@@ -292,12 +334,14 @@ func _tick_loot_approach(node_pos: Vector2) -> void:
 func _tick_resource_watch(delta: float, node_pos: Vector2) -> void:
 	_resource_watch_timer += delta
 
-	# Slowly orbit the resource position
+	# Move toward current orbit waypoint at reduced speed
 	_desired_velocity = _move_dir(node_pos, _move_target) * (_get_speed() * 0.55)
+
+	# On arrival, step the orbit angle and place the next waypoint on the circumference
 	if node_pos.distance_squared_to(_move_target) < ARRIVED_DIST_SQ:
-		# Pick next orbit point
-		var angle: float = _rng.randf_range(0.0, TAU)
-		_move_target = _resource_watch_pos + Vector2(cos(angle), sin(angle)) * _rng.randf_range(10.0, 28.0)
+		_resource_orbit_angle += _resource_orbit_step * _resource_orbit_dir
+		_move_target = _resource_watch_pos + \
+				Vector2(cos(_resource_orbit_angle), sin(_resource_orbit_angle)) * _resource_orbit_radius
 
 	if _resource_watch_timer >= RESOURCE_WATCH_DURATION:
 		_resource_watch_timer = 0.0
@@ -333,6 +377,11 @@ func _enter_return_home() -> void:
 	_state_timer = 0.0
 	_invalidate_npc_path()
 
+func _enter_extort_retreat() -> void:
+	state        = State.EXTORT_RETREAT
+	_state_timer = 0.0
+	_invalidate_npc_path()
+
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -354,15 +403,19 @@ func _move_dir(from: Vector2, to: Vector2) -> Vector2:
 ## Call before handing off to data-only mode or before despawning.
 func export_state() -> Dictionary:
 	return {
-		"wb_state":           int(state),
-		"wb_move_target":     _move_target,
-		"wb_idle_timer":      _idle_timer,
-		"wb_state_timer":     _state_timer,
-		"wb_cargo_count":     cargo_count,
-		"wb_cargo_cap":       cargo_capacity,
-		"wb_res_watch_pos":   _resource_watch_pos,
-		"wb_res_watch_timer": _resource_watch_timer,
-		"wb_rng_state":       str(_rng.state),
+		"wb_state":            int(state),
+		"wb_move_target":      _move_target,
+		"wb_idle_timer":       _idle_timer,
+		"wb_state_timer":      _state_timer,
+		"wb_cargo_count":      cargo_count,
+		"wb_cargo_cap":        cargo_capacity,
+		"wb_res_watch_pos":    _resource_watch_pos,
+		"wb_res_watch_timer":  _resource_watch_timer,
+		"wb_orbit_radius":     _resource_orbit_radius,
+		"wb_orbit_angle":      _resource_orbit_angle,
+		"wb_orbit_dir":        _resource_orbit_dir,
+		"wb_orbit_step":       _resource_orbit_step,
+		"wb_rng_state":        str(_rng.state),
 	}
 
 ## Restores behavior state from a previously exported dictionary.
@@ -381,8 +434,12 @@ func import_state(data: Dictionary) -> void:
 	cargo_count           = int(data.get("wb_cargo_count",       cargo_count))
 	cargo_capacity        = int(data.get("wb_cargo_cap",         cargo_capacity))
 	var rwp = data.get("wb_res_watch_pos", Vector2.ZERO)
-	_resource_watch_pos   = rwp if rwp is Vector2 else Vector2.ZERO
-	_resource_watch_timer = float(data.get("wb_res_watch_timer", 0.0))
+	_resource_watch_pos    = rwp if rwp is Vector2 else Vector2.ZERO
+	_resource_watch_timer  = float(data.get("wb_res_watch_timer",  0.0))
+	_resource_orbit_radius = float(data.get("wb_orbit_radius",     38.0))
+	_resource_orbit_angle  = float(data.get("wb_orbit_angle",      0.0))
+	_resource_orbit_dir    = float(data.get("wb_orbit_dir",        1.0))
+	_resource_orbit_step   = float(data.get("wb_orbit_step",       0.6))
 	_loot_target_id    = 0
 	pending_collect_id = 0
 	if data.has("wb_rng_state"):

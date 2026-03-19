@@ -85,7 +85,6 @@ func _warm_scene_instance(packed: PackedScene, warmup_container: Node) -> void:
 
 	warmup_container.add_child(instance)
 	await get_tree().process_frame
-	await get_tree().process_frame
 
 	if is_instance_valid(instance):
 		instance.queue_free()
