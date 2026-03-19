@@ -292,8 +292,6 @@ func _on_weapon_equipped_apply_visuals(_weapon_id: String) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if _is_lite_mode:
-		return
 	if hp <= 0:
 		return
 
@@ -305,13 +303,18 @@ func _physics_process(delta: float) -> void:
 		hurt_t -= delta
 
 	var sleeping_now := ai_component != null and ai_component.is_sleeping()
-	if ai_component != null and not sleeping_now:
+	var can_run_full_ai := not _is_lite_mode and ai_component != null and not sleeping_now
+	if can_run_full_ai:
 		ai_component.physics_tick(delta)
 	else:
 		set_ai_attack_intent(false, global_position)
-		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
+		if _is_lite_mode:
+			if velocity.length_squared() > 0.0001:
+				velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
+		else:
+			velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
-	if ai_component != null and not sleeping_now:
+	if can_run_full_ai:
 		# IMPORTANT: mantener orden del pipeline para evitar eventos stale.
 		# AI -> controller -> weapon_component -> weapon
 		if ai_weapon_controller != null:
@@ -325,11 +328,12 @@ func _physics_process(delta: float) -> void:
 
 	var warming_up_now := ai_component != null and ai_component.is_in_awake_warmup()
 	if not sleeping_now:
-		_update_weapon(delta)
+		if not _is_lite_mode:
+			_update_weapon(delta)
 		_update_animation()
-		if not warming_up_now and _should_run_separation(delta):
+		if not _is_lite_mode and not warming_up_now and _should_run_separation(delta):
 			_apply_separation_force(delta)
-		elif warming_up_now:
+		elif _is_lite_mode or warming_up_now:
 			_sep_timer = 0.0
 	else:
 		_sep_timer = 0.0
@@ -479,15 +483,13 @@ func is_lite_mode() -> bool:
 ## True when BanditBehaviorLayer (world-layer AI) may control this enemy.
 ## Allows active awake enemies in passive/idle state, not just sleeping ones.
 func is_world_behavior_eligible() -> bool:
-	if _is_lite_mode:
-		return false
-	if hp <= 0 or dying:
+	if hp <= 0 or dying or is_downed:
 		return false
 	if ai_component == null:
 		return false
 	var s := ai_component.current_state
-	# World behavior is permitted in IDLE (no player in detection range) or sleeping.
-	# CHASE, ATTACK, HURT, DOWNED, DEAD, DISENGAGE, HOLD_PERIMETER all block it.
+	# Semi-lite still allows world behavior. We only block states that imply combat,
+	# damage reactions, death/downed, or explicit combat-adjacent directives.
 	return s == AIComponent.AIState.IDLE or ai_component.sleeping
 
 func enter_lite_mode() -> void:
@@ -498,7 +500,6 @@ func enter_lite_mode() -> void:
 	_is_lite_mode = true
 	attacking = false
 	attack_t = 0.0
-	velocity = Vector2.ZERO
 	knock_vel = Vector2.ZERO
 	_sep_timer = 0.0
 	if ai_weapon_controller != null:
@@ -506,19 +507,19 @@ func enter_lite_mode() -> void:
 		ai_weapon_controller.set_attack_down(false)
 	if ai_component != null:
 		ai_component.on_enter_lite()
-	if weapon_component != null:
-		var character_hitbox := get_node_or_null("CharacterHitbox") as CharacterHitbox
-		if character_hitbox != null:
-			character_hitbox.deactivate()
+	var character_hitbox := get_node_or_null("CharacterHitbox") as CharacterHitbox
+	if character_hitbox != null:
+		character_hitbox.deactivate()
 	set_process(false)
-	set_physics_process(false)
+	set_physics_process(true)
 	if ai_component != null:
 		ai_component.set_process(false)
 		ai_component.set_physics_process(false)
 	if weapon_component != null:
 		weapon_component.set_process(false)
 		weapon_component.set_physics_process(false)
-	EnemyRegistry.unregister_enemy(self)
+	EnemyRegistry.register_enemy(self)
+	EnemyRegistry.update_enemy_chunk(self)
 
 func exit_lite_mode() -> void:
 	if not _is_lite_mode:
