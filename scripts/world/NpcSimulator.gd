@@ -17,10 +17,15 @@ class_name NpcSimulator
 @export var debug_counts: bool = false
 ## Spawn visual node (in lite/sleeping mode) at this radius.
 ## Must be > (sim_radius - sim_hysteresis) and < (sim_radius + sim_hysteresis).
-@export var visual_radius: float = 560.0
+@export var visual_radius: float = 700.0
 ## If true, prewarm runs even on enemies that already have a saved world_behavior.
 ## Useful to re-disperse enemies on existing saves without a full F7 reset.
 @export var reprewarm_existing: bool = false
+## If true, enemies spawn as nodes as soon as their chunk loads (lite mode when
+## outside full-AI radius). Despawn only on chunk unload. Eliminates the
+## "empty camp" visual problem for small worlds where all chunks stay loaded.
+## Set false to revert to proximity-based spawning (visual_radius).
+@export var spawn_with_chunk: bool = true
 
 # Asignado por World via setup()
 var player: Node2D = null
@@ -173,15 +178,16 @@ func _tick_data_only(delta: float) -> void:
 			var dist: float = enemy_pos.distance_to(player_pos)
 			var is_dead: bool = bool(state.get("is_dead", false))
 			var node := _get_active_enemy_node(enemy_id)
-			if dist < visual_r and not is_dead and node == null and not spawning_enemy_ids.has(enemy_id):
-				# Spawn as lite (sleeping) node when beyond full-AI radius to eliminate pop-in
+			var should_spawn: bool = spawn_with_chunk or dist < visual_r
+			if should_spawn and not is_dead and node == null and not spawning_enemy_ids.has(enemy_id):
+				# spawn_with_chunk: node lives while chunk is loaded; lite when outside full-AI radius
 				enqueue_spawn(chunk_pos, enemy_id, state, dist > full_ai_r)
 			elif node != null:
-				if dist > despawn_r:
+				if not spawn_with_chunk and dist > despawn_r:
 					if _can_despawn(node, state):
 						despawn_enemy(enemy_id)
 			elif not is_dead and not spawning_enemy_ids.has(enemy_id):
-				# No active node, not spawning — simulate offscreen
+				# No active node, not spawning — simulate offscreen (data-only)
 				_tick_data_behavior(enemy_id, state, sim_delta)
 	if debug_counts:
 		Debug.log("npc_data", "active=%d queued=%d data_beh=%d" % [
