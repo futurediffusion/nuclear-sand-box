@@ -36,6 +36,10 @@ var _group_intel: BanditGroupIntel  = null
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _tick_timer: float = 0.0
 
+# TEST extortion
+var _player: Node2D = null
+var _active_extortions: Dictionary = {}  # group_id -> {leader_id, assigned_ids, attacked}
+
 # Cached world-level item/resource lists (rebuilt once per tick, shared across all enemies)
 var _all_drops_cache: Array    = []   # Array of ItemDrop nodes
 var _all_resources_cache: Array = []  # Array of world_resource nodes
@@ -47,6 +51,7 @@ var _all_resources_cache: Array = []  # Array of world_resource nodes
 
 func setup(ctx: Dictionary) -> void:
 	_npc_simulator = ctx.get("npc_simulator")
+	_player = ctx.get("player")  # TEST extortion
 
 ## Called from world.gd after SettlementIntel is ready.
 func setup_group_intel(ctx: Dictionary) -> void:
@@ -76,6 +81,37 @@ func _physics_process(_delta: float) -> void:
 			node.velocity = vel.normalized() * (vel.length() + FRICTION_COMPENSATION)
 		# Idle (vel == 0): don't override, let enemy friction decelerate naturally
 
+	# TEST extortion — override velocity toward player for assigned NPCs
+	if _player != null and is_instance_valid(_player):
+		var player_pos: Vector2 = _player.global_position
+		for gid in _active_extortions:
+			var job: Dictionary = _active_extortions[gid]
+			if job.get("attacked", false):
+				continue
+			for eid in job["assigned_ids"]:
+				var enode = _npc_simulator._get_active_enemy_node(eid)
+				if enode == null or not enode.has_method("is_world_behavior_eligible") \
+						or not enode.is_world_behavior_eligible():
+					continue
+				var to_player: Vector2 = player_pos - enode.global_position
+				var dist: float = to_player.length()
+				if dist > 1.0:
+					enode.velocity = to_player.normalized() * (55.0 + FRICTION_COMPENSATION)
+				# melee check
+				var atk_range: float = 76.0  # 60 default + 16 margin
+				if "attack_range" in enode:
+					atk_range = enode.attack_range + 16.0
+				if dist <= atk_range:
+					if enode.has_method("queue_ai_attack_press"):
+						enode.queue_ai_attack_press(player_pos)
+					job["attacked"] = true
+					BanditGroupMemory.update_intent(gid, "idle")
+					for aid: String in job["assigned_ids"]:
+						if _behaviors.has(aid):
+							_behaviors[aid]._enter_return_home()
+					Debug.log("extortion", "[EXTORT TEST] attack delivered group=%s by=%s" % [gid, eid])
+					break  # one attacker is enough
+
 
 # ---------------------------------------------------------------------------
 # Process tick — behavior maintenance
@@ -95,6 +131,7 @@ func _process(delta: float) -> void:
 	_ensure_behaviors_for_active_enemies()
 	_tick_behaviors()
 	_prune_behaviors()
+	_consume_extortion_queue()  # TEST extortion
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +311,62 @@ func _prune_behaviors() -> void:
 		if NpcPathService.is_ready():
 			NpcPathService.clear_agent(enemy_id)
 		Debug.log("bandit_ai", "[BanditBL] behavior pruned id=%s" % enemy_id)
+
+
+# ---------------------------------------------------------------------------
+# TEST extortion — consume queue, start jobs, clean completed
+# ---------------------------------------------------------------------------
+
+func _consume_extortion_queue() -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+
+	# clean completed jobs from previous tick
+	var done: Array = []
+	for gid in _active_extortions:
+		if _active_extortions[gid].get("attacked", false):
+			done.append(gid)
+	for gid in done:
+		_active_extortions.erase(gid)
+		Debug.log("extortion", "[EXTORT TEST] job cleaned group=%s" % gid)
+
+	# start new jobs for groups with extorting intent not yet active
+	for gid in BanditGroupMemory.get_all_group_ids():
+		if _active_extortions.has(gid):
+			continue
+		var g: Dictionary = BanditGroupMemory.get_group(gid)
+		if String(g.get("current_group_intent", "")) != "extorting":
+			continue
+		# consume queue entry
+		var intents: Array = ExtortionQueue.consume_for_group(gid)
+		if intents.is_empty():
+			continue
+		var leader_id: String = String(g.get("leader_id", ""))
+		if leader_id == "":
+			continue
+		# pick up to 2 bodyguards closest to leader
+		var leader_node = _npc_simulator._get_active_enemy_node(leader_id)
+		var leader_pos: Vector2 = leader_node.global_position if leader_node != null else Vector2.ZERO
+		var guards: Array = []
+		for mid_v in g.get("member_ids", []):
+			var mid: String = String(mid_v)
+			if mid == leader_id:
+				continue
+			var mnode = _npc_simulator._get_active_enemy_node(mid)
+			if mnode == null:
+				continue
+			guards.append({"id": mid, "dist_sq": mnode.global_position.distance_squared_to(leader_pos)})
+		guards.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["dist_sq"] < b["dist_sq"])
+		var assigned: Array = [leader_id]
+		for i in mini(2, guards.size()):
+			assigned.append(guards[i]["id"])
+		_active_extortions[gid] = {
+			"leader_id":    leader_id,
+			"assigned_ids": assigned,
+			"attacked":     false,
+		}
+		Debug.log("extortion", "[EXTORT TEST] job started group=%s leader=%s assigned=%d" % [
+			gid, leader_id, assigned.size()])
 
 
 # ---------------------------------------------------------------------------

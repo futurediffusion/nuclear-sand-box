@@ -443,7 +443,7 @@ func _ready() -> void:
 	_bandit_behavior_layer = BanditBehaviorLayerScript.new()
 	_bandit_behavior_layer.name = "BanditBehaviorLayer"
 	add_child(_bandit_behavior_layer)
-	_bandit_behavior_layer.setup({"npc_simulator": npc_simulator})
+	_bandit_behavior_layer.setup({"npc_simulator": npc_simulator, "player": player})  # TEST extortion
 
 	_vegetation_root.setup({
 		"ground_tilemap": ground_tilemap,
