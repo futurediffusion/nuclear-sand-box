@@ -80,7 +80,7 @@ func setup(cfg: Dictionary) -> void:
 	_raw_leader_pos = home_pos
 	if role == "bodyguard":
 		var angle: float = _rng.randf_range(0.0, TAU)
-		_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(40.0, 80.0)
+		_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(64.0, 140.0)
 		_jitter_timer  = _rng.randf_range(2.0, 5.0)
 	if role == "leader":
 		_leader_roam_timer = _rng.randf_range(8.0, 18.0)
@@ -118,7 +118,7 @@ func tick(delta: float, ctx: Dictionary) -> void:
 		if _jitter_timer <= 0.0:
 			_jitter_timer  = _rng.randf_range(2.0, 5.0)
 			var angle: float = _rng.randf_range(0.0, TAU)
-			_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(40.0, 88.0)
+			_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(64.0, 140.0)
 		if ctx.has("leader_pos"):
 			_raw_leader_pos   = ctx["leader_pos"] as Vector2
 			ctx["leader_pos"] = _raw_leader_pos + _follow_offset
@@ -148,6 +148,17 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	# Release resource claim when leaving RESOURCE_WATCH
 	if prev_state == State.RESOURCE_WATCH and state != State.RESOURCE_WATCH:
 		_on_leave_resource_watch()
+
+	# ── 3b. Bodyguard band escort: push away when too close to raw leader ─
+	if role == "bodyguard" and state == State.FOLLOW_LEADER:
+		var node_pos: Vector2 = ctx.get("node_pos", home_pos)
+		var to_leader: Vector2 = node_pos - _raw_leader_pos
+		var d_leader: float = to_leader.length()
+		var push_dist: float = maxf(_follow_offset.length() * 0.45, 35.0)
+		if d_leader < push_dist:
+			var push_dir: Vector2 = to_leader.normalized() if d_leader > 0.5 \
+					else Vector2(cos(_rng.randf_range(0.0, TAU)), sin(_rng.randf_range(0.0, TAU)))
+			_desired_velocity = push_dir * _get_speed() * 0.5
 
 	# ── 4. From quiescent states, try to find useful work ────────────────
 	if state == State.IDLE_AT_HOME or state == State.PATROL:

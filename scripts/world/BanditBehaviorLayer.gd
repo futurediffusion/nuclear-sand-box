@@ -25,6 +25,10 @@ const TICK_INTERVAL: float = 0.5
 # We add this so net movement ≈ behavior's intended speed after friction.
 const FRICTION_COMPENSATION: float = 25.0
 
+# World-layer ally separation (sleeping NPCs don't run CharacterBody2D separation)
+const ALLY_SEP_RADIUS: float = 44.0
+const ALLY_SEP_FORCE:  float = 55.0
+
 # Scan radii for finding world objects per tick
 const LOOT_SCAN_RADIUS_SQ: float    = 144.0 * 144.0   # 144 px
 const RESOURCE_SCAN_RADIUS_SQ: float = 288.0 * 288.0  # 288 px
@@ -72,6 +76,9 @@ func setup_group_intel(ctx: Dictionary) -> void:
 func _physics_process(_delta: float) -> void:
 	if _npc_simulator == null:
 		return
+
+	# Pass 1: apply desired velocities + collect per-group node positions
+	var group_nodes: Dictionary = {}  # group_id -> Array of {node, pos}
 	for enemy_id in _behaviors:
 		var behavior: BanditWorldBehavior = _behaviors[enemy_id]
 		var node = _npc_simulator._get_active_enemy_node(enemy_id)
@@ -82,6 +89,28 @@ func _physics_process(_delta: float) -> void:
 		if vel.length_squared() > 0.01:
 			node.velocity = vel.normalized() * (vel.length() + FRICTION_COMPENSATION)
 		# Idle (vel == 0): don't override, let enemy friction decelerate naturally
+		if behavior.group_id != "":
+			if not group_nodes.has(behavior.group_id):
+				group_nodes[behavior.group_id] = []
+			group_nodes[behavior.group_id].append({"node": node, "pos": node.global_position})
+
+	# Pass 2: ally separation — push nearby group members apart
+	for gid in group_nodes:
+		var members: Array = group_nodes[gid]
+		if members.size() < 2:
+			continue
+		for i in members.size():
+			var a: Dictionary = members[i]
+			var sep: Vector2 = Vector2.ZERO
+			for j in members.size():
+				if i == j:
+					continue
+				var diff: Vector2 = (a["pos"] as Vector2) - (members[j]["pos"] as Vector2)
+				var d: float = diff.length()
+				if d < ALLY_SEP_RADIUS and d > 0.5:
+					sep += diff.normalized() * (ALLY_SEP_RADIUS - d) / ALLY_SEP_RADIUS * ALLY_SEP_FORCE
+			if sep.length_squared() > 0.01:
+				a["node"].velocity += sep
 
 	# TEST extortion — mover assigned hacia player + golpe único de advertencia
 	if DEBUG_EXTORTION_ONE_HIT and _player != null and is_instance_valid(_player):
