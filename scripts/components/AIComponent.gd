@@ -43,12 +43,25 @@ enum BowState { IDLE, CHARGING, COOLDOWN }
 @export var awake_warmup_tick_interval_min: float = 0.10
 @export var awake_warmup_tick_interval_max: float = 0.20
 
+@export_group("AI Chase")
+## Radio de adquisición. 0 = usar owner_entity.detection_range.
+@export var acquire_radius: float = 0.0
+## Radio de retención durante el chase. 0 = acquire_radius * 2.
+@export var chase_retain_radius: float = 0.0
+## Segundos que el NPC sigue persiguiendo la última posición vista sin contacto visual.
+@export var lost_target_timeout: float = 5.0
+
 var owner_entity = null  # tipado suelto — acepta EnemyAI o TavernKeeper vía duck typing
 var player: CharacterBody2D = null
 var current_target: CharacterBody2D = null
 var current_state: AIState = AIState.IDLE
 var sleeping: bool = false
 var sleep_check_timer: SceneTreeTimer = null
+
+## Última posición confirmada del target (actualizada mientras está en acquire_radius).
+var last_seen_player_pos: Vector2 = Vector2.ZERO
+## RunClock.now() de la última vez que el target estuvo en acquire_radius.
+var last_seen_target_time: float = -INF
 
 var _current_target_ref: WeakRef = null
 var _current_target_id: int = -1
@@ -489,20 +502,54 @@ func _update_state() -> void:
 	var hysteresis := maxf(engage_hysteresis, 0.0)
 	var attack_enter_threshold := maxf(engage_distance - hysteresis, 0.0)
 	var attack_exit_threshold := engage_distance + hysteresis
-	if distance > owner_entity.detection_range:
-		current_state = AIState.IDLE
+
+	var eff_acquire: float = _get_effective_acquire_radius()
+	var eff_retain:  float = _get_effective_retain_radius()
+	var now:         float = RunClock.now()
+	var in_active_pursuit: bool = current_state == AIState.CHASE or current_state == AIState.ATTACK
+
+	# refrescar última posición confirmada cuando el target está en acquire_radius
+	if distance <= eff_acquire:
+		last_seen_player_pos = target.global_position
+		last_seen_target_time = now
+
+	var retain_ok: bool = distance <= eff_retain \
+			or (now - last_seen_target_time) <= lost_target_timeout
+
+	if in_active_pursuit:
+		if not retain_ok:
+			# perdido definitivamente — soltar limpio, sin lógica específica de actor
+			current_state = AIState.IDLE
+			_release_attack_input()
+		elif distance <= eff_acquire:
+			# target visible — máquina normal de CHASE/ATTACK
+			match current_state:
+				AIState.ATTACK:
+					current_state = AIState.ATTACK if distance <= attack_exit_threshold else AIState.CHASE
+				AIState.CHASE:
+					current_state = AIState.ATTACK if distance <= attack_enter_threshold else AIState.CHASE
+		# else: retain_ok pero fuera de acquire → seguir en CHASE hacia last_seen_player_pos
+		# (sin cambiar estado; _execute_state CHASE usa last_seen_player_pos)
 	else:
-		match current_state:
-			AIState.ATTACK:
-				current_state = AIState.ATTACK if distance <= attack_exit_threshold else AIState.CHASE
-			AIState.CHASE:
-				current_state = AIState.ATTACK if distance <= attack_enter_threshold else AIState.CHASE
-			_:
-				current_state = AIState.ATTACK if distance <= engage_distance else AIState.CHASE
+		# adquirir si entra en acquire_radius
+		if distance <= eff_acquire:
+			current_state = AIState.ATTACK if distance <= engage_distance else AIState.CHASE
 
 	if (current_state == AIState.ATTACK or current_state == AIState.CHASE) and target != null:
 		if AggroTrackerService != null and AggroTrackerService.has_method("register_engagement"):
 			AggroTrackerService.register_engagement(owner_entity, target)
+
+func _get_effective_acquire_radius() -> float:
+	if acquire_radius > 0.0:
+		return acquire_radius
+	if owner_entity != null and "detection_range" in owner_entity:
+		return float(owner_entity.get("detection_range"))
+	return 400.0
+
+func _get_effective_retain_radius() -> float:
+	if chase_retain_radius > 0.0:
+		return chase_retain_radius
+	return _get_effective_acquire_radius() * 2.0
 
 func _compute_disengage_anchor(safe_radius: float) -> void:
 	var target = get_current_target()
@@ -564,7 +611,12 @@ func _execute_state(delta: float) -> void:
 			if target == null:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 				return
-			var dir: Vector2 = owner_entity.global_position.direction_to(target.global_position)
+			# si el target está en acquire_radius, perseguir directo; si no, ir a last_seen_player_pos
+			var dist_to_target: float = (owner_entity.global_position as Vector2).distance_to(target.global_position)
+			var chase_goal: Vector2 = target.global_position \
+					if dist_to_target <= _get_effective_acquire_radius() \
+					else last_seen_player_pos
+			var dir: Vector2 = owner_entity.global_position.direction_to(chase_goal)
 			var target_velocity: Vector2 = dir * float(owner_entity.max_speed)
 			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 		AIState.ATTACK:
