@@ -37,6 +37,15 @@ var spawning_enemy_ids: Dictionary = {}  # enemy_id -> true
 var _lite_timer: float = 0.0
 var _sim_timer: float = 0.0
 
+# ── Data-only behaviors ───────────────────────────────────────────────────────
+# Owned by NpcSimulator for enemies that are alive but have no active node.
+# BanditBehaviorLayer owns behaviors for enemies that DO have an active node.
+# Never both at once for the same enemy_id.
+var _data_behaviors: Dictionary = {}   # enemy_id -> BanditWorldBehavior
+var _prewarmed_chunks: Dictionary = {} # chunk_key -> true (per session)
+var _world_w_tiles: int = 64
+var _world_h_tiles: int = 64
+
 # ---------------------------------------------------------------------------
 # Helpers de Tracking
 # ---------------------------------------------------------------------------
@@ -87,6 +96,8 @@ func setup(ctx: Dictionary) -> void:
 	_cliff_gen = ctx.get("cliff_generator")
 	_world_to_tile = ctx.get("world_to_tile", Callable())
 	_entity_root = ctx.get("entity_root")
+	_world_w_tiles = ctx.get("width",  64)
+	_world_h_tiles = ctx.get("height", 64)
 
 func _process(delta: float) -> void:
 	_tick_lite_mode(delta)
@@ -141,6 +152,7 @@ func _tick_data_only(delta: float) -> void:
 	var spawn_r := maxf(sim_radius - sim_hysteresis, 0.0)
 	var despawn_r := sim_radius + sim_hysteresis
 	var player_pos: Vector2 = player.global_position
+	var sim_delta: float = maxf(sim_check_interval, 0.05)
 	for cpos in _loaded_chunks.keys():
 		var chunk_pos: Vector2i = cpos
 		_ensure_spawn_records(chunk_pos)
@@ -160,8 +172,12 @@ func _tick_data_only(delta: float) -> void:
 				if dist > despawn_r:
 					if _can_despawn(node, state):
 						despawn_enemy(enemy_id)
+			elif not is_dead and not spawning_enemy_ids.has(enemy_id):
+				# No active node, not spawning — simulate offscreen
+				_tick_data_behavior(enemy_id, state, sim_delta)
 	if debug_counts:
-		Debug.log("npc_data", "active=%d queued=%d" % [active_enemies.size(), spawning_enemy_ids.size()])
+		Debug.log("npc_data", "active=%d queued=%d data_beh=%d" % [
+			active_enemies.size(), spawning_enemy_ids.size(), _data_behaviors.size()])
 
 # ---------------------------------------------------------------------------
 # API pública — llamada desde World
@@ -170,6 +186,10 @@ func _tick_data_only(delta: float) -> void:
 func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> void:
 	if _spawn_queue == null:
 		return
+	# Flush data behavior state so the spawned node inherits it via save_state
+	if _data_behaviors.has(enemy_id):
+		state["world_behavior"] = (_data_behaviors[enemy_id] as BanditWorldBehavior).export_state()
+		_remove_data_behavior(enemy_id)
 	var chunk_key: String = _chunk_key_fn.call(chunk_pos)
 	spawning_enemy_ids[enemy_id] = true
 	var ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
@@ -211,6 +231,7 @@ func despawn_enemy(enemy_id: String) -> void:
 				ctrl.call("clear_transient_input")
 		EnemyRegistry.unregister_enemy(node)
 		node.queue_free()
+	_remove_data_behavior(enemy_id)
 	_clear_enemy_tracking(enemy_id, true)
 
 # Llamado desde World._on_spawn_queue_job_spawned cuando kind == "enemy"
@@ -267,6 +288,7 @@ func on_entity_died(uid: String) -> void:
 						if NpcProfileSystem.get_profile(mid_str).get("status", "") != "dead":
 							BanditGroupMemory.promote_leader(gid, mid_str)
 							break
+	_remove_data_behavior(uid)
 	spawning_enemy_ids.erase(uid)
 	NpcProfileSystem.set_status(uid, "dead")
 
@@ -387,6 +409,10 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 			spawn_index += 1
 			camp_member_index += 1
 	WorldSave.ensure_chunk_enemy_spawns(chunk_key, records)
+	# Prewarm fresh records once per session to disperse scavengers from camp center
+	if not _prewarmed_chunks.has(chunk_key):
+		_prewarmed_chunks[chunk_key] = true
+		_prewarm_chunk(chunk_key)
 
 func _can_despawn(node: Node, state: Dictionary) -> bool:
 	if node == null or not is_instance_valid(node):
@@ -398,3 +424,107 @@ func _can_despawn(node: Node, state: Dictionary) -> bool:
 	if node.has_method("capture_save_state"):
 		last_active = maxf(last_active, float(node.call("capture_save_state").get("last_active_time", 0.0)))
 	return now - last_active >= maxf(despawn_grace_seconds, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Data-only behavior helpers
+# Ownership: NpcSimulator while no active node; BanditBehaviorLayer while active.
+# ---------------------------------------------------------------------------
+
+func _get_world_bounds() -> Rect2:
+	if not _tile_to_world.is_valid():
+		return Rect2(0.0, 0.0, 4096.0, 4096.0)
+	var origin: Vector2 = _tile_to_world.call(Vector2i(0, 0))
+	var corner: Vector2 = _tile_to_world.call(Vector2i(_world_w_tiles, _world_h_tiles))
+	return Rect2(origin, corner - origin)
+
+
+func _ensure_data_behavior(enemy_id: String, state: Dictionary) -> BanditWorldBehavior:
+	if _data_behaviors.has(enemy_id):
+		return _data_behaviors[enemy_id] as BanditWorldBehavior
+	var beh := BanditWorldBehavior.new()
+	beh.setup({
+		"home_pos":    Vector2(state.get("home_world_pos", Vector2.ZERO)),
+		"role":        String(state.get("role", "scavenger")),
+		"group_id":    String(state.get("group_id", "")),
+		"member_id":   enemy_id,
+		"cargo_count": int(state.get("cargo_count", 0)),
+	})
+	var wb = state.get("world_behavior", {})
+	if wb is Dictionary and not (wb as Dictionary).is_empty():
+		beh.import_state(wb as Dictionary)
+	else:
+		# Seed from enemy save seed for consistent randomness per session
+		beh._rng.seed = absi(int(state.get("seed", 0)) ^ hash(enemy_id))
+		beh._idle_timer = beh._rng.randf_range(NpcWorldBehavior.IDLE_WAIT_MIN, NpcWorldBehavior.IDLE_WAIT_MAX)
+	_data_behaviors[enemy_id] = beh
+	return beh
+
+
+func _remove_data_behavior(enemy_id: String) -> void:
+	_data_behaviors.erase(enemy_id)
+
+
+func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary:
+	var node_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
+	var ctx: Dictionary = {
+		"node_pos":          node_pos,
+		"nearby_drops_info": [],
+		"nearby_res_info":   [],
+	}
+	var group_id: String = String(state.get("group_id", ""))
+	if group_id == "":
+		return ctx
+	var chunk_key: String = String(state.get("chunk_key", ""))
+	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	var leader_id: String = String(g.get("leader_id", ""))
+	if leader_id == "" or leader_id == enemy_id:
+		return ctx
+	# Leader active?
+	var lnode = _get_active_enemy_node(leader_id)
+	if lnode != null:
+		ctx["leader_pos"] = lnode.global_position
+		return ctx
+	# Leader data-only?
+	var lstate = WorldSave.get_enemy_state(chunk_key, leader_id)
+	if lstate != null:
+		ctx["leader_pos"] = Vector2((lstate as Dictionary).get("pos", Vector2.ZERO))
+	return ctx
+
+
+func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float) -> void:
+	var beh: BanditWorldBehavior = _ensure_data_behavior(enemy_id, state)
+	var ctx: Dictionary = _build_data_behavior_ctx(enemy_id, state)
+	beh.tick(sim_delta, ctx)
+	var vel: Vector2 = beh.get_desired_velocity()
+	if vel.length_squared() > 0.01:
+		var cur: Vector2  = Vector2(state.get("pos", Vector2.ZERO))
+		var next: Vector2 = cur + vel * sim_delta
+		var b: Rect2      = _get_world_bounds()
+		next.x = clampf(next.x, b.position.x, b.position.x + b.size.x)
+		next.y = clampf(next.y, b.position.y, b.position.y + b.size.y)
+		state["pos"] = next
+	state["world_behavior"] = beh.export_state()
+	state["cargo_count"]    = beh.cargo_count
+
+
+func _prewarm_chunk(chunk_key: String) -> void:
+	const PREWARM_SECONDS: float = 20.0
+	const PREWARM_STEP:    float = 1.0
+	var steps: int = int(round(PREWARM_SECONDS / PREWARM_STEP))
+	var prewarmed: int = 0
+	for enemy_id in WorldSave.iter_enemy_ids_in_chunk(chunk_key):
+		var state_v = WorldSave.get_enemy_state(chunk_key, enemy_id)
+		if state_v == null:
+			continue
+		var state: Dictionary = state_v
+		if bool(state.get("is_dead", false)):
+			continue
+		if state.has("world_behavior"):
+			continue   # already has simulated state — loaded from save
+		for _i in range(steps):
+			_tick_data_behavior(enemy_id, state, PREWARM_STEP)
+		prewarmed += 1
+	if prewarmed > 0:
+		Debug.log("npc_data", "[NpcSim] prewarm chunk=%s enemies=%d steps=%d" % [
+			chunk_key, prewarmed, steps])

@@ -435,6 +435,8 @@ func _ready() -> void:
 		"cliff_generator": cliff_generator,
 		"world_to_tile": Callable(self, "_world_to_tile"),
 		"entity_root": _entity_root,
+		"width": width,
+		"height": height,
 	})
 	npc_simulator.current_player_chunk = current_player_chunk
 

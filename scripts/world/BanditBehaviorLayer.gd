@@ -139,10 +139,11 @@ func _tick_behaviors() -> void:
 
 		beh.tick(TICK_INTERVAL, ctx)
 
-		# Sync cargo_count back to WorldSave so it survives despawn/reload
+		# Sync state back to WorldSave — cargo and full behavior for data-only continuity
 		var save_state_ref: Dictionary = _get_save_state_for(enemy_id)
 		if not save_state_ref.is_empty():
-			save_state_ref["cargo_count"] = beh.cargo_count
+			save_state_ref["cargo_count"]    = beh.cargo_count
+			save_state_ref["world_behavior"] = beh.export_state()
 
 		# Handle collection (actual node interaction lives here, not in behavior)
 		if beh.pending_collect_id != 0:
@@ -247,6 +248,13 @@ func _ensure_behaviors_for_active_enemies() -> void:
 			"member_id":     enemy_id_str,
 			"cargo_count":   int(save_state.get("cargo_count", 0)),
 		})
+		# Import behavior state for continuity (from data-only or previous session)
+		var wb = save_state.get("world_behavior", {})
+		if wb is Dictionary and not (wb as Dictionary).is_empty():
+			beh.import_state(wb as Dictionary)
+		else:
+			beh._rng.seed = absi(int(save_state.get("seed", 0)) ^ hash(enemy_id_str))
+			beh._idle_timer = beh._rng.randf_range(NpcWorldBehavior.IDLE_WAIT_MIN, NpcWorldBehavior.IDLE_WAIT_MAX)
 		_behaviors[enemy_id_str] = beh
 		Debug.log("bandit_ai", "[BanditBL] behavior created id=%s role=%s group=%s cargo_cap=%d home=%s" % [
 			enemy_id_str, beh.role, beh.group_id, beh.cargo_capacity, str(beh.home_pos)])

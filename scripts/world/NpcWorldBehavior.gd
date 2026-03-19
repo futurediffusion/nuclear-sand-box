@@ -306,3 +306,48 @@ func _move_dir(from: Vector2, to: Vector2) -> Vector2:
 	if len_sq < 0.0001:
 		return Vector2.ZERO
 	return d / sqrt(len_sq)
+
+
+# ---------------------------------------------------------------------------
+# Serialization — export / import for offscreen continuity
+# ---------------------------------------------------------------------------
+
+## Exports the current behavior state to a flat Dictionary safe for WorldSave.
+## Call before handing off to data-only mode or before despawning.
+func export_state() -> Dictionary:
+	return {
+		"wb_state":           int(state),
+		"wb_move_target":     _move_target,
+		"wb_idle_timer":      _idle_timer,
+		"wb_state_timer":     _state_timer,
+		"wb_cargo_count":     cargo_count,
+		"wb_cargo_cap":       cargo_capacity,
+		"wb_res_watch_pos":   _resource_watch_pos,
+		"wb_res_watch_timer": _resource_watch_timer,
+		"wb_rng_state":       str(_rng.state),
+	}
+
+## Restores behavior state from a previously exported dictionary.
+## LOOT_APPROACH resets to IDLE — loot node refs cannot survive sessions.
+func import_state(data: Dictionary) -> void:
+	if data.is_empty():
+		return
+	var s: int = int(data.get("wb_state", int(State.IDLE_AT_HOME)))
+	if s == int(State.LOOT_APPROACH):
+		s = int(State.IDLE_AT_HOME)
+	state        = s
+	var mt = data.get("wb_move_target", home_pos)
+	_move_target = mt if mt is Vector2 else home_pos
+	_idle_timer           = float(data.get("wb_idle_timer",      0.0))
+	_state_timer          = float(data.get("wb_state_timer",     0.0))
+	cargo_count           = int(data.get("wb_cargo_count",       cargo_count))
+	cargo_capacity        = int(data.get("wb_cargo_cap",         cargo_capacity))
+	var rwp = data.get("wb_res_watch_pos", Vector2.ZERO)
+	_resource_watch_pos   = rwp if rwp is Vector2 else Vector2.ZERO
+	_resource_watch_timer = float(data.get("wb_res_watch_timer", 0.0))
+	_loot_target_id    = 0
+	pending_collect_id = 0
+	if data.has("wb_rng_state"):
+		var rs: int = int(str(data.get("wb_rng_state", "0")))
+		if rs != 0:
+			_rng.state = rs

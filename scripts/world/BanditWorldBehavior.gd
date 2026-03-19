@@ -210,3 +210,17 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 			# Wind down any active group pursuit when returning to idle
 			if state == State.APPROACH_INTEREST or state == State.FOLLOW_LEADER:
 				_enter_return_home()
+
+
+# ---------------------------------------------------------------------------
+# Serialization — adds _last_intent to base class export / import
+# ---------------------------------------------------------------------------
+
+func export_state() -> Dictionary:
+	var d: Dictionary = super.export_state()
+	d["wb_last_intent"] = _last_intent
+	return d
+
+func import_state(data: Dictionary) -> void:
+	super.import_state(data)
+	_last_intent = String(data.get("wb_last_intent", ""))
