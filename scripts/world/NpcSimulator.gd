@@ -15,6 +15,12 @@ class_name NpcSimulator
 @export var sim_check_interval: float = 0.25
 @export var despawn_grace_seconds: float = 1.0
 @export var debug_counts: bool = false
+## Spawn visual node (in lite/sleeping mode) at this radius.
+## Must be > (sim_radius - sim_hysteresis) and < (sim_radius + sim_hysteresis).
+@export var visual_radius: float = 560.0
+## If true, prewarm runs even on enemies that already have a saved world_behavior.
+## Useful to re-disperse enemies on existing saves without a full F7 reset.
+@export var reprewarm_existing: bool = false
 
 # Asignado por World via setup()
 var player: Node2D = null
@@ -149,7 +155,8 @@ func _tick_data_only(delta: float) -> void:
 	_sim_timer = 0.0
 	if player == null or not is_instance_valid(player):
 		return
-	var spawn_r := maxf(sim_radius - sim_hysteresis, 0.0)
+	var full_ai_r := maxf(sim_radius - sim_hysteresis, 0.0)
+	var visual_r  := clampf(visual_radius, full_ai_r, sim_radius + sim_hysteresis - 1.0)
 	var despawn_r := sim_radius + sim_hysteresis
 	var player_pos: Vector2 = player.global_position
 	var sim_delta: float = maxf(sim_check_interval, 0.05)
@@ -166,8 +173,9 @@ func _tick_data_only(delta: float) -> void:
 			var dist: float = enemy_pos.distance_to(player_pos)
 			var is_dead: bool = bool(state.get("is_dead", false))
 			var node := _get_active_enemy_node(enemy_id)
-			if dist < spawn_r and not is_dead and node == null and not spawning_enemy_ids.has(enemy_id):
-				enqueue_spawn(chunk_pos, enemy_id, state)
+			if dist < visual_r and not is_dead and node == null and not spawning_enemy_ids.has(enemy_id):
+				# Spawn as lite (sleeping) node when beyond full-AI radius to eliminate pop-in
+				enqueue_spawn(chunk_pos, enemy_id, state, dist > full_ai_r)
 			elif node != null:
 				if dist > despawn_r:
 					if _can_despawn(node, state):
@@ -183,7 +191,7 @@ func _tick_data_only(delta: float) -> void:
 # API pública — llamada desde World
 # ---------------------------------------------------------------------------
 
-func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> void:
+func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary, start_lite: bool = false) -> void:
 	if _spawn_queue == null:
 		return
 	# Flush data behavior state so the spawned node inherits it via save_state
@@ -204,6 +212,7 @@ func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> 
 		},
 		"priority": ring,
 		"uid": enemy_id,
+		"start_lite": start_lite,
 	}
 	if _entity_root != null:
 		job["parent_override"] = _entity_root
@@ -245,8 +254,13 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 		if downed.has_method("load_save_data"):
 			downed.call("load_save_data", save_state)
 
-	if node.has_method("exit_lite_mode"):
-		node.call("exit_lite_mode")
+	var start_lite: bool = bool(job.get("start_lite", false))
+	if start_lite:
+		if node.has_method("enter_lite_mode"):
+			node.call("enter_lite_mode")
+	else:
+		if node.has_method("exit_lite_mode"):
+			node.call("exit_lite_mode")
 	EnemyRegistry.register_enemy(node)
 
 	var member_role: String = String(save_state.get("role", "scavenger"))
@@ -465,12 +479,14 @@ func _remove_data_behavior(enemy_id: String) -> void:
 	_data_behaviors.erase(enemy_id)
 
 
+const _RES_SCAN_RADIUS_SQ: float = 288.0 * 288.0   # matches BanditBehaviorLayer
+
 func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary:
 	var node_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
 	var ctx: Dictionary = {
 		"node_pos":          node_pos,
 		"nearby_drops_info": [],
-		"nearby_res_info":   [],
+		"nearby_res_info":   _scan_nearby_resources(node_pos),
 	}
 	var group_id: String = String(state.get("group_id", ""))
 	if group_id == "":
@@ -490,6 +506,18 @@ func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary
 	if lstate != null:
 		ctx["leader_pos"] = Vector2((lstate as Dictionary).get("pos", Vector2.ZERO))
 	return ctx
+
+
+func _scan_nearby_resources(node_pos: Vector2) -> Array:
+	var result: Array = []
+	for res in get_tree().get_nodes_in_group("world_resource"):
+		var res_node := res as Node2D
+		if res_node == null or not is_instance_valid(res_node) \
+				or res_node.is_queued_for_deletion():
+			continue
+		if node_pos.distance_squared_to(res_node.global_position) <= _RES_SCAN_RADIUS_SQ:
+			result.append({"pos": res_node.global_position})
+	return result
 
 
 func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float) -> void:
@@ -520,11 +548,11 @@ func _prewarm_chunk(chunk_key: String) -> void:
 		var state: Dictionary = state_v
 		if bool(state.get("is_dead", false)):
 			continue
-		if state.has("world_behavior"):
+		if state.has("world_behavior") and not reprewarm_existing:
 			continue   # already has simulated state — loaded from save
 		for _i in range(steps):
 			_tick_data_behavior(enemy_id, state, PREWARM_STEP)
 		prewarmed += 1
 	if prewarmed > 0:
-		Debug.log("npc_data", "[NpcSim] prewarm chunk=%s enemies=%d steps=%d" % [
-			chunk_key, prewarmed, steps])
+		Debug.log("npc_data", "[NpcSim] prewarm chunk=%s enemies=%d steps=%d reprewarm=%s" % [
+			chunk_key, prewarmed, steps, str(reprewarm_existing)])
