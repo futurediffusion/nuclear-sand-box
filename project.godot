@@ -42,6 +42,7 @@ NpcProfileSystem="*res://scripts/systems/NpcProfileSystem.gd"
 BanditGroupMemory="*res://scripts/systems/BanditGroupMemory.gd"
 ExtortionQueue="*res://scripts/systems/ExtortionQueue.gd"
 RunClock="*res://scripts/systems/RunClock.gd"
+NpcPathService="*res://scripts/world/NpcPathService.gd"
 
 [display]
 

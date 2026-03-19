@@ -264,7 +264,7 @@ func on_entity_died(uid: String) -> void:
 				if String(g_after.get("leader_id", "")) == "":
 					for mid in g_after.get("member_ids", []):
 						var mid_str: String = String(mid)
-						if NpcProfileSystem.get_status(mid_str) != "dead":
+						if NpcProfileSystem.get_profile(mid_str).get("status", "") != "dead":
 							BanditGroupMemory.promote_leader(gid, mid_str)
 							break
 	spawning_enemy_ids.erase(uid)

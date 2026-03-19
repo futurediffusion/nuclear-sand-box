@@ -68,7 +68,8 @@ func _physics_process(_delta: float) -> void:
 	for enemy_id in _behaviors:
 		var behavior: BanditWorldBehavior = _behaviors[enemy_id]
 		var node = _npc_simulator._get_active_enemy_node(enemy_id)
-		if node == null or not node.is_sleeping() or node.is_lite_mode():
+		if node == null or not node.has_method("is_world_behavior_eligible") \
+				or not node.is_world_behavior_eligible():
 			continue
 		var vel: Vector2 = behavior.get_desired_velocity()
 		if vel.length_squared() > 0.01:
@@ -123,7 +124,8 @@ func _tick_behaviors() -> void:
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
 		var node = _npc_simulator._get_active_enemy_node(enemy_id)
-		if node == null or not node.is_sleeping() or node.is_lite_mode():
+		if node == null or not node.has_method("is_world_behavior_eligible") \
+				or not node.is_world_behavior_eligible():
 			continue
 
 		var node_pos: Vector2 = node.global_position
@@ -231,7 +233,8 @@ func _ensure_behaviors_for_active_enemies() -> void:
 		if _behaviors.has(enemy_id_str):
 			continue
 		var node = _npc_simulator._get_active_enemy_node(enemy_id_str)
-		if node == null or not node.is_sleeping():
+		if node == null or not node.has_method("is_world_behavior_eligible") \
+				or not node.is_world_behavior_eligible():
 			continue
 		var save_state: Dictionary = _get_save_state_for(enemy_id_str)
 		if save_state.is_empty() or String(save_state.get("group_id", "")) == "":
@@ -260,6 +263,8 @@ func _prune_behaviors() -> void:
 			to_remove.append(enemy_id)
 	for enemy_id in to_remove:
 		_behaviors.erase(enemy_id)
+		if NpcPathService.is_ready():
+			NpcPathService.clear_agent(enemy_id)
 		Debug.log("bandit_ai", "[BanditBL] behavior pruned id=%s" % enemy_id)
 
 

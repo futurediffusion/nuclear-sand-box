@@ -476,6 +476,20 @@ func is_sleeping() -> bool:
 func is_lite_mode() -> bool:
 	return _is_lite_mode
 
+## True when BanditBehaviorLayer (world-layer AI) may control this enemy.
+## Allows active awake enemies in passive/idle state, not just sleeping ones.
+func is_world_behavior_eligible() -> bool:
+	if _is_lite_mode:
+		return false
+	if hp <= 0 or dying:
+		return false
+	if ai_component == null:
+		return false
+	var s := ai_component.current_state
+	# World behavior is permitted in IDLE (no player in detection range) or sleeping.
+	# CHASE, ATTACK, HURT, DOWNED, DEAD, DISENGAGE, HOLD_PERIMETER all block it.
+	return s == AIComponent.AIState.IDLE or ai_component.sleeping
+
 func enter_lite_mode() -> void:
 	if _is_lite_mode:
 		return

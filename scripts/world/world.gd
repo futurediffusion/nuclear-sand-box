@@ -470,6 +470,13 @@ func _ready() -> void:
 		"tile_to_world":    Callable(self, "_tile_to_world"),
 		"player_pos_getter": Callable(self, "_get_player_world_pos"),
 	})
+
+	NpcPathService.setup({
+		"cliffs_tilemap": cliffs_tilemap,
+		"walls_tilemap":  walls_tilemap,
+		"world_to_tile":  Callable(self, "_world_to_tile"),
+		"tile_to_world":  Callable(self, "_tile_to_world"),
+	})
 	if _player_wall_system != null \
 			and not _player_wall_system.player_wall_drop.is_connected(_on_wall_drop_for_intel):
 		_player_wall_system.player_wall_drop.connect(_on_wall_drop_for_intel)

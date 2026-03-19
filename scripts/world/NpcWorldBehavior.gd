@@ -133,6 +133,7 @@ func enter_loot_approach(drop_id: int) -> void:
 	pending_collect_id = 0
 	state        = State.LOOT_APPROACH
 	_state_timer = 0.0
+	_invalidate_npc_path()
 
 ## Enter RESOURCE_WATCH, patrolling tightly around resource_pos.
 func enter_resource_watch(resource_pos: Vector2) -> void:
@@ -156,6 +157,24 @@ func _get_speed() -> float:
 
 
 # ---------------------------------------------------------------------------
+# Pathfinding helpers
+# ---------------------------------------------------------------------------
+
+## Returns a normalised direction toward goal, using NpcPathService waypoints
+## when available. Falls back to direct direction if service is not ready.
+func _pathfind_dir(node_pos: Vector2, goal: Vector2) -> Vector2:
+	if member_id == "" or not NpcPathService.is_ready():
+		return _move_dir(node_pos, goal)
+	var wp: Vector2 = NpcPathService.get_next_waypoint(member_id, node_pos, goal)
+	return _move_dir(node_pos, wp)
+
+## Discard cached path for this NPC (call on state transitions with new goals).
+func _invalidate_npc_path() -> void:
+	if member_id != "" and NpcPathService.is_ready():
+		NpcPathService.invalidate_path(member_id)
+
+
+# ---------------------------------------------------------------------------
 # State machine
 # ---------------------------------------------------------------------------
 
@@ -167,13 +186,13 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 				_enter_patrol(ctx)
 
 		State.PATROL:
-			_desired_velocity = _move_dir(node_pos, _move_target) * _get_speed()
+			_desired_velocity = _pathfind_dir(node_pos, _move_target) * _get_speed()
 			if node_pos.distance_squared_to(_move_target) < ARRIVED_DIST_SQ \
 					or _state_timer > MAX_PATROL_TIME:
 				_enter_idle_at_home()
 
 		State.RETURN_HOME:
-			_desired_velocity = _move_dir(node_pos, home_pos) * _get_speed()
+			_desired_velocity = _pathfind_dir(node_pos, home_pos) * _get_speed()
 			if node_pos.distance_squared_to(home_pos) < ARRIVED_DIST_SQ:
 				cargo_count = 0   # unload cargo at home
 				_enter_idle_at_home()
@@ -182,7 +201,7 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 			pass
 
 		State.APPROACH_INTEREST:
-			_desired_velocity = _move_dir(node_pos, _move_target) * _get_speed()
+			_desired_velocity = _pathfind_dir(node_pos, _move_target) * _get_speed()
 			if node_pos.distance_squared_to(_move_target) < ARRIVED_DIST_SQ \
 					or _state_timer > MAX_PATROL_TIME:
 				_enter_idle_at_home()
@@ -190,7 +209,7 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 		State.FOLLOW_LEADER:
 			var leader_pos: Vector2 = ctx.get("leader_pos", home_pos)
 			if node_pos.distance_squared_to(leader_pos) > FOLLOW_STOP_DIST_SQ:
-				_desired_velocity = _move_dir(node_pos, leader_pos) * _get_speed()
+				_desired_velocity = _pathfind_dir(node_pos, leader_pos) * _get_speed()
 
 		State.LOOT_APPROACH:
 			_tick_loot_approach(node_pos)
@@ -216,7 +235,7 @@ func _tick_loot_approach(node_pos: Vector2) -> void:
 		return
 
 	var drop_pos: Vector2 = drop_node.global_position
-	_desired_velocity = _move_dir(node_pos, drop_pos) * _get_speed()
+	_desired_velocity = _pathfind_dir(node_pos, drop_pos) * _get_speed()
 
 	if node_pos.distance_squared_to(drop_pos) < COLLECT_DIST_SQ:
 		# Signal coordinator to do the actual collection
@@ -268,11 +287,13 @@ func _enter_patrol(ctx: Dictionary) -> void:
 	_move_target  = home_pos + Vector2(cos(angle), sin(angle)) * dist
 	state         = State.PATROL
 	_state_timer  = 0.0
+	_invalidate_npc_path()
 
 
 func _enter_return_home() -> void:
 	state        = State.RETURN_HOME
 	_state_timer = 0.0
+	_invalidate_npc_path()
 
 
 # ---------------------------------------------------------------------------
