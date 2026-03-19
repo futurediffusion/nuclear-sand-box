@@ -23,6 +23,7 @@ var _tile_painter := TilePainter.new()
 @export var grass_tuft_scene: PackedScene
 @export var bandit_camp_scene: PackedScene
 @export var bandit_scene: PackedScene
+@export_range(0.0, 1.0, 0.01) var camp_spawn_chance: float = 1.0
 @export var tavern_keeper_scene: PackedScene
 @export_group("Chunk Perf Debug")
 @export var debug_chunk_perf_enabled: bool = true
@@ -774,6 +775,7 @@ func _make_spawn_ctx() -> Dictionary:
 		"grass_tuft_scene": grass_tuft_scene,
 		"bandit_camp_scene": bandit_camp_scene,
 		"bandit_scene": bandit_scene,
+		"camp_spawn_chance": camp_spawn_chance,
 		"cliff_generator": cliff_generator,
 		"copper_grass_min": copper_grass_min,
 		"copper_grass_max": copper_grass_max,

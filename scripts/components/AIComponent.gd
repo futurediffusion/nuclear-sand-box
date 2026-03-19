@@ -79,6 +79,7 @@ var _disengage_anchor: Vector2 = Vector2.ZERO
 var _perimeter_anchor: Vector2 = Vector2.ZERO
 var _current_downed_target_id: int = -1
 var _contract_valid: bool = false
+var _path_id: String = ""   # agent_id for NpcPathService cache (lazy-init)
 
 func _has_property(obj: Object, property_name: String) -> bool:
 	if obj == null:
@@ -285,7 +286,18 @@ func _execute_light_tick(delta: float, force_hold_override: bool = false) -> voi
 			if target == null:
 				owner_entity.velocity = owner_entity.velocity.move_toward(Vector2.ZERO, owner_entity.friction * delta)
 				return
-			var dir: Vector2 = owner_entity.global_position.direction_to(target.global_position)
+			var my_pos: Vector2     = owner_entity.global_position
+			var target_pos: Vector2 = target.global_position
+			var dir: Vector2
+			var pid: String = _get_owner_path_id()
+			if pid != "" and NpcPathService.is_ready():
+				var wp: Vector2 = NpcPathService.get_next_waypoint(
+					pid, my_pos, target_pos, {"repath_interval": 0.5})
+				var d: Vector2  = wp - my_pos
+				var dsq: float  = d.length_squared()
+				dir = (d / sqrt(dsq)) if dsq > 0.001 else my_pos.direction_to(target_pos)
+			else:
+				dir = my_pos.direction_to(target_pos)
 			var target_velocity: Vector2 = dir * float(owner_entity.max_speed)
 			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 		AIState.DISENGAGE:
@@ -856,6 +868,21 @@ func _lod_bucket_name(bucket: int) -> String:
 		_:
 			return "far"
 
+## Returns a stable cache key for NpcPathService for this enemy.
+## Uses entity_uid when available; falls back to instance_id string.
+func _get_owner_path_id() -> String:
+	if _path_id != "":
+		return _path_id
+	if owner_entity == null:
+		return ""
+	var uid = owner_entity.get("entity_uid")
+	if uid != null and String(uid) != "":
+		_path_id = String(uid)
+	else:
+		_path_id = str(owner_entity.get_instance_id())
+	return _path_id
+
+
 func _find_player() -> void:
 	if owner_entity == null:
 		return
@@ -911,6 +938,9 @@ func on_owner_exit_tree() -> void:
 	_reset_bow_charge_state()
 	if AggroTrackerService != null and AggroTrackerService.has_method("clear_enemy"):
 		AggroTrackerService.clear_enemy(owner_entity)
+	var pid: String = _get_owner_path_id()
+	if pid != "" and NpcPathService.is_ready():
+		NpcPathService.clear_agent(pid)
 
 func on_enter_lite() -> void:
 	_cancel_awake_ramp()

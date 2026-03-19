@@ -21,7 +21,7 @@ const BOOT_TRACE := true
 	"wall": false,
 	"inv": false,
 	"chunk": true,
-	"spawn": false,
+	"spawn": true,
 	"save": false,
 	"copper": false,
 	"loot": false,

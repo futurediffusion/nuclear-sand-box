@@ -1,35 +1,42 @@
 extends Node
 
 # ── NpcPathService ────────────────────────────────────────────────────────────
-# Autoload. Local tile-based A* pathfinding for sleeping/world-layer NPCs.
+# Autoload. Local tile-based A* pathfinding shared by NpcWorldBehavior and
+# AIComponent.CHASE. Same service, same cache, same blockers for both.
 #
-# Design:
-#   • One AStarGrid2D per request, built over a local tile window (≤MAX_WINDOW²).
-#   • Per-agent path cache keyed by member_id; recalculated on goal change or
-#     after REPATH_INTERVAL seconds.
-#   • Fast path: if start→goal is ≤ LOS_MAX_TILES and line is clear, returns
-#     direct direction without running A*.
-#   • Graceful fallback: returns goal directly if A* fails or service not ready.
+# Blockers (in order):
+#   1. Cliff tiles        — TileMap_Cliffs layer 0, source_id != -1
+#   2. Player/struct walls— StructureWallsMap layer 0, source_id == SRC_WALLS
+#   3. Solid placeables   — WorldSave entities; all except floorwood block movement
+#   4. Doors (hook live)  — closed doorwood blocks; open doorwood is passable
+#   5. Hook: future gate/custom blockers in _is_placeable_blocked()
 #
-# Blockers:
-#   • Cliff tiles: TileMap_Cliffs layer 0, any cell != -1.
-#   • Player/structural walls: StructureWallsMap layer 0, source_id == SRC_WALLS.
-#   • Hook: _is_blocked() has a clearly marked section for future door blockers.
+# Window strategy: adaptive padding based on start→goal distance.
+# If first A* attempt fails, retries once with MAX_WINDOW_RETRY tiles.
+# Fast path: if Bresenham is clear (any distance), skips A* entirely.
 #
-# Setup: world.gd calls NpcPathService.setup(ctx) once tilemaps are ready.
+# Cache: per agent_id. Repath on goal change (>GOAL_CHANGED_DIST_SQ) or timeout.
+# Chase uses shorter interval via opts dict: {"repath_interval": 0.5}
 
-# ── Thresholds ────────────────────────────────────────────────────────────────
-const REPATH_INTERVAL: float      = 1.5       # s between forced recalcs
-const GOAL_CHANGED_DIST_SQ: float = 16.0*16.0 # re-path when goal moves > 16 px
-const WAYPOINT_ARRIVE_SQ: float   = 18.0*18.0 # advance to next WP within 18 px
-const LOS_MAX_TILES: int          = 5         # skip A* below this tile-distance
-const WINDOW_PAD: int             = 7         # padding tiles around bbox
-const MAX_WINDOW: int             = 26        # max window side in tiles
+# ── Window constants ──────────────────────────────────────────────────────────
+const BASE_PAD: int        = 7    # min side padding around bbox
+const MAX_PAD: int         = 14   # max side padding (for long routes)
+const MAX_WINDOW: int      = 48   # normal max window side (tiles)
+const MAX_WINDOW_RETRY: int = 64  # retry window when first attempt fails
 
-# ── Tilemap constants (must match world.gd) ───────────────────────────────────
+# ── Timing constants ──────────────────────────────────────────────────────────
+const REPATH_INTERVAL: float      = 1.5        # default s between recalcs
+const GOAL_CHANGED_DIST_SQ: float = 16.0*16.0  # repath when goal moves > 16 px
+const WAYPOINT_ARRIVE_SQ: float   = 18.0*18.0  # advance WP within 18 px
+
+# ── Tilemap / WorldSave constants ─────────────────────────────────────────────
 const CLIFFS_LAYER: int    = 0
 const WALLS_MAP_LAYER: int = 0
-const SRC_WALLS: int       = 2  # source_id for player/structural walls
+const SRC_WALLS: int       = 2      # StructureWallsMap source_id for walls
+const CHUNK_SIZE: int      = 32     # must match world.gd chunk_size
+
+# Item IDs that are PASSABLE (everything else in placed_entities is solid)
+const PASSABLE_ITEM_IDS: Array = ["floorwood", "woodfloor"]
 
 # ── State ─────────────────────────────────────────────────────────────────────
 var _cliffs_tilemap: TileMap    = null
@@ -38,12 +45,12 @@ var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
 var _is_ready: bool             = false
 
-# agent_id → {goal:Vector2, waypoints:Array[Vector2], index:int, timestamp:float}
+# agent_id → {goal, waypoints, index, timestamp}
 var _cache: Dictionary = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Setup — called from world.gd in _ready() after tilemaps are available
+# Setup — called from world.gd in _ready() after tilemaps are ready
 # ─────────────────────────────────────────────────────────────────────────────
 
 func setup(ctx: Dictionary) -> void:
@@ -52,8 +59,8 @@ func setup(ctx: Dictionary) -> void:
 	_world_to_tile_cb = ctx.get("world_to_tile", Callable())
 	_tile_to_world_cb = ctx.get("tile_to_world", Callable())
 	_is_ready = (
-		_cliffs_tilemap   != null and is_instance_valid(_cliffs_tilemap)  and
-		_walls_tilemap    != null and is_instance_valid(_walls_tilemap)   and
+		_cliffs_tilemap != null and is_instance_valid(_cliffs_tilemap) and
+		_walls_tilemap  != null and is_instance_valid(_walls_tilemap)  and
 		_world_to_tile_cb.is_valid() and _tile_to_world_cb.is_valid()
 	)
 	Debug.log("npc_path", "[NPS] setup ready=%s" % str(_is_ready))
@@ -68,19 +75,22 @@ func is_ready() -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 ## Returns the next world-space waypoint toward goal for agent_id.
-## Recomputes path only when goal changed materially or REPATH_INTERVAL elapsed.
-## Falls back to returning goal directly when service unavailable or A* fails.
-func get_next_waypoint(agent_id: String, current_pos: Vector2, goal: Vector2) -> Vector2:
+## opts keys:
+##   "repath_interval" : float  — override repath timer (default REPATH_INTERVAL)
+##                                use 0.5 for CHASE, 1.5 for patrol/world behavior
+func get_next_waypoint(agent_id: String, current_pos: Vector2,
+		goal: Vector2, opts: Dictionary = {}) -> Vector2:
 	if not _is_ready or agent_id == "":
 		return goal
 
-	var c: Dictionary = _ensure_cache(agent_id)
-	var wpts: Array   = c["waypoints"]
+	var c: Dictionary     = _ensure_cache(agent_id)
+	var wpts: Array       = c["waypoints"]
+	var interval: float   = float(opts.get("repath_interval", REPATH_INTERVAL))
 
 	var needs_repath: bool = (
 		wpts.is_empty()
 		or (c["goal"] as Vector2).distance_squared_to(goal) > GOAL_CHANGED_DIST_SQ
-		or (RunClock.now() - float(c["timestamp"])) >= REPATH_INTERVAL
+		or (RunClock.now() - float(c["timestamp"])) >= interval
 	)
 
 	if needs_repath:
@@ -89,16 +99,15 @@ func get_next_waypoint(agent_id: String, current_pos: Vector2, goal: Vector2) ->
 	return _advance_and_get(c, current_pos, goal)
 
 
-## True when straight tile line from start to goal has no cliff/wall blockers.
-## Only checked for short distances (≤ LOS_MAX_TILES) to keep it cheap.
+## True when Bresenham tile line start→goal has no blockers (including placeables).
+## No distance limit — cheap enough for any reasonable NPC range.
 func has_line_clear(start: Vector2, goal: Vector2) -> bool:
 	if not _is_ready:
 		return true
-	var st: Vector2i = _world_to_tile_cb.call(start)
-	var gt: Vector2i = _world_to_tile_cb.call(goal)
-	if maxi(absi(gt.x - st.x), absi(gt.y - st.y)) > LOS_MAX_TILES:
-		return false
-	return not _bresenham_blocked(st, gt)
+	var st: Vector2i      = _world_to_tile_cb.call(start)
+	var gt: Vector2i      = _world_to_tile_cb.call(goal)
+	var placed: Dictionary = _collect_placed_blockers_for_line(st, gt)
+	return not _bresenham_blocked(st, gt, placed)
 
 
 ## Force next get_next_waypoint() call to recompute path for agent.
@@ -107,7 +116,7 @@ func invalidate_path(agent_id: String) -> void:
 		(_cache[agent_id]["waypoints"] as Array).clear()
 
 
-## Remove all path data for agent (call when NPC despawns / behavior destroyed).
+## Remove all path data for agent (call when NPC despawns / behavior pruned).
 func clear_agent(agent_id: String) -> void:
 	_cache.erase(agent_id)
 
@@ -136,56 +145,33 @@ func _compute_path(agent_id: String, start: Vector2, goal: Vector2, c: Dictionar
 	var st: Vector2i = _world_to_tile_cb.call(start)
 	var gt: Vector2i = _world_to_tile_cb.call(goal)
 
-	# Fast path: direct line is short and clear — skip A*
-	if maxi(absi(gt.x - st.x), absi(gt.y - st.y)) <= LOS_MAX_TILES \
-			and not _bresenham_blocked(st, gt):
+	# Fast path: Bresenham clear at any distance → skip A* entirely
+	# Build a small placed-blocker set just for the corridor to keep this cheap
+	var los_blockers: Dictionary = _collect_placed_blockers_for_line(st, gt)
+	if not _bresenham_blocked(st, gt, los_blockers):
 		(c["waypoints"] as Array).append(goal)
 		return
 
-	# Build local tile window around the bounding box of start + goal
-	var min_x: int = mini(st.x, gt.x) - WINDOW_PAD
-	var min_y: int = mini(st.y, gt.y) - WINDOW_PAD
-	var w: int     = mini(absi(gt.x - st.x) + 1 + WINDOW_PAD * 2, MAX_WINDOW)
-	var h: int     = mini(absi(gt.y - st.y) + 1 + WINDOW_PAD * 2, MAX_WINDOW)
+	# Adaptive padding: more room when origin→goal is far
+	var dist_max: int = maxi(absi(gt.x - st.x), absi(gt.y - st.y))
+	var pad: int      = clampi(dist_max / 2, BASE_PAD, MAX_PAD)
 
-	# Clamp start/goal into the (possibly truncated) window
-	var cs: Vector2i = Vector2i(
-		clampi(st.x, min_x, min_x + w - 1),
-		clampi(st.y, min_y, min_y + h - 1)
-	)
-	var cg: Vector2i = Vector2i(
-		clampi(gt.x, min_x, min_x + w - 1),
-		clampi(gt.y, min_y, min_y + h - 1)
-	)
+	# First A* attempt with adaptive window
+	var raw: PackedVector2Array = _run_astar(st, gt, pad, MAX_WINDOW)
 
-	var grid := AStarGrid2D.new()
-	grid.region        = Rect2i(min_x, min_y, w, h)
-	grid.cell_size     = Vector2(1.0, 1.0)
-	grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
-	grid.update()
-
-	# Mark blocked tiles (cliffs, walls, future hooks)
-	for tx in range(min_x, min_x + w):
-		for ty in range(min_y, min_y + h):
-			if _is_blocked(Vector2i(tx, ty)):
-				grid.set_point_solid(Vector2i(tx, ty), true)
-
-	# Force-clear start/goal so the NPC is never stuck on a solid cell
-	if grid.is_point_solid(cs):
-		grid.set_point_solid(cs, false)
-	if grid.is_point_solid(cg):
-		grid.set_point_solid(cg, false)
-
-	var raw: PackedVector2Array = grid.get_point_path(cs, cg)
+	# Retry with larger window if first attempt failed
+	if raw.is_empty():
+		Debug.log("npc_path", "[NPS] retry wider window agent=%s" % agent_id)
+		raw = _run_astar(st, gt, MAX_PAD, MAX_WINDOW_RETRY)
 
 	if raw.is_empty():
-		# A* could not find a path — fall back to direct movement
+		# Both attempts failed — fall back to direct movement
 		(c["waypoints"] as Array).append(goal)
 		Debug.log("npc_path", "[NPS] no path agent=%s %s→%s" % [agent_id, str(st), str(gt)])
 		return
 
-	# Convert tile coords (Vector2 from AStarGrid2D) → world positions.
-	# Skip first point (= current tile). Replace last with exact goal.
+	# Convert tile coords → world positions; skip first point (= current tile).
+	# Replace last waypoint with exact goal world position for precision.
 	var wpts: Array = c["waypoints"]
 	var first: bool = true
 	for pt in raw:
@@ -197,7 +183,44 @@ func _compute_path(agent_id: String, start: Vector2, goal: Vector2, c: Dictionar
 	if wpts.is_empty():
 		wpts.append(goal)
 	else:
-		wpts[wpts.size() - 1] = goal   # snap to exact goal position
+		wpts[wpts.size() - 1] = goal
+
+
+func _run_astar(st: Vector2i, gt: Vector2i,
+		pad: int, max_w: int) -> PackedVector2Array:
+	var min_x: int = mini(st.x, gt.x) - pad
+	var min_y: int = mini(st.y, gt.y) - pad
+	var w: int     = mini(absi(gt.x - st.x) + 1 + pad * 2, max_w)
+	var h: int     = mini(absi(gt.y - st.y) + 1 + pad * 2, max_w)
+
+	var cs: Vector2i = Vector2i(
+		clampi(st.x, min_x, min_x + w - 1),
+		clampi(st.y, min_y, min_y + h - 1))
+	var cg: Vector2i = Vector2i(
+		clampi(gt.x, min_x, min_x + w - 1),
+		clampi(gt.y, min_y, min_y + h - 1))
+
+	# Collect placed-entity blockers for this window once (O(entities_in_chunks))
+	var placed: Dictionary = _collect_placed_blockers(min_x, min_y, w, h)
+
+	var grid := AStarGrid2D.new()
+	grid.region        = Rect2i(min_x, min_y, w, h)
+	grid.cell_size     = Vector2(1.0, 1.0)
+	grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
+	grid.update()
+
+	for tx in range(min_x, min_x + w):
+		for ty in range(min_y, min_y + h):
+			if _is_blocked(Vector2i(tx, ty), placed):
+				grid.set_point_solid(Vector2i(tx, ty), true)
+
+	# Force-clear start/goal so NPC is never trapped on a solid cell
+	if grid.is_point_solid(cs):
+		grid.set_point_solid(cs, false)
+	if grid.is_point_solid(cg):
+		grid.set_point_solid(cg, false)
+
+	return grid.get_point_path(cs, cg)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -227,23 +250,84 @@ func _advance_and_get(c: Dictionary, current_pos: Vector2, goal: Vector2) -> Vec
 # Internal — tile blocking
 # ─────────────────────────────────────────────────────────────────────────────
 
-func _is_blocked(tile: Vector2i) -> bool:
+## Returns true if tile is blocked by any static obstacle.
+## placed_blockers is a pre-built set (Dictionary{Vector2i→bool}) for efficiency.
+func _is_blocked(tile: Vector2i, placed_blockers: Dictionary) -> bool:
 	# Cliff tiles
 	if is_instance_valid(_cliffs_tilemap) \
 			and _cliffs_tilemap.get_cell_source_id(CLIFFS_LAYER, tile) != -1:
 		return true
-	# Player/structural walls
+	# Player / structural walls
 	if is_instance_valid(_walls_tilemap) \
 			and _walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, tile) == SRC_WALLS:
 		return true
-	# ── Hook: future door / gate blockers ────────────────────────────────────
-	# if DoorSystem != null and DoorSystem.is_tile_blocked(tile):
-	#     return true
-	# ─────────────────────────────────────────────────────────────────────────
+	# Placed entities (chests, barrels, tables, stools, workbenches, closed doors…)
+	if placed_blockers.has(tile):
+		return true
 	return false
 
 
-func _bresenham_blocked(from_tile: Vector2i, to_tile: Vector2i) -> bool:
+## Returns true if a placed entity at tile_id blocks movement.
+## All placeables are solid EXCEPT: floorwood/woodfloor (no collision shape)
+## and doorwood when open (collision shape disabled while open).
+func _placeable_blocks_movement(item_id: String, uid: String) -> bool:
+	if item_id == "":
+		return false
+	# Purely walkable floor tiles — never block
+	if item_id in PASSABLE_ITEM_IDS:
+		return false
+	# Door: passable when open, blocking when closed
+	if item_id == "doorwood":
+		var data: Dictionary = WorldSave.get_placed_entity_data(uid)
+		# Default false = closed (conservative: treat unknown state as closed)
+		return not bool(data.get("is_open", false))
+	# ── Hook: add future passable item_ids above this line ───────────────────
+	# Example: if item_id == "fence_gate" and gate is open: return false
+	# ─────────────────────────────────────────────────────────────────────────
+	# All other placeables (chest, barrel, table, stool, workbench) are solid
+	return true
+
+
+## Build a {Vector2i→true} dict of all blocking placed-entity tiles
+## inside the given tile-coordinate window [min_x..min_x+w, min_y..min_y+h].
+## Called once per A* solve — O(entities in affected chunks).
+func _collect_placed_blockers(min_x: int, min_y: int, w: int, h: int) -> Dictionary:
+	var blockers: Dictionary = {}
+	var min_cx: int = int(floor(float(min_x) / CHUNK_SIZE))
+	var max_cx: int = int(floor(float(min_x + w - 1) / CHUNK_SIZE))
+	var min_cy: int = int(floor(float(min_y) / CHUNK_SIZE))
+	var max_cy: int = int(floor(float(min_y + h - 1) / CHUNK_SIZE))
+
+	for cx in range(min_cx, max_cx + 1):
+		for cy in range(min_cy, max_cy + 1):
+			for entry in WorldSave.get_placed_entities_in_chunk(cx, cy):
+				var tx: int = int(entry.get("tile_pos_x", 0))
+				var ty: int = int(entry.get("tile_pos_y", 0))
+				# Skip tiles outside our window
+				if tx < min_x or tx >= min_x + w or ty < min_y or ty >= min_y + h:
+					continue
+				var item_id: String = String(entry.get("item_id", ""))
+				var uid: String     = String(entry.get("uid", ""))
+				if _placeable_blocks_movement(item_id, uid):
+					blockers[Vector2i(tx, ty)] = true
+	return blockers
+
+
+## Lightweight variant: collect placed blockers only along the Bresenham line
+## from st to gt (used for the fast-path LOS check before running A*).
+## Much cheaper than the full window scan for the direct-line test.
+func _collect_placed_blockers_for_line(st: Vector2i, gt: Vector2i) -> Dictionary:
+	var min_x: int = mini(st.x, gt.x)
+	var max_x: int = maxi(st.x, gt.x)
+	var min_y: int = mini(st.y, gt.y)
+	var max_y: int = maxi(st.y, gt.y)
+	var w: int = max_x - min_x + 1
+	var h: int = max_y - min_y + 1
+	return _collect_placed_blockers(min_x, min_y, w, h)
+
+
+func _bresenham_blocked(from_tile: Vector2i, to_tile: Vector2i,
+		placed_blockers: Dictionary) -> bool:
 	var x0: int = from_tile.x
 	var y0: int = from_tile.y
 	var x1: int = to_tile.x
@@ -254,7 +338,7 @@ func _bresenham_blocked(from_tile: Vector2i, to_tile: Vector2i) -> bool:
 	var sy: int = 1 if y0 < y1 else -1
 	var err: int = dx - dy
 	while true:
-		if _is_blocked(Vector2i(x0, y0)):
+		if _is_blocked(Vector2i(x0, y0), placed_blockers):
 			return true
 		if x0 == x1 and y0 == y1:
 			break

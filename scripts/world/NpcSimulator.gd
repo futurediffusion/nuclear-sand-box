@@ -296,15 +296,19 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 		if _cliff_gen == null or not _world_to_tile.is_valid():
 			return
 		var stale := false
+		var all_dead := true
 		for eid in WorldSave.iter_enemy_ids_in_chunk(chunk_key):
 			var st = WorldSave.get_enemy_state(chunk_key, eid)
 			if st == null:
 				continue
+			if not bool((st as Dictionary).get("is_dead", false)):
+				all_dead = false
 			if _cliff_gen.is_cliff_tile(_world_to_tile.call(Vector2(st.get("pos", Vector2.ZERO)))):
 				stale = true
 				break
-		if not stale:
+		if not stale and not all_dead:
 			return
+		Debug.log("npc_data", "[NpcSim] respawn chunk=%s all_dead=%s stale=%s" % [chunk_key, str(all_dead), str(stale)])
 		WorldSave.clear_chunk_enemy_spawns(chunk_key)
 	if not _chunk_save.has(chunk_pos):
 		return
@@ -346,8 +350,7 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 			var member_role: String
 			match camp_member_index:
 				0:    member_role = "leader"
-				1, 2: member_role = "bodyguard"
-				_:    member_role = "scavenger"
+				_:    member_role = "bodyguard" if camp_member_index <= 9 else "scavenger"
 
 			var record: Dictionary = {
 				"spawn_index":    spawn_index,

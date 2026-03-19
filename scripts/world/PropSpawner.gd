@@ -7,6 +7,7 @@ const TAVERN_SAFE_MARGIN_TILES := 4
 const SPAWN_MAX_TRIES := 30
 const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
+const CAMP_SPAWN_CHANCE_DEFAULT: float = 0.125  # fallback si ctx no trae el valor
 const COPPER_MIN_DIST_TILES := 10
 const STONE_FOOTPRINT_RADIUS_TILES := 0
 const STONE_MIN_DIST_TILES := 6
@@ -216,8 +217,9 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	if ctx["bandit_camp_scene"] == null or ctx["bandit_scene"] == null:
 		return
 
-	# Solo existe 1 campamento en todo el mundo
-	if WorldSave.global_flags.get("global_camp_placed", false):
+	# Probabilistic camp placement — chance controlled from world.gd Inspector.
+	var chance: float = float(ctx.get("camp_spawn_chance", CAMP_SPAWN_CHANCE_DEFAULT))
+	if rng.randf() >= chance:
 		return
 
 	var camp_tile: Vector2i = INVALID_SPAWN_TILE
@@ -234,12 +236,11 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 			SPAWN_MAX_TRIES, rng, CAMP_FOOTPRINT_RADIUS_TILES, ctx
 		)
 	if camp_tile == INVALID_SPAWN_TILE:
-		_debug_spawn_report(chunk_pos, player_tile, INVALID_SPAWN_TILE, "CANCEL: no valid tile for global camp")
+		_debug_spawn_report(chunk_pos, player_tile, INVALID_SPAWN_TILE, "CANCEL: no valid tile for camp")
 		return
 
 	chunk_save[chunk_pos]["camps"].append({"tile": camp_tile})
 	_mark_footprint_occupied(chunk_pos, camp_tile, CAMP_FOOTPRINT_RADIUS_TILES, ctx)
-	WorldSave.global_flags["global_camp_placed"] = true
 
 
 func _is_test_density_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> bool:

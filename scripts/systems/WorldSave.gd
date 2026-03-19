@@ -8,7 +8,7 @@ const DEFAULT_CHUNK_SAVE := {
 var chunks: Dictionary = {}  # chunk_key(String) -> ChunkSave(Dictionary)
 var enemy_state_by_chunk: Dictionary = {}  # chunk_key(String) -> enemy_id(String) -> state(Dictionary)
 var enemy_spawns_by_chunk: Dictionary = {}  # chunk_key(String) -> Array[Dictionary]
-var global_flags: Dictionary = {}  # flags globales del mundo (ej: "global_camp_placed")
+var global_flags: Dictionary = {}  # flags globales del mundo
 var player_walls_by_chunk: Dictionary = {}  # chunk_key(String) -> tile_key(String) -> {"hp": int}
 
 var chunk_size: int = 32
