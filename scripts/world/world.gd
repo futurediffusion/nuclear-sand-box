@@ -458,9 +458,13 @@ func _ready() -> void:
 
 	_settlement_intel = SettlementIntelScript.new()
 	_settlement_intel.setup({
-		"world_to_tile": Callable(self, "_world_to_tile"),
-		"tile_to_world": Callable(self, "_tile_to_world"),
+		"world_to_tile":    Callable(self, "_world_to_tile"),
+		"tile_to_world":    Callable(self, "_tile_to_world"),
+		"player_pos_getter": Callable(self, "_get_player_world_pos"),
 	})
+	if _player_wall_system != null \
+			and not _player_wall_system.player_wall_drop.is_connected(_on_wall_drop_for_intel):
+		_player_wall_system.player_wall_drop.connect(_on_wall_drop_for_intel)
 
 	await update_chunks(current_player_chunk)
 
@@ -914,6 +918,8 @@ func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) ->
 			_wall_refresh_queue.record_activity(chunk_pos)
 			if loaded_chunks.has(chunk_pos):
 				_wall_refresh_queue.enqueue(chunk_pos)
+	if _settlement_intel != null and not tile_positions.is_empty():
+		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_positions[0]))
 
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	if _chunk_wall_collider_cache != null:
@@ -977,6 +983,15 @@ func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
 		var cpos: Vector2i = _tile_to_chunk(tile_pos)
 		_wall_refresh_queue.record_activity(cpos)
 
+func _get_player_world_pos() -> Vector2:
+	if player == null:
+		return Vector2.ZERO
+	return player.global_position
+
+func _on_wall_drop_for_intel(tile_pos: Vector2i, _item_id: String, _amount: int) -> void:
+	if _settlement_intel != null:
+		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_pos))
+
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
 	if kind != "enemy":
 		return
@@ -994,6 +1009,16 @@ func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dicti
 	if _settlement_intel == null:
 		return []
 	return _settlement_intel.get_interest_markers_near(world_pos, radius)
+
+func get_detected_bases_near(world_pos: Vector2, radius: float) -> Array[Dictionary]:
+	if _settlement_intel == null:
+		return []
+	return _settlement_intel.get_detected_bases_near(world_pos, radius)
+
+func has_detected_base_near(world_pos: Vector2, radius: float) -> bool:
+	if _settlement_intel == null:
+		return false
+	return _settlement_intel.has_detected_base_near(world_pos, radius)
 
 
 func _paint_outer_ground_band() -> void:
