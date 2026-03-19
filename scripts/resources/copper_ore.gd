@@ -48,6 +48,7 @@ var entity_uid: String = ""
 var _hit_accumulator: int = 0
 
 func _ready() -> void:
+	add_to_group("world_resource")
 	if remaining < 0:
 		remaining = randi_range(total_min, total_max)
 	_base_sprite_pos = sprite.position

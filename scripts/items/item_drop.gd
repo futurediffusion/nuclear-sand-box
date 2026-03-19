@@ -46,6 +46,7 @@ var _scatter_elapsed: float = 0.0
 var _scatter_arc_height: float = 0.0
 
 func _ready() -> void:
+	add_to_group("item_drop")
 	_resolve_item_data()
 
 	if icon != null:

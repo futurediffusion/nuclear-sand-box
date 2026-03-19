@@ -39,6 +39,8 @@ PartyControlManager="*res://scripts/systems/PartyControlManager.gd"
 FactionSystem="*res://scripts/systems/FactionSystem.gd"
 SiteSystem="*res://scripts/systems/SiteSystem.gd"
 NpcProfileSystem="*res://scripts/systems/NpcProfileSystem.gd"
+BanditGroupMemory="*res://scripts/systems/BanditGroupMemory.gd"
+ExtortionQueue="*res://scripts/systems/ExtortionQueue.gd"
 RunClock="*res://scripts/systems/RunClock.gd"
 
 [display]

@@ -227,7 +227,14 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 	if node.has_method("exit_lite_mode"):
 		node.call("exit_lite_mode")
 	EnemyRegistry.register_enemy(node)
-	NpcProfileSystem.ensure_profile(enemy_id, "bandit", "soldier")
+
+	var member_role: String = String(save_state.get("role", "scavenger"))
+	NpcProfileSystem.ensure_profile(enemy_id, "bandit", member_role)
+
+	var group_id_on_spawn: String = String(save_state.get("group_id", ""))
+	if group_id_on_spawn != "":
+		var home_pos: Vector2 = Vector2(save_state.get("home_world_pos", Vector2.ZERO))
+		BanditGroupMemory.register_member(group_id_on_spawn, enemy_id, member_role, home_pos, "bandits")
 
 	if save_state.get("is_dead", false):
 		NpcProfileSystem.set_status(enemy_id, "dead")
@@ -247,6 +254,11 @@ func on_entity_died(uid: String) -> void:
 		WorldSave.mark_enemy_dead(chunk_key, uid)
 		# We do not clear tracking here to allow the corpse to persist if enabled.
 		# despawn_enemy() will handle full cleanup when the chunk is unloaded or out of range.
+		var dead_state = WorldSave.get_enemy_state(chunk_key, uid)
+		if dead_state != null:
+			var gid: String = String((dead_state as Dictionary).get("group_id", ""))
+			if gid != "":
+				BanditGroupMemory.remove_member(gid, uid)
 	spawning_enemy_ids.erase(uid)
 	NpcProfileSystem.set_status(uid, "dead")
 
@@ -310,6 +322,7 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 		var camp_index: int = _chunk_save[chunk_pos].get("camps", []).find(camp)
 		var camp_group_id: String = "camp:%s:%03d" % [chunk_key, camp_index]
 
+		var camp_member_index: int = 0
 		for offset in primary_offsets:
 			var enemy_id: String = "e:%s:%03d" % [chunk_key, spawn_index]
 			var chosen_offset: Vector2 = offset
@@ -322,35 +335,46 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 							chosen_offset = fb
 							break
 			var enemy_pos: Vector2 = camp_world + chosen_offset
+			var member_role: String
+			match camp_member_index:
+				0:    member_role = "leader"
+				1, 2: member_role = "bodyguard"
+				_:    member_role = "scavenger"
+
 			var record: Dictionary = {
-				"spawn_index": spawn_index,
-				"enemy_id": enemy_id,
-				"chunk_key": chunk_key,
-				"pos": enemy_pos,
-				"seed": Seed.chunk_seed(chunk_pos.x, chunk_pos.y) ^ spawn_index,
-				"hp": 3,
-				"faction_id": "bandits",
-				"group_id": camp_group_id,
+				"spawn_index":    spawn_index,
+				"enemy_id":       enemy_id,
+				"chunk_key":      chunk_key,
+				"pos":            enemy_pos,
+				"seed":           Seed.chunk_seed(chunk_pos.x, chunk_pos.y) ^ spawn_index,
+				"hp":             3,
+				"faction_id":     "bandits",
+				"group_id":       camp_group_id,
+				"role":           member_role,
+				"home_world_pos": camp_world,
 				"loadout": {"weapon_ids": ["ironpipe", "bow"], "equipped_weapon_id": "ironpipe"},
 			}
 			records.append(record)
 			WorldSave.get_or_create_enemy_state(chunk_key, enemy_id, {
-				"id": enemy_id,
-				"chunk_key": chunk_key,
-				"pos": enemy_pos,
-				"hp": 3,
-				"is_dead": false,
-				"seed": int(record["seed"]),
-				"faction_id": "bandits",
-				"group_id": camp_group_id,
-				"weapon_ids": ["ironpipe", "bow"],
+				"id":             enemy_id,
+				"chunk_key":      chunk_key,
+				"pos":            enemy_pos,
+				"hp":             3,
+				"is_dead":        false,
+				"seed":           int(record["seed"]),
+				"faction_id":     "bandits",
+				"group_id":       camp_group_id,
+				"role":           member_role,
+				"home_world_pos": camp_world,
+				"weapon_ids":     ["ironpipe", "bow"],
 				"equipped_weapon_id": "ironpipe",
-				"alert": 0.0,
+				"alert":          0.0,
 				"last_seen_player_pos": Vector2.ZERO,
-				"last_active_time": 0.0,
-				"version": 1,
+				"last_active_time":     0.0,
+				"version":        1,
 			})
 			spawn_index += 1
+			camp_member_index += 1
 	WorldSave.ensure_chunk_enemy_spawns(chunk_key, records)
 
 func _can_despawn(node: Node, state: Dictionary) -> bool:

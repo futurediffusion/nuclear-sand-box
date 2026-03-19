@@ -65,6 +65,7 @@ var _wood_hit_volume_db: float = 0.0
 
 
 func _ready() -> void:
+	add_to_group("world_resource")
 	collision_layer = CollisionLayers.WORLD_WALL_LAYER_MASK | CollisionLayers.RESOURCES_LAYER_MASK
 	collision_mask = 0
 	_base_pos = trunk_sprite.position

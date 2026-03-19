@@ -50,7 +50,8 @@
       "Read(//tmp/**)",
       "Bash(cmd.exe /c \"where godot\" 2>&1 || cmd.exe /c \"dir C:\\\\Users\\\\walva\\\\AppData\\\\Local\\\\Programs\\\\Godot* /b 2>&1\" || echo \"not found\")",
       "Bash(cmd.exe /c \"where godot.exe 2>&1 & where godot4.exe 2>&1\")",
-      "Bash(cmd.exe /c \"dir \\\\\"C:\\\\\\\\Users\\\\\\\\walva\\\\\\\\AppData\\\\\\\\Local\\\\\" /b 2>&1\" | head -20)"
+      "Bash(cmd.exe /c \"dir \\\\\"C:\\\\\\\\Users\\\\\\\\walva\\\\\\\\AppData\\\\\\\\Local\\\\\" /b 2>&1\" | head -20)",
+      "Bash(cd:*)"
     ]
   }
 }

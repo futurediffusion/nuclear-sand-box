@@ -49,10 +49,12 @@ func save_world() -> void:
 		"worldsave_player_walls": _ser(WorldSave.player_walls_by_chunk),
 		"placed_entities_by_chunk": _ser(WorldSave.placed_entities_by_chunk),
 		"placed_entity_data_by_uid": _ser(WorldSave.placed_entity_data_by_uid),
-		"faction_system":     FactionSystem.serialize(),
-		"site_system":        SiteSystem.serialize(),
-		"npc_profile_system": NpcProfileSystem.serialize(),
-		"run_clock":          RunClock.get_save_data(),
+		"faction_system":       FactionSystem.serialize(),
+		"site_system":          SiteSystem.serialize(),
+		"npc_profile_system":   NpcProfileSystem.serialize(),
+		"bandit_group_memory":  BanditGroupMemory.serialize(),
+		"extortion_queue":      ExtortionQueue.serialize(),
+		"run_clock":            RunClock.get_save_data(),
 	}
 
 	var json_str: String = JSON.stringify(data)
@@ -162,6 +164,14 @@ func load_world_save() -> bool:
 	if nps is Dictionary:
 		NpcProfileSystem.deserialize(nps)
 
+	var bgm = data.get("bandit_group_memory", {})
+	if bgm is Dictionary:
+		BanditGroupMemory.deserialize(bgm)
+
+	var eq = data.get("extortion_queue", [])
+	if eq is Array:
+		ExtortionQueue.deserialize(eq)
+
 	var rc = data.get("run_clock", {})
 	if rc is Dictionary:
 		RunClock.load_save_data(rc)
@@ -196,6 +206,8 @@ func new_game() -> void:
 	FactionSystem.reset()
 	SiteSystem.reset()
 	NpcProfileSystem.reset()
+	BanditGroupMemory.reset()
+	ExtortionQueue.reset()
 	RunClock.reset()
 
 	# Generar semilla aleatoria real, ignorando debug_seed

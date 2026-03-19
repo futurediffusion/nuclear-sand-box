@@ -535,3 +535,127 @@ API bases (también expuesta como fachada en `world.gd`):
 - No persiste entre sesiones
 - Múltiples puertas generan entradas de base independientes
 - `mark_base_scan_dirty_near` ignora el world_pos (dirty es global)
+
+---
+
+## 1️⃣2️⃣ SUBSISTEMAS DE COMPORTAMIENTO MUNDIAL DE BANDIDOS
+
+### `NpcWorldBehavior` (`scripts/world/NpcWorldBehavior.gd`)
+RefCounted. Máquina de estados reutilizable para NPCs que están sleeping o en lite-mode.
+No modifica nodos — devuelve `get_desired_velocity()` y un coordinador lo aplica.
+
+**Estados:** `IDLE_AT_HOME`, `PATROL`, `HOLD_POSITION`, `RETURN_HOME`, `APPROACH_INTEREST`, `FOLLOW_LEADER`
+
+**Reglas base:**
+- IDLE_AT_HOME → PATROL cuando expira idle_timer (2–6s)
+- PATROL → IDLE_AT_HOME al llegar al destino o tras 14s
+- RETURN_HOME si se aleja > 192px de home_pos (safety net)
+- FOLLOW_LEADER: se acerca mientras dist > 32px
+
+**API:**
+- `setup(cfg: Dictionary)` — cfg: `home_pos`, `role`, `group_id`, `member_id`
+- `tick(delta, ctx)` — ctx: `"node_pos": Vector2`, `"leader_pos": Vector2` (opcional)
+- `get_desired_velocity() -> Vector2`
+- `_get_patrol_radius() -> float` — virtual, override en subclase
+- `_get_speed() -> float` — virtual, override en subclase
+
+### `BanditWorldBehavior` (`scripts/world/BanditWorldBehavior.gd`)
+Extiende `NpcWorldBehavior`. Radios y velocidades por rol; reacciona a `BanditGroupMemory.current_group_intent`.
+
+**Radios de patrulla:** leader=28px, bodyguard=48px, scavenger=96px
+**Velocidades:** leader=44, bodyguard=54, scavenger=58 (antes de compensar fricción del enemigo)
+**Bias de idle:** leader=3×, bodyguard=1.5×, scavenger=1×
+
+**Reacción a group_intent:**
+- `"hunting"`: leader → APPROACH_INTEREST (last_interest_pos del grupo); bodyguard → FOLLOW_LEADER; scavenger no cambia
+- `"extorting"`: leader → APPROACH_INTEREST
+- `"idle"/"alerted"`: APPROACH_INTEREST o FOLLOW_LEADER → RETURN_HOME
+
+### `BanditBehaviorLayer` (`scripts/world/BanditBehaviorLayer.gd`)
+Node hijo de World. Gestiona el pool de `BanditWorldBehavior` para todos los bandidos activos.
+
+**Creación lazy:** se crea un behavior cuando el enemigo está sleeping y tiene `group_id` en su save_state.
+**Tick:** cada `TICK_INTERVAL=0.5s` — ticks de estado + prune de behaviors inválidos.
+**Aplicación de velocidad:** en `_physics_process`, cada frame para enemies sleeping y no lite-mode.
+
+**Fricción:** enemy.gd aplica `velocity.move_toward(0, friction*delta)` cuando sleeping (friction=1500).
+`BanditBehaviorLayer` añade `FRICTION_COMPENSATION=25` a la magnitud del velocity para compensar,
+de modo que el movimiento efectivo ≈ velocidad objetivo del behavior.
+
+**Cargo (carry system):**
+- Cada NPC tiene `cargo_count` / `cargo_capacity` (solo enteros — sin items reales).
+- Capacidad por rol: leader=1, bodyguard=2, scavenger=4.
+- Al llegar a casa (RETURN_HOME arriba en ARRIVED_DIST), `cargo_count = 0` (descarga).
+- **Preferencia de carry:** NPCs prefieren llevar drops a la base en lugar de consumirlos.
+  `BanditBehaviorLayer._handle_collection()` hace el `queue_free()` del drop e incrementa cargo.
+
+**Loot pickup:**
+- Grupos "item_drop": `ItemDrop._ready()` hace `add_to_group("item_drop")`.
+- `BanditBehaviorLayer._refresh_world_caches()` recoge todos los drops del árbol una vez por tick.
+- Pasa `nearby_drops_info` = `[{id, pos, amount}]` filtrado por LOOT_SCAN_RADIUS=144px en el ctx.
+- scavenger y bodyguard pueden entrar en LOOT_APPROACH; leader no.
+
+**Resource watch:**
+- Grupos "world_resource": copper_ore, stone_ore, tree_wood hacen `add_to_group("world_resource")`.
+- Pasa `nearby_res_info` = `[{pos}]` filtrado por RESOURCE_SCAN_RADIUS=288px.
+- Solo scavengers entran en RESOURCE_WATCH (patrol de radio ~28px alrededor del recurso).
+
+**Limitaciones MVP:**
+- Solo bandidos con `group_id` reciben behavior
+- No hay evasión de obstáculos — pueden quedarse atascados en paredes
+- HOLD_POSITION no tiene transición automática
+- cargo_count no persiste entre sesiones (siempre empieza en 0)
+- NPCs no realmente "minan" recursos — solo los vigilan en RESOURCE_WATCH
+- Las velocidades no compensan cambios en `friction` del enemy exportado
+
+---
+
+## 1️⃣3️⃣ INTELIGENCIA GRUPAL DE BANDIDOS — DETECCIÓN Y EXTORSIÓN
+
+### `BanditGroupIntel` (`scripts/world/BanditGroupIntel.gd`)
+RefCounted. Scanner de inteligencia a nivel de grupo. Ticks cada `SCAN_INTERVAL=8s`.
+Para cada grupo con leader vivo, consulta `SettlementIntel` y actualiza `BanditGroupMemory`.
+
+**Flujo:**
+1. `BanditGroupIntel.tick(delta)` llamado desde `BanditBehaviorLayer._process()`
+2. Para cada grupo en `BanditGroupMemory`, si hay leader vivo:
+   - Llama `get_interest_markers_near(home_pos, 384px)` y `get_detected_bases_near(...)`
+   - Calcula score (pesos: base=15, workbench=10, structure=6, mine=3, chop=2)
+   - Determina intent: score≥3→"alerted", ≥8→"hunting", ≥12→"extorting"
+   - Actualiza `BanditGroupMemory.update_intent()` y `record_interest()`
+3. Si "alerted": elige 1 scout NPC (no-leader, preferencia sleeping) → `BanditGroupMemory.set_scout()`
+4. Si score≥12: intenta encolar extorsión (con spam guards)
+
+**Anti-spam (3 capas):**
+1. Un solo scan por grupo cada 8s (timer en BanditGroupIntel)
+2. `ExtortionQueue.has_pending_for_group(group_id)` → skip si ya hay intent pendiente
+3. `EXTORT_COOLDOWN=90s` en `BanditGroupMemory.last_extortion_request_time`
+
+**Extortion intent enqueued:**
+```
+{target_id:"player", faction_id, group_id, source_npc_id: leader_id,
+ trigger_kind: "workbench"|"base_detected"|etc, world_pos, created_at, severity}
+```
+
+**Reacción coordinada por intención:**
+| intent | leader | bodyguard | scavenger/scout |
+|---|---|---|---|
+| "alerted" | no cambia | no cambia | 1 scout designado → APPROACH_INTEREST |
+| "hunting" | → APPROACH_INTEREST (last_interest_pos) | → FOLLOW_LEADER | no cambia |
+| "extorting" | → APPROACH_INTEREST | — | — |
+| "idle" | — | → RETURN_HOME si persiguiendo | — |
+
+**Campo `scout_npc_id` en BanditGroupMemory:**
+- Seteado por `BanditGroupIntel._pick_scout()` al detectar "alerted"
+- Consumido por `BanditWorldBehavior._on_group_intent_changed("alerted")`
+- Solo el NPC cuyo `member_id == scout_npc_id` mueve al punto de interés
+
+**Wiring (world.gd):**
+`_bandit_behavior_layer.setup_group_intel({get_interest_markers_near, get_detected_bases_near})`
+— llamado DESPUÉS de `_settlement_intel.setup()` para que los callables ya estén listos.
+
+**Limitaciones MVP:**
+- Solo detecta actividad del player, no de otros bandidos
+- Score no decae si el jugador para de actuar (solo expiran los TTL de markers en SettlementIntel)
+- Un solo target hard-coded: `"player"` como `target_id` de extorsión
+- Sin notificación al jugador todavía (solo lógica de datos)

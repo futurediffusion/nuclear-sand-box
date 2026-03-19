@@ -112,6 +112,7 @@ var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
 var _settlement_intel: SettlementIntel
+var _bandit_behavior_layer: BanditBehaviorLayer
 var _player_wall_system: PlayerWallSystem
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
@@ -147,6 +148,7 @@ const PLAYER_WALL_ISOLATED_ATLAS: Vector2i = Vector2i(0, 1)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const SettlementIntelScript := preload("res://scripts/world/SettlementIntel.gd")
+const BanditBehaviorLayerScript := preload("res://scripts/world/BanditBehaviorLayer.gd")
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
@@ -434,6 +436,12 @@ func _ready() -> void:
 		"entity_root": _entity_root,
 	})
 	npc_simulator.current_player_chunk = current_player_chunk
+
+	_bandit_behavior_layer = BanditBehaviorLayerScript.new()
+	_bandit_behavior_layer.name = "BanditBehaviorLayer"
+	add_child(_bandit_behavior_layer)
+	_bandit_behavior_layer.setup({"npc_simulator": npc_simulator})
+
 	_vegetation_root.setup({
 		"ground_tilemap": ground_tilemap,
 		"chunk_size": chunk_size,
@@ -465,6 +473,13 @@ func _ready() -> void:
 	if _player_wall_system != null \
 			and not _player_wall_system.player_wall_drop.is_connected(_on_wall_drop_for_intel):
 		_player_wall_system.player_wall_drop.connect(_on_wall_drop_for_intel)
+
+	# Wire SettlementIntel into BanditGroupIntel (must be after _settlement_intel is ready)
+	if _bandit_behavior_layer != null:
+		_bandit_behavior_layer.setup_group_intel({
+			"get_interest_markers_near": Callable(self, "get_interest_markers_near"),
+			"get_detected_bases_near":   Callable(self, "get_detected_bases_near"),
+		})
 
 	await update_chunks(current_player_chunk)
 
