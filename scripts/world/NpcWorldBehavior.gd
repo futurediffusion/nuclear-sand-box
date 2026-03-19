@@ -40,10 +40,10 @@ enum State {
 const ARRIVED_DIST_SQ: float     = 12.0 * 12.0
 const COLLECT_DIST_SQ: float     = 16.0 * 16.0  # close enough to collect a drop
 const FOLLOW_STOP_DIST_SQ: float = 32.0 * 32.0
-const HOME_RETURN_DIST: float    = 192.0
+const DEFAULT_HOME_RETURN_DIST: float = 192.0
 
 # ── Timing ───────────────────────────────────────────────────────────────────
-const MAX_PATROL_TIME: float       = 14.0
+const DEFAULT_MAX_PATROL_TIME: float = 14.0
 const RESOURCE_WATCH_DURATION: float = 10.0   # s before giving up a watch position
 const IDLE_WAIT_MIN: float         = 2.0
 const IDLE_WAIT_MAX: float         = 6.0
@@ -157,10 +157,10 @@ func _get_speed() -> float:
 	return 55.0
 
 func _get_home_return_dist() -> float:
-	return HOME_RETURN_DIST
+	return DEFAULT_HOME_RETURN_DIST
 
 func _get_max_patrol_time() -> float:
-	return MAX_PATROL_TIME
+	return DEFAULT_MAX_PATROL_TIME
 
 
 # ---------------------------------------------------------------------------

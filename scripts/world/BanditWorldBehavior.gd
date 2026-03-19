@@ -14,29 +14,29 @@ class_name BanditWorldBehavior
 #   "nearby_res_info":    Array[Dictionary]  — [{pos:Vector2}]
 
 const _PATROL_RADIUS_BY_ROLE: Dictionary = {
-	"leader":    80.0,    # stays near camp
-	"bodyguard": 400.0,   # defends wider perimeter
-	"scavenger": 2400.0,  # roams the full 64x64 world (~4096px)
+	"leader":    160.0,   # keeps camp identity, but no longer statues at the fire
+	"bodyguard": 560.0,   # visible perimeter sweeps around the leader / camp
+	"scavenger": 2600.0,  # broad roaming across much of the 64x64 world (~4096px)
 }
 
 const _SPEED_BY_ROLE: Dictionary = {
-	"leader":    44.0,
-	"bodyguard": 54.0,
-	"scavenger": 58.0,
+	"leader":    46.0,
+	"bodyguard": 56.0,
+	"scavenger": 60.0,
 }
 
 # Safety leash: how far from home before being forced RETURN_HOME
 const _HOME_RETURN_DIST_BY_ROLE: Dictionary = {
-	"leader":    160.0,
-	"bodyguard": 550.0,
-	"scavenger": 2600.0,
+	"leader":    280.0,
+	"bodyguard": 760.0,
+	"scavenger": 3200.0,
 }
 
 # Max time in PATROL/APPROACH_INTEREST before giving up and going idle
 const _MAX_PATROL_TIME_BY_ROLE: Dictionary = {
-	"leader":    14.0,
-	"bodyguard": 35.0,
-	"scavenger": 120.0,
+	"leader":    22.0,
+	"bodyguard": 44.0,
+	"scavenger": 150.0,
 }
 
 const _IDLE_BIAS_BY_ROLE: Dictionary = {
