@@ -23,7 +23,8 @@ const TICK_INTERVAL: float = 0.5
 
 # enemy.gd default friction = 1500; at 60 fps delta≈0.0167 → ≈25 px/s per frame.
 # We add this so net movement ≈ behavior's intended speed after friction.
-const FRICTION_COMPENSATION: float = 25.0
+const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
+
 
 # World-layer ally separation (sleeping NPCs don't run CharacterBody2D separation)
 const ALLY_SEP_RADIUS: float = 44.0
@@ -104,7 +105,7 @@ func _physics_process(_delta: float) -> void:
 			continue
 		var vel: Vector2 = behavior.get_desired_velocity()
 		if vel.length_squared() > 0.01:
-			node.velocity = vel.normalized() * (vel.length() + FRICTION_COMPENSATION)
+			node.velocity = vel.normalized() * (vel.length() + BanditTuningScript.friction_compensation())
 		# Idle (vel == 0): don't override, let enemy friction decelerate naturally
 		if behavior.group_id != "":
 			if not group_nodes.has(behavior.group_id):
@@ -130,7 +131,7 @@ func _physics_process(_delta: float) -> void:
 				a["node"].velocity += sep
 
 	if _extortion_director != null:
-		_extortion_director.apply_extortion_movement(FRICTION_COMPENSATION)
+		_extortion_director.apply_extortion_movement(BanditTuningScript.friction_compensation())
 
 	# Debug alerted scout chase — un solo NPC persigue al player cuando el grupo está "alerted"
 	# Para desactivar: pon DEBUG_ALERTED_CHASE = false arriba
@@ -149,7 +150,7 @@ func _physics_process(_delta: float) -> void:
 				continue
 			var to_p: Vector2 = ap - snode.global_position
 			if to_p.length() > 1.0:
-				snode.velocity = to_p.normalized() * (55.0 + FRICTION_COMPENSATION)
+				snode.velocity = to_p.normalized() * (BanditTuningScript.alerted_scout_chase_speed(gid) + BanditTuningScript.friction_compensation())
 
 
 # ---------------------------------------------------------------------------

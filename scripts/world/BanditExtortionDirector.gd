@@ -23,12 +23,14 @@ class ExtortionJob:
 		ABORTED,
 	}
 
+	var group_id: String = ""
 	var leader_id: String = ""
 	var assigned_ids: Array[String] = []
 	var taunt_speaker_id: String = ""
 	var phase: Phase = Phase.APPROACHING
 
-	func _init(p_leader_id: String, p_assigned_ids: Array[String]) -> void:
+	func _init(p_group_id: String, p_leader_id: String, p_assigned_ids: Array[String]) -> void:
+		group_id = p_group_id
 		leader_id = p_leader_id
 		assigned_ids = p_assigned_ids.duplicate()
 
@@ -75,10 +77,7 @@ const TAUNT_PHRASES: Array[String] = [
 	"Paga y quizá sigas respirando.",
 	"No pongas esa cara. Esto es solo negocios.",
 ]
-const TAUNT_RANGE_SQ: float = 300.0 * 300.0
-const COLLECT_RANGE_SQ: float = 160.0 * 160.0
-const ABORT_PLAYER_DISTANCE_SQ: float = 420.0 * 420.0
-const EXTORT_PAY_AMOUNT: int = 10
+const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 const CHOICE_SCENE: PackedScene = preload("res://scenes/ui/extortion_choice_bubble.tscn")
 
 var _npc_simulator: NpcSimulator = null
@@ -149,7 +148,7 @@ func _get_abort_reason(gid: String, job: ExtortionJob, player_pos: Vector2) -> S
 	if job.assigned_ids.size() <= 0:
 		return "group_composition_broken"
 
-	if (leader_node as Node2D).global_position.distance_squared_to(player_pos) > ABORT_PLAYER_DISTANCE_SQ:
+	if (leader_node as Node2D).global_position.distance_squared_to(player_pos) > BanditTuningScript.extort_abort_distance_sq(gid):
 		return "player_too_far"
 
 	if job.taunt_speaker_id != "":
@@ -232,7 +231,7 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 					atk_range = float(speaker.get("attack_range")) + 8.0
 				if dist <= atk_range:
 					if speaker.has_method("begin_scripted_melee_action"):
-						speaker.begin_scripted_melee_action(player_pos, 7.0)
+						speaker.begin_scripted_melee_action(player_pos, BanditTuningScript.extort_warn_melee_lock_duration(String(gid)))
 					job.mark_resolved()
 					for aid: String in job.assigned_ids:
 						var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
@@ -241,7 +240,7 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 					Debug.log("extortion", "[EXTORT] warn strike delivered group=%s" % gid)
 				else:
 					_set_enemy_scripted_control(speaker, true)
-					_drive_enemy_toward_point(speaker, player_pos, 75.0 + friction_compensation)
+					_drive_enemy_toward_point(speaker, player_pos, BanditTuningScript.extort_warn_approach_speed(String(gid)) + friction_compensation)
 			continue
 
 		if job.is_collecting():
@@ -252,7 +251,7 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 			if enode == null:
 				continue
 			_set_enemy_scripted_control(enode, true)
-			_drive_enemy_toward_point(enode, player_pos, 55.0 + friction_compensation)
+			_drive_enemy_toward_point(enode, player_pos, BanditTuningScript.extort_group_approach_speed(String(gid)) + friction_compensation)
 
 
 func _consume_extortion_queue() -> void:
@@ -278,11 +277,11 @@ func _consume_extortion_queue() -> void:
 				var enode = _npc_simulator._get_active_enemy_node(eid)
 				if enode == null or not is_instance_valid(enode):
 					continue
-				if (enode as Node2D).global_position.distance_squared_to(player_pos) > TAUNT_RANGE_SQ:
+				if (enode as Node2D).global_position.distance_squared_to(player_pos) > BanditTuningScript.extort_taunt_range_sq(String(gid)):
 					continue
 				job.mark_taunted(eid)
 				var phrase: String = TAUNT_PHRASES[randi() % TAUNT_PHRASES.size()]
-				_bubble_manager.show_actor_bubble(enode as Node2D, phrase, 3.5)
+				_bubble_manager.show_actor_bubble(enode as Node2D, phrase, BanditTuningScript.extort_taunt_bubble_duration(String(gid)))
 				Debug.log("extortion", "[EXTORT] taunt group=%s speaker=%s" % [gid, eid])
 				break
 
@@ -300,7 +299,7 @@ func _consume_extortion_queue() -> void:
 				var enode_collect = _npc_simulator._get_active_enemy_node(eid)
 				if enode_collect == null or not is_instance_valid(enode_collect):
 					continue
-				if (enode_collect as Node2D).global_position.distance_squared_to(player_pos_collect) > COLLECT_RANGE_SQ:
+				if (enode_collect as Node2D).global_position.distance_squared_to(player_pos_collect) > BanditTuningScript.extort_collect_range_sq(String(gid)):
 					continue
 				job_collect.mark_waiting_choice()
 				_show_extortion_choice(gid)
@@ -337,7 +336,7 @@ func _consume_extortion_queue() -> void:
 		var assigned: Array = [leader_id]
 		for i in mini(2, guards.size()):
 			assigned.append(guards[i]["id"])
-		_active_extortions[gid] = ExtortionJob.new(leader_id, assigned)
+		_active_extortions[gid] = ExtortionJob.new(gid, leader_id, assigned)
 		for aid in assigned:
 			var anode = _npc_simulator._get_active_enemy_node(aid)
 			_set_enemy_scripted_control(anode, true)
@@ -381,9 +380,10 @@ func _on_extortion_choice(option: int, gid: String) -> void:
 	match option:
 		1:
 			var inv := _player.get_node_or_null("InventoryComponent") as InventoryComponent
-			if inv != null and inv.gold >= EXTORT_PAY_AMOUNT:
-				inv.spend_gold(EXTORT_PAY_AMOUNT)
-				Debug.log("extortion", "[EXTORT] paid %d gold group=%s" % [EXTORT_PAY_AMOUNT, gid])
+			var pay_amount: int = BanditTuningScript.extort_pay_amount(gid)
+			if inv != null and inv.gold >= pay_amount:
+				inv.spend_gold(pay_amount)
+				Debug.log("extortion", "[EXTORT] paid %d gold group=%s" % [pay_amount, gid])
 				_resolve_extortion_idle(job)
 			else:
 				Debug.log("extortion", "[EXTORT] can't pay, forced refuse group=%s" % gid)
@@ -426,12 +426,13 @@ func _resolve_extortion_idle(job: ExtortionJob) -> void:
 		if behavior != null:
 			behavior.force_return_home()
 	var ids: Array[String] = job.assigned_ids.duplicate()
-	get_tree().create_timer(12.0).timeout.connect(func() -> void:
+	var reenable_delay: float = BanditTuningScript.extort_ai_reenable_delay(job.group_id)
+	get_tree().create_timer(reenable_delay).timeout.connect(func() -> void:
 		for aid: String in ids:
 			var anode = _npc_simulator._get_active_enemy_node(aid)
 			_set_enemy_scripted_control(anode, false)
 	)
-	Debug.log("extortion", "[EXTORT] resolved idle — ai re-enable in 12 s")
+	Debug.log("extortion", "[EXTORT] resolved idle — ai re-enable in %.1f s" % reenable_delay)
 
 
 func _resolve_extortion_warn(job: ExtortionJob) -> void:
