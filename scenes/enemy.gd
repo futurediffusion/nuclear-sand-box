@@ -308,7 +308,7 @@ func _physics_process(delta: float) -> void:
 		_scripted_control_timer -= delta
 		external_ai_override = true
 		if _scripted_control_timer <= 0.0:
-			end_scripted_action()
+			end_scripted_control()
 
 	if _last_chunk_pos == Vector2.INF or global_position.distance_squared_to(_last_chunk_pos) >= 1.0:
 		EnemyRegistry.update_enemy_chunk(self)
@@ -359,7 +359,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 ## Lanza una única acción melee guionizada y bloquea el re-aggro durante retreat_lock_seconds.
-## Llamar cuando el NPC ya está en melee range. BanditBehaviorLayer y futuros orquestadores usan esto.
+## Llamar cuando el NPC ya está en melee range. BanditExtortionDirector y futuros orquestadores usan esto.
 func begin_scripted_melee_action(target_pos: Vector2, retreat_lock_seconds: float) -> void:
 	_scripted_control_timer = maxf(retreat_lock_seconds, 0.1)
 	external_ai_override = true
@@ -368,11 +368,15 @@ func begin_scripted_melee_action(target_pos: Vector2, retreat_lock_seconds: floa
 		weapon_component.current_weapon.set("_cooldown", 0.0)  # garantizar que cooldown no bloquea
 	queue_ai_attack_press(target_pos)
 
-## Cancela la acción scriptada y devuelve el control al AIComponent.
-func end_scripted_action() -> void:
+## Cancela el control guionizado y devuelve el control al AIComponent.
+func end_scripted_control() -> void:
 	_scripted_control_timer = 0.0
 	external_ai_override = false
 	_pending_scripted_melee_action = false
+
+## Alias legacy para mantener compatibilidad con callers antiguos.
+func end_scripted_action() -> void:
+	end_scripted_control()
 
 
 func set_scripted_control_enabled(enabled: bool) -> void:
