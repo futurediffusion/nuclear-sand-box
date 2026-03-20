@@ -342,6 +342,9 @@ func _on_shop_opened(owner: Node) -> void:
 	# sistemas externos que puedan usar _target_pos fuera de navegación.
 	_target_pos = global_position
 	velocity = Vector2.ZERO
+	# Congelar el objetivo de navegación una sola vez evita pisar futuros usos
+	# de _target_pos fuera del loop de movimiento.
+	_target_pos = global_position
 	_state = State.AT_COUNTER
 
 
