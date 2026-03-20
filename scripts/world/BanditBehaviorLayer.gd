@@ -40,19 +40,23 @@ var _group_intel: BanditGroupIntel  = null
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _tick_timer: float = 0.0
 
-# TEST extortion
-const DEBUG_ALERTED_CHASE: bool = true    # TEST: scout del grupo alerted persigue al player; pon false para desactivar
-const DEBUG_EXTORTION_ONE_HIT: bool = true  # TEST: un golpe de advertencia y retiran; pon false para aggro normal
+# Extortion
+const DEBUG_ALERTED_CHASE: bool = true  # TEST: scout del grupo alerted persigue al player
 const TAUNT_PHRASES: Array[String] = [
 	"Mira quién cree que puede pasar por aquí.",
 	"Paga y quizá sigas respirando.",
 	"No pongas esa cara. Esto es solo negocios.",
 ]
-const TAUNT_RANGE_SQ: float = 300.0 * 300.0
+const TAUNT_RANGE_SQ:   float = 300.0 * 300.0
+const COLLECT_RANGE_SQ: float = 160.0 * 160.0
+const EXTORT_PAY_AMOUNT: int  = 10
+const CHOICE_SCENE: PackedScene = preload("res://scenes/ui/extortion_choice_bubble.tscn")
 
 var _player: Node2D = null
-var _active_extortions: Dictionary = {}  # group_id -> {leader_id, assigned_ids, attacked, taunt_shown, taunt_speaker_id}
+var _active_extortions: Dictionary = {}   # group_id -> job dict
 var _bubble_manager: WorldSpeechBubbleManager = null
+var _extortion_choice_node: Node = null
+var _extortion_choice_gid: String = ""
 
 # Cached world-level item/resource lists (rebuilt once per tick, shared across all enemies)
 var _all_drops_cache: Array    = []   # Array of ItemDrop nodes
@@ -121,40 +125,72 @@ func _physics_process(_delta: float) -> void:
 			if sep.length_squared() > 0.01:
 				a["node"].velocity += sep
 
-	# TEST extortion — mover assigned hacia player + golpe único de advertencia
-	if DEBUG_EXTORTION_ONE_HIT and _player != null and is_instance_valid(_player):
+	# Extortion — approach player pre-dialogue; monitor aggro outcome
+	if _player != null and is_instance_valid(_player):
 		var player_pos: Vector2 = _player.global_position
 
 		for gid in _active_extortions:
 			var job: Dictionary = _active_extortions[gid]
 			if job.get("attacked", false):
 				continue
-			for eid in job["assigned_ids"]:
+
+			# Aggro: enemy AI controls movement; wait for player to go down
+			if job.get("aggro_active", false):
+				var dc := _player.get_node_or_null("DownedComponent")
+				if dc != null and (dc as DownedComponent).is_downed:
+					job["attacked"] = true
+					for aid: String in job.get("assigned_ids", []):
+						var anode = _npc_simulator._get_active_enemy_node(aid)
+						if anode != null and "suppress_ai" in anode:
+							anode.suppress_ai = true
+						if _behaviors.has(aid):
+							_behaviors[aid]._enter_return_home()
+					Debug.log("extortion", "[EXTORT] aggro resolved (player downed) group=%s" % gid)
+				continue
+
+			# Warn pending: move speaker into melee range, then strike
+			if job.get("warn_pending", false):
+				var speaker_id: String = job.get("taunt_speaker_id", "")
+				var speaker = _npc_simulator._get_active_enemy_node(speaker_id) if speaker_id != "" else null
+				if speaker == null:
+					job["warn_pending"] = false
+					job["attacked"]     = true
+				else:
+					var to_player: Vector2 = player_pos - (speaker as Node2D).global_position
+					var dist: float        = to_player.length()
+					var atk_range: float   = 76.0
+					if "attack_range" in speaker:
+						atk_range = float(speaker.get("attack_range")) + 8.0
+					if dist <= atk_range:
+						if speaker.has_method("begin_scripted_warning_strike"):
+							speaker.begin_scripted_warning_strike(player_pos, 7.0)
+						job["warn_pending"] = false
+						job["attacked"]     = true
+						for aid: String in job.get("assigned_ids", []):
+							if _behaviors.has(aid):
+								_behaviors[aid]._enter_return_home()
+						Debug.log("extortion", "[EXTORT] warn strike delivered group=%s" % gid)
+					else:
+						if "suppress_ai" in speaker:
+							speaker.suppress_ai = true
+						(speaker as Node2D).velocity = to_player.normalized() * (75.0 + FRICTION_COMPENSATION)
+				continue
+
+			# Dialogue triggered: freeze movement while player chooses
+			if job.get("collection_triggered", false):
+				continue
+
+			# Pre-dialogue: walk toward player with AI suppressed
+			for eid in job.get("assigned_ids", []):
 				var enode = _npc_simulator._get_active_enemy_node(eid)
 				if enode == null:
 					continue
-				# suprimir combat AI durante el acercamiento (inmune al sleep-check timer)
 				if "suppress_ai" in enode:
 					enode.suppress_ai = true
-				# mover hacia player
 				var to_player: Vector2 = player_pos - enode.global_position
 				var dist: float = to_player.length()
 				if dist > 1.0:
 					enode.velocity = to_player.normalized() * (55.0 + FRICTION_COMPENSATION)
-				# comprobar melee — solo el primero que llega dispara el golpe único
-				var atk_range: float = 76.0
-				if "attack_range" in enode:
-					atk_range = enode.attack_range + 16.0
-				if dist <= atk_range:
-					if enode.has_method("begin_scripted_warning_strike"):
-						enode.begin_scripted_warning_strike(player_pos, 7.0)
-					job["attacked"] = true
-					BanditGroupMemory.update_intent(gid, "idle")
-					for aid: String in job["assigned_ids"]:
-						if _behaviors.has(aid):
-							_behaviors[aid]._enter_return_home()
-					Debug.log("extortion", "[EXTORT TEST] attack delivered group=%s by=%s" % [gid, eid])
-					break  # un solo golpe por job
 
 	# TEST alerted scout chase — un solo NPC persigue al player cuando el grupo está "alerted"
 	# Para desactivar: pon DEBUG_ALERTED_CHASE = false arriba
@@ -413,7 +449,24 @@ func _consume_extortion_queue() -> void:
 				Debug.log("extortion", "[EXTORT] taunt group=%s speaker=%s" % [gid, eid])
 				break
 
-	# TEST extortion: solo 1 job activo a la vez — evita que todas las bandas converjan
+	# ── collection check: trigger choice when assigned gets close enough ────────
+	if _bubble_manager != null:
+		var player_pos: Vector2 = _player.global_position
+		for gid in _active_extortions:
+			var job: Dictionary = _active_extortions[gid]
+			if job.get("attacked", false): continue
+			if job.get("collection_triggered", false): continue
+			if not job.get("taunt_shown", false): continue
+			for eid in job.get("assigned_ids", []):
+				var enode = _npc_simulator._get_active_enemy_node(eid)
+				if enode == null or not is_instance_valid(enode): continue
+				if (enode as Node2D).global_position.distance_squared_to(player_pos) > COLLECT_RANGE_SQ: continue
+				job["collection_triggered"] = true
+				_show_extortion_choice(gid)
+				Debug.log("extortion", "[EXTORT] collection triggered group=%s speaker=%s" % [gid, eid])
+				break
+
+	# solo 1 job activo a la vez — evita que todas las bandas converjan
 	if not _active_extortions.is_empty():
 		return
 
@@ -448,11 +501,14 @@ func _consume_extortion_queue() -> void:
 		for i in mini(2, guards.size()):
 			assigned.append(guards[i]["id"])
 		_active_extortions[gid] = {
-			"leader_id":       leader_id,
-			"assigned_ids":    assigned,
-			"attacked":        false,
-			"taunt_shown":     false,
-			"taunt_speaker_id": "",
+			"leader_id":            leader_id,
+			"assigned_ids":         assigned,
+			"attacked":             false,
+			"taunt_shown":          false,
+			"taunt_speaker_id":     "",
+			"collection_triggered": false,
+			"aggro_active":         false,
+			"warn_pending":         false,
 		}
 		# TEST extortion: suppress_ai inmediato para que no dispare arco en el gap pre-physics
 		for aid in assigned:
@@ -461,6 +517,101 @@ func _consume_extortion_queue() -> void:
 				anode.suppress_ai = true
 		Debug.log("extortion", "[EXTORT TEST] job started group=%s leader=%s assigned=%d" % [
 			gid, leader_id, assigned.size()])
+
+
+# ---------------------------------------------------------------------------
+# Extortion choice UI
+# ---------------------------------------------------------------------------
+
+func _show_extortion_choice(gid: String) -> void:
+	if _extortion_choice_node != null and is_instance_valid(_extortion_choice_node):
+		_extortion_choice_node.queue_free()
+
+	var bubble: ExtortionChoiceBubble = CHOICE_SCENE.instantiate() as ExtortionChoiceBubble
+	# Center visually: bubble renders at scale 0.5, so visual size = min_size * 0.5
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	var visual: Vector2  = bubble.custom_minimum_size * 0.5
+	bubble.position      = (vp_size - visual) * 0.5
+
+	bubble.choice_made.connect(func(option: int): _on_extortion_choice(option, gid), CONNECT_ONE_SHOT)
+
+	_bubble_manager.add_child(bubble)  # _ready() fires here → @onready vars resolve
+	bubble.set_main_text("¿Entonces qué?\n¿Pagas o prefieres problemas?")
+	_extortion_choice_node = bubble
+	_extortion_choice_gid  = gid
+
+	# Keep the custom cursor moving during pause
+	var cursor := get_tree().root.find_child("MouseCursor", true, false)
+	if cursor != null:
+		cursor.process_mode = Node.PROCESS_MODE_ALWAYS
+
+	get_tree().paused = true
+	Debug.log("extortion", "[EXTORT] choice bubble shown group=%s" % gid)
+
+
+func _on_extortion_choice(option: int, gid: String) -> void:
+	# Restore cursor to normal (pause-dependent) processing
+	var cursor := get_tree().root.find_child("MouseCursor", true, false)
+	if cursor != null:
+		cursor.process_mode = Node.PROCESS_MODE_INHERIT
+
+	get_tree().paused = false
+	_extortion_choice_node = null
+	_extortion_choice_gid  = ""
+
+	if not _active_extortions.has(gid):
+		return
+	var job: Dictionary = _active_extortions[gid]
+
+	match option:
+		1:  # Pay
+			var inv := _player.get_node_or_null("InventoryComponent") as InventoryComponent
+			if inv != null and inv.gold >= EXTORT_PAY_AMOUNT:
+				inv.spend_gold(EXTORT_PAY_AMOUNT)
+				Debug.log("extortion", "[EXTORT] paid %d gold group=%s" % [EXTORT_PAY_AMOUNT, gid])
+				_resolve_extortion_idle(job)
+			else:
+				# Can't afford → treat as refuse
+				Debug.log("extortion", "[EXTORT] can't pay, forced refuse group=%s" % gid)
+				_resolve_extortion_warn(job)
+		2:  # Refuse
+			_resolve_extortion_warn(job)
+		3:  # Insult → full aggro
+			_resolve_extortion_aggro(job)
+
+
+func _resolve_extortion_idle(job: Dictionary) -> void:
+	job["attacked"] = true
+	for aid: String in job.get("assigned_ids", []):
+		if _behaviors.has(aid):
+			_behaviors[aid]._enter_return_home()
+		# Keep suppress_ai = true while walking home so they don't re-aggro immediately.
+	# Re-enable AI after enemies have had time to clear player detection range (~300 px).
+	# At ~80 px/s they need ~4 s to cover that distance.
+	var ids: Array = job.get("assigned_ids", []).duplicate()
+	get_tree().create_timer(12.0).timeout.connect(func() -> void:
+		for aid: String in ids:
+			var anode = _npc_simulator._get_active_enemy_node(aid)
+			if anode != null and is_instance_valid(anode) and "suppress_ai" in anode:
+				anode.suppress_ai = false
+	)
+	Debug.log("extortion", "[EXTORT] resolved idle — ai re-enable in 12 s")
+
+
+func _resolve_extortion_warn(job: Dictionary) -> void:
+	# Don't strike immediately — speaker may be out of melee range.
+	# Set warn_pending; _physics_process walks the speaker in and fires the strike.
+	job["warn_pending"] = true
+	Debug.log("extortion", "[EXTORT] warn pending (refuse) — approaching player")
+
+
+func _resolve_extortion_aggro(job: Dictionary) -> void:
+	job["aggro_active"] = true
+	for aid: String in job.get("assigned_ids", []):
+		var anode = _npc_simulator._get_active_enemy_node(aid)
+		if anode != null and "suppress_ai" in anode:
+			anode.suppress_ai = false
+	Debug.log("extortion", "[EXTORT] resolved aggro (insult)")
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ var _active: Dictionary = {}
 
 func _ready() -> void:
 	layer = 5   # above world, below main HUD
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
 ## Show a speech bubble above actor for duration seconds.
