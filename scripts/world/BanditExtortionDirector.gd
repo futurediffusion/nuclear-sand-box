@@ -265,9 +265,6 @@ func _consume_extortion_queue() -> void:
 		if finished_job != null and finished_job.is_finished():
 			done.append(gid)
 	for gid in done:
-		var finished_cleanup_job: ExtortionJob = _active_extortions[gid] as ExtortionJob
-		if finished_cleanup_job != null and finished_cleanup_job.phase == ExtortionJob.Phase.ABORTED:
-			_release_job_ai_control(finished_cleanup_job)
 		_active_extortions.erase(gid)
 		Debug.log("extortion", "[EXTORT FLOW] job cleaned group=%s" % gid)
 
