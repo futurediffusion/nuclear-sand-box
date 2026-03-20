@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="NUCLEAR SAND BOX"
-run/main_scene="uid://cq80ijwn6016r"
+run/main_scene="uid://dgombq6we3wit"
 config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.svg"
 

@@ -1,10 +1,8 @@
-[gd_scene load_steps=6 format=3 uid="uid://dgombq6we3wit"]
+[gd_scene load_steps=4 format=3 uid="uid://dgombq6we3wit"]
 
-[ext_resource type="Script" uid="uid://ckysvc8rioyrf" path="res://scripts/tests/extortion_e2e_test.gd" id="1_script"]
+[ext_resource type="Script" path="res://scripts/tests/extortion_e2e_test.gd" id="1_script"]
 [ext_resource type="Script" uid="uid://c3berl1x58n1r" path="res://scripts/world/NpcSimulator.gd" id="2_npc"]
 [ext_resource type="Script" uid="uid://b2767fgm32vjg" path="res://scripts/ui/WorldSpeechBubbleManager.gd" id="3_bubbles"]
-[ext_resource type="PackedScene" uid="uid://cmysaqnuq4nfh" path="res://scenes/cursor_2d.tscn" id="4_cursor"]
-[ext_resource type="Texture2D" uid="uid://nwqjmtvv26e2" path="res://art/ui/dog.png" id="5_dog"]
 
 [node name="ExtortionE2ETest" type="Node2D"]
 script = ExtResource("1_script")
@@ -38,51 +36,28 @@ data_only_enabled = false
 [node name="WorldSpeechBubbleManager" type="CanvasLayer" parent="."]
 script = ExtResource("3_bubbles")
 
-[node name="CursorLayer" type="CanvasLayer" parent="."]
-layer = 100
-
-[node name="MouseCursor" parent="CursorLayer" instance=ExtResource("4_cursor")]
-z_index = 50
-scale = Vector2(3.75, 3.75)
-
 [node name="UI" type="CanvasLayer" parent="."]
 
-[node name="GoldDisplay" type="HBoxContainer" parent="UI"]
-offset_left = 102.0
-offset_top = 16.0
-offset_right = 170.0
-offset_bottom = 40.0
-theme_override_constants/separation = 4
-
-[node name="GoldIcon" type="TextureRect" parent="UI/GoldDisplay"]
-custom_minimum_size = Vector2(24, 24)
-layout_mode = 2
-texture = ExtResource("5_dog")
-
-[node name="GoldLabel" type="Label" parent="UI/GoldDisplay"]
-layout_mode = 2
-text = "0"
-
 [node name="DebugPanel" type="PanelContainer" parent="UI"]
-offset_left = 8.0
-offset_top = 8.0
-offset_right = 310.0
-offset_bottom = 352.0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 560.0
+offset_bottom = 560.0
 
 [node name="Margin" type="MarginContainer" parent="UI/DebugPanel"]
 layout_mode = 2
-theme_override_constants/margin_left = 10
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 10
-theme_override_constants/margin_bottom = 8
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
 
 [node name="VBox" type="VBoxContainer" parent="UI/DebugPanel/Margin"]
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 10
 
 [node name="Title" type="Label" parent="UI/DebugPanel/Margin/VBox"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 13
+theme_override_font_sizes/font_size = 22
 text = "Extortion E2E test"
 
 [node name="HintLabel" type="Label" parent="UI/DebugPanel/Margin/VBox"]
@@ -126,6 +101,6 @@ layout_mode = 2
 text = "Borrar speaker"
 
 [node name="StatusLabel" type="Label" parent="UI/DebugPanel/Margin/VBox"]
-custom_minimum_size = Vector2(0, 80)
+custom_minimum_size = Vector2(0, 260)
 layout_mode = 2
 autowrap_mode = 3

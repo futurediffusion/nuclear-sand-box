@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://b8q3kxtmr5a0v"]
 
 [ext_resource type="Texture2D" uid="uid://13w3ugarbtvm" path="res://art/dialog/dialog.png" id="1_dlg"]
-[ext_resource type="Script" path="res://scripts/ui/extortion_choice_bubble.gd" id="2_scr"]
+[ext_resource type="Script" uid="uid://c5x7bt2kpq8rm" path="res://scripts/ui/extortion_choice_bubble.gd" id="2_scr"]
 
 [node name="ExtortionChoiceBubble" type="Control"]
 custom_minimum_size = Vector2(560, 310)

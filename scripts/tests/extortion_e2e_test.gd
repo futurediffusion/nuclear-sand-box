@@ -13,7 +13,7 @@ const PAY_OPTION := 1
 const REFUSE_OPTION := 2
 const INSULT_OPTION := 3
 const PLAYER_FAR_POS := Vector2(1540, 580)
-const LEADER_GOLD := 50
+const PLAYER_GOLD := 1000
 
 class TestBehavior:
 	extends RefCounted
@@ -37,6 +37,7 @@ class TestBehavior:
 
 
 @onready var _status_label: Label = $UI/DebugPanel/Margin/VBox/StatusLabel
+@onready var _gold_label: Label = $UI/GoldDisplay/GoldLabel
 @onready var _hint_label: Label = $UI/DebugPanel/Margin/VBox/HintLabel
 @onready var _player_anchor: Marker2D = $Anchors/PlayerAnchor
 @onready var _leader_anchor: Marker2D = $Anchors/LeaderAnchor
@@ -85,7 +86,7 @@ func _process(_delta: float) -> void:
 	# This manual scene advances movement from `_process()` with zero friction
 	# compensation for determinism and easy inspection. It is intentionally close
 	# to the runtime flow, but not a byte-for-byte simulation of `_physics_process()`.
-	_director.apply_extortion_movement(0.0)
+	_director.apply_extortion_movement(BanditTuning.friction_compensation())
 	_update_status_label()
 
 
@@ -158,7 +159,7 @@ func _spawn_player() -> Player:
 	player.name = "Player"
 	var inventory := player.get_node_or_null("InventoryComponent") as InventoryComponent
 	if inventory != null:
-		inventory.gold = LEADER_GOLD
+		inventory.gold = PLAYER_GOLD
 	return player
 
 
@@ -171,7 +172,6 @@ func _spawn_enemy(enemy_id: String, pos: Vector2, role: String) -> EnemyAI:
 	enemy.faction_id = FACTION_ID
 	enemy.name = enemy_id
 	enemy.external_ai_override = true
-	enemy.detection_range = 0.0
 	_behaviors[enemy_id] = TestBehavior.new(enemy)
 	if role == "leader":
 		var inv := enemy.get_node_or_null("InventoryComponent") as InventoryComponent
@@ -278,6 +278,9 @@ func _append_status(text: String) -> void:
 
 
 func _update_status_label() -> void:
+	if _gold_label != null and _player != null and is_instance_valid(_player):
+		var inv := _player.get_node_or_null("InventoryComponent") as InventoryComponent
+		_gold_label.text = str(inv.gold) if inv != null else "?"
 	if _status_label == null:
 		return
 	var lines := PackedStringArray()

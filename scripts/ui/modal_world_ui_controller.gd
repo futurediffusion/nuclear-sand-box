@@ -1,5 +1,5 @@
 extends Node
-class_name ModalWorldUIController
+
 
 signal modal_opened(reason: String, modal: Control)
 signal modal_closed(reason: String)

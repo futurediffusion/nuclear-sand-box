@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3 uid="uid://d332ocsnhtr8l"]
 
-[ext_resource type="Script" path="res://scripts/tests/speechbubble_test.gd" id="1_testscript"]
+[ext_resource type="Script" uid="uid://ci3ngcbhrc2cv" path="res://scripts/tests/speechbubble_test.gd" id="1_testscript"]
 [ext_resource type="PackedScene" uid="uid://bhyyw2168oqav" path="res://scenes/ui/speechbubble.tscn" id="2_bubble"]
 
 [node name="SpeechBubbleTest" type="Control"]
