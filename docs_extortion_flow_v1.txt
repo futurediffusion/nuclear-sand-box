@@ -1,0 +1,16 @@
+Extortion flow v1
+
+1. BanditGroupIntel enqueues one extortion intent in ExtortionQueue when group score crosses the extort threshold and cooldown/duplicate guards pass.
+2. BanditGroupMemory intent becomes extorting immediately when the queue entry is created.
+3. BanditWorldBehavior reacts to extorting: leader and bodyguards enter EXTORT_APPROACH toward last_interest_pos. Scavengers keep their own work.
+4. BanditExtortionDirector consumes the queued intent, starts one runtime job, assigns leader + up to 2 nearest guards, and takes scripted control of them.
+5. Assigned bandits move toward the player during approach.
+6. Taunt phase: the first assigned bandit that reaches taunt range shows the extortion line and marks the job as taunted.
+7. Choice phase: when an assigned bandit reaches collect range, the director opens the extortion choice bubble and waits for the player response.
+8. Resolve:
+   - pay -> spend gold -> mark resolved -> assigned bandits force_return_home -> AI re-enabled after a short delay
+   - refuse -> warning strike phase -> taunt speaker approaches -> scripted melee warning strike -> mark resolved -> assigned bandits force_return_home
+   - insult -> full aggro -> scripted control released -> normal combat AI takes over
+   - close/dismiss choice externally -> treated as refuse -> warning strike
+9. Abort conditions: missing group/leader/speaker, broken assigned composition, stronger group intent (for example hunting), or player too far. Abort closes the choice, releases control, and resets group intent to idle if it was still extorting.
+10. Cleanup: resolved/aborted jobs are removed from _active_extortions on the next director tick. In-flight extortion jobs are runtime-only and are discarded on world/chunk rebuild.
