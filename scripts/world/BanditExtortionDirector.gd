@@ -77,6 +77,7 @@ const TAUNT_PHRASES: Array[String] = [
 ]
 const TAUNT_RANGE_SQ: float = 300.0 * 300.0
 const COLLECT_RANGE_SQ: float = 160.0 * 160.0
+const ABORT_PLAYER_DISTANCE_SQ: float = 420.0 * 420.0
 const EXTORT_PAY_AMOUNT: int = 10
 const CHOICE_SCENE: PackedScene = preload("res://scenes/ui/extortion_choice_bubble.tscn")
 
@@ -101,8 +102,98 @@ func setup(ctx: Dictionary) -> void:
 
 
 func process_extortion() -> void:
+	_abort_invalid_jobs()
 	_consume_extortion_queue()
 
+
+
+
+func _abort_invalid_jobs() -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var player_pos: Vector2 = _player.global_position
+	for gid in _active_extortions.keys():
+		var job: ExtortionJob = _active_extortions[gid] as ExtortionJob
+		if job == null or job.is_finished():
+			continue
+		var reason: String = _get_abort_reason(String(gid), job, player_pos)
+		if reason == "":
+			continue
+		_abort_job(String(gid), job, reason)
+
+
+func _get_abort_reason(gid: String, job: ExtortionJob, player_pos: Vector2) -> String:
+	var group_data: Dictionary = BanditGroupMemory.get_group(gid)
+	if group_data.is_empty():
+		return "group_missing"
+
+	var leader_id: String = String(group_data.get("leader_id", ""))
+	if leader_id == "":
+		return "leader_dead"
+	var leader_node = _npc_simulator._get_active_enemy_node(leader_id)
+	if leader_node == null or not is_instance_valid(leader_node):
+		return "leader_dead"
+
+	var current_intent: String = String(group_data.get("current_group_intent", "idle"))
+	if _intent_strength(current_intent) > _intent_strength("extorting"):
+		return "stronger_group_intent:%s" % current_intent
+
+	var member_ids: Array = group_data.get("member_ids", [])
+	for aid: String in job.assigned_ids:
+		if not member_ids.has(aid):
+			return "group_composition_broken"
+		var anode = _npc_simulator._get_active_enemy_node(aid)
+		if anode == null or not is_instance_valid(anode):
+			return "group_composition_broken"
+
+	if job.assigned_ids.size() <= 0:
+		return "group_composition_broken"
+
+	if (leader_node as Node2D).global_position.distance_squared_to(player_pos) > ABORT_PLAYER_DISTANCE_SQ:
+		return "player_too_far"
+
+	if job.taunt_speaker_id != "":
+		var speaker = _npc_simulator._get_active_enemy_node(job.taunt_speaker_id)
+		if speaker == null or not is_instance_valid(speaker):
+			return "speaker_missing"
+
+	return ""
+
+
+func _intent_strength(intent: String) -> int:
+	match intent:
+		"idle":
+			return 0
+		"alerted":
+			return 1
+		"extorting":
+			return 2
+		"hunting":
+			return 3
+		_:
+			return 0
+
+
+func _abort_job(gid: String, job: ExtortionJob, reason: String) -> void:
+	if job == null or job.is_finished():
+		return
+	job.mark_aborted()
+	_release_job_ai_control(job)
+	_close_extortion_choice_if_matches(gid)
+	var group_data: Dictionary = BanditGroupMemory.get_group(gid)
+	if String(group_data.get("current_group_intent", "idle")) == "extorting":
+		BanditGroupMemory.update_intent(gid, "idle")
+	Debug.log("extortion", "[EXTORT ABORT] group=%s reason=%s" % [gid, reason])
+
+
+func _close_extortion_choice_if_matches(gid: String) -> void:
+	if _extortion_choice_gid != gid or _extortion_choice_node == null:
+		return
+	var node := _extortion_choice_node
+	_extortion_choice_node = null
+	_extortion_choice_gid = ""
+	_closing_extortion_choice_from_selection = false
+	ModalWorldUIController.close_modal(node)
 
 func apply_extortion_movement(friction_compensation: float) -> void:
 	if _player == null or not is_instance_valid(_player):
@@ -131,8 +222,7 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 			var speaker_id: String = job.taunt_speaker_id
 			var speaker = _npc_simulator._get_active_enemy_node(speaker_id) if speaker_id != "" else null
 			if speaker == null:
-				job.mark_aborted()
-				_release_job_ai_control(job)
+				_abort_job(String(gid), job, "speaker_missing")
 				Debug.log("extortion", "[EXTORT] warn strike aborted (speaker missing) group=%s" % gid)
 			else:
 				var to_player: Vector2 = player_pos - (speaker as Node2D).global_position
