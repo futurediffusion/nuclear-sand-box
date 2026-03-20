@@ -8,6 +8,9 @@
 custom_minimum_size = Vector2(120, 60)
 layout_mode = 3
 anchors_preset = 0
+offset_right = 120.0
+offset_bottom = 60.0
+scale = Vector2(0.5, 0.5)
 script = ExtResource("2_speechbbl")
 
 [node name="TailRoot" type="Control" parent="."]

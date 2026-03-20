@@ -393,6 +393,26 @@ func _consume_extortion_queue() -> void:
 		_active_extortions.erase(gid)
 		Debug.log("extortion", "[EXTORT TEST] job cleaned group=%s" % gid)
 
+	# ── taunt check: show bubble when any assigned enters range ──────────────
+	if _bubble_manager != null:
+		var player_pos: Vector2 = _player.global_position
+		for gid in _active_extortions:
+			var job: Dictionary = _active_extortions[gid]
+			if job.get("taunt_shown", false):
+				continue
+			for eid in job.get("assigned_ids", []):
+				var enode = _npc_simulator._get_active_enemy_node(eid)
+				if enode == null or not is_instance_valid(enode):
+					continue
+				if (enode as Node2D).global_position.distance_squared_to(player_pos) > TAUNT_RANGE_SQ:
+					continue
+				job["taunt_shown"]      = true
+				job["taunt_speaker_id"] = eid
+				var phrase: String = TAUNT_PHRASES[randi() % TAUNT_PHRASES.size()]
+				_bubble_manager.show_actor_bubble(enode as Node2D, phrase, 3.5)
+				Debug.log("extortion", "[EXTORT] taunt group=%s speaker=%s" % [gid, eid])
+				break
+
 	# TEST extortion: solo 1 job activo a la vez — evita que todas las bandas converjan
 	if not _active_extortions.is_empty():
 		return
@@ -441,27 +461,6 @@ func _consume_extortion_queue() -> void:
 				anode.suppress_ai = true
 		Debug.log("extortion", "[EXTORT TEST] job started group=%s leader=%s assigned=%d" % [
 			gid, leader_id, assigned.size()])
-
-	# ── taunt check: show bubble when any assigned enters range ──────────────
-	if _bubble_manager != null and _player != null and is_instance_valid(_player):
-		var player_pos: Vector2 = _player.global_position
-		for gid in _active_extortions:
-			var job: Dictionary = _active_extortions[gid]
-			if job.get("taunt_shown", false):
-				continue
-			for eid in job.get("assigned_ids", []):
-				var enode = _npc_simulator._get_active_enemy_node(eid)
-				if enode == null or not is_instance_valid(enode):
-					continue
-				if (enode as Node2D).global_position.distance_squared_to(player_pos) > TAUNT_RANGE_SQ:
-					continue
-				# First assigned that enters range becomes the speaker.
-				job["taunt_shown"]      = true
-				job["taunt_speaker_id"] = eid
-				var phrase: String = TAUNT_PHRASES[randi() % TAUNT_PHRASES.size()]
-				_bubble_manager.show_actor_bubble(enode as Node2D, phrase, 3.5)
-				Debug.log("extortion", "[EXTORT] taunt group=%s speaker=%s" % [gid, eid])
-				break
 
 
 # ---------------------------------------------------------------------------

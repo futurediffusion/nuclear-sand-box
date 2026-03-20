@@ -12,8 +12,10 @@ class_name WorldSpeechBubbleManager
 
 const BUBBLE_SCENE: PackedScene = preload("res://scenes/ui/speechbubble.tscn")
 
-# Extra pixels above the actor's pivot before placing the bottom of the bubble.
-const HEAD_OFFSET: float = 10.0
+# Píxeles sobre el pivot del actor (negativo = baja, positivo = sube).
+const HEAD_OFFSET: float = -9.0
+# Píxeles horizontales desde el centro del actor (negativo = izquierda, positivo = derecha).
+const SIDE_OFFSET: float = 61.5
 
 # active entries:  actor_instance_id (int) -> { bubble, actor (WeakRef), timer }
 var _active: Dictionary = {}
@@ -45,7 +47,6 @@ func _process(delta: float) -> void:
 		return
 
 	var to_remove: Array = []
-	var canvas_xform: Transform2D = get_viewport().get_canvas_transform()
 
 	for id in _active:
 		var entry: Dictionary = _active[id]
@@ -60,10 +61,12 @@ func _process(delta: float) -> void:
 			to_remove.append(id)
 			continue
 
-		# World → viewport (CanvasLayer-space) position.
-		var screen_pos: Vector2 = canvas_xform * (actor as Node2D).global_position
-		# Place bubble centered horizontally, bottom edge above actor's pivot.
-		bubble.position = screen_pos - Vector2(bubble.size.x * 0.5, bubble.size.y + HEAD_OFFSET)
+		# get_global_transform_with_canvas() da la posición del actor en coordenadas
+		# de viewport (píxeles lógicos), equivalente al espacio del CanvasLayer.
+		# Es la forma correcta en Godot 4 — funciona con cámara, escala y stretch.
+		var screen_pos: Vector2 = (actor as Node2D).get_global_transform_with_canvas().origin
+		# Centrado horizontal, borde inferior a HEAD_OFFSET px sobre el pivot del actor.
+		bubble.position = screen_pos - Vector2(bubble.size.x * 0.5 - SIDE_OFFSET, bubble.size.y + HEAD_OFFSET)
 
 	for id in to_remove:
 		_kill_entry(id)
