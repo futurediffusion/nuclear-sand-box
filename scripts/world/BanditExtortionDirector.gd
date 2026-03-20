@@ -86,6 +86,7 @@ var _bubble_manager: WorldSpeechBubbleManager = null
 var _active_extortions: Dictionary = {} # gid -> ExtortionJob (runtime-only, not persisted)
 var _extortion_choice_node: ExtortionChoiceBubble = null
 var _extortion_choice_gid: String = ""
+var _closing_extortion_choice_from_selection: bool = false
 
 var _get_behavior_for_enemy: Callable = Callable()
 
@@ -278,7 +279,9 @@ func _show_extortion_choice(gid: String) -> void:
 
 
 func _on_extortion_choice(option: int, gid: String) -> void:
+	_closing_extortion_choice_from_selection = true
 	ModalWorldUIController.close_modal(_extortion_choice_node)
+	_closing_extortion_choice_from_selection = false
 	_extortion_choice_node = null
 	_extortion_choice_gid = ""
 
@@ -309,8 +312,14 @@ func _on_modal_closed(reason: String) -> void:
 		return
 
 	var gid := _extortion_choice_gid
+	var closed_from_selection := _closing_extortion_choice_from_selection
 	_extortion_choice_node = null
 	_extortion_choice_gid = ""
+	_closing_extortion_choice_from_selection = false
+
+	if closed_from_selection:
+		Debug.log("extortion", "[EXTORT] choice modal closed from confirmed selection group=%s" % gid)
+		return
 
 	if gid == "" or not _active_extortions.has(gid):
 		return
