@@ -3,6 +3,9 @@ extends Node
 # Responsibility boundary:
 # BanditGroupMemory stores shared bandit-group memory plus current_group_intent.
 # It does not own extortion job state, UI flow, payment, or phase bookkeeping.
+# Extortion-specific persistence stops at shared intent/memory: active encounters
+# live elsewhere as ephemeral runtime state and are allowed to vanish on world
+# reconstruction so they can be regenerated from queued intent if still relevant.
 #
 # group_id format: "camp:{chunk_key}:{camp_index:03d}"  (producido por NpcSimulator)
 #

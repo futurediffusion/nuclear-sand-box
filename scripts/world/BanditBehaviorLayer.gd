@@ -46,6 +46,9 @@ var _tick_timer: float = 0.0
 const DEBUG_ALERTED_CHASE: bool = true  # Debug: scout del grupo alerted persigue al player
 
 var _extortion_director: BanditExtortionDirector = null
+# NOTE: extortion encounter progress is owned by BanditExtortionDirector as
+# ephemeral runtime state. This layer recreates the director on setup and does
+# not attempt to serialize in-flight extortions across world/chunk rebuilds.
 
 # Cached world-level item/resource lists (rebuilt once per tick, shared across all enemies)
 var _all_drops_cache: Array    = []   # Array of ItemDrop nodes

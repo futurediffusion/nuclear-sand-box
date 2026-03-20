@@ -4,6 +4,11 @@ extends Node
 # It is the data bus for pending extortion work; group memory does not track
 # extortion lifecycle flags or cooldown timestamps.
 #
+# Persistence decision:
+# This queue persists pending intent/cooldown data only. Once an intent has been
+# consumed into a live `BanditExtortionDirector` job, that active encounter is
+# considered ephemeral runtime state and is not restored from save data.
+#
 # Intent dict:
 # {
 #   "target_id":    String,   # uid del objetivo ("player" o uid concreto)

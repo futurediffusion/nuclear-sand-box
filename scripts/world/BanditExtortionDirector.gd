@@ -5,6 +5,12 @@ class_name BanditExtortionDirector
 # BanditExtortionDirector owns the full extortion event lifecycle:
 # job acquisition, phase transitions, taunt/choice/warn/aggro/resolution flow,
 # and orchestration of low-level enemy control primitives.
+#
+# Persistence decision:
+# Active extortion jobs are intentionally ephemeral runtime state. `_active_extortions`
+# is rebuilt only from queued intent + live world conditions and is not serialized.
+# If the chunk unloads or the world is reconstructed, the in-flight encounter is
+# discarded and the group may later regenerate a new attempt from ExtortionQueue.
 
 class ExtortionJob:
 	enum Phase {
@@ -77,7 +83,7 @@ const CHOICE_SCENE: PackedScene = preload("res://scenes/ui/extortion_choice_bubb
 var _npc_simulator: NpcSimulator = null
 var _player: Node2D = null
 var _bubble_manager: WorldSpeechBubbleManager = null
-var _active_extortions: Dictionary = {} # gid -> ExtortionJob
+var _active_extortions: Dictionary = {} # gid -> ExtortionJob (runtime-only, not persisted)
 var _extortion_choice_node: ExtortionChoiceBubble = null
 var _extortion_choice_gid: String = ""
 
