@@ -79,6 +79,7 @@ var _player: Node2D = null
 var _bubble_manager: WorldSpeechBubbleManager = null
 var _active_extortions: Dictionary = {} # gid -> ExtortionJob
 var _extortion_choice_node: ExtortionChoiceBubble = null
+var _extortion_choice_gid: String = ""
 
 var _get_behavior_for_enemy: Callable = Callable()
 
@@ -88,6 +89,8 @@ func setup(ctx: Dictionary) -> void:
 	_player = ctx.get("player")
 	_bubble_manager = ctx.get("speech_bubble_manager")
 	_get_behavior_for_enemy = ctx.get("get_behavior_for_enemy", Callable())
+	if not ModalWorldUIController.modal_closed.is_connected(_on_modal_closed):
+		ModalWorldUIController.modal_closed.connect(_on_modal_closed)
 
 
 func process_extortion() -> void:
@@ -259,6 +262,7 @@ func _show_extortion_choice(gid: String) -> void:
 	bubble.set_main_text("¿Entonces qué?\n¿Pagas o prefieres problemas?")
 	bubble.choice_made.connect(func(option: int): _on_extortion_choice(option, gid), CONNECT_ONE_SHOT)
 
+	_extortion_choice_gid = gid
 	_extortion_choice_node = ModalWorldUIController.show_modal(
 		bubble,
 		_bubble_manager,
@@ -270,6 +274,7 @@ func _show_extortion_choice(gid: String) -> void:
 func _on_extortion_choice(option: int, gid: String) -> void:
 	ModalWorldUIController.close_modal(_extortion_choice_node)
 	_extortion_choice_node = null
+	_extortion_choice_gid = ""
 
 	if not _active_extortions.has(gid):
 		return
@@ -291,6 +296,25 @@ func _on_extortion_choice(option: int, gid: String) -> void:
 			_resolve_extortion_warn(job)
 		3:
 			_resolve_extortion_aggro(job)
+
+
+func _on_modal_closed(reason: String) -> void:
+	if reason != "extortion_choice":
+		return
+
+	var gid := _extortion_choice_gid
+	_extortion_choice_node = null
+	_extortion_choice_gid = ""
+
+	if gid == "" or not _active_extortions.has(gid):
+		return
+
+	var job: ExtortionJob = _active_extortions[gid] as ExtortionJob
+	if job == null or not job.is_collecting():
+		return
+
+	Debug.log("extortion", "[EXTORT] choice modal closed externally — escalating to warning strike group=%s" % gid)
+	_resolve_extortion_warn(job)
 
 
 func _resolve_extortion_idle(job: ExtortionJob) -> void:
