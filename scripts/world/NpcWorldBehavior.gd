@@ -378,6 +378,9 @@ func _enter_return_home() -> void:
 	_state_timer = 0.0
 	_invalidate_npc_path()
 
+func force_return_home() -> void:
+	_enter_return_home()
+
 func _enter_extort_retreat() -> void:
 	state        = State.EXTORT_RETREAT
 	_state_timer = 0.0

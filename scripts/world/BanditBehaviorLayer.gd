@@ -60,6 +60,10 @@ func setup(ctx: Dictionary) -> void:
 	_npc_simulator  = ctx.get("npc_simulator")
 	_player         = ctx.get("player")
 	_bubble_manager = ctx.get("speech_bubble_manager")
+	if _extortion_director != null:
+		if is_instance_valid(_extortion_director):
+			_extortion_director.queue_free()
+		_extortion_director = null
 	_extortion_director = BanditExtortionDirectorScript.new()
 	add_child(_extortion_director)
 	_extortion_director.setup({
