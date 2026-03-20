@@ -43,8 +43,16 @@ var _tick_timer: float = 0.0
 # TEST extortion
 const DEBUG_ALERTED_CHASE: bool = true    # TEST: scout del grupo alerted persigue al player; pon false para desactivar
 const DEBUG_EXTORTION_ONE_HIT: bool = true  # TEST: un golpe de advertencia y retiran; pon false para aggro normal
+const TAUNT_PHRASES: Array[String] = [
+	"Mira quién cree que puede pasar por aquí.",
+	"Paga y quizá sigas respirando.",
+	"No pongas esa cara. Esto es solo negocios.",
+]
+const TAUNT_RANGE_SQ: float = 300.0 * 300.0
+
 var _player: Node2D = null
-var _active_extortions: Dictionary = {}  # group_id -> {leader_id, assigned_ids, attacked}
+var _active_extortions: Dictionary = {}  # group_id -> {leader_id, assigned_ids, attacked, taunt_shown, taunt_speaker_id}
+var _bubble_manager: WorldSpeechBubbleManager = null
 
 # Cached world-level item/resource lists (rebuilt once per tick, shared across all enemies)
 var _all_drops_cache: Array    = []   # Array of ItemDrop nodes
@@ -56,8 +64,9 @@ var _all_resources_cache: Array = []  # Array of world_resource nodes
 # ---------------------------------------------------------------------------
 
 func setup(ctx: Dictionary) -> void:
-	_npc_simulator = ctx.get("npc_simulator")
-	_player = ctx.get("player")  # TEST extortion
+	_npc_simulator  = ctx.get("npc_simulator")
+	_player         = ctx.get("player")
+	_bubble_manager = ctx.get("speech_bubble_manager")
 
 ## Called from world.gd after SettlementIntel is ready.
 func setup_group_intel(ctx: Dictionary) -> void:
@@ -419,9 +428,11 @@ func _consume_extortion_queue() -> void:
 		for i in mini(2, guards.size()):
 			assigned.append(guards[i]["id"])
 		_active_extortions[gid] = {
-			"leader_id":    leader_id,
-			"assigned_ids": assigned,
-			"attacked":     false,
+			"leader_id":       leader_id,
+			"assigned_ids":    assigned,
+			"attacked":        false,
+			"taunt_shown":     false,
+			"taunt_speaker_id": "",
 		}
 		# TEST extortion: suppress_ai inmediato para que no dispare arco en el gap pre-physics
 		for aid in assigned:
@@ -430,6 +441,27 @@ func _consume_extortion_queue() -> void:
 				anode.suppress_ai = true
 		Debug.log("extortion", "[EXTORT TEST] job started group=%s leader=%s assigned=%d" % [
 			gid, leader_id, assigned.size()])
+
+	# ── taunt check: show bubble when any assigned enters range ──────────────
+	if _bubble_manager != null and _player != null and is_instance_valid(_player):
+		var player_pos: Vector2 = _player.global_position
+		for gid in _active_extortions:
+			var job: Dictionary = _active_extortions[gid]
+			if job.get("taunt_shown", false):
+				continue
+			for eid in job.get("assigned_ids", []):
+				var enode = _npc_simulator._get_active_enemy_node(eid)
+				if enode == null or not is_instance_valid(enode):
+					continue
+				if (enode as Node2D).global_position.distance_squared_to(player_pos) > TAUNT_RANGE_SQ:
+					continue
+				# First assigned that enters range becomes the speaker.
+				job["taunt_shown"]      = true
+				job["taunt_speaker_id"] = eid
+				var phrase: String = TAUNT_PHRASES[randi() % TAUNT_PHRASES.size()]
+				_bubble_manager.show_actor_bubble(enode as Node2D, phrase, 3.5)
+				Debug.log("extortion", "[EXTORT] taunt group=%s speaker=%s" % [gid, eid])
+				break
 
 
 # ---------------------------------------------------------------------------

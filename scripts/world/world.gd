@@ -114,6 +114,7 @@ var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
 var _settlement_intel: SettlementIntel
 var _bandit_behavior_layer: BanditBehaviorLayer
+var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
@@ -149,7 +150,8 @@ const PLAYER_WALL_ISOLATED_ATLAS: Vector2i = Vector2i(0, 1)
 const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const SettlementIntelScript := preload("res://scripts/world/SettlementIntel.gd")
-const BanditBehaviorLayerScript := preload("res://scripts/world/BanditBehaviorLayer.gd")
+const BanditBehaviorLayerScript        := preload("res://scripts/world/BanditBehaviorLayer.gd")
+const WorldSpeechBubbleManagerScript   := preload("res://scripts/ui/WorldSpeechBubbleManager.gd")
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
@@ -440,10 +442,18 @@ func _ready() -> void:
 	})
 	npc_simulator.current_player_chunk = current_player_chunk
 
+	_speech_bubble_manager = WorldSpeechBubbleManagerScript.new()
+	_speech_bubble_manager.name = "WorldSpeechBubbleManager"
+	add_child(_speech_bubble_manager)
+
 	_bandit_behavior_layer = BanditBehaviorLayerScript.new()
 	_bandit_behavior_layer.name = "BanditBehaviorLayer"
 	add_child(_bandit_behavior_layer)
-	_bandit_behavior_layer.setup({"npc_simulator": npc_simulator, "player": player})  # TEST extortion
+	_bandit_behavior_layer.setup({
+		"npc_simulator":         npc_simulator,
+		"player":                player,
+		"speech_bubble_manager": _speech_bubble_manager,
+	})  # TEST extortion
 
 	_vegetation_root.setup({
 		"ground_tilemap": ground_tilemap,
