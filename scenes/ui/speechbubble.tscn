@@ -1,11 +1,13 @@
-[gd_scene load_steps=2 format=3 uid="uid://bhyyw2168oqav"]
+[gd_scene load_steps=3 format=3 uid="uid://bhyyw2168oqav"]
 
 [ext_resource type="Texture2D" uid="uid://13w3ugarbtvm" path="res://art/dialog/dialog.png" id="1_724ks"]
+[ext_resource type="Script" path="res://scripts/ui/speech_bubble.gd" id="2_speechbbl"]
 
 [node name="SpeechBubble" type="Control"]
-custom_minimum_size = Vector2(420, 120)
+custom_minimum_size = Vector2(120, 60)
 layout_mode = 3
 anchors_preset = 0
+script = ExtResource("2_speechbbl")
 
 [node name="BubbleBG" type="NinePatchRect" parent="."]
 layout_mode = 1
@@ -20,7 +22,7 @@ patch_margin_top = 20
 patch_margin_right = 20
 patch_margin_bottom = 20
 
-[node name="Content" type="MarginContainer" parent="BubbleBG"]
+[node name="Content" type="MarginContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -32,10 +34,10 @@ theme_override_constants/margin_top = 18
 theme_override_constants/margin_right = 26
 theme_override_constants/margin_bottom = 18
 
-[node name="Label" type="Label" parent="BubbleBG/Content"]
+[node name="Label" type="Label" parent="Content"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 26
 horizontal_alignment = 1
-vertical_alignment = 1
+vertical_alignment = 0
 autowrap_mode = 3
-text_overrun_behavior = 4
+text_overrun_behavior = 0
