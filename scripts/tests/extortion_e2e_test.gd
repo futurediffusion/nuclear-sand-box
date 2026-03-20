@@ -18,6 +18,9 @@ const LEADER_GOLD := 50
 class TestBehavior:
 	extends RefCounted
 
+	# Lightweight test double used only for `force_return_home()` so the scene can
+	# observe retreat resolution without depending on the full runtime behavior stack.
+
 	var enemy: Node2D
 	var home_pos: Vector2
 
@@ -79,6 +82,9 @@ func _process(_delta: float) -> void:
 	if _director == null:
 		return
 	_director.process_extortion()
+	# This manual scene advances movement from `_process()` with zero friction
+	# compensation for determinism and easy inspection. It is intentionally close
+	# to the runtime flow, but not a byte-for-byte simulation of `_physics_process()`.
 	_director.apply_extortion_movement(0.0)
 	_update_status_label()
 
