@@ -19,6 +19,8 @@ const EXTORT_WARN_MELEE_LOCK_DURATION: float = 7.0
 const EXTORT_AI_REENABLE_DELAY: float = 12.0
 const EXTORT_WARN_APPROACH_SPEED: float = 75.0
 const EXTORT_GROUP_APPROACH_SPEED: float = 55.0
+const EXTORT_WARN_STRIKE_RANGE: float = 76.0
+const EXTORT_WARN_STRIKE_RANGE_BONUS: float = 8.0
 
 static func faction_for_group(_group_id: String) -> String:
 	return DEFAULT_FACTION
@@ -55,3 +57,9 @@ static func extort_warn_approach_speed(_group_id: String = "") -> float:
 
 static func extort_group_approach_speed(_group_id: String = "") -> float:
 	return EXTORT_GROUP_APPROACH_SPEED
+
+static func extort_warn_strike_range(_group_id: String = "") -> float:
+	return EXTORT_WARN_STRIKE_RANGE
+
+static func extort_warn_strike_range_bonus(_group_id: String = "") -> float:
+	return EXTORT_WARN_STRIKE_RANGE_BONUS
