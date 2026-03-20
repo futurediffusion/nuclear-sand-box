@@ -131,8 +131,8 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 				if "attack_range" in speaker:
 					atk_range = float(speaker.get("attack_range")) + 8.0
 				if dist <= atk_range:
-					if speaker.has_method("begin_scripted_warning_strike"):
-						speaker.begin_scripted_warning_strike(player_pos, 7.0)
+					if speaker.has_method("begin_scripted_melee_action"):
+						speaker.begin_scripted_melee_action(player_pos, 7.0)
 					job.mark_resolved()
 					for aid: String in job.assigned_ids:
 						var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
@@ -169,7 +169,7 @@ func _consume_extortion_queue() -> void:
 		if finished_cleanup_job != null and finished_cleanup_job.phase == ExtortionJob.Phase.ABORTED:
 			_release_job_ai_control(finished_cleanup_job)
 		_active_extortions.erase(gid)
-		Debug.log("extortion", "[EXTORT TEST] job cleaned group=%s" % gid)
+		Debug.log("extortion", "[EXTORT FLOW] job cleaned group=%s" % gid)
 
 	if _bubble_manager != null:
 		var player_pos: Vector2 = _player.global_position
@@ -244,7 +244,7 @@ func _consume_extortion_queue() -> void:
 		for aid in assigned:
 			var anode = _npc_simulator._get_active_enemy_node(aid)
 			_set_enemy_scripted_control(anode, true)
-		Debug.log("extortion", "[EXTORT TEST] job started group=%s leader=%s assigned=%d" % [
+		Debug.log("extortion", "[EXTORT FLOW] job started group=%s leader=%s assigned=%d" % [
 			gid, leader_id, assigned.size()])
 
 
@@ -344,8 +344,8 @@ func _set_enemy_scripted_control(enemy: Node, enabled: bool) -> void:
 		return
 	if enemy.has_method("set_scripted_control_enabled"):
 		enemy.set_scripted_control_enabled(enabled)
-	elif "suppress_ai" in enemy:
-		enemy.suppress_ai = enabled
+	elif "external_ai_override" in enemy:
+		enemy.external_ai_override = enabled
 
 
 func _drive_enemy_toward_point(enemy: Node, target_pos: Vector2, speed: float) -> void:

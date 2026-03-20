@@ -453,7 +453,7 @@ func _ready() -> void:
 		"npc_simulator":         npc_simulator,
 		"player":                player,
 		"speech_bubble_manager": _speech_bubble_manager,
-	})  # TEST extortion
+	})  # Setup del sistema de extorsión
 
 	_vegetation_root.setup({
 		"ground_tilemap": ground_tilemap,

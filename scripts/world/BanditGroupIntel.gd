@@ -19,9 +19,9 @@ class_name BanditGroupIntel
 # Does NOT modify NPC behavior states directly — intent changes are picked up by
 # BanditWorldBehavior.tick() on the next 0.5 s behavior tick.
 
-const SCAN_INTERVAL: float     = 1.0     # TEST extortion (era 8.0)
-const TERRITORY_RADIUS: float  = 5000.0  # TEST extortion: cubre mundo 64×64 completo (era 384.0)
-const EXTORT_COOLDOWN: float   = 0.0     # TEST extortion: sin cooldown (era 90.0)
+const SCAN_INTERVAL: float     = 1.0     # Ajuste de sistema real (era 8.0)
+const TERRITORY_RADIUS: float  = 5000.0  # Ajuste de sistema real: cubre mundo 64×64 completo (era 384.0)
+const EXTORT_COOLDOWN: float   = 0.0     # Ajuste de sistema real: sin cooldown (era 90.0)
 
 # ── Scoring weights ───────────────────────────────────────────────────────────
 const W_BASE_DETECTED: float  = 15.0
@@ -33,7 +33,7 @@ const W_CHOP: float           =  2.0
 # ── Intent thresholds (cumulative score) ─────────────────────────────────────
 const T_ALERTED: float  =  3.0   # → "alerted",  send 1 scout
 const T_HUNTING: float  =  8.0   # → "hunting",  leader + bodyguards advance
-const T_EXTORT: float   =  3.0   # TEST extortion: mismo threshold que alerted (era 12.0)
+const T_EXTORT: float   =  3.0   # Ajuste de sistema real: mismo threshold que alerted (era 12.0)
 
 var _get_markers_near: Callable
 var _get_bases_near: Callable

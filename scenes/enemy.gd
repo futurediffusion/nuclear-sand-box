@@ -3,7 +3,7 @@ extends "res://scripts/CharacterBase.gd"
 
 # Responsibility boundary:
 # EnemyAI owns low-level combat/control primitives and reusable movement hooks.
-# Higher-level extortion rules, phase flow, UI, payment, and job ownership live
+# Higher-level encounter rules, phase flow, UI, payment, and job ownership live
 # outside this file; this script only exposes generic scripted-control helpers.
 
 const AIComponentScript = preload("res://scripts/components/AIComponent.gd")
@@ -79,9 +79,9 @@ var _logged_duplicate_controller_count: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
 var _sep_timer: float = 0.0
 var _is_lite_mode: bool = false
-var suppress_ai: bool = false
-var _pending_scripted_strike: bool = false
-var _scripted_action_timer: float = 0.0
+var external_ai_override: bool = false
+var _pending_scripted_melee_action: bool = false
+var _scripted_control_timer: float = 0.0
 var entity_uid: String = ""
 var enemy_chunk_key: String = ""
 var enemy_seed: int = 0
@@ -303,11 +303,11 @@ func _physics_process(delta: float) -> void:
 	if hp <= 0:
 		return
 
-	# Scripted-action lock: keeps combat AI suppressed until the action window ends.
-	if _scripted_action_timer > 0.0:
-		_scripted_action_timer -= delta
-		suppress_ai = true
-		if _scripted_action_timer <= 0.0:
+	# Scripted-control lock: keeps combat AI suppressed until the action window ends.
+	if _scripted_control_timer > 0.0:
+		_scripted_control_timer -= delta
+		external_ai_override = true
+		if _scripted_control_timer <= 0.0:
 			end_scripted_action()
 
 	if _last_chunk_pos == Vector2.INF or global_position.distance_squared_to(_last_chunk_pos) >= 1.0:
@@ -318,11 +318,11 @@ func _physics_process(delta: float) -> void:
 		hurt_t -= delta
 
 	var sleeping_now := ai_component != null and ai_component.is_sleeping()
-	var can_run_full_ai := not _is_lite_mode and ai_component != null and not sleeping_now and not suppress_ai
+	var can_run_full_ai := not _is_lite_mode and ai_component != null and not sleeping_now and not external_ai_override
 	if can_run_full_ai:
 		ai_component.physics_tick(delta)
 	else:
-		if not _pending_scripted_strike:
+		if not _pending_scripted_melee_action:
 			set_ai_attack_intent(false, global_position)
 		if _is_lite_mode:
 			if velocity.length_squared() > 0.0001:
@@ -330,14 +330,14 @@ func _physics_process(delta: float) -> void:
 		else:
 			velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
-	if can_run_full_ai or _pending_scripted_strike:
+	if can_run_full_ai or _pending_scripted_melee_action:
 		# IMPORTANT: mantener orden del pipeline para evitar eventos stale.
 		# AI -> controller -> weapon_component -> weapon
 		if ai_weapon_controller != null:
 			ai_weapon_controller.physics_tick()
 		if weapon_component != null:
 			weapon_component.tick(delta)
-		_pending_scripted_strike = false
+		_pending_scripted_melee_action = false
 
 	if sleeping_now != _was_sleeping_last_frame:
 		_set_sleep_visual_state(sleeping_now)
@@ -358,25 +358,25 @@ func _physics_process(delta: float) -> void:
 	_apply_knockback_step(delta)
 	move_and_slide()
 
-## Lanza un único golpe melee de advertencia y bloquea el re-aggro durante retreat_lock_seconds.
-## Llamar cuando el NPC ya está en melee range. BanditBehaviorLayer (y futuros orquestadores) usan esto.
-func begin_scripted_warning_strike(target_pos: Vector2, retreat_lock_seconds: float) -> void:
-	_scripted_action_timer = maxf(retreat_lock_seconds, 0.1)
-	suppress_ai = true
-	_pending_scripted_strike = true
+## Lanza una única acción melee guionizada y bloquea el re-aggro durante retreat_lock_seconds.
+## Llamar cuando el NPC ya está en melee range. BanditBehaviorLayer y futuros orquestadores usan esto.
+func begin_scripted_melee_action(target_pos: Vector2, retreat_lock_seconds: float) -> void:
+	_scripted_control_timer = maxf(retreat_lock_seconds, 0.1)
+	external_ai_override = true
+	_pending_scripted_melee_action = true
 	if weapon_component != null and weapon_component.current_weapon != null:
 		weapon_component.current_weapon.set("_cooldown", 0.0)  # garantizar que cooldown no bloquea
 	queue_ai_attack_press(target_pos)
 
 ## Cancela la acción scriptada y devuelve el control al AIComponent.
 func end_scripted_action() -> void:
-	_scripted_action_timer = 0.0
-	suppress_ai = false
-	_pending_scripted_strike = false
+	_scripted_control_timer = 0.0
+	external_ai_override = false
+	_pending_scripted_melee_action = false
 
 
 func set_scripted_control_enabled(enabled: bool) -> void:
-	suppress_ai = enabled
+	external_ai_override = enabled
 
 
 func set_scripted_velocity(world_velocity: Vector2) -> void:
