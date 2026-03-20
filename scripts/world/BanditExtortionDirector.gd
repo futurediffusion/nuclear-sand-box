@@ -115,10 +115,10 @@ func _abort_invalid_jobs() -> void:
 		var job: ExtortionJob = _active_extortions[gid] as ExtortionJob
 		if job == null or job.is_finished():
 			continue
-		var reason: String = _get_abort_reason(String(gid), job, player_pos)
+		var reason: String = _get_abort_reason(job.group_id, job, player_pos)
 		if reason == "":
 			continue
-		_abort_job(String(gid), job, reason)
+		_abort_job(job.group_id, job, reason)
 
 
 func _get_abort_reason(gid: String, job: ExtortionJob, player_pos: Vector2) -> String:
@@ -221,17 +221,17 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 			var speaker_id: String = job.taunt_speaker_id
 			var speaker = _npc_simulator._get_active_enemy_node(speaker_id) if speaker_id != "" else null
 			if speaker == null:
-				_abort_job(String(gid), job, "speaker_missing")
+				_abort_job(job.group_id, job, "speaker_missing")
 				Debug.log("extortion", "[EXTORT] warn strike aborted (speaker missing) group=%s" % gid)
 			else:
 				var to_player: Vector2 = player_pos - (speaker as Node2D).global_position
 				var dist: float = to_player.length()
-				var atk_range: float = 76.0
+				var atk_range: float = BanditTuningScript.extort_warn_strike_range(job.group_id)
 				if "attack_range" in speaker:
-					atk_range = float(speaker.get("attack_range")) + 8.0
+					atk_range = float(speaker.get("attack_range")) + BanditTuningScript.extort_warn_strike_range_bonus(job.group_id)
 				if dist <= atk_range:
 					if speaker.has_method("begin_scripted_melee_action"):
-						speaker.begin_scripted_melee_action(player_pos, BanditTuningScript.extort_warn_melee_lock_duration(String(gid)))
+						speaker.begin_scripted_melee_action(player_pos, BanditTuningScript.extort_warn_melee_lock_duration(job.group_id))
 					job.mark_resolved()
 					for aid: String in job.assigned_ids:
 						var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
@@ -240,7 +240,7 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 					Debug.log("extortion", "[EXTORT] warn strike delivered group=%s" % gid)
 				else:
 					_set_enemy_scripted_control(speaker, true)
-					_drive_enemy_toward_point(speaker, player_pos, BanditTuningScript.extort_warn_approach_speed(String(gid)) + friction_compensation)
+					_drive_enemy_toward_point(speaker, player_pos, BanditTuningScript.extort_warn_approach_speed(job.group_id) + friction_compensation)
 			continue
 
 		if job.is_collecting():
@@ -251,7 +251,7 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 			if enode == null:
 				continue
 			_set_enemy_scripted_control(enode, true)
-			_drive_enemy_toward_point(enode, player_pos, BanditTuningScript.extort_group_approach_speed(String(gid)) + friction_compensation)
+			_drive_enemy_toward_point(enode, player_pos, BanditTuningScript.extort_group_approach_speed(job.group_id) + friction_compensation)
 
 
 func _consume_extortion_queue() -> void:
@@ -277,11 +277,11 @@ func _consume_extortion_queue() -> void:
 				var enode = _npc_simulator._get_active_enemy_node(eid)
 				if enode == null or not is_instance_valid(enode):
 					continue
-				if (enode as Node2D).global_position.distance_squared_to(player_pos) > BanditTuningScript.extort_taunt_range_sq(String(gid)):
+				if (enode as Node2D).global_position.distance_squared_to(player_pos) > BanditTuningScript.extort_taunt_range_sq(job.group_id):
 					continue
 				job.mark_taunted(eid)
 				var phrase: String = TAUNT_PHRASES[randi() % TAUNT_PHRASES.size()]
-				_bubble_manager.show_actor_bubble(enode as Node2D, phrase, BanditTuningScript.extort_taunt_bubble_duration(String(gid)))
+				_bubble_manager.show_actor_bubble(enode as Node2D, phrase, BanditTuningScript.extort_taunt_bubble_duration(job.group_id))
 				Debug.log("extortion", "[EXTORT] taunt group=%s speaker=%s" % [gid, eid])
 				break
 
@@ -299,7 +299,7 @@ func _consume_extortion_queue() -> void:
 				var enode_collect = _npc_simulator._get_active_enemy_node(eid)
 				if enode_collect == null or not is_instance_valid(enode_collect):
 					continue
-				if (enode_collect as Node2D).global_position.distance_squared_to(player_pos_collect) > BanditTuningScript.extort_collect_range_sq(String(gid)):
+				if (enode_collect as Node2D).global_position.distance_squared_to(player_pos_collect) > BanditTuningScript.extort_collect_range_sq(job.group_id):
 					continue
 				job_collect.mark_waiting_choice()
 				_show_extortion_choice(gid)
