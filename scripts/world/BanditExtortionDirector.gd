@@ -1,6 +1,11 @@
 extends Node
 class_name BanditExtortionDirector
 
+# Responsibility boundary:
+# BanditExtortionDirector owns the full extortion event lifecycle:
+# job acquisition, phase transitions, taunt/choice/warn/aggro/resolution flow,
+# and orchestration of low-level enemy control primitives.
+
 class ExtortionJob:
 	enum Phase {
 		APPROACHING,
@@ -105,8 +110,7 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 				job.mark_resolved()
 				for aid: String in job.assigned_ids:
 					var anode = _npc_simulator._get_active_enemy_node(aid)
-					if anode != null and "suppress_ai" in anode:
-						anode.suppress_ai = true
+					_set_enemy_scripted_control(anode, true)
 					var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
 					if behavior != null:
 						behavior.force_return_home()
@@ -136,9 +140,8 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 							behavior.force_return_home()
 					Debug.log("extortion", "[EXTORT] warn strike delivered group=%s" % gid)
 				else:
-					if "suppress_ai" in speaker:
-						speaker.suppress_ai = true
-					(speaker as Node2D).velocity = to_player.normalized() * (75.0 + friction_compensation)
+					_set_enemy_scripted_control(speaker, true)
+					_drive_enemy_toward_point(speaker, player_pos, 75.0 + friction_compensation)
 			continue
 
 		if job.is_collecting():
@@ -148,11 +151,8 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 			var enode = _npc_simulator._get_active_enemy_node(eid)
 			if enode == null:
 				continue
-			if "suppress_ai" in enode:
-				enode.suppress_ai = true
-			var to_player: Vector2 = player_pos - enode.global_position
-			if to_player.length() > 1.0:
-				enode.velocity = to_player.normalized() * (55.0 + friction_compensation)
+			_set_enemy_scripted_control(enode, true)
+			_drive_enemy_toward_point(enode, player_pos, 55.0 + friction_compensation)
 
 
 func _consume_extortion_queue() -> void:
@@ -243,8 +243,7 @@ func _consume_extortion_queue() -> void:
 		_active_extortions[gid] = ExtortionJob.new(leader_id, assigned)
 		for aid in assigned:
 			var anode = _npc_simulator._get_active_enemy_node(aid)
-			if anode != null and "suppress_ai" in anode:
-				anode.suppress_ai = true
+			_set_enemy_scripted_control(anode, true)
 		Debug.log("extortion", "[EXTORT TEST] job started group=%s leader=%s assigned=%d" % [
 			gid, leader_id, assigned.size()])
 
@@ -311,8 +310,7 @@ func _resolve_extortion_idle(job: ExtortionJob) -> void:
 	get_tree().create_timer(12.0).timeout.connect(func() -> void:
 		for aid: String in ids:
 			var anode = _npc_simulator._get_active_enemy_node(aid)
-			if anode != null and is_instance_valid(anode) and "suppress_ai" in anode:
-				anode.suppress_ai = false
+			_set_enemy_scripted_control(anode, false)
 	)
 	Debug.log("extortion", "[EXTORT] resolved idle — ai re-enable in 12 s")
 
@@ -338,5 +336,32 @@ func _behavior_for_enemy(enemy_id: String) -> BanditWorldBehavior:
 func _release_job_ai_control(job: ExtortionJob) -> void:
 	for aid: String in job.assigned_ids:
 		var anode = _npc_simulator._get_active_enemy_node(aid)
-		if anode != null and is_instance_valid(anode) and "suppress_ai" in anode:
-			anode.suppress_ai = false
+		_set_enemy_scripted_control(anode, false)
+
+
+func _set_enemy_scripted_control(enemy: Node, enabled: bool) -> void:
+	if enemy == null or not is_instance_valid(enemy):
+		return
+	if enemy.has_method("set_scripted_control_enabled"):
+		enemy.set_scripted_control_enabled(enabled)
+	elif "suppress_ai" in enemy:
+		enemy.suppress_ai = enabled
+
+
+func _drive_enemy_toward_point(enemy: Node, target_pos: Vector2, speed: float) -> void:
+	if enemy == null or not is_instance_valid(enemy):
+		return
+	if not enemy is Node2D:
+		return
+	var to_target: Vector2 = target_pos - (enemy as Node2D).global_position
+	if to_target.length() <= 1.0:
+		if enemy.has_method("set_scripted_velocity"):
+			enemy.set_scripted_velocity(Vector2.ZERO)
+		elif "velocity" in enemy:
+			enemy.velocity = Vector2.ZERO
+		return
+	var desired_velocity: Vector2 = to_target.normalized() * speed
+	if enemy.has_method("set_scripted_velocity"):
+		enemy.set_scripted_velocity(desired_velocity)
+	elif "velocity" in enemy:
+		enemy.velocity = desired_velocity

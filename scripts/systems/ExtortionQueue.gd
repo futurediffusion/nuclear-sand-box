@@ -1,9 +1,8 @@
 extends Node
 
-# ── ExtortionQueue ─────────────────────────────────────────────────────────
-# Autoload. Cola de intenciones de extorsión pendientes.
-# No ejecuta ninguna lógica — es solo un bus de datos entre quien detecta
-# la oportunidad (futuro SettlementIntel / WorldAI) y quien la actúa (NPC).
+# ExtortionQueue owns queued extortion intents and request-side bookkeeping.
+# It is the data bus for pending extortion work; group memory does not track
+# extortion lifecycle flags or cooldown timestamps.
 #
 # Intent dict:
 # {
@@ -18,6 +17,7 @@ extends Node
 # }
 
 var _intents: Array = []  # Array[Dictionary]
+var _last_request_time_by_group: Dictionary = {}  # group_id -> created_at
 
 
 # ---------------------------------------------------------------------------
@@ -28,17 +28,15 @@ var _intents: Array = []  # Array[Dictionary]
 ## todos los campos del dict antes de llamar a este método.
 func enqueue(intent: Dictionary) -> void:
 	_intents.append(intent)
+	var gid: String = String(intent.get("group_id", ""))
+	if gid != "":
+		_last_request_time_by_group[gid] = float(intent.get("created_at", RunClock.now()))
 	Debug.log("extortion", "[EXTORT] enqueued group=%s trigger=%s severity=%.2f pos=%s" % [
-		intent.get("group_id", "?"),
+		gid if gid != "" else intent.get("group_id", "?"),
 		intent.get("trigger_kind", "?"),
 		float(intent.get("severity", 0.0)),
 		str(intent.get("world_pos", Vector2.ZERO)),
 	])
-
-	# Reflect in BanditGroupMemory so group knows it has a pending extortion
-	var gid: String = String(intent.get("group_id", ""))
-	if gid != "" and BanditGroupMemory != null:
-		BanditGroupMemory.set_extortion_pending(gid, true, float(intent.get("created_at", 0.0)))
 
 
 ## Crea y encola una intención completa desde sus partes.
@@ -84,12 +82,15 @@ func has_pending_for_group(group_id: String) -> bool:
 func get_all_pending() -> Array:
 	return _intents.duplicate()
 
+func get_last_request_time(group_id: String) -> float:
+	return float(_last_request_time_by_group.get(group_id, 0.0))
+
 
 # ---------------------------------------------------------------------------
 # Consume API
 # ---------------------------------------------------------------------------
 
-## Retira y devuelve todos los intents del grupo. Limpia BanditGroupMemory.
+## Retira y devuelve todos los intents del grupo.
 func consume_for_group(group_id: String) -> Array:
 	var result: Array = []
 	var remaining: Array = []
@@ -99,12 +100,11 @@ func consume_for_group(group_id: String) -> Array:
 		else:
 			remaining.append(i)
 	_intents = remaining
-	if not result.is_empty() and BanditGroupMemory != null:
-		BanditGroupMemory.set_extortion_pending(group_id, false)
 	return result
 
 func clear_all() -> void:
 	_intents.clear()
+	_last_request_time_by_group.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -118,15 +118,20 @@ func serialize() -> Array:
 		var wp: Vector2 = s.get("world_pos", Vector2.ZERO)
 		s["world_pos"] = {"x": wp.x, "y": wp.y}
 		out.append(s)
+	out.append({"__meta__": "extortion_queue_state", "last_request_time_by_group": _last_request_time_by_group.duplicate(true)})
 	return out
 
 
 func deserialize(data: Array) -> void:
 	_intents.clear()
+	_last_request_time_by_group.clear()
 	for item in data:
 		if not item is Dictionary:
 			continue
 		var i: Dictionary = (item as Dictionary).duplicate(true)
+		if String(i.get("__meta__", "")) == "extortion_queue_state":
+			_last_request_time_by_group = i.get("last_request_time_by_group", {}).duplicate(true)
+			continue
 		var wp = i.get("world_pos", {"x": 0.0, "y": 0.0})
 		if wp is Dictionary:
 			i["world_pos"] = Vector2(float(wp.get("x", 0.0)), float(wp.get("y", 0.0)))
@@ -137,3 +142,4 @@ func deserialize(data: Array) -> void:
 
 func reset() -> void:
 	_intents.clear()
+	_last_request_time_by_group.clear()

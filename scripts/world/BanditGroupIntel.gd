@@ -230,7 +230,7 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 		Debug.log("bandit_intel", "[BGI] extortion pending — skip group=%s" % group_id)
 		return
 	# Guard 2: cooldown since last request
-	var last_time: float = float(g.get("last_extortion_request_time", 0.0))
+	var last_time: float = ExtortionQueue.get_last_request_time(group_id)
 	var elapsed: float   = RunClock.now() - last_time
 	if elapsed < EXTORT_COOLDOWN:
 		Debug.log("bandit_intel", "[BGI] extortion cooldown %.0fs left group=%s" % [

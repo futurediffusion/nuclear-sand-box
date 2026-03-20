@@ -1,14 +1,14 @@
 extends Node
 
-# ── BanditGroupMemory ──────────────────────────────────────────────────────
-# Autoload. Memoria de estado por grupo de bandidos, indexada por group_id.
-# Solo es un modelo de datos — no contiene lógica de IA.
+# Responsibility boundary:
+# BanditGroupMemory stores shared bandit-group memory plus current_group_intent.
+# It does not own extortion job state, UI flow, payment, or phase bookkeeping.
 #
 # group_id format: "camp:{chunk_key}:{camp_index:03d}"  (producido por NpcSimulator)
 #
 # Separación de conceptos:
 #   - NpcProfileSystem  → estado individual por NPC  (role, status)
-#   - BanditGroupMemory → estado colectivo por grupo (intent, extortion, members)
+#   - BanditGroupMemory → estado colectivo por grupo (intent, members, shared memory)
 
 var _groups: Dictionary = {}  # group_id -> group data dict
 
@@ -83,15 +83,6 @@ func record_interest(group_id: String, world_pos: Vector2, kind: String) -> void
 		return
 	_groups[group_id]["last_interest_pos"] = world_pos
 	_groups[group_id]["last_interest_kind"] = kind
-
-
-## Marca si hay una extorsión pendiente para este grupo.
-func set_extortion_pending(group_id: String, pending: bool, timestamp: float = -1.0) -> void:
-	if not _groups.has(group_id):
-		return
-	_groups[group_id]["extortion_pending"] = pending
-	if pending and timestamp >= 0.0:
-		_groups[group_id]["last_extortion_request_time"] = timestamp
 
 
 # ---------------------------------------------------------------------------
@@ -212,8 +203,6 @@ func _make_group(group_id: String, faction_id: String, home_world_pos: Vector2) 
 		"current_group_intent":       "idle",
 		"last_interest_pos":          Vector2.ZERO,
 		"last_interest_kind":         "",
-		"extortion_pending":          false,
-		"last_extortion_request_time": 0.0,
 		"scout_npc_id":               "",
 		"reported_resources":         [],   # [{pos, reporter_id, res_key, time}]
 		"resource_claims":            {},   # {res_key -> member_id}
@@ -266,10 +255,9 @@ func print_all() -> void:
 	Debug.log("bandit_group", "=== BanditGroupMemory (%d groups) ===" % _groups.size())
 	for gid: String in _groups:
 		var g: Dictionary = _groups[gid]
-		Debug.log("bandit_group", "  [%s] leader=%s members=%d intent=%s extortion=%s" % [
+		Debug.log("bandit_group", "  [%s] leader=%s members=%d intent=%s" % [
 			gid,
 			String(g.get("leader_id", "")),
 			(g.get("member_ids", []) as Array).size(),
 			String(g.get("current_group_intent", "?")),
-			str(g.get("extortion_pending", false)),
 		])

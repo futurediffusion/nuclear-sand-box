@@ -1,7 +1,10 @@
 extends NpcWorldBehavior
 class_name BanditWorldBehavior
 
-# ── BanditWorldBehavior ──────────────────────────────────────────────────────
+# Responsibility boundary:
+# BanditWorldBehavior reacts to group intent with locomotion/state changes only.
+# It does not own extortion jobs, taunts, payment, UI/modal flow, or resolution.
+#
 # Bandit-specific extension of NpcWorldBehavior.
 # Adds role-based cargo capacity, loot pickup, resource watching,
 # and group-intent reactions.
@@ -340,10 +343,7 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 		"extorting":
 			match role:
 				"leader", "bodyguard":
-					var g: Dictionary = BanditGroupMemory.get_group(group_id)
-					var interest_pos: Vector2 = g.get("last_interest_pos", home_pos)
-					if interest_pos.distance_squared_to(home_pos) > 1.0:
-						enter_extort_approach(interest_pos)
+					_enter_group_extort_approach()
 				_:
 					pass  # scavengers keep their own work
 
@@ -366,6 +366,13 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 			if state == State.APPROACH_INTEREST or state == State.FOLLOW_LEADER \
 					or state == State.EXTORT_APPROACH:
 				_enter_return_home()
+
+
+func _enter_group_extort_approach() -> void:
+	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	var interest_pos: Vector2 = g.get("last_interest_pos", home_pos)
+	if interest_pos.distance_squared_to(home_pos) > 1.0:
+		enter_extort_approach(interest_pos)
 
 
 # ---------------------------------------------------------------------------
