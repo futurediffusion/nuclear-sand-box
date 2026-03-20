@@ -16,7 +16,6 @@ var _player: Node2D = null
 var _bubble_manager: WorldSpeechBubbleManager = null
 var _active_extortions: Dictionary = {}
 var _extortion_choice_node: Node = null
-var _extortion_choice_gid: String = ""
 
 var _get_behavior_for_enemy: Callable = Callable()
 
@@ -52,7 +51,7 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 						anode.suppress_ai = true
 					var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
 					if behavior != null:
-						behavior._enter_return_home()
+						behavior.force_return_home()
 				Debug.log("extortion", "[EXTORT] aggro resolved (player downed) group=%s" % gid)
 			continue
 
@@ -76,7 +75,7 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 					for aid: String in job.get("assigned_ids", []):
 						var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
 						if behavior != null:
-							behavior._enter_return_home()
+							behavior.force_return_home()
 					Debug.log("extortion", "[EXTORT] warn strike delivered group=%s" % gid)
 				else:
 					if "suppress_ai" in speaker:
@@ -211,7 +210,6 @@ func _show_extortion_choice(gid: String) -> void:
 	_bubble_manager.add_child(bubble)
 	bubble.set_main_text("¿Entonces qué?\n¿Pagas o prefieres problemas?")
 	_extortion_choice_node = bubble
-	_extortion_choice_gid = gid
 
 	var cursor := get_tree().root.find_child("MouseCursor", true, false)
 	if cursor != null:
@@ -228,7 +226,6 @@ func _on_extortion_choice(option: int, gid: String) -> void:
 
 	get_tree().paused = false
 	_extortion_choice_node = null
-	_extortion_choice_gid = ""
 
 	if not _active_extortions.has(gid):
 		return
@@ -255,7 +252,7 @@ func _resolve_extortion_idle(job: Dictionary) -> void:
 	for aid: String in job.get("assigned_ids", []):
 		var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
 		if behavior != null:
-			behavior._enter_return_home()
+			behavior.force_return_home()
 	var ids: Array = job.get("assigned_ids", []).duplicate()
 	get_tree().create_timer(12.0).timeout.connect(func() -> void:
 		for aid: String in ids:
