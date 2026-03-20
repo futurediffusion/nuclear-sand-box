@@ -36,6 +36,9 @@ class ExtortionJob:
 	func has_taunted() -> bool:
 		return phase >= Phase.TAUNTED
 
+	func can_open_choice() -> bool:
+		return phase == Phase.TAUNTED
+
 	func mark_taunted(speaker_id: String) -> void:
 		taunt_speaker_id = speaker_id
 		phase = Phase.TAUNTED
@@ -115,6 +118,8 @@ func apply_extortion_movement(friction_compensation: float) -> void:
 			var speaker = _npc_simulator._get_active_enemy_node(speaker_id) if speaker_id != "" else null
 			if speaker == null:
 				job.mark_aborted()
+				_release_job_ai_control(job)
+				Debug.log("extortion", "[EXTORT] warn strike aborted (speaker missing) group=%s" % gid)
 			else:
 				var to_player: Vector2 = player_pos - (speaker as Node2D).global_position
 				var dist: float = to_player.length()
@@ -160,6 +165,9 @@ func _consume_extortion_queue() -> void:
 		if finished_job != null and finished_job.is_finished():
 			done.append(gid)
 	for gid in done:
+		var finished_cleanup_job: ExtortionJob = _active_extortions[gid] as ExtortionJob
+		if finished_cleanup_job != null and finished_cleanup_job.phase == ExtortionJob.Phase.ABORTED:
+			_release_job_ai_control(finished_cleanup_job)
 		_active_extortions.erase(gid)
 		Debug.log("extortion", "[EXTORT TEST] job cleaned group=%s" % gid)
 
@@ -189,7 +197,7 @@ func _consume_extortion_queue() -> void:
 				continue
 			if job_collect.is_collecting():
 				continue
-			if not job_collect.has_taunted():
+			if not job_collect.can_open_choice():
 				continue
 			for eid in job_collect.assigned_ids:
 				var enode_collect = _npc_simulator._get_active_enemy_node(eid)
@@ -316,10 +324,7 @@ func _resolve_extortion_warn(job: ExtortionJob) -> void:
 
 func _resolve_extortion_aggro(job: ExtortionJob) -> void:
 	job.mark_full_aggro()
-	for aid: String in job.assigned_ids:
-		var anode = _npc_simulator._get_active_enemy_node(aid)
-		if anode != null and "suppress_ai" in anode:
-			anode.suppress_ai = false
+	_release_job_ai_control(job)
 	Debug.log("extortion", "[EXTORT] resolved aggro (insult)")
 
 
@@ -328,3 +333,10 @@ func _behavior_for_enemy(enemy_id: String) -> BanditWorldBehavior:
 		return null
 	var behavior = _get_behavior_for_enemy.call(enemy_id)
 	return behavior as BanditWorldBehavior
+
+
+func _release_job_ai_control(job: ExtortionJob) -> void:
+	for aid: String in job.assigned_ids:
+		var anode = _npc_simulator._get_active_enemy_node(aid)
+		if anode != null and is_instance_valid(anode) and "suppress_ai" in anode:
+			anode.suppress_ai = false
