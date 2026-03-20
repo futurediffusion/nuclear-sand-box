@@ -43,7 +43,7 @@ var _bubble_manager: WorldSpeechBubbleManager = null
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _tick_timer: float = 0.0
 
-const DEBUG_ALERTED_CHASE: bool = true  # TEST: scout del grupo alerted persigue al player
+const DEBUG_ALERTED_CHASE: bool = true  # Debug: scout del grupo alerted persigue al player
 
 var _extortion_director: BanditExtortionDirector = null
 
@@ -129,7 +129,7 @@ func _physics_process(_delta: float) -> void:
 	if _extortion_director != null:
 		_extortion_director.apply_extortion_movement(FRICTION_COMPENSATION)
 
-	# TEST alerted scout chase — un solo NPC persigue al player cuando el grupo está "alerted"
+	# Debug alerted scout chase — un solo NPC persigue al player cuando el grupo está "alerted"
 	# Para desactivar: pon DEBUG_ALERTED_CHASE = false arriba
 	if DEBUG_ALERTED_CHASE and _player != null and is_instance_valid(_player):
 		var ap: Vector2 = _player.global_position

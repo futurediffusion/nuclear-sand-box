@@ -17,8 +17,8 @@ var _index: int = 0
 
 func _ready() -> void:
 	# Apagar toda la IA de combate — el enemy solo existe como actor visual.
-	if "suppress_ai" in _actor:
-		_actor.suppress_ai = true
+	if "external_ai_override" in _actor:
+		_actor.external_ai_override = true
 	var ai := _actor.get_node_or_null("AIComponent")
 	if ai != null:
 		ai.set_process(false)
