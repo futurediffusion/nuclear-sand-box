@@ -78,7 +78,7 @@ var _npc_simulator: NpcSimulator = null
 var _player: Node2D = null
 var _bubble_manager: WorldSpeechBubbleManager = null
 var _active_extortions: Dictionary = {} # gid -> ExtortionJob
-var _extortion_choice_node: Node = null
+var _extortion_choice_node: ExtortionChoiceBubble = null
 
 var _get_behavior_for_enemy: Callable = Callable()
 
@@ -249,33 +249,26 @@ func _consume_extortion_queue() -> void:
 
 
 func _show_extortion_choice(gid: String) -> void:
-	if _extortion_choice_node != null and is_instance_valid(_extortion_choice_node):
-		_extortion_choice_node.queue_free()
+	if _bubble_manager == null:
+		return
 
 	var bubble: ExtortionChoiceBubble = CHOICE_SCENE.instantiate() as ExtortionChoiceBubble
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
-	var visual: Vector2 = bubble.custom_minimum_size * 0.5
+	var visual: Vector2 = bubble.custom_minimum_size * bubble.scale
 	bubble.position = (vp_size - visual) * 0.5
+	bubble.set_main_text("¿Entonces qué?\n¿Pagas o prefieres problemas?")
 	bubble.choice_made.connect(func(option: int): _on_extortion_choice(option, gid), CONNECT_ONE_SHOT)
 
-	_bubble_manager.add_child(bubble)
-	bubble.set_main_text("¿Entonces qué?\n¿Pagas o prefieres problemas?")
-	_extortion_choice_node = bubble
-
-	var cursor := get_tree().root.find_child("MouseCursor", true, false)
-	if cursor != null:
-		cursor.process_mode = Node.PROCESS_MODE_ALWAYS
-
-	get_tree().paused = true
+	_extortion_choice_node = ModalWorldUIController.show_modal(
+		bubble,
+		_bubble_manager,
+		"extortion_choice"
+	) as ExtortionChoiceBubble
 	Debug.log("extortion", "[EXTORT] choice bubble shown group=%s" % gid)
 
 
 func _on_extortion_choice(option: int, gid: String) -> void:
-	var cursor := get_tree().root.find_child("MouseCursor", true, false)
-	if cursor != null:
-		cursor.process_mode = Node.PROCESS_MODE_INHERIT
-
-	get_tree().paused = false
+	ModalWorldUIController.close_modal(_extortion_choice_node)
 	_extortion_choice_node = null
 
 	if not _active_extortions.has(gid):
