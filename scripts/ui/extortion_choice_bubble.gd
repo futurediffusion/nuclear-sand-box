@@ -31,4 +31,3 @@ func set_main_text(text: String) -> void:
 
 func _emit(option: int) -> void:
 	choice_made.emit(option)
-	queue_free()
