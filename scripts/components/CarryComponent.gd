@@ -121,38 +121,53 @@ func _find_nearby_chest(pos: Vector2) -> ContainerPlaceable:
 
 func _dump_to_chest(chest: ContainerPlaceable, origin_pos: Vector2) -> void:
 	var to_deposit := get_carried_nodes()
-	var sound_index := 0
+	const FALL_TIME:   float = 0.25   # CarryableComponent.drop tween duration
+	const SFX_STAGGER: float = 0.07
+
+	var idx := 0
 	for node in to_deposit:
 		if not is_instance_valid(node):
 			continue
-		# Bodies cannot go into chests
 		if node is CharacterBase:
 			continue
 		if not (node is ItemDrop):
 			continue
 		var item_drop := node as ItemDrop
-		var item_id := item_drop.item_id
-		var amount := item_drop.amount
-		if item_id == "" or amount <= 0:
+		if item_drop.item_id == "" or item_drop.amount <= 0:
 			continue
-		var inserted := chest.try_insert_item(item_id, amount)
-		if inserted <= 0:
-			continue
+
+		var cap_item_id := item_drop.item_id
+		var cap_amount  := item_drop.amount
+		# Usar sfx del item; si es null, AudioSystem.play_2d usará su propio fallback
+		var cap_sfx: AudioStream = item_drop.pickup_sfx
+
+		# Dispara la caída: CarryableComponent.drop(false) reparenta al mundo en
+		# posición elevada y hace tween de caída de 0.25 s hacia el suelo.
 		consume_node(node)
-		item_drop.queue_free()
-		# Staggered pickup sound (tutututu)
-		var sfx: AudioStream = item_drop.pickup_sfx
-		if sfx == null:
-			sfx = _FALLBACK_PICKUP_SFX
-		if sfx != null:
-			var delay := sound_index * 0.09
-			if delay == 0.0:
-				AudioSystem.play_2d(sfx, origin_pos, null, &"SFX")
+
+		# Congelar el magnet para que el item no se re-colecte durante la caída.
+		item_drop.set("_magnet_on", false)
+		var magnet_timer := item_drop.get_node_or_null("MagnetDelay") as Timer
+		if magnet_timer != null:
+			magnet_timer.stop()
+		item_drop.set_deferred("monitoring", false)
+
+		# Al aterrizar: sfx (tururur) + depositar en cofre + liberar nodo.
+		var land_delay := FALL_TIME + idx * SFX_STAGGER
+		var cap_drop   := item_drop
+		get_tree().create_timer(land_delay).timeout.connect(func() -> void:
+			if not is_instance_valid(cap_drop) or cap_drop.is_queued_for_deletion():
+				return
+			var inserted := chest.try_insert_item(cap_item_id, cap_amount)
+			if inserted > 0:
+				var sfx := cap_sfx if cap_sfx != null else AudioSystem.default_pickup_sfx
+				AudioSystem.play_2d(sfx, origin_pos)
+				cap_drop.queue_free()
 			else:
-				get_tree().create_timer(delay).timeout.connect(
-					func(): if is_instance_valid(self): AudioSystem.play_2d(sfx, origin_pos, null, &"SFX")
-				)
-		sound_index += 1
+				# Cofre lleno — re-activar el item para recoger manualmente
+				cap_drop.set_deferred("monitoring", true)
+		)
+		idx += 1
 
 func _update_stack_positions() -> void:
 	for i in range(_carried_nodes.size()):

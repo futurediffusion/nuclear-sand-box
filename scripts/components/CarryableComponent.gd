@@ -17,6 +17,7 @@ var _original_parent: Node = null
 var _original_collision_layer: int = 1
 var _original_collision_mask: int = 1
 var _is_carried: bool = false
+var _carry_tween: Tween = null   # tween de reposicionamiento en el stack
 
 func _ready() -> void:
 	_parent = get_parent() as Node2D
@@ -65,14 +66,21 @@ func update_carry_position(target_offset: Vector2) -> void:
 		return
 
 	carry_offset = target_offset
-	var tw = create_tween()
-	tw.tween_property(_parent, "position", target_offset, 0.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	if _carry_tween != null and _carry_tween.is_valid():
+		_carry_tween.kill()
+	_carry_tween = create_tween()
+	_carry_tween.tween_property(_parent, "position", target_offset, 0.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 func drop(scatter: bool = false) -> void:
 	if not _is_carried or _parent == null:
 		return
 
 	_is_carried = false
+	# Matar el tween de posición del stack antes de iniciar la caída,
+	# para que no compita con el tween de global_position del drop.
+	if _carry_tween != null and _carry_tween.is_valid():
+		_carry_tween.kill()
+	_carry_tween = null
 
 	# Scatter solo si está permitido para este tipo de objeto
 	var do_scatter := scatter and allow_scatter

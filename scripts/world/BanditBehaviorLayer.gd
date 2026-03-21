@@ -24,6 +24,7 @@ const TICK_INTERVAL: float = 0.5
 # enemy.gd default friction = 1500; at 60 fps delta≈0.0167 → ≈25 px/s per frame.
 # We add this so net movement ≈ behavior's intended speed after friction.
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
+const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 
 
 # World-layer ally separation (sleeping NPCs don't run CharacterBody2D separation)
@@ -204,6 +205,9 @@ func _tick_behaviors() -> void:
 		var node = _npc_simulator._get_active_enemy_node(enemy_id)
 		if node == null or not node.has_method("is_world_behavior_eligible") \
 				or not node.is_world_behavior_eligible():
+			# Si tenía carry y entró en combate, suelta todo al suelo
+			if not beh._cargo_manifest.is_empty():
+				_drop_carry_on_aggro(beh, node)
 			continue
 
 		var node_pos: Vector2 = node.global_position
@@ -217,22 +221,146 @@ func _tick_behaviors() -> void:
 
 		beh.tick(TICK_INTERVAL, ctx)
 
+		# Detección de aggro mientras aún es eligible (AIComponent tiene target)
+		if not beh._cargo_manifest.is_empty():
+			var ai_comp := node.get_node_or_null("AIComponent")
+			if ai_comp != null and ai_comp.get("target") != null:
+				_drop_carry_on_aggro(beh, node)
+
 		# Sync state back to WorldSave — cargo and full behavior for data-only continuity
 		var save_state_ref: Dictionary = _get_save_state_for(enemy_id)
 		if not save_state_ref.is_empty():
 			save_state_ref["cargo_count"]    = beh.cargo_count
 			save_state_ref["world_behavior"] = beh.export_state()
 
-		# Handle collection (actual node interaction lives here, not in behavior)
-		if beh.pending_collect_id != 0:
-			_handle_collection(beh)
+		# Handle node interactions (actual world interaction lives here, not in behavior)
+		_handle_mining(beh, node)
+		# Sweep de recogida — un solo jalon recoge todos los drops cercanos con tururur
+		if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH:
+			# Durante órbita: medir desde el centro del recurso
+			var res_center := node_pos
+			if beh._resource_node_id != 0 and is_instance_id_valid(beh._resource_node_id):
+				var res := instance_from_id(beh._resource_node_id) as Node2D
+				if res != null and is_instance_valid(res):
+					res_center = res.global_position
+			_sweep_collect(beh, node, res_center, ORBIT_COLLECT_DIST_SQ)
+		elif beh.pending_collect_id != 0:
+			# Al llegar al drop: recoger todos los cercanos de una vez
+			_sweep_collect(beh, node, node_pos, LOOT_ARRIVE_COLLECT_SQ)
+		_handle_cargo_deposit(beh, node)
+
+
+# ---------------------------------------------------------------------------
+# Mining — called when behavior emits a pending_mine_id
+# ---------------------------------------------------------------------------
+
+func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
+	var mine_id: int = beh.pending_mine_id
+	if mine_id == 0:
+		return
+	beh.pending_mine_id = 0
+	if not is_instance_id_valid(mine_id):
+		beh._resource_node_id = 0
+		return
+	var res_node: Node = instance_from_id(mine_id) as Node
+	if res_node == null or not is_instance_valid(res_node):
+		beh._resource_node_id = 0
+		return
+	# Solo pegar si el NPC está en rango melee (radio máximo de órbita + margen)
+	const MINE_RANGE_SQ: float = 52.0 * 52.0
+	var enemy_pos: Vector2 = (enemy_node as Node2D).global_position
+	var res_pos:   Vector2 = (res_node   as Node2D).global_position
+	if enemy_pos.distance_squared_to(res_pos) > MINE_RANGE_SQ:
+		return   # todavía acercándose — no hay golpe desde lejos
+
+	res_node.hit(enemy_node)   # resource handles sfx, particles, drop spawn
+	# Animación de slash melee — spawn_slash directo para no activar el arco
+	if enemy_node != null and is_instance_valid(enemy_node) \
+			and enemy_node.has_method("spawn_slash"):
+		var dir: Vector2 = res_pos - enemy_pos
+		enemy_node.call("spawn_slash", dir.angle())
+
+
+# ---------------------------------------------------------------------------
+# Aggro drop — enemy con carry entra en combate y suelta todo al suelo
+# ---------------------------------------------------------------------------
+
+func _drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
+	var drop_pos: Vector2 = beh.home_pos
+	if enemy_node != null and is_instance_valid(enemy_node):
+		drop_pos = (enemy_node as Node2D).global_position
+
+	for entry in beh._cargo_manifest:
+		var node_id: int    = int(entry.get("node_id",    0))
+		var orig_layer: int = int(entry.get("orig_layer", 4))
+		var throw_dir := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 0.2)).normalized()
+
+		if node_id != 0 and is_instance_id_valid(node_id):
+			var drop_node := instance_from_id(node_id) as ItemDrop
+			if drop_node != null and is_instance_valid(drop_node) \
+					and not drop_node.is_queued_for_deletion():
+				drop_node.reparent(get_tree().current_scene, false)
+				drop_node.add_to_group("item_drop")
+				drop_node.set_deferred("collision_layer", orig_layer)
+				drop_node.set_deferred("monitoring",      true)
+				drop_node.set_process(true)
+				drop_node.throw_from(drop_pos, throw_dir, randf_range(55.0, 110.0))
+				continue
+
+		# Fallback: el nodo no sobrevivió — spawnear uno nuevo y lanzarlo
+		var item_id := String(entry.get("item_id", ""))
+		var amount  := int(entry.get("amount", 1))
+		if item_id == "" or amount <= 0 or ITEM_DROP_SCENE == null:
+			continue
+		var drop := ITEM_DROP_SCENE.instantiate() as ItemDrop
+		if drop == null:
+			continue
+		drop.item_id = item_id
+		drop.amount  = amount
+		get_tree().current_scene.add_child(drop)
+		drop.throw_from(drop_pos, throw_dir, randf_range(55.0, 110.0))
+
+	beh._cargo_manifest.clear()
+	beh.cargo_count                  = 0
+	beh._just_arrived_home_with_cargo = false
+	Debug.log("bandit_ai", "[BanditBL] carry soltado al entrar en combate id=%s" % beh.member_id)
+
+
+# ---------------------------------------------------------------------------
+# Orbit drop collection — picks up drops spawned directly under the NPC while mining
+# ---------------------------------------------------------------------------
+
+# Radio de recogida durante órbita (desde el centro del recurso)
+const ORBIT_COLLECT_DIST_SQ: float = 56.0 * 56.0
+# Radio de recogida al llegar a un drop via LOOT_APPROACH (recoge todo lo cercano)
+const LOOT_ARRIVE_COLLECT_SQ: float = 40.0 * 40.0
+
+## Recoge en un solo barrido todos los drops dentro de radius_sq desde check_pos.
+## Los sonidos salen escalonados (tururur). Llamar solo si !beh.is_cargo_full().
+func _sweep_collect(beh: BanditWorldBehavior, enemy_node: Node, check_pos: Vector2, radius_sq: float) -> void:
+	if beh.is_cargo_full():
+		return
+	var sound_idx := 0
+	for drop in _all_drops_cache:
+		if beh.is_cargo_full():
+			break
+		var drop_node := drop as Node2D
+		if not is_instance_valid(drop_node) or drop_node.is_queued_for_deletion():
+			continue
+		if not drop_node.is_in_group("item_drop"):
+			continue   # ya recogido por otro NPC este tick
+		if check_pos.distance_squared_to(drop_node.global_position) > radius_sq:
+			continue
+		beh.pending_collect_id = drop_node.get_instance_id()
+		_handle_collection(beh, enemy_node, sound_idx * 0.07)
+		sound_idx += 1
 
 
 # ---------------------------------------------------------------------------
 # Collection — called when behavior arrives at a drop
 # ---------------------------------------------------------------------------
 
-func _handle_collection(beh: BanditWorldBehavior) -> void:
+func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node = null, sound_delay: float = 0.0) -> void:
 	var drop_id: int = beh.pending_collect_id
 	beh.pending_collect_id = 0
 
@@ -241,31 +369,158 @@ func _handle_collection(beh: BanditWorldBehavior) -> void:
 	var drop_obj: Object = instance_from_id(drop_id)
 	if drop_obj == null or not is_instance_valid(drop_obj):
 		return
-	var drop_node: Node = drop_obj as Node
+	var drop_node: Node2D = drop_obj as Node2D
 	if drop_node == null or drop_node.is_queued_for_deletion():
 		return
 
-	# Read amount + sound before freeing
-	var collected_amount: int = 1
-	if drop_node.has_method("get") and drop_node.get("amount") != null:
-		collected_amount = int(drop_node.get("amount"))
-	var drop_pos: Vector2 = drop_node.global_position
-	var pickup_sfx = drop_node.get("pickup_sfx") if drop_node.has_method("get") else null
+	var collected_amount: int = int(drop_node.get("amount") if drop_node.get("amount") != null else 1)
+	var item_id: String       = String(drop_node.get("item_id") if drop_node.get("item_id") != null else "")
+	var drop_pos: Vector2     = drop_node.global_position
+	var pickup_sfx            = drop_node.get("pickup_sfx")
+	var sfx_stream: AudioStream = pickup_sfx if pickup_sfx is AudioStream else AudioSystem.default_pickup_sfx
 
-	# Increment cargo (clamp to capacity)
+	# Sonido escalonado (tururur cuando se recogen varios de un jalon)
+	if sound_delay <= 0.0:
+		AudioSystem.play_2d(sfx_stream, drop_pos, null, &"SFX")
+	else:
+		get_tree().create_timer(sound_delay).timeout.connect(func() -> void:
+			AudioSystem.play_2d(sfx_stream, drop_pos, null, &"SFX")
+		)
+
+	# ── Visual carry: reparentar el ItemDrop al enemy para verlo encima ──────
+	var carried: bool = false
+	if enemy_node != null and is_instance_valid(enemy_node):
+		var orig_layer: int = drop_node.collision_layer
+		# Sacar del grupo para que _all_drops_cache no lo vuelva a recoger
+		drop_node.remove_from_group("item_drop")
+		drop_node.set_deferred("monitoring",      false)
+		drop_node.set_deferred("collision_layer", 0)
+		drop_node.set_process(false)
+		# Stack: primer item a (0,-22), siguiente a (0,-30), etc.
+		var stack_offset := Vector2(0.0, -22.0 - beh._cargo_manifest.size() * 8.0)
+		drop_node.reparent(enemy_node, false)
+		drop_node.position = stack_offset
+		beh._cargo_manifest.append({
+			"item_id":    item_id,
+			"amount":     collected_amount,
+			"node_id":    drop_node.get_instance_id(),
+			"orig_layer": orig_layer,
+		})
+		carried = true
+
+	if not carried:
+		drop_node.queue_free()
+		if item_id != "":
+			beh._cargo_manifest.append({"item_id": item_id, "amount": collected_amount, "node_id": 0})
+
 	var prev: int = beh.cargo_count
 	beh.cargo_count = mini(beh.cargo_count + collected_amount, beh.cargo_capacity)
-	drop_node.queue_free()
-	AudioSystem.play_2d(
-		pickup_sfx if pickup_sfx is AudioStream else AudioSystem.default_pickup_sfx,
-		drop_pos
-	)
 
-	Debug.log("bandit_ai", "[BanditBL] collected drop id=%s role=%s cargo=%d→%d/%d" % [
-		beh.member_id, beh.role, prev, beh.cargo_count, beh.cargo_capacity])
+	Debug.log("bandit_ai", "[BanditBL] collected %s×%d id=%s cargo=%d→%d/%d" % [
+		item_id, collected_amount, beh.member_id, prev, beh.cargo_count, beh.cargo_capacity])
 
-	# If now full, the behavior's next tick will trigger RETURN_HOME
-	# (BanditWorldBehavior checks is_cargo_full() at the top of tick())
+
+# ---------------------------------------------------------------------------
+# Cargo deposit — called once when NPC arrives home carrying cargo
+# ---------------------------------------------------------------------------
+
+func _handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
+	if not beh._just_arrived_home_with_cargo:
+		return
+	beh._just_arrived_home_with_cargo = false
+	beh.cargo_count = 0
+
+	var spawn_pos: Vector2 = beh.home_pos
+	if enemy_node != null and is_instance_valid(enemy_node):
+		spawn_pos = (enemy_node as Node2D).global_position
+
+	# Buscar cofre cercano (NPCs usan distancia, no Area2D)
+	var chest: ContainerPlaceable = null
+	for node in get_tree().get_nodes_in_group("interactable"):
+		if node is ContainerPlaceable:
+			if (node as ContainerPlaceable).is_position_nearby(spawn_pos):
+				chest = node as ContainerPlaceable
+				break
+
+	const FALL_TIME:   float = 0.25   # duración de la caída (igual que CarryableComponent)
+	const SFX_STAGGER: float = 0.07   # delay entre sonidos (tururur)
+
+	for i in beh._cargo_manifest.size():
+		var entry: Dictionary = beh._cargo_manifest[i]
+		var node_id: int    = int(entry.get("node_id",    0))
+		var item_id: String = String(entry.get("item_id", ""))
+		var amount: int     = int(entry.get("amount",     1))
+		var orig_layer: int = int(entry.get("orig_layer", 4))
+		var offset    := Vector2(randf_range(-12.0, 12.0), randf_range(-8.0, 8.0))
+		var ground_pos := spawn_pos + offset
+
+		# Obtener o re-spawnar el nodo del drop
+		var drop_node: ItemDrop = null
+		if node_id != 0 and is_instance_id_valid(node_id):
+			var obj := instance_from_id(node_id)
+			if obj != null and is_instance_valid(obj) \
+					and not (obj as Node).is_queued_for_deletion():
+				drop_node = obj as ItemDrop
+
+		if drop_node == null:
+			if item_id == "" or amount <= 0 or ITEM_DROP_SCENE == null:
+				continue
+			drop_node = ITEM_DROP_SCENE.instantiate() as ItemDrop
+			if drop_node == null:
+				continue
+			drop_node.item_id = item_id
+			drop_node.amount  = amount
+			get_tree().current_scene.add_child(drop_node)
+			drop_node.global_position = spawn_pos + Vector2(0.0, -22.0 - i * 8.0)
+
+		# Reparentar a la escena manteniendo la posición elevada del carry
+		var carry_pos := drop_node.global_position
+		if drop_node.get_parent() != get_tree().current_scene:
+			drop_node.reparent(get_tree().current_scene, false)
+		drop_node.global_position = carry_pos   # elevar antes de la caída
+
+		# Caída animada desde la altura de carry hasta el suelo
+		var tw := create_tween()
+		tw.tween_property(drop_node, "global_position", ground_pos, FALL_TIME) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+		var cap_drop    := drop_node
+		var cap_item_id := item_id
+		var cap_amount  := amount
+		var cap_sfx: AudioStream = drop_node.get("pickup_sfx") as AudioStream
+
+		if chest != null:
+			# Con cofre: sfx al aterrizar + absorber con stagger (tururur)
+			var deposit_delay := FALL_TIME + i * SFX_STAGGER
+			get_tree().create_timer(deposit_delay).timeout.connect(func() -> void:
+				if not is_instance_valid(cap_drop) or cap_drop.is_queued_for_deletion():
+					return
+				var inserted := chest.try_insert_item(cap_item_id, cap_amount)
+				if inserted > 0:
+					if cap_sfx != null:
+						AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
+					cap_drop.queue_free()
+				else:
+					# Cofre lleno — dejar en el suelo
+					cap_drop.add_to_group("item_drop")
+					cap_drop.set_deferred("collision_layer", orig_layer)
+					cap_drop.set_deferred("monitoring",      true)
+					cap_drop.set_process(true)
+			)
+		else:
+			# Sin cofre: re-activar al aterrizar para que sea recogible
+			get_tree().create_timer(FALL_TIME).timeout.connect(func() -> void:
+				if not is_instance_valid(cap_drop) or cap_drop.is_queued_for_deletion():
+					return
+				cap_drop.add_to_group("item_drop")
+				cap_drop.set_deferred("collision_layer", orig_layer)
+				cap_drop.set_deferred("monitoring",      true)
+				cap_drop.set_process(true)
+			)
+
+	beh._cargo_manifest.clear()
+	Debug.log("bandit_ai", "[BanditBL] cargo depositado id=%s pos=%s chest=%s" % [
+		beh.member_id, str(spawn_pos), str(chest != null)])
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +553,7 @@ func _build_res_info(node_pos: Vector2) -> Array:
 			continue
 		if node_pos.distance_squared_to(res_node.global_position) > RESOURCE_SCAN_RADIUS_SQ:
 			continue
-		result.append({"pos": res_node.global_position})
+		result.append({"pos": res_node.global_position, "id": res_node.get_instance_id()})
 	return result
 
 

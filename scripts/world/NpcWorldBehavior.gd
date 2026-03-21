@@ -49,6 +49,7 @@ const DEFAULT_MAX_PATROL_TIME: float = 14.0
 const RESOURCE_WATCH_DURATION: float = 10.0   # s before giving up a watch position
 const IDLE_WAIT_MIN: float         = 2.0
 const IDLE_WAIT_MAX: float         = 6.0
+const MINE_TICK_INTERVAL: float    = 0.9      # s between mining hits during RESOURCE_WATCH
 
 # ── Stuck detection ───────────────────────────────────────────────────────────
 const STUCK_CHECK_INTERVAL: float    = 2.5    # s between progress checks
@@ -68,6 +69,12 @@ var cargo_capacity: int = 3
 # ── Coordinator output ───────────────────────────────────────────────────────
 # Set by behavior when arriving at a loot target; BanditBehaviorLayer reads + clears.
 var pending_collect_id: int = 0
+# Set each mine tick; layer calls resource.hit() then clears.
+var pending_mine_id: int = 0
+# One-shot flag: layer spawns drops at home_pos + zeros cargo after detecting this.
+var _just_arrived_home_with_cargo: bool = false
+# Manifest of collected items [{item_id, amount}] — cleared on deposit.
+var _cargo_manifest: Array = []
 
 # ── Internal ─────────────────────────────────────────────────────────────────
 var _move_target: Vector2       = Vector2.ZERO
@@ -86,6 +93,8 @@ var _resource_orbit_radius: float   = 38.0   # px; fixed per session
 var _resource_orbit_angle: float    = 0.0    # current angle (radians)
 var _resource_orbit_dir: float      = 1.0    # +1 CCW, -1 CW
 var _resource_orbit_step: float     = 0.6    # rad advanced per waypoint
+var _resource_node_id: int          = 0      # instance_id of resource being orbited
+var _mine_tick_timer: float         = 0.0    # countdown to next mine hit
 
 # Last known node position — lets enter_resource_watch compute initial angle
 var _last_node_pos: Vector2 = Vector2.ZERO
@@ -164,7 +173,10 @@ func enter_extort_approach(target_pos: Vector2) -> void:
 	_invalidate_npc_path()
 
 ## Enter RESOURCE_WATCH, orbiting resource_pos at a fixed radius.
-func enter_resource_watch(resource_pos: Vector2) -> void:
+func enter_resource_watch(resource_pos: Vector2, resource_id: int = 0) -> void:
+	_resource_node_id     = resource_id
+	_mine_tick_timer      = 0.0
+	pending_mine_id       = 0
 	_resource_watch_pos   = resource_pos
 	_resource_watch_timer = 0.0
 	state                 = State.RESOURCE_WATCH
@@ -263,7 +275,6 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 		State.RETURN_HOME:
 			_desired_velocity = _pathfind_dir(node_pos, home_pos) * _get_speed()
 			if node_pos.distance_squared_to(home_pos) < ARRIVED_DIST_SQ:
-				cargo_count = 0   # unload cargo at home
 				_enter_idle_at_home()
 
 		State.HOLD_POSITION:
@@ -314,6 +325,11 @@ func _tick_loot_approach(node_pos: Vector2) -> void:
 		_loot_target_id = 0
 		_enter_idle_at_home()
 		return
+	# Drop ya recogido por otro NPC (sacado del grupo) — abandonar persecución
+	if not drop_node.is_in_group("item_drop"):
+		_loot_target_id = 0
+		_enter_idle_at_home()
+		return
 
 	var drop_pos: Vector2 = drop_node.global_position
 	_desired_velocity = _pathfind_dir(node_pos, drop_pos) * _get_speed()
@@ -334,6 +350,12 @@ func _tick_loot_approach(node_pos: Vector2) -> void:
 
 func _tick_resource_watch(delta: float, node_pos: Vector2) -> void:
 	_resource_watch_timer += delta
+
+	# Mine tick — signal coordinator to call resource.hit()
+	_mine_tick_timer += delta
+	if _mine_tick_timer >= MINE_TICK_INTERVAL and _resource_node_id != 0:
+		_mine_tick_timer = 0.0
+		pending_mine_id  = _resource_node_id
 
 	# Move toward current orbit waypoint at reduced speed
 	_desired_velocity = _move_dir(node_pos, _move_target) * (_get_speed() * 0.55)
@@ -357,6 +379,10 @@ func _tick_resource_watch(delta: float, node_pos: Vector2) -> void:
 # ---------------------------------------------------------------------------
 
 func _enter_idle_at_home() -> void:
+	# Solo marcar depósito cuando venimos explícitamente de RETURN_HOME,
+	# no cuando pasamos por idle tras recoger un drop en el campo.
+	if cargo_count > 0 and state == State.RETURN_HOME:
+		_just_arrived_home_with_cargo = true
 	state             = State.IDLE_AT_HOME
 	_idle_timer       = _rng.randf_range(IDLE_WAIT_MIN, IDLE_WAIT_MAX)
 	_desired_velocity = Vector2.ZERO
@@ -420,6 +446,8 @@ func export_state() -> Dictionary:
 		"wb_orbit_dir":        _resource_orbit_dir,
 		"wb_orbit_step":       _resource_orbit_step,
 		"wb_rng_state":        str(_rng.state),
+		"pending_mine_id":     pending_mine_id,
+		"resource_node_id":    _resource_node_id,
 	}
 
 ## Restores behavior state from a previously exported dictionary.
@@ -446,6 +474,10 @@ func import_state(data: Dictionary) -> void:
 	_resource_orbit_step   = float(data.get("wb_orbit_step",       0.6))
 	_loot_target_id    = 0
 	pending_collect_id = 0
+	_cargo_manifest    = []
+	# instance IDs are invalid after reload — reset to 0
+	pending_mine_id   = int(data.get("pending_mine_id",  0))
+	_resource_node_id = int(data.get("resource_node_id", 0))
 	if data.has("wb_rng_state"):
 		var rs: int = int(str(data.get("wb_rng_state", "0")))
 		if rs != 0:

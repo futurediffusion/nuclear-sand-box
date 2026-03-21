@@ -6,6 +6,7 @@ const BOOT_TRACE := true
 @export var enabled := BOOT_TRACE
 @export var safe_mode := true
 @export var dev_cheats_enabled := OS.is_debug_build()
+@export var ghost_mode: bool = false   # /inv — player invisible a enemigos y sin daño
 @export var disable_vfx_pooling := false
 @export var disable_wall_occlusion := false
 @export var disable_enemy_cache := false
@@ -42,6 +43,10 @@ static func is_enabled(cat: String) -> bool:
 	if singleton.categories.has(cat) and not singleton.categories[cat]:
 		return false
 	return true
+
+static func is_ghost_mode() -> bool:
+	var s := _get_singleton()
+	return s != null and s.ghost_mode
 
 static func log(cat: String, msg: String) -> void:
 	if not is_enabled(cat):

@@ -191,6 +191,8 @@ func _try_pickup() -> void:
 			var carry_success: bool = _player.try_carry_pickup(self)
 			if carry_success:
 				print("[ItemDrop] _try_pickup: successfully picked up by carry system")
+				var sfx := pickup_sfx if pickup_sfx != null else AudioSystem.default_pickup_sfx
+				AudioSystem.play_2d(sfx, global_position)
 				_magnet_on = false
 				monitoring = false
 				monitorable = false

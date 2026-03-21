@@ -234,6 +234,8 @@ func _execute_command(command_text: String) -> void:
 	var base_command := String(parts[0]).to_lower()
 
 	match base_command:
+		"inv":
+			_cmd_toggle_ghost_mode()
 		"spawn":
 			_cmd_spawn()
 		"spawn_workbench":
@@ -661,6 +663,28 @@ func _cmd_buydbg(raw_args: Array) -> void:
 			Debug.log("commands", "Fallo al comprar '%s': sin oro o sin espacio" % item_id)
 	else:
 		Debug.log("commands", "El inventario no soporta buy_item")
+
+## /inv — activa/desactiva modo fantasma: el player no recibe daño y los enemigos lo ignoran
+func _cmd_toggle_ghost_mode() -> void:
+	var debug_node := get_node_or_null("/root/Debug") as DebugSystem
+	if debug_node == null:
+		Debug.log("commands", "/inv: Debug singleton no disponible")
+		return
+
+	debug_node.ghost_mode = not debug_node.ghost_mode
+	var active: bool = debug_node.ghost_mode
+
+	# Sincronizar invincible en el hurtbox del player
+	if _player != null and is_instance_valid(_player):
+		for child in _player.get_children():
+			if "invincible" in child:
+				child.invincible = active
+				break
+
+	var status: String = "ACTIVADO 👻 — enemigos te ignoran, sin daño" if active \
+			else "DESACTIVADO — comportamiento normal"
+	print("[INV] Modo fantasma %s" % status)
+
 
 ## /gotocamp — teletransporta al player a un campamento bandido aleatorio
 func _cmd_goto_camp() -> void:

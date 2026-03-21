@@ -540,8 +540,8 @@ func _update_state() -> void:
 			or (now - last_seen_target_time) <= lost_target_timeout
 
 	if in_active_pursuit:
-		if not retain_ok:
-			# perdido definitivamente — soltar limpio, sin lógica específica de actor
+		if not retain_ok or Debug.is_ghost_mode():
+			# perdido definitivamente (o ghost_mode) — soltar limpio, sin lógica específica de actor
 			current_state = AIState.IDLE
 			_release_attack_input()
 		elif distance <= eff_acquire:
@@ -555,8 +555,8 @@ func _update_state() -> void:
 			# retain_ok pero fuera de acquire → bajar a CHASE (ATTACK sin rango no tiene sentido)
 			current_state = AIState.CHASE
 	else:
-		# adquirir si entra en acquire_radius
-		if distance <= eff_acquire:
+		# adquirir si entra en acquire_radius (bloqueado en ghost_mode)
+		if distance <= eff_acquire and not Debug.is_ghost_mode():
 			current_state = AIState.ATTACK if distance <= engage_distance else AIState.CHASE
 
 	if (current_state == AIState.ATTACK or current_state == AIState.CHASE) and target != null:

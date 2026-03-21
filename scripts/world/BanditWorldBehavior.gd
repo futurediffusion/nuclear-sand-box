@@ -163,8 +163,13 @@ func tick(delta: float, ctx: Dictionary) -> void:
 					else Vector2(cos(_rng.randf_range(0.0, TAU)), sin(_rng.randf_range(0.0, TAU)))
 			_desired_velocity = push_dir * _get_speed() * 0.5
 
-	# ── 4. From quiescent states, try to find useful work ────────────────
-	if state == State.IDLE_AT_HOME or state == State.PATROL:
+	# ── 4a. Drops visibles = prioridad máxima para TODOS los roles ───────
+	if not is_cargo_full():
+		_try_grab_visible_drop(ctx)
+
+	# ── 4b. From quiescent states, try to find other useful work ─────────
+	# Guard: no buscar trabajo si ya hay una colecta pendiente este tick
+	if pending_collect_id == 0 and (state == State.IDLE_AT_HOME or state == State.PATROL):
 		_try_find_work(ctx)
 
 	# ── 5. Leader: proactive roam toward reported resources / territory ───
@@ -172,6 +177,32 @@ func tick(delta: float, ctx: Dictionary) -> void:
 		_leader_roam_timer -= delta
 		if _leader_roam_timer <= 0.0:
 			_try_leader_roam()
+
+
+# ---------------------------------------------------------------------------
+# Drop grab — alta prioridad, interrumpe cualquier estado excepto los críticos
+# ---------------------------------------------------------------------------
+
+## Todos los roles: un drop visible es irresistible. Interrumpe órbita,
+## patrulla, follow_leader, etc. No interrumpe RETURN_HOME ni extorsión.
+func _try_grab_visible_drop(ctx: Dictionary) -> void:
+	# Si hay una colecta pendiente este tick (set por _tick_loot_approach justo antes),
+	# no re-apuntar al mismo drop — evita el bucle de LOOT_APPROACH infinita.
+	if pending_collect_id != 0:
+		return
+	match state:
+		State.RETURN_HOME, State.HOLD_POSITION, \
+		State.LOOT_APPROACH, State.RESOURCE_WATCH, \
+		State.EXTORT_APPROACH, State.EXTORT_RETREAT:
+			return   # estos estados no se interrumpen
+
+	var drops: Array = ctx.get("nearby_drops_info", [])
+	if drops.is_empty():
+		return
+	var node_pos: Vector2 = ctx.get("node_pos", home_pos)
+	var best_id: int = _pick_nearest_drop_id(drops, node_pos)
+	if best_id != 0:
+		enter_loot_approach(best_id)
 
 
 # ---------------------------------------------------------------------------
@@ -199,9 +230,9 @@ func _try_find_work(ctx: Dictionary) -> void:
 	# Resource watch as fallback for eligible roles
 	if _can_watch_resources() and not is_cargo_full():
 		var resources: Array = ctx.get("nearby_res_info", [])
-		var res_pos: Vector2 = _pick_nearest_res_pos(resources, node_pos)
-		if res_pos != Vector2.ZERO:
-			enter_resource_watch(res_pos)
+		var res: Dictionary  = _pick_nearest_res(resources, node_pos)
+		if not res.is_empty():
+			enter_resource_watch(res.get("pos", Vector2.ZERO), res.get("id", 0))
 			return
 
 
@@ -210,7 +241,7 @@ func _try_find_work(ctx: Dictionary) -> void:
 # ---------------------------------------------------------------------------
 
 func _can_loot() -> bool:
-	return role == "scavenger" or role == "bodyguard"
+	return true   # todos los roles recogen drops
 
 func _can_watch_resources() -> bool:
 	return role == "scavenger"
@@ -221,7 +252,7 @@ func _can_watch_resources() -> bool:
 # ---------------------------------------------------------------------------
 
 ## Override: claim the resource in group memory and report it before entering orbit.
-func enter_resource_watch(resource_pos: Vector2) -> void:
+func enter_resource_watch(resource_pos: Vector2, resource_id: int = 0) -> void:
 	var key: String  = _res_key(resource_pos)
 	_claimed_res_key = key
 	_avoid_res_key   = key
@@ -229,7 +260,7 @@ func enter_resource_watch(resource_pos: Vector2) -> void:
 	if group_id != "":
 		BanditGroupMemory.claim_resource(group_id, key, member_id)
 		BanditGroupMemory.report_resource(group_id, resource_pos, member_id)
-	super.enter_resource_watch(resource_pos)
+	super.enter_resource_watch(resource_pos, resource_id)
 
 
 ## Called when leaving RESOURCE_WATCH (detected via state transition in tick).
@@ -274,13 +305,20 @@ func _try_leader_roam() -> void:
 # Pick helpers — work on plain data (no node access)
 # ---------------------------------------------------------------------------
 
+# Drops dentro de este radio de home_pos se ignoran (items depositados en base,
+# no hay barril todavía — evita el bucle de recogida infinita).
+const HOME_DROP_IGNORE_RADIUS_SQ: float = 80.0 * 80.0
+
 func _pick_nearest_drop_id(drops_info: Array, node_pos: Vector2) -> int:
 	var best_id: int    = 0
 	var best_dsq: float = INF
 	for d in drops_info:
 		var info: Dictionary = d as Dictionary
 		var pos: Vector2     = info.get("pos", Vector2.ZERO)
-		var dsq: float       = node_pos.distance_squared_to(pos)
+		# Ignorar drops cerca de la propia base (depositados o sueltos allí)
+		if pos.distance_squared_to(home_pos) < HOME_DROP_IGNORE_RADIUS_SQ:
+			continue
+		var dsq: float = node_pos.distance_squared_to(pos)
 		if dsq < best_dsq:
 			best_dsq = dsq
 			best_id  = int(info.get("id", 0))
@@ -288,10 +326,11 @@ func _pick_nearest_drop_id(drops_info: Array, node_pos: Vector2) -> int:
 
 
 ## Picks nearest resource, skipping claimed-by-other and recently-visited.
-func _pick_nearest_res_pos(res_info: Array, node_pos: Vector2) -> Vector2:
-	var best_pos: Vector2 = Vector2.ZERO
-	var best_dsq: float   = INF
-	var now: float        = RunClock.now()
+## Returns {pos, id} or empty dict if none found.
+func _pick_nearest_res(res_info: Array, node_pos: Vector2) -> Dictionary:
+	var best: Dictionary = {}
+	var best_dsq: float  = INF
+	var now: float       = RunClock.now()
 	for r in res_info:
 		var info: Dictionary = r as Dictionary
 		var pos: Vector2     = info.get("pos", Vector2.ZERO)
@@ -307,8 +346,8 @@ func _pick_nearest_res_pos(res_info: Array, node_pos: Vector2) -> Vector2:
 		var dsq: float = node_pos.distance_squared_to(pos)
 		if dsq < best_dsq:
 			best_dsq = dsq
-			best_pos = pos
-	return best_pos
+			best     = info
+	return best
 
 
 ## Stable 32 px grid key for a world position.

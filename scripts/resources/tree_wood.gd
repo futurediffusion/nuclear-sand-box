@@ -53,6 +53,7 @@ var entity_cy: int = 0
 # --- Runtime state ---
 var _hit_count: float = 0.0
 var _is_dead: bool = false
+var _last_hitter: Node = null   # guardado en hit() para saber si fue player o enemy
 var _base_pos: Vector2
 var _shake_t: float = 0.0
 var _flash_t: float = 0.0
@@ -124,6 +125,7 @@ func _physics_process(delta: float) -> void:
 func hit(by: Node) -> void:
 	if _is_dead:
 		return
+	_last_hitter = by   # recordar para _fell_tree
 
 	var hit_sfx := _pick_wood_hit_sound()
 	if hit_sfx != null:
@@ -339,7 +341,8 @@ func _fell_tree() -> void:
 	# Persist death immediately so tree won't respawn on next chunk load
 	WorldSave.set_entity_state(entity_cx, entity_cy, entity_uid, {"dead": true})
 
-	if GameEvents != null:
+	# Solo registrar actividad si fue el player quien taló (no NPCs enemigos)
+	if GameEvents != null and (_last_hitter == null or _last_hitter.is_in_group("player")):
 		GameEvents.emit_resource_harvested("wood_chopped", global_position)
 	Debug.log("tree", "felled uid=%s dropped=%d" % [entity_uid, wood_count])
 	get_tree().create_timer(0.5).timeout.connect(queue_free)
