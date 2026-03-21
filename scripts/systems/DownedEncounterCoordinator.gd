@@ -189,9 +189,9 @@ func _gather_participants(target: Node, faction_id: String, group_id: String) ->
 	return valid_uids
 
 func _resolve_verdict(session: Dictionary, faction_id: String) -> void:
-	var hostility_modifier: float = 0.0
-	if FactionRelationService != null and FactionRelationService.has_method("get_finish_modifier"):
-		hostility_modifier = float(FactionRelationService.get_finish_modifier(faction_id, hostility_finish_bonus_max))
+	var hostility_modifier: float = \
+		float(FactionHostilityManager.get_hostility_level(faction_id)) / 10.0 \
+		* hostility_finish_bonus_max
 
 	var context_modifier: float = _get_context_modifier(session)
 	var finish_chance: float = clampf(base_finish_chance + hostility_modifier + context_modifier, min_finish_chance, max_finish_chance)

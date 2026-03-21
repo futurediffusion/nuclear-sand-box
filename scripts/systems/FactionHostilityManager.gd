@@ -1,5 +1,4 @@
 extends Node
-class_name FactionHostilityManager
 ## Fuente de verdad para la hostilidad del jugador contra cada facción.
 ##
 ## PRINCIPIOS:
