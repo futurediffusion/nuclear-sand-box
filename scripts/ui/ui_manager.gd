@@ -1,5 +1,8 @@
 extends Node
 
+## Emitida cuando el jugador recibe daño real. Todos los menús abiertos deben cerrarse.
+signal force_close_all
+
 var _open_reasons: Dictionary = {}
 var _cursor: CanvasItem = null
 var _block_interact_until_msec: int = 0
@@ -37,6 +40,12 @@ func close_ui(reason: String) -> void:
 	print("[UI-MODE] close_ui reason=", key, " remaining=", _open_reasons.get(key, 0), " reasons=", _open_reasons)
 	_resolve_cursor()
 	_apply_mode()
+
+
+## Llamar cuando el jugador recibe daño real. Cierra todos los menús abiertos.
+func request_force_close_all() -> void:
+	if is_ui_open():
+		force_close_all.emit()
 
 
 func is_ui_open() -> bool:

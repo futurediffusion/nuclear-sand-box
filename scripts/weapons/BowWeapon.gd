@@ -74,7 +74,9 @@ func tick(delta: float) -> void:
 		return
 	if controller == null:
 		return
-	if UiManager.is_combat_input_blocked():
+	# Solo bloquear al player — los enemies con arco deben poder disparar con UI abierta
+	if owner_entity != null and owner_entity.is_in_group("player") \
+			and UiManager.is_combat_input_blocked():
 		if is_drawing:
 			_cancel_draw()
 		return

@@ -28,6 +28,7 @@ func _shop_service() -> Node:
 func _ready() -> void:
 	visible = false
 	add_to_group("keeper_menu_ui")
+	UiManager.force_close_all.connect(close_shop)
 	set_process_input(true)
 	var root := get_node_or_null("Root") as Control
 	if root != null:

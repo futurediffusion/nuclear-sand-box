@@ -31,7 +31,9 @@ func tick(delta: float) -> void:
 		_cooldown -= delta
 		return
 
-	if UiManager.is_combat_input_blocked():
+	# Solo bloquear al player — los enemies deben poder atacar aunque haya UI abierta
+	if owner_entity != null and owner_entity.is_in_group("player") \
+			and UiManager.is_combat_input_blocked():
 		return
 
 	var owner_is_attacking := _is_owner_attacking()

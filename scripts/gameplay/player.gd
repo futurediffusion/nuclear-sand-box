@@ -873,6 +873,7 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	super.take_damage(dmg, from_pos)
 	emit_signal("took_damage", dmg)
 	_update_hearts_ui()
+	UiManager.request_force_close_all()
 
 	if hp <= 0:
 		return

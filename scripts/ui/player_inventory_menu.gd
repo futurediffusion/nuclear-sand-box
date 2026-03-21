@@ -12,6 +12,7 @@ var _inv: InventoryComponent = null
 
 func _ready() -> void:
 	visible = false
+	UiManager.force_close_all.connect(close)
 
 func _input(event: InputEvent) -> void:
 	if not visible:

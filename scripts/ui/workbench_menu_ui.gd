@@ -63,6 +63,7 @@ var _inventory_refresh_queued: bool = false
 func _ready() -> void:
 	visible = false
 	add_to_group("workbench_menu_ui")
+	UiManager.force_close_all.connect(close_menu)
 
 	# Craft desactivado hasta que haya una receta seleccionada y materiales
 	craft_button.disabled     = true

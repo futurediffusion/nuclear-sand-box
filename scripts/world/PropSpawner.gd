@@ -42,6 +42,15 @@ const WALL_MID: Vector2i = Vector2i(3, 1)
 
 var _structure_gen := StructureGenerator.new()
 
+## Devuelve el rect de exclusión de la taberna (con margen) en coordenadas de tile.
+## Usar para poblar ctx["tavern_exclusion_rect"] antes de generar cualquier chunk.
+static func compute_tavern_exclusion_rect(tavern_chunk: Vector2i, chunk_size: int) -> Rect2i:
+	var x0: int = tavern_chunk.x * chunk_size + 4 - TAVERN_SAFE_MARGIN_TILES
+	var y0: int = tavern_chunk.y * chunk_size + 3 - TAVERN_SAFE_MARGIN_TILES
+	var w: int  = 12 + TAVERN_SAFE_MARGIN_TILES * 2
+	var h: int  = 8  + TAVERN_SAFE_MARGIN_TILES * 2
+	return Rect2i(x0, y0, w, h)
+
 func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var entities_spawned_chunks: Dictionary = ctx["entities_spawned_chunks"]
 	if entities_spawned_chunks.has(chunk_pos):
@@ -272,6 +281,18 @@ func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: 
 	var height: int = ctx["height"]
 	if tile_pos.x < 0 or tile_pos.x >= width or tile_pos.y < 0 or tile_pos.y >= height:
 		return false
+
+	# Exclusión global de la taberna — independiente del sistema de chunks.
+	# Cubre el caso de recursos en chunks vecinos que cruzan el borde de la taberna.
+	if ctx.has("tavern_exclusion_rect"):
+		var trect: Rect2i = ctx["tavern_exclusion_rect"] as Rect2i
+		var fp: int = footprint_radius_tiles
+		var expanded := Rect2i(
+			trect.position.x - fp, trect.position.y - fp,
+			trect.size.x + fp * 2, trect.size.y + fp * 2
+		)
+		if expanded.has_point(tile_pos):
+			return false
 
 	var occ: Dictionary = ctx["chunk_occupied_tiles"].get(chunk_key, {})
 	var cg = ctx.get("cliff_generator")

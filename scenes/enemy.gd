@@ -721,6 +721,32 @@ func notify_player_hit() -> void:
 	_last_hit_was_from_player = true
 	FactionHostilityManager.add_hostility(faction_id, 0.0, "member_attacked",
 		{"entity_id": entity_uid, "position": global_position})
+	# Autodefensa: aunque el perfil de facción no permita atacar, este enemy puede responder
+	if ai_component != null:
+		ai_component.notify_provoked(15.0)
+	# Alertar a aliados cercanos de la misma facción
+	_alert_nearby_allies(250.0, 15.0)
+
+
+## Provoca a todos los aliados de la misma facción dentro de [radius] px.
+func _alert_nearby_allies(radius: float, duration: float) -> void:
+	if faction_id == "":
+		return
+	var enemies: Array = get_tree().get_nodes_in_group("enemy")
+	for e in enemies:
+		if e == self or not is_instance_valid(e):
+			continue
+		if not "faction_id" in e or String(e.get("faction_id")) != faction_id:
+			continue
+		if global_position.distance_to((e as Node2D).global_position) > radius:
+			continue
+		var ally_ai = e.get_node_or_null("AIComponent")
+		if ally_ai == null:
+			continue
+		if ally_ai.has_method("wake_now"):
+			ally_ai.wake_now()
+		if ally_ai.has_method("notify_provoked"):
+			ally_ai.notify_provoked(duration)
 
 
 func _trigger_death_shake() -> void:

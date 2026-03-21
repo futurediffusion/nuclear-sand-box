@@ -98,6 +98,8 @@ var _perimeter_anchor: Vector2 = Vector2.ZERO
 var _current_downed_target_id: int = -1
 var _contract_valid: bool = false
 var _path_id: String = ""   # agent_id for NpcPathService cache (lazy-init)
+## Hasta cuándo puede perseguir al jugador por autodefensa (aunque el perfil no lo permita).
+var _provoked_until: float = 0.0
 
 func _has_property(obj: Object, property_name: String) -> bool:
 	if obj == null:
@@ -591,12 +593,34 @@ func _update_state() -> void:
 			current_state = AIState.CHASE
 	else:
 		# adquirir si entra en acquire_radius (bloqueado en ghost_mode)
-		if distance <= eff_acquire and not Debug.is_ghost_mode():
+		if distance <= eff_acquire and not Debug.is_ghost_mode() and _can_acquire_player():
 			current_state = AIState.ATTACK if distance <= engage_distance else AIState.CHASE
 
 	if (current_state == AIState.ATTACK or current_state == AIState.CHASE) and target != null:
 		if AggroTrackerService != null and AggroTrackerService.has_method("register_engagement"):
 			AggroTrackerService.register_engagement(owner_entity, target)
+
+## Llamar desde el enemy cuando el player le pegó directamente.
+## Activa autodefensa: el enemy puede perseguir aunque el perfil de facción no lo permita.
+func notify_provoked(duration: float = 15.0) -> void:
+	_provoked_until = RunClock.now() + duration
+
+
+## Devuelve true si este AI puede iniciar una persecución no provocada contra el player.
+## Respeta el perfil de hostilidad de la facción; siempre permite autodefensa.
+func _can_acquire_player() -> bool:
+	# Autodefensa: el player nos atacó recientemente
+	if RunClock.now() < _provoked_until:
+		return true
+	# Consultar perfil de facción
+	if owner_entity != null and "faction_id" in owner_entity:
+		var fid: String = String(owner_entity.get("faction_id"))
+		if fid != "":
+			var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(fid)
+			return profile.can_attack_punitively
+	# Sin facción conocida: comportamiento original (siempre persigue)
+	return true
+
 
 func _get_effective_acquire_radius() -> float:
 	if acquire_radius > 0.0:

@@ -2,6 +2,10 @@ extends StaticBody2D
 class_name ContainerPlaceable
 
 const MAX_HITS: int = 4
+## Radio en el que los enemies de la facción dueña reaccionan al abrir el contenedor.
+const FACTION_ALERT_RADIUS: float = 900.0
+## Segundos que los enemies persiguen y el DownedEncounterCoordinator fuerza SPARE.
+const FACTION_ALERT_DURATION: float = 30.0
 const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
 const DEFAULT_CLOSED_TEXTURE: Texture2D = preload("res://art/sprites/chestclosed.png")
 const DEFAULT_OPEN_TEXTURE: Texture2D = preload("res://art/sprites/chestopen.png")
@@ -60,6 +64,7 @@ func _ready() -> void:
 
 	chest_area.body_entered.connect(_on_body_entered)
 	chest_area.body_exited.connect(_on_body_exited)
+	UiManager.force_close_all.connect(_close_ui)
 	if placed_uid == "":
 		stored_slots.clear()
 		return
@@ -107,8 +112,15 @@ func _input(event: InputEvent) -> void:
 
 
 func hit(_by: Node) -> void:
-	_hit_count += 1
 	_play_hit_feedback()
+	# Barriles de facción: solo el player puede romperlos.
+	# Enemies (incluyendo sus dueños) solo producen tambaleo — no acumulan daño.
+	if faction_owner_id != "" and (_by == null or not _by.is_in_group("player")):
+		return
+	_hit_count += 1
+	# Primer golpe del player a un barril de facción: alertar a los enemies cercanos
+	if _hit_count == 1 and faction_owner_id != "":
+		_alert_nearby_faction_enemies()
 	if _hit_count >= MAX_HITS:
 		_destroy()
 
@@ -138,7 +150,8 @@ func _destroy() -> void:
 	var resolved_drop_item_id := drop_item_id.strip_edges()
 	if resolved_drop_item_id == "":
 		resolved_drop_item_id = BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_CHEST)
-	LootSystem.spawn_drop(null, resolved_drop_item_id, 1, global_position, world_node, overrides)
+	if faction_owner_id == "":
+		LootSystem.spawn_drop(null, resolved_drop_item_id, 1, global_position, world_node, overrides)
 	_drop_internal_contents(world_node, overrides)
 
 	if placed_uid != "":
@@ -198,6 +211,9 @@ func _open_ui() -> void:
 	_ui_open = true
 	_set_open_visual(true)
 	sync_persistence_data()
+	# Si el contenedor pertenece a una facción, alertar a sus enemies cercanos
+	if faction_owner_id != "":
+		_alert_nearby_faction_enemies()
 
 
 func _close_ui() -> void:
@@ -226,6 +242,35 @@ func on_ui_closed_from_ui_layer() -> void:
 	_ui_open = false
 	_set_open_visual(false)
 	sync_persistence_data()
+
+
+## Despierta y provoca a todos los enemies de faction_owner_id dentro del radio.
+## Fuerza SPARE en DownedEncounterCoordinator para que te dejen KO pero no te rematen.
+func _alert_nearby_faction_enemies() -> void:
+	DownedEncounterCoordinator.force_spare_for(FACTION_ALERT_DURATION)
+	var enemies: Array = get_tree().get_nodes_in_group("enemy")
+	var alerted: int = 0
+	for e in enemies:
+		if not is_instance_valid(e):
+			continue
+		if not "faction_id" in e:
+			continue
+		if String(e.get("faction_id")) != faction_owner_id:
+			continue
+		var dist: float = global_position.distance_to((e as Node2D).global_position)
+		if dist > FACTION_ALERT_RADIUS:
+			continue
+		# Despertar y marcar como provocado
+		var ai = e.get_node_or_null("AIComponent")
+		if ai == null:
+			continue
+		if ai.has_method("wake_now"):
+			ai.wake_now()
+		if ai.has_method("notify_provoked"):
+			ai.notify_provoked(FACTION_ALERT_DURATION)
+		alerted += 1
+	Debug.log("faction_hostility", "[Container] barrel alert — faction=%s alerted=%d" % [
+		faction_owner_id, alerted])
 
 
 func _get_container_ui() -> CanvasLayer:

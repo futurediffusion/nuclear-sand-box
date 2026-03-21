@@ -781,6 +781,7 @@ func _make_spawn_ctx() -> Dictionary:
 		"height": height,
 		"chunk_size": chunk_size,
 		"tavern_chunk": tavern_chunk,
+		"tavern_exclusion_rect": PropSpawner.compute_tavern_exclusion_rect(tavern_chunk, chunk_size),
 		"spawn_tile": spawn_tile,
 		"biome_seed": _biome_seed,
 		"get_biome": Callable(self, "get_spawn_biome"),

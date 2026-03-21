@@ -21,6 +21,13 @@ enum Verdict {
 # active sessions: encounter_key -> session dict
 var _sessions: Dictionary = {}
 
+## Cuando > RunClock.now(), todos los encuentros resuelven SPARE (sin remate).
+## Usar force_spare_for() tras eventos como abrir un barril de facción.
+var _force_spare_until: float = 0.0
+
+func force_spare_for(duration: float) -> void:
+	_force_spare_until = RunClock.now() + duration
+
 # session shape:
 # {
 #     "encounter_key": String,
@@ -189,6 +196,13 @@ func _gather_participants(target: Node, faction_id: String, group_id: String) ->
 	return valid_uids
 
 func _resolve_verdict(session: Dictionary, faction_id: String) -> void:
+	# Forzar SPARE si hay un evento activo (e.g. barril abierto — lección, no ejecución)
+	if RunClock.now() < _force_spare_until:
+		session["verdict"]      = Verdict.SPARE
+		session["ignore_until"] = RunClock.now() + spare_ignore_seconds
+		session["resolved_at"]  = RunClock.now()
+		return
+
 	var hostility_modifier: float = \
 		float(FactionHostilityManager.get_hostility_level(faction_id)) / 10.0 \
 		* hostility_finish_bonus_max
