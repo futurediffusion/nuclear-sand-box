@@ -175,8 +175,8 @@ func _process(delta: float) -> void:
 	_tick_timer = 0.0
 
 	_refresh_world_caches()
-	_ensure_camp_barrels()
-	_ensure_behaviors_for_active_enemies()
+	_ensure_behaviors_for_active_enemies()   # crea behaviors primero
+	_ensure_camp_barrels()                   # luego empuja deposit_pos a todos los behaviors existentes
 	_tick_behaviors()
 	_prune_behaviors()
 
@@ -295,8 +295,8 @@ func _spawn_camp_barrel(home_pos: Vector2, column: int = 0) -> Node:
 	var barrel := CAMP_BARREL_SCENE.instantiate()
 	var world := get_tree().current_scene
 	world.add_child(barrel)
-	# Place barrel slightly offset from camp center; each extra barrel goes to the right
-	barrel.global_position = home_pos + Vector2(column * 28.0, 0.0)
+	# Barrel offset from campfire center so it's visually distinct; extra barrels go further right
+	barrel.global_position = home_pos + Vector2(36.0 + column * 28.0, 0.0)
 	Debug.log("camp_stash", "[BanditBL] spawned camp barrel at=%s col=%d" % [str(home_pos), column])
 	return barrel
 
@@ -592,14 +592,26 @@ func _handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 				cap_drop.set_process(true)
 			)
 		else:
-			# Sin cofre: re-activar al aterrizar para que sea recogible
+			# Sin barril — spawnear uno nuevo en la posición de depósito e insertar ahí
+			var cap_group_id2 := beh.group_id
+			var cap_deposit   := land_target
 			get_tree().create_timer(FALL_TIME).timeout.connect(func() -> void:
 				if not is_instance_valid(cap_drop) or cap_drop.is_queued_for_deletion():
 					return
-				cap_drop.add_to_group("item_drop")
-				cap_drop.set_deferred("collision_layer", orig_layer)
-				cap_drop.set_deferred("monitoring",      true)
-				cap_drop.set_process(true)
+				var new_barrel := _spawn_camp_barrel(cap_deposit - Vector2(36.0, 0.0), 0)
+				if new_barrel != null and cap_group_id2 != "":
+					_camp_barrels[cap_group_id2] = new_barrel.get_instance_id()
+					_update_deposit_pos(cap_group_id2, new_barrel.global_position)
+				if new_barrel != null:
+					new_barrel.call("try_insert_item", cap_item_id, cap_amount)
+					if cap_sfx != null:
+						AudioSystem.play_2d(cap_sfx, cap_deposit, null, &"SFX")
+					cap_drop.queue_free()
+				else:
+					cap_drop.add_to_group("item_drop")
+					cap_drop.set_deferred("collision_layer", orig_layer)
+					cap_drop.set_deferred("monitoring",      true)
+					cap_drop.set_process(true)
 			)
 
 	beh._cargo_manifest.clear()
