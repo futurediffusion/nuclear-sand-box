@@ -441,6 +441,15 @@ func remove_structural_wall_at_tile(tile_pos: Vector2i, drop_item: bool = false)
 		_emit_structural_wall_drop(tile_pos)
 	return true
 
+## Devuelve la posición mundo del tile de muro del jugador más cercano a world_pos
+## dentro de radius. Retorna Vector2(-1, -1) si no hay ninguno.
+func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Vector2:
+	var tile: Vector2i = _find_nearest_player_wall_tile_for_hit(world_pos, radius, _get_wall_tile_size_vec())
+	if tile.x < 0 or tile.y < 0:
+		return Vector2(-1.0, -1.0)
+	return _tile_to_world(tile)
+
+
 func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	if amount <= 0:
 		amount = 1

@@ -344,11 +344,17 @@ func _should_mix_wall_damage(nearest_wall_dist_sq: float) -> bool:
 
 
 func _damage_wall_at_world_pos(world: Node, hit_pos: Vector2, amount: int, radius: float) -> bool:
+	var damaged: bool = false
 	if world.has_method("hit_wall_at_world_pos"):
-		return bool(world.call("hit_wall_at_world_pos", hit_pos, amount, radius, true))
-	if world.has_method("damage_player_wall_at_world_pos"):
-		return bool(world.call("damage_player_wall_at_world_pos", hit_pos, amount))
-	return false
+		damaged = bool(world.call("hit_wall_at_world_pos", hit_pos, amount, radius, true))
+	elif world.has_method("damage_player_wall_at_world_pos"):
+		damaged = bool(world.call("damage_player_wall_at_world_pos", hit_pos, amount))
+	if damaged and owner_node != null and owner_node.is_in_group("enemy") and "faction_id" in owner_node:
+		var fid: String = String(owner_node.get("faction_id"))
+		if fid != "":
+			FactionHostilityManager.add_hostility(fid, 0.0, "wall_damaged",
+				{"position": hit_pos})
+	return damaged
 
 
 func _wall_candidate_key(world: Node, hit_pos: Vector2) -> String:

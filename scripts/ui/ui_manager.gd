@@ -88,6 +88,9 @@ func is_interact_prompt_suppressed() -> bool:
 			continue
 		if player.has_method("is_seated") and bool(player.call("is_seated")):
 			return true
+		var downed: Node = player.get_node_or_null("DownedComponent")
+		if downed != null and bool(downed.get("is_downed")):
+			return true
 	return false
 
 

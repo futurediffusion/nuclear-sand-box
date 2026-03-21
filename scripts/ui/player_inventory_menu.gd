@@ -31,6 +31,8 @@ func toggle() -> void:
 func open() -> void:
 	if visible:
 		return
+	if UiManager.is_interact_prompt_suppressed():
+		return
 	_close_keeper_menu_if_open()
 	_close_container_ui_if_open()
 	_close_workbench_menu_if_open()

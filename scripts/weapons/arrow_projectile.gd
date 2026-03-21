@@ -417,8 +417,15 @@ func _damage_generic_wall(hit: Dictionary) -> void:
 	var wall_amount: int = maxi(1, wall_damage)
 	var wall_radius: float = 12.0
 
+	var wall_damaged: bool = false
 	if world.has_method("hit_wall_at_world_pos"):
-		world.call("hit_wall_at_world_pos", hit_pos, wall_amount, wall_radius, true)
-		return
-	if world.has_method("damage_player_wall_at_world_pos"):
-		world.call("damage_player_wall_at_world_pos", hit_pos, wall_amount)
+		wall_damaged = bool(world.call("hit_wall_at_world_pos", hit_pos, wall_amount, wall_radius, true))
+	elif world.has_method("damage_player_wall_at_world_pos"):
+		wall_damaged = bool(world.call("damage_player_wall_at_world_pos", hit_pos, wall_amount))
+	if wall_damaged:
+		var shooter: Node = _get_owner_node()
+		if shooter != null and shooter.is_in_group("enemy") and "faction_id" in shooter:
+			var fid: String = String(shooter.get("faction_id"))
+			if fid != "":
+				FactionHostilityManager.add_hostility(fid, 0.0, "wall_damaged",
+					{"position": hit_pos})

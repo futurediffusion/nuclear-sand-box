@@ -22,6 +22,7 @@ class_name BanditGroupIntel
 const SCAN_INTERVAL: float     = 1.0     # Ajuste de sistema real (era 8.0)
 const TERRITORY_RADIUS: float  = 5000.0  # Ajuste de sistema real: cubre mundo 64×64 completo (era 384.0)
 const EXTORT_COOLDOWN: float   = 0.0     # Ajuste de sistema real: sin cooldown (era 90.0)
+const RAID_COOLDOWN: float     = 0.0     # Ajuste de sistema real: sin cooldown (producción: ~300.0)
 
 # ── Scoring weights ───────────────────────────────────────────────────────────
 const W_BASE_DETECTED: float  = 15.0
@@ -95,6 +96,8 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 
 	var score: float = _score_activity(markers, bases)
 
+	var faction_id: String = String(g.get("faction_id", "bandits"))
+
 	# ── Trespassing: cada scan con actividad detectada acumula hostilidad ─
 	# Conecta el sistema de intel con el de hostilidad. Sin esto el jugador
 	# nunca llega orgánicamente al nivel 1 y can_extort nunca es true.
@@ -108,7 +111,6 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	#   • El heat reciente amplifica el score detectado (reacción más caliente)
 	#   • El nivel reduce el umbral de hunting (grupos hostiles son más reactivos)
 	#   • A nivel 9+ el grupo busca activamente al jugador incluso sin actividad
-	var faction_id: String = String(g.get("faction_id", "bandits"))
 	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
 	var h_level: int   = profile.hostility_level
 	var h_heat: float  = profile.heat_modifier  # 0.0..1.0
@@ -168,6 +170,11 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	# En nivel 5+ la extorsión pierde sentido como salida principal — prefieren cazar
 	if score >= T_EXTORT and interest != null and profile.can_extort and not profile.can_knockout:
 		_maybe_enqueue_extortion(group_id, g, interest, score)
+
+	# Raid: capacidad exclusiva de nivel 10. Requiere base detectada.
+	# Tiene prioridad sobre hunting/extorting — la facción va directo a la base.
+	if profile.can_raid_base and not bases.is_empty():
+		_maybe_enqueue_raid(group_id, g, bases[0], faction_id)
 
 
 # ---------------------------------------------------------------------------
@@ -294,3 +301,32 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	BanditGroupMemory.update_intent(group_id, "extorting")
 	Debug.log("bandit_intel", "[BGI] extortion enqueued group=%s leader=%s kind=%s sev=%.2f" % [
 		group_id, leader_id, interest.kind, severity])
+
+
+# ---------------------------------------------------------------------------
+# Raid enqueue — capacidad exclusiva nivel 10, requiere base detectada
+# ---------------------------------------------------------------------------
+
+func _maybe_enqueue_raid(group_id: String, g: Dictionary,
+		base: Dictionary, faction_id: String) -> void:
+	# Guard 1: ya raideando o con raid pendiente
+	var current_intent: String = String(BanditGroupMemory.get_group(group_id).get("current_group_intent", ""))
+	if current_intent == "raiding":
+		return
+	if RaidQueue.has_pending_for_group(group_id):
+		return
+	# Guard 2: cooldown desde el último raid
+	var last_time: float = RaidQueue.get_last_raid_time(group_id)
+	if RunClock.now() - last_time < RAID_COOLDOWN:
+		Debug.log("bandit_intel", "[BGI] raid cooldown — group=%s" % group_id)
+		return
+
+	var leader_id: String  = String(g.get("leader_id",  ""))
+	var base_center: Vector2 = base.get("center_world_pos", Vector2.ZERO) as Vector2
+	var base_id: String    = String(base.get("id", ""))
+
+	RaidQueue.enqueue_raid(faction_id, group_id, leader_id, base_center, base_id)
+	BanditGroupMemory.update_intent(group_id, "raiding")
+	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
+	Debug.log("bandit_intel", "[BGI] raid enqueued group=%s leader=%s base=%s" % [
+		group_id, leader_id, base_id])

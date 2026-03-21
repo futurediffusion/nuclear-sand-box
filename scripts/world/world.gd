@@ -505,8 +505,9 @@ func _ready() -> void:
 	# Wire SettlementIntel into BanditGroupIntel (must be after _settlement_intel is ready)
 	if _bandit_behavior_layer != null:
 		_bandit_behavior_layer.setup_group_intel({
-			"get_interest_markers_near": Callable(self, "get_interest_markers_near"),
-			"get_detected_bases_near":   Callable(self, "get_detected_bases_near"),
+			"get_interest_markers_near":      Callable(self, "get_interest_markers_near"),
+			"get_detected_bases_near":        Callable(self, "get_detected_bases_near"),
+			"find_nearest_player_wall_world_pos": Callable(self, "find_nearest_player_wall_world_pos"),
 		})
 
 	await update_chunks(current_player_chunk)
@@ -929,6 +930,11 @@ func damage_player_wall_at_world_pos(world_pos: Vector2, amount: int = 1) -> boo
 
 func damage_player_wall_in_circle(world_center: Vector2, world_radius: float, amount: int = 1) -> bool:
 	return _player_wall_system != null and _player_wall_system.damage_player_wall_in_circle(world_center, world_radius, amount)
+
+func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Vector2:
+	if _player_wall_system == null:
+		return Vector2(-1.0, -1.0)
+	return _player_wall_system.find_nearest_player_wall_world_pos(world_pos, radius)
 
 func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 20.0, allow_structural_feedback: bool = true) -> bool:
 	return _player_wall_system != null and _player_wall_system.hit_wall_at_world_pos(world_pos, amount, radius, allow_structural_feedback)

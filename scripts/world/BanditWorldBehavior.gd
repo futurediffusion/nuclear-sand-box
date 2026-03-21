@@ -107,6 +107,10 @@ var _pending_leave_home: bool = false
 
 var _last_intent: String = ""
 
+# ── Oportunistic wall assault ─────────────────────────────────────────────────
+# Cooldown por NPC para que no spamee el ataque al mismo muro.
+var _wall_assault_cooldown_until: float = 0.0
+
 # ── Hostility profile ─────────────────────────────────────────────────────
 # Actualizado al inicio de cada tick. No persiste: se recalcula desde el manager.
 var faction_id: String              = "bandits"
@@ -265,6 +269,12 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	# ── 4b. From quiescent states, try to find other useful work ─────────
 	if pending_collect_id == 0 and (state == State.IDLE_AT_HOME or state == State.PATROL):
 		_try_find_work(ctx)
+
+	# ── 4c. Oportunistic wall assault (nivel 6+, no en raid) ─────────────
+	# Enemigos cercanos a la base del jugador comienzan a atacar muros de forma
+	# progresiva a partir de nivel 6. Sin raids — comportamiento individual.
+	if state == State.IDLE_AT_HOME or state == State.PATROL:
+		_try_opportunistic_wall_assault(ctx)
 
 	# ── 5. Leader: proactive roam toward reported resources / territory ───
 	if role == "leader" and (state == State.IDLE_AT_HOME or state == State.PATROL):
@@ -665,6 +675,15 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 						Debug.log("bandit_ai", "[BWB] scout dispatched member=%s → %s" % [
 							member_id, str(interest_pos)])
 
+		"raiding":
+			# Nivel 10: todos los miembros convergen en la base del jugador.
+			var g_raid: Dictionary = BanditGroupMemory.get_group(group_id)
+			var base_pos: Vector2  = g_raid.get("last_interest_pos", home_pos) as Vector2
+			if base_pos.distance_squared_to(home_pos) > 1.0:
+				_move_target = base_pos
+				state        = State.APPROACH_INTEREST
+				_state_timer = 0.0
+
 		"idle":
 			if state == State.APPROACH_INTEREST or state == State.FOLLOW_LEADER \
 					or state == State.EXTORT_APPROACH:
@@ -684,6 +703,48 @@ func _enter_group_extort_approach() -> void:
 	var interest_pos: Vector2 = g.get("last_interest_pos", home_pos)
 	if interest_pos.distance_squared_to(home_pos) > 1.0:
 		enter_extort_approach(interest_pos)
+
+
+## Ordena al NPC moverse hacia una posición de muro del jugador para atacarlo.
+## Llamado por RaidFlow durante el phase ATTACKING, o por el comportamiento oportunista.
+## Al llegar, el slash normal inflige daño al contacto con la geometría del muro.
+func enter_wall_assault(wall_pos: Vector2) -> void:
+	_move_target = wall_pos
+	state        = State.APPROACH_INTEREST
+	_state_timer = 0.0
+
+
+## Comportamiento oportunista individual (no raid):
+## A partir de nivel 6, con probabilidad creciente, el NPC ataca muros del jugador
+## cercanos cuando está en patrulla o idle. Probabilidad: (nivel-5) × 1% por tick.
+## Cooldown: 30s por NPC para evitar spam.
+func _try_opportunistic_wall_assault(ctx: Dictionary) -> void:
+	# Cooldown personal
+	if RunClock.now() < _wall_assault_cooldown_until:
+		return
+	# Verificar nivel de hostilidad (mínimo 6)
+	if _profile == null:
+		return
+	var h_level: int = _profile.hostility_level
+	if h_level < 6:
+		return
+	# Probabilidad por tick: escala con nivel (6→1%, 7→2%, 8→3%, 9→4%)
+	# Nivel 10 hace raids organizados — el oportunismo individual sigue activo
+	var chance: float = float(h_level - 5) * 0.03
+	if _rng.randf() > chance:
+		return
+	# Buscar muro cercano
+	var find_wall: Callable = ctx.get("find_nearest_player_wall", Callable())
+	if not find_wall.is_valid():
+		return
+	var node_pos: Vector2 = ctx.get("node_pos", home_pos) as Vector2
+	var wall_pos: Vector2 = find_wall.call(node_pos, 300.0) as Vector2
+	if wall_pos.x < 0.0:
+		return
+	enter_wall_assault(wall_pos)
+	_wall_assault_cooldown_until = RunClock.now() + 20.0
+	Debug.log("bandit_ai", "[BWB] opp. wall assault — member=%s level=%d wall=%s" % [
+		member_id, h_level, str(wall_pos)])
 
 
 # ---------------------------------------------------------------------------

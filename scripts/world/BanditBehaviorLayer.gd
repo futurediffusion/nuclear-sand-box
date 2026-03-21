@@ -22,6 +22,7 @@ class_name BanditBehaviorLayer
 const BanditTuningScript            := preload("res://scripts/world/BanditTuning.gd")
 const BanditGroupIntelScript        := preload("res://scripts/world/BanditGroupIntel.gd")
 const BanditExtortionDirectorScript := preload("res://scripts/world/BanditExtortionDirector.gd")
+const BanditRaidDirectorScript      := preload("res://scripts/world/BanditRaidDirector.gd")
 const BanditCampStashSystemScript   := preload("res://scripts/world/BanditCampStashSystem.gd")
 
 # ---------------------------------------------------------------------------
@@ -45,7 +46,9 @@ var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _tick_timer: float     = 0.0
 
 var _extortion_director: BanditExtortionDirector = null
+var _raid_director:      BanditRaidDirector      = null
 var _stash:              BanditCampStashSystem   = null
+var _find_wall_cb:       Callable                = Callable()
 
 # Cached world-level lists (rebuilt once per tick, shared across all enemies)
 var _all_drops_cache:     Array = []
@@ -73,6 +76,16 @@ func setup(ctx: Dictionary) -> void:
 		"get_behavior_for_enemy": Callable(self, "_get_behavior"),
 	})
 
+	# Raid director
+	if _raid_director != null and is_instance_valid(_raid_director):
+		_raid_director.queue_free()
+	_raid_director = BanditRaidDirectorScript.new() as BanditRaidDirector
+	_raid_director.name = "BanditRaidDirector"
+	add_child(_raid_director)
+	_raid_director.setup({
+		"npc_simulator": _npc_simulator,
+	})
+
 	# Camp stash system
 	if _stash != null and is_instance_valid(_stash):
 		_stash.queue_free()
@@ -92,6 +105,12 @@ func setup_group_intel(ctx: Dictionary) -> void:
 		"get_interest_markers_near": ctx.get("get_interest_markers_near", Callable()),
 		"get_detected_bases_near":   ctx.get("get_detected_bases_near",   Callable()),
 	})
+
+	# Guardar wall query callable — se pasa al RaidDirector y también al ctx de cada tick
+	var wall_cb: Callable = ctx.get("find_nearest_player_wall_world_pos", Callable())
+	_find_wall_cb = wall_cb
+	if _raid_director != null and wall_cb.is_valid():
+		_raid_director.set_wall_query(wall_cb)
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +191,8 @@ func _process(delta: float) -> void:
 		_group_intel.tick(delta)
 	if _extortion_director != null:
 		_extortion_director.process_extortion()
+	if _raid_director != null:
+		_raid_director.process_raid()
 	_tick_timer += delta
 	if _tick_timer < BanditTuningScript.behavior_tick_interval():
 		return
@@ -218,9 +239,10 @@ func _tick_behaviors() -> void:
 
 		var node_pos: Vector2 = node.global_position
 		var ctx: Dictionary = {
-			"node_pos":          node_pos,
-			"nearby_drops_info": _build_drops_info(node_pos),
-			"nearby_res_info":   _build_res_info(node_pos),
+			"node_pos":              node_pos,
+			"nearby_drops_info":     _build_drops_info(node_pos),
+			"nearby_res_info":       _build_res_info(node_pos),
+			"find_nearest_player_wall": _find_wall_cb,
 		}
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
@@ -274,11 +296,26 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var res_pos:   Vector2 = (res_node   as Node2D).global_position
 	if enemy_pos.distance_squared_to(res_pos) > BanditTuningScript.mine_range_sq():
 		return
+
+	# La minería requiere ironpipe. Si tiene otra arma activa, cambiar primero.
+	# Esto garantiza que el swing visual y el daño sean siempre del arma cuerpo a cuerpo.
+	var wc: WeaponComponent = enemy_node.get_node_or_null("WeaponComponent") as WeaponComponent
+	if wc != null:
+		if wc.current_weapon_id != "ironpipe":
+			wc.equip_weapon_id("ironpipe")
+			# Aplazar el golpe al siguiente tick para que la animación de cambio se muestre.
+			# Si no tiene ironpipe en inventario, abortar la minería.
+			if wc.current_weapon_id != "ironpipe":
+				return
+			beh.pending_mine_id = mine_id  # re-queue para el próximo tick
+			return
+
 	res_node.hit(enemy_node)
-	if enemy_node != null and is_instance_valid(enemy_node) \
-			and enemy_node.has_method("spawn_slash"):
-		var dir: Vector2 = res_pos - enemy_pos
-		enemy_node.call("spawn_slash", dir.angle())
+	# queue_ai_attack_press en lugar de spawn_slash directo para que
+	# IronPipeWeapon procese el ataque: swingea el arma (attacking=true +
+	# target_attack_angle) y spawnea el slash visual por su propio flujo.
+	if enemy_node.has_method("queue_ai_attack_press"):
+		enemy_node.call("queue_ai_attack_press", res_pos)
 
 
 # ---------------------------------------------------------------------------
