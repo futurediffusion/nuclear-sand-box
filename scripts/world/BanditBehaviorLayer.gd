@@ -279,13 +279,23 @@ func _ensure_camp_barrels() -> void:
 			_update_deposit_pos(group_id, (barrel as Node2D).global_position)
 
 
-## Propaga la posición del barril a todos los comportamientos del grupo
-## para que RETURN_HOME navegue directo al barril en vez del centro del camp.
+## Propaga la posición del barril a todos los comportamientos del grupo.
+## Cada NPC recibe un punto personal alrededor del barril (ángulo determinista por member_id)
+## para que se distribuyan en todos los lados en vez de apilarse en uno.
 func _update_deposit_pos(group_id: String, barrel_pos: Vector2) -> void:
 	for eid in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[eid]
-		if beh.group_id == group_id:
-			beh.deposit_pos = barrel_pos
+		if beh.group_id != group_id:
+			continue
+		# Si ya tiene un punto asignado cerca de este barril, no reasignar
+		if beh.deposit_pos != Vector2.ZERO \
+				and beh.deposit_pos.distance_squared_to(barrel_pos) < 72.0 * 72.0:
+			continue
+		# Ángulo y radio deterministas según member_id → siempre el mismo slot por NPC
+		var h := absi(hash(beh.member_id))
+		var angle := (h % 36) * (TAU / 36.0)   # 36 posiciones uniformes alrededor
+		var radius := 32.0 + float(h % 20)      # 32–52 px desde el centro del barril
+		beh.deposit_pos = barrel_pos + Vector2(cos(angle), sin(angle)) * radius
 
 
 func _spawn_camp_barrel(home_pos: Vector2, column: int = 0) -> Node:
@@ -295,8 +305,7 @@ func _spawn_camp_barrel(home_pos: Vector2, column: int = 0) -> Node:
 	var barrel := CAMP_BARREL_SCENE.instantiate()
 	var world := get_tree().current_scene
 	world.add_child(barrel)
-	# Barrel offset from campfire center so it's visually distinct; extra barrels go further right
-	barrel.global_position = home_pos + Vector2(36.0 + column * 28.0, 0.0)
+	barrel.global_position = home_pos + Vector2(64.0 + column * 32.0, 0.0)
 	Debug.log("camp_stash", "[BanditBL] spawned camp barrel at=%s col=%d" % [str(home_pos), column])
 	return barrel
 
