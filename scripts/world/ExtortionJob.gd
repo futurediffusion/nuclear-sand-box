@@ -19,6 +19,9 @@ var leader_id:       String         = ""
 var assigned_ids:    Array[String]  = []
 var taunt_speaker_id: String        = ""
 var phase:           Phase          = Phase.APPROACHING
+## Causa dominante de esta extorsión. Usada por la UI para seleccionar el texto.
+## Valores: "base_growth" | "mining" | "returning_payer" | "visible_wealth" | "territorial"
+var extort_reason:   String         = "territorial"
 
 
 func _init(p_group_id: String, p_leader_id: String, p_assigned_ids: Array[String]) -> void:

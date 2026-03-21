@@ -104,6 +104,44 @@ const HEAT_MODIFIER_MAX: float = 250.0  # heat al que modifier = 1.0 (spread má
 const HEAT_CAP: float          = 400.0  # tope de acumulación
 
 # ---------------------------------------------------------------------------
+# Riqueza de banda (band_wealth)
+# ---------------------------------------------------------------------------
+## Cuánta riqueza suma cada tipo de incidente lucrativo.
+const WEALTH_INCOME: Dictionary = {
+	"extortion_paid":   0.0,   # usa el amount real del pago (metadata["amount"])
+	"player_looted":   50.0,
+	"barrel_sacked":   80.0,
+	"storage_damaged": 120.0,
+	"wall_damaged":    15.0,
+}
+
+## Umbrales de tier. Índice = tier (0-3).
+const WEALTH_TIERS: Array[float] = [
+	0.0,     # tier 0 — banda pobre (comportamiento base)
+	300.0,   # tier 1 — operación establecida
+	1000.0,  # tier 2 — banda rica
+	2500.0,  # tier 3 — cartel
+]
+
+## Factor de reducción de cooldown de extorsión por tier.
+## tier 3 → cooldown al 55 % del base.
+const WEALTH_EXTORT_COOLDOWN_FACTOR: Array[float] = [1.0, 0.85, 0.70, 0.55]
+
+## Factor de reducción de cooldown de raid por tier.
+const WEALTH_RAID_COOLDOWN_FACTOR: Array[float]   = [1.0, 0.90, 0.75, 0.60]
+
+## Días extra de grace para el decay de hostilidad por tier.
+## Riqueza compra "memoria rencorosa" — la facción tarda más en olvidar.
+const WEALTH_GRACE_BONUS: Array[int] = [0, 0, 1, 2]
+
+## Reducción de T_ALERTED por tier (confianza territorial).
+## tier 3 → el umbral efectivo baja 1.5 puntos; reaccionan a menos actividad.
+const WEALTH_TERRITORIAL_BONUS: Array[float] = [0.0, 0.5, 1.0, 1.5]
+
+## Decay diario de riqueza (2 %/día — acumula lento, pero no es eterno).
+const WEALTH_DECAY_RATE: float = 0.02
+
+# ---------------------------------------------------------------------------
 # Pesos de incidentes — puntos de hostilidad persistente
 # ---------------------------------------------------------------------------
 ## Usar amount = 0.0 en add_hostility() para aplicar el peso de la tabla.
@@ -232,6 +270,16 @@ func points_to_level(points: float) -> int:
 	return _points_to_level(points)
 
 
+## Devuelve el tier de riqueza de la facción (0-3).
+## Usar para ajustar cooldowns, severidad y agresividad territorial.
+func get_wealth_tier(faction_id: String) -> int:
+	var wealth: float = _get_or_create(faction_id).band_wealth
+	for t: int in range(WEALTH_TIERS.size() - 1, -1, -1):
+		if wealth >= WEALTH_TIERS[t]:
+			return t
+	return 0
+
+
 # ---------------------------------------------------------------------------
 # API pública — escritura
 # ---------------------------------------------------------------------------
@@ -293,6 +341,9 @@ func add_hostility(
 		data.last_incident_day = WorldTime.get_current_day()
 
 	_increment_counter(data, reason)
+	if reason == "extortion_paid":
+		_record_payment(data, metadata)
+	_accumulate_wealth(data, reason, metadata)
 
 	# ── Señales ────────────────────────────────────────────────────────────
 	var new_level: int = _points_to_level(data.hostility_points)
@@ -347,14 +398,20 @@ func _apply_daily_decay(data: FactionHostilityData, current_day: int) -> void:
 		if data.recent_heat < 1.0:
 			data.recent_heat = 0.0
 
+	# ── Compliance y wealth: siempre decaen, independiente de hostilidad ──
+	_apply_compliance_decay(data, current_day)
+	_apply_wealth_decay(data)
+
 	# ── Hostility points: dos condiciones para empezar el decay ───────────
 	if data.last_incident_day < 0 or data.hostility_points <= 0.0:
 		return
 
-	var level: int       = _points_to_level(data.hostility_points)
-	var grace: int       = DECAY_GRACE_DAYS_BY_LEVEL[level]
-	var days_since: int  = current_day - data.last_incident_day
-	var heat_cold: bool  = data.recent_heat < HEAT_COLD_THRESHOLD
+	var level: int      = _points_to_level(data.hostility_points)
+	var wealth_tier: int = _wealth_to_tier(data.band_wealth)
+	# Banda rica recuerda sus rencores más tiempo — grace period extra.
+	var grace: int      = DECAY_GRACE_DAYS_BY_LEVEL[level] + WEALTH_GRACE_BONUS[wealth_tier]
+	var days_since: int = current_day - data.last_incident_day
+	var heat_cold: bool = data.recent_heat < HEAT_COLD_THRESHOLD
 
 	# Condición 1: pasaron suficientes días de calma para el nivel actual.
 	# Condición 2: el heat ya se enfrió físicamente (aunque no haya pasado el grace).
@@ -376,8 +433,79 @@ func _apply_daily_decay(data: FactionHostilityData, current_day: int) -> void:
 	if new_level != old_level:
 		level_changed.emit(data.faction_id, old_level, new_level)
 		Debug.log("faction_hostility",
-			"[FHM] decay %s lv%d→lv%d (day %d, -%.0f pts, heat=%.0f)" % [
-			data.faction_id, old_level, new_level, current_day, decay, data.recent_heat])
+			"[FHM] decay %s lv%d→lv%d (day %d, -%.0f pts, heat=%.0f wealth=%.0f tier%d)" % [
+			data.faction_id, old_level, new_level, current_day,
+			decay, data.recent_heat, data.band_wealth, wealth_tier])
+
+
+# ---------------------------------------------------------------------------
+# Compliance decay y rebelión
+# ---------------------------------------------------------------------------
+
+## Decae el compliance_score si el jugador lleva días sin pagar.
+## Si era pagador confiable y lleva +7 días sin pagar, escala hostilidad
+## (la facción interpreta el silencio como rebelión deliberada).
+func _apply_compliance_decay(data: FactionHostilityData, current_day: int) -> void:
+	if data.compliance_score <= 0.0 or data.last_paid_day < 0:
+		return
+	var days_stopped: int = current_day - data.last_paid_day
+	# Grace period de 5 días antes de que empiece el decay
+	if days_stopped <= 5:
+		return
+	# Decae 0.04 por día (tarda ~15 días en ir de 1.0 a 0.4)
+	data.compliance_score = maxf(0.0, data.compliance_score - 0.04)
+	# Rebelión: si era pagador confiable (score >0.4 antes del decay) y lleva
+	# exactamente 7 días sin pagar, la facción escala hostilidad.
+	# Comprobamos en el rango 7-8 para que solo dispare una vez aunque el
+	# game loop no procese cada día exacto.
+	if data.compliance_score > 0.4 and days_stopped >= 7 and days_stopped <= 8:
+		var rebellion_pts: float = data.compliance_score * 20.0
+		data.hostility_points = minf(data.hostility_points + rebellion_pts, 3000.0)
+		data.recent_heat = minf(data.recent_heat + rebellion_pts * 1.5, HEAT_CAP)
+		var lvl: int = _points_to_level(data.hostility_points)
+		hostility_changed.emit(data.faction_id, data.hostility_points, lvl)
+		Debug.log("faction_hostility",
+			"[FHM] REBELLION %s +%.0f pts (compliance=%.2f, days_stopped=%d)" % [
+			data.faction_id, rebellion_pts, data.compliance_score, days_stopped])
+
+
+# ---------------------------------------------------------------------------
+# Band wealth
+# ---------------------------------------------------------------------------
+
+## Acumula riqueza de la banda cuando se registra un incidente lucrativo.
+func _accumulate_wealth(data: FactionHostilityData, reason: String,
+		metadata: Dictionary) -> void:
+	var income: float
+	if reason == "extortion_paid":
+		# La extorsión cobrada trae el oro real del jugador a la banda
+		income = float(metadata.get("amount", 0))
+	elif WEALTH_INCOME.has(reason):
+		income = float(WEALTH_INCOME[reason])
+	else:
+		return
+	if is_zero_approx(income):
+		return
+	data.band_wealth += income
+	Debug.log("faction_hostility",
+		"[FHM] wealth +%.0f (%s) → %.0f tier%d [%s]" % [
+		income, reason, data.band_wealth, _wealth_to_tier(data.band_wealth), data.faction_id])
+
+
+## Decae la riqueza un 2 % por día.
+func _apply_wealth_decay(data: FactionHostilityData) -> void:
+	if data.band_wealth <= 0.0:
+		return
+	data.band_wealth = maxf(0.0, data.band_wealth * (1.0 - WEALTH_DECAY_RATE))
+	if data.band_wealth < 5.0:
+		data.band_wealth = 0.0
+
+
+func _wealth_to_tier(wealth: float) -> int:
+	for t: int in range(WEALTH_TIERS.size() - 1, -1, -1):
+		if wealth >= WEALTH_TIERS[t]:
+			return t
+	return 0
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +539,20 @@ func _points_to_level(points: float) -> int:
 		if points >= LEVEL_THRESHOLDS[lvl]:
 			return lvl
 	return 0
+
+
+## Registra los detalles de un pago de extorsión y actualiza el compliance_score.
+## Llamado solo cuando reason == "extortion_paid".
+func _record_payment(data: FactionHostilityData, metadata: Dictionary) -> void:
+	var amount: int = int(metadata.get("amount", 0))
+	data.last_paid_day    = WorldTime.get_current_day()
+	data.last_paid_amount = amount
+	data.total_paid_gold += amount
+	# Cada pago sube el compliance_score. Cap en 1.0 (~5 pagos consecutivos).
+	data.compliance_score = minf(1.0, data.compliance_score + 0.2)
+	Debug.log("faction_hostility",
+		"[FHM] payment recorded %s amount=%d compliance=%.2f total_gold=%d" % [
+		data.faction_id, amount, data.compliance_score, data.total_paid_gold])
 
 
 func _increment_counter(data: FactionHostilityData, reason: String) -> void:

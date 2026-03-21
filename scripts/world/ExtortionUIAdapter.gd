@@ -10,6 +10,68 @@ extends Node
 ## option 1/2/3 = elección confirmada. option 0 = descarte externo → el flow lo mapea a warn.
 signal choice_resolved(option: int, gid: String)
 
+# ---------------------------------------------------------------------------
+# Frases por causa dominante — 3 variantes por razón para evitar repetición
+# ---------------------------------------------------------------------------
+const REASON_PHRASES: Dictionary = {
+	"base_growth": [
+		"Tu base está creciendo demasiado cerca de nuestro territorio.",
+		"Cada estructura que levantas aquí nos cuesta.\nEso se paga.",
+		"Construir tan cerca tiene un precio.\nLo llamamos impuesto de vecindario.",
+		"Mucho progreso para alguien que no ha pedido permiso.",
+		"Esa base tuya ya se ve desde donde vivimos.\nNo nos gusta lo que vemos.",
+		"Sigues expandiéndote. Nosotros también tenemos que crecer.\nEmpezando por tus bolsillos.",
+		"Pones paredes, ponemos peajes.\nAsí funciona esto.",
+		"Cada ladrillo que pones en nuestra zona tiene precio.\nHoy te presentamos la factura.",
+		"Qué bonita construcción.\nPena que esté en el lugar equivocado.",
+	],
+	"mining": [
+		"Estás sacando demasiado de nuestro territorio.",
+		"Ese mineral tiene dueño.\nNosotros.",
+		"Llevas días llenándote los bolsillos con lo que es nuestro.",
+		"Mucho mineral para alguien que no paga renta.",
+		"El suelo es nuestro. Lo que sale de él, también.",
+		"Pico, sudor y beneficio.\nNosotros queremos nuestra parte del beneficio.",
+		"Sabemos cuánto llevas sacado.\nEs hora de compartir.",
+		"Minas como si nadie te estuviera mirando.\nTe estábamos mirando.",
+		"Todo ese esfuerzo y ni un perro para nosotros.\nEso se corrige hoy.",
+	],
+	"returning_payer": [
+		"Ya pagaste antes.\nSabemos que tienes con qué.",
+		"Eres cliente frecuente.\nEso tiene ventajas... y obligaciones.",
+		"Conocemos tus hábitos.\nY tus bolsillos.",
+		"Pagaste la última vez sin hacernos perder el tiempo.\nApreciamos eso.\nSigue así.",
+		"Un pagador confiable.\nRaro encontrar uno.\nNo nos decepciones ahora.",
+		"Volvemos porque sabemos que eres razonable.\n¿Seguimos siendo razonables?",
+		"La última vez fue fácil para todos.\nHagámoslo fácil otra vez.",
+		"Tu historial habla bien de ti.\nMantén esa reputación.",
+		"Sabemos que puedes pagar.\nLo hiciste antes.\nNo finjas que no.",
+	],
+	"visible_wealth": [
+		"Tienes taller, tienes recursos.\nNosotros, necesidades. Es simple.",
+		"Vienes acumulando demasiado sin pagar tu parte.",
+		"Todo ese trabajo tiene que ser rentable para alguien.\nHoy somos nosotros.",
+		"Mucho equipo. Mucho material.\nAlguien tiene que cobrar por la tranquilidad.",
+		"Se nota que te ha ido bien.\nNos alegra.\nAhora comparte un poco.",
+		"Tanto esfuerzo acumulando cosas.\nSería una lástima que pasara algo.",
+		"Lo que tienes lo construiste en nuestra zona.\nNosotros también tenemos gastos.",
+		"No pagaste en su momento.\nEl interés se acumuló.\nAquí está la cuenta.",
+		"Tanta riqueza y tan poco agradecimiento.\nRemediemos eso.",
+	],
+	"territorial": [
+		"Te dejamos pasar una vez.\nEsta vez cobras peaje.",
+		"Este territorio no es gratis.\nNunca lo fue.",
+		"Otro día rondando por aquí.\nOtro día que se paga.",
+		"No pongas esa cara. Esto es solo negocios.",
+		"Pagas y nos olvidamos de ti.\nPor un tiempo.",
+		"Pasa mucha gente por aquí sin pagar.\nTú no vas a ser uno de ellos.",
+		"Zona nuestra, reglas nuestras.\nLa primera regla: se paga.",
+		"Podríamos haberte encontrado antes.\nDa gracias que te encontramos ahora.",
+		"No te conocemos de nada.\nY ya nos debes algo.",
+		"Cada vez que pises por aquí sin pagar, el precio sube.\nHoy todavía es barato.",
+	],
+}
+
 const CHOICE_SCENE: PackedScene = preload("res://scenes/ui/extortion_choice_bubble.tscn")
 
 var _bubble_manager: WorldSpeechBubbleManager = null
@@ -28,14 +90,17 @@ func setup(bubble_manager: WorldSpeechBubbleManager) -> void:
 # API pública
 # ---------------------------------------------------------------------------
 
-func show_choice(gid: String, pay_amount: int = 0, is_minimum: bool = false) -> void:
+func show_choice(gid: String, pay_amount: int = 0, is_minimum: bool = false,
+		reason: String = "territorial") -> void:
 	if _bubble_manager == null:
 		return
 	var bubble: ExtortionChoiceBubble = CHOICE_SCENE.instantiate() as ExtortionChoiceBubble
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size
 	var visual:  Vector2 = bubble.custom_minimum_size * bubble.scale
 	bubble.position = (vp_size - visual) * 0.5
-	bubble.set_main_text("¿Entonces qué?\n¿Pagas o prefieres problemas?")
+	var phrases: Array = REASON_PHRASES.get(reason, REASON_PHRASES["territorial"]) as Array
+	var main_text: String = phrases[randi() % phrases.size()] as String
+	bubble.set_main_text(main_text)
 	bubble.set_pay_amount(pay_amount, is_minimum)
 	bubble.choice_made.connect(func(option: int): _on_raw_choice(option, gid), CONNECT_ONE_SHOT)
 	_choice_gid  = gid

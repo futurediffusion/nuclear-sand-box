@@ -258,7 +258,7 @@ func _consume_extortion_queue() -> void:
 				var player_gold_pre: int = inv_pre.gold if inv_pre != null else 0
 				var preview_amount: int = BanditTuningScript.extort_pay_amount(player_gold_pre, gid)
 				var is_minimum: bool    = int(player_gold_pre * 0.2) < 1
-				_show_choice_ui.call(gid, preview_amount, is_minimum)
+				_show_choice_ui.call(gid, preview_amount, is_minimum, job.extort_reason)
 				Debug.log("extortion", "[EXTORT] collection triggered group=%s speaker=%s" % [gid, eid])
 				break
 
@@ -293,12 +293,15 @@ func _consume_extortion_queue() -> void:
 		var assigned: Array[String] = [leader_id]
 		for i in mini(2, guards.size()):
 			assigned.append(guards[i]["id"])
-		_active_extortions[gid] = ExtortionJob.new(gid, leader_id, assigned)
+		var new_job: ExtortionJob = ExtortionJob.new(gid, leader_id, assigned)
+		# Propagar la causa dominante desde el intent al job (para la UI)
+		new_job.extort_reason = String(intents[0].get("extort_reason", "territorial"))
+		_active_extortions[gid] = new_job
 		for aid in assigned:
 			var anode := _npc_simulator.get_enemy_node(aid)
 			_set_enemy_scripted_control(anode, true)
-		Debug.log("extortion", "[EXTORT FLOW] job started group=%s leader=%s assigned=%d" % [
-			gid, leader_id, assigned.size()])
+		Debug.log("extortion", "[EXTORT FLOW] job started group=%s leader=%s assigned=%d reason=%s" % [
+			gid, leader_id, assigned.size(), new_job.extort_reason])
 		break
 
 

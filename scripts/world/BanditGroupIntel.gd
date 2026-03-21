@@ -112,11 +112,16 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	#   • El nivel reduce el umbral de hunting (grupos hostiles son más reactivos)
 	#   • A nivel 9+ el grupo busca activamente al jugador incluso sin actividad
 	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
-	var h_level: int   = profile.hostility_level
-	var h_heat: float  = profile.heat_modifier  # 0.0..1.0
+	var h_level: int    = profile.hostility_level
+	var h_heat: float   = profile.heat_modifier  # 0.0..1.0
+	var w_tier: int     = FactionHostilityManager.get_wealth_tier(faction_id)
 
 	# El heat amplifica el score detectado hasta un 60% extra
 	var effective_score: float = score * (1.0 + h_heat * 0.6)
+
+	# Banda rica tiene más confianza territorial — reacciona a menor actividad.
+	# tier 3 → T_ALERTED baja 1.5 puntos; incluso 1 tronco cortado es motivo de visita.
+	var effective_t_alerted: float = maxf(T_ALERTED - FactionHostilityManager.WEALTH_TERRITORIAL_BONUS[w_tier], 1.0)
 
 	# El nivel baja el umbral de hunting: cada nivel resta 0.4 del umbral
 	# (nivel 5 = umbral de hunting en 6.0, nivel 8 = 4.8, nivel 10 = 4.0)
@@ -133,7 +138,7 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var new_intent: String
 	if effective_score >= effective_t_hunting:
 		new_intent = "hunting"
-	elif effective_score >= T_ALERTED:
+	elif effective_score >= effective_t_alerted:
 		new_intent = "alerted"
 	else:
 		new_intent = "idle"
@@ -276,31 +281,80 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	if ExtortionQueue.has_pending_for_group(group_id):
 		Debug.log("bandit_intel", "[BGI] extortion pending — skip group=%s" % group_id)
 		return
-	# Guard 2: cooldown since last request
-	var last_time: float = ExtortionQueue.get_last_request_time(group_id)
-	var elapsed: float   = RunClock.now() - last_time
-	if elapsed < EXTORT_COOLDOWN:
-		Debug.log("bandit_intel", "[BGI] extortion cooldown %.0fs left group=%s" % [
-			EXTORT_COOLDOWN - elapsed, group_id])
-		return
 
 	var leader_id:  String = String(g.get("leader_id",  ""))
 	var faction_id: String = String(g.get("faction_id", "bandits"))
-	# Severity scales from 0.1 at T_EXTORT to 1.0 at T_EXTORT + W_BASE_DETECTED*2
-	var severity: float = clampf((score - T_EXTORT) / (W_BASE_DETECTED * 2.0), 0.1, 1.0)
+	var pay_data: FactionHostilityData = FactionHostilityManager.get_faction_state(faction_id)
+	var w_tier: int = FactionHostilityManager.get_wealth_tier(faction_id)
 
-	ExtortionQueue.enqueue_intent(
-		"player",
-		faction_id,
-		group_id,
-		leader_id,
-		interest.kind,
-		interest.pos,
-		severity
-	)
+	# Guard 2: cooldown efectivo con dos modificadores acumulativos:
+	#   • compliance_score → pagadores frecuentes reciben demandas más seguidas (−50% max)
+	#   • wealth_tier → banda rica también extorsiona más (hasta −45% adicional)
+	var last_time: float   = ExtortionQueue.get_last_request_time(group_id)
+	var elapsed: float     = RunClock.now() - last_time
+	var compliance_factor: float = 1.0 - pay_data.compliance_score * 0.5
+	var wealth_factor: float     = FactionHostilityManager.WEALTH_EXTORT_COOLDOWN_FACTOR[w_tier]
+	var effective_cooldown: float = EXTORT_COOLDOWN * compliance_factor * wealth_factor
+	if elapsed < effective_cooldown:
+		Debug.log("bandit_intel", "[BGI] extortion cooldown %.0fs left group=%s" % [
+			effective_cooldown - elapsed, group_id])
+		return
+
+	# Severity: score base + bonus compliance (saben que paga) + bonus wealth (demandan más)
+	var base_severity: float    = clampf((score - T_EXTORT) / (W_BASE_DETECTED * 2.0), 0.1, 1.0)
+	var compliance_bonus: float = pay_data.compliance_score * 0.3
+	var wealth_bonus: float     = float(w_tier) * 0.1  # tier 3 → +0.3 severidad
+	var severity: float         = clampf(base_severity + compliance_bonus + wealth_bonus, 0.1, 1.0)
+
+	# Causa dominante — decide qué texto verá el jugador en el modal de extorsión
+	var extort_reason: String = _pick_extort_reason(markers, bases, pay_data.compliance_score, w_tier)
+
+	ExtortionQueue.enqueue({
+		"target_id":     "player",
+		"faction_id":    faction_id,
+		"group_id":      group_id,
+		"source_npc_id": leader_id,
+		"trigger_kind":  interest.kind,
+		"world_pos":     interest.pos,
+		"created_at":    RunClock.now(),
+		"severity":      clampf(severity, 0.0, 1.0),
+		"extort_reason": extort_reason,
+	})
 	BanditGroupMemory.update_intent(group_id, "extorting")
-	Debug.log("bandit_intel", "[BGI] extortion enqueued group=%s leader=%s kind=%s sev=%.2f" % [
-		group_id, leader_id, interest.kind, severity])
+	Debug.log("bandit_intel",
+		"[BGI] extortion enqueued group=%s leader=%s kind=%s sev=%.2f compliance=%.2f wealth=%.0f(t%d)" % [
+		group_id, leader_id, interest.kind, severity, pay_data.compliance_score,
+		pay_data.band_wealth, w_tier])
+
+
+# ---------------------------------------------------------------------------
+# Extortion reason — causa dominante de esta extorsión
+# ---------------------------------------------------------------------------
+
+## Elige la razón principal que el jugador verá en el modal de extorsión.
+## Prioridad: pagador recurrente > base creciendo > minería activa >
+##             riqueza visible > territorial genérico.
+func _pick_extort_reason(markers: Array, bases: Array,
+		compliance: float, w_tier: int) -> String:
+	# "Ya pagaste antes, sabemos que tienes con qué"
+	if compliance > 0.5:
+		return "returning_payer"
+	# "Tu base está creciendo demasiado cerca"
+	if not bases.is_empty():
+		return "base_growth"
+	# "Estás sacando demasiado de nuestro territorio"
+	var mining_score: float = 0.0
+	for m in markers:
+		match String(m.get("kind", "")):
+			"copper_mined", "stone_mined": mining_score += W_MINE
+			"wood_chopped":                mining_score += W_CHOP
+	if mining_score >= W_MINE * 2.0:
+		return "mining"
+	# "Tienes taller, tienes recursos"
+	if w_tier >= 2:
+		return "visible_wealth"
+	# "Te dejamos pasar una vez. Esta vez cobras peaje."
+	return "territorial"
 
 
 # ---------------------------------------------------------------------------
@@ -315,9 +369,12 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 		return
 	if RaidQueue.has_pending_for_group(group_id):
 		return
-	# Guard 2: cooldown desde el último raid
-	var last_time: float = RaidQueue.get_last_raid_time(group_id)
-	if RunClock.now() - last_time < RAID_COOLDOWN:
+	# Guard 2: cooldown desde el último raid, reducido por riqueza de la banda
+	var w_tier_raid: int         = FactionHostilityManager.get_wealth_tier(faction_id)
+	var raid_cd_factor: float    = FactionHostilityManager.WEALTH_RAID_COOLDOWN_FACTOR[w_tier_raid]
+	var effective_raid_cd: float = RAID_COOLDOWN * raid_cd_factor
+	var last_time: float         = RaidQueue.get_last_raid_time(group_id)
+	if RunClock.now() - last_time < effective_raid_cd:
 		Debug.log("bandit_intel", "[BGI] raid cooldown — group=%s" % group_id)
 		return
 

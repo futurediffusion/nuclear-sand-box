@@ -33,6 +33,23 @@ var times_storage_hit:    int = 0
 var times_wall_hit:       int = 0
 var times_raided:         int = 0
 
+# ── Memoria de pagos ──────────────────────────────────────────────────────
+# Registra el historial de pagos de extorsión del jugador a esta facción.
+# Pagar compra tiempo, no obediencia eterna. Ser un pagador confiable te
+# convierte en un objetivo más rentable y frecuente.
+var last_paid_day:    int   = -1   # día del último pago (-1 = nunca pagó)
+var last_paid_amount: int   = 0    # oro del último pago
+var total_paid_gold:  int   = 0    # acumulado histórico
+## 0.0 = nunca paga / dejó de pagar; 1.0 = pagador muy confiable.
+## Sube +0.2 por pago, decae -0.04/día después de 5 días sin pagar.
+var compliance_score: float = 0.0
+
+# ── Riqueza de la banda ────────────────────────────────────────────────────
+# Acumulado económico de la facción. Sube con extorsión cobrada, loot,
+# saqueos. Alimenta modificadores sistémicos (frecuencia, agresividad,
+# resistencia al decay). No es visual todavía — pura estadística de comportamiento.
+var band_wealth: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Serialización
@@ -57,6 +74,11 @@ func to_dict() -> Dictionary:
 		"times_storage_hit":   times_storage_hit,
 		"times_wall_hit":      times_wall_hit,
 		"times_raided":        times_raided,
+		"last_paid_day":       last_paid_day,
+		"last_paid_amount":    last_paid_amount,
+		"total_paid_gold":     total_paid_gold,
+		"compliance_score":    compliance_score,
+		"band_wealth":         band_wealth,
 	}
 
 
@@ -78,3 +100,8 @@ func from_dict(d: Dictionary) -> void:
 	times_storage_hit    = int(d.get("times_storage_hit",       0))
 	times_wall_hit       = int(d.get("times_wall_hit",          0))
 	times_raided         = int(d.get("times_raided",            0))
+	last_paid_day        = int(d.get("last_paid_day",           -1))
+	last_paid_amount     = int(d.get("last_paid_amount",        0))
+	total_paid_gold      = int(d.get("total_paid_gold",         0))
+	compliance_score     = float(d.get("compliance_score",      0.0))
+	band_wealth          = float(d.get("band_wealth",           0.0))
