@@ -226,15 +226,23 @@ func _resolve_verdict(session: Dictionary, faction_id: String) -> void:
 	session["resolved_at"] = RunClock.now()
 
 
-## Progresión de saqueo por nivel de hostilidad:
-##   6 → 1 ítem  (1 bandit lo lleva)
-##   7 → 2 ítems (2 bandits, uno cada uno)
-##   8 → 3 ítems (3 bandits)
-##   9 → todo    (todos los participants, reparto round-robin)
+## Progresión de saqueo completa (ítems + oro) por nivel de hostilidad:
+##
+##   Oro (empieza en nivel 4):
+##     4 → 10% del oro
+##     5 → 20%
+##     6 → 30%
+##     7 → 40%
+##     8 → 50%
+##     9+→ 70%
+##
+##   Ítems (empieza en nivel 6):
+##     6 → 1 ítem
+##     7 → 2 ítems
+##     8 → 3 ítems
+##     9+→ todo el inventario
 func _try_loot_target(session: Dictionary, faction_id: String) -> void:
 	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
-	if not profile.can_loot_player:
-		return
 	var target_ref: WeakRef = session.get("target_ref") as WeakRef
 	if target_ref == null:
 		return
@@ -245,8 +253,35 @@ func _try_loot_target(session: Dictionary, faction_id: String) -> void:
 	if inv == null:
 		return
 
+	var level: int        = profile.hostility_level
+	var target_pos: Vector2 = (target as Node2D).global_position
+
+	# ── Robo de oro (nivel 4+) ────────────────────────────────────────────
+	# Empieza antes que el robo de ítems: perder oro es más suave que perder gear.
+	# El oro robado alimenta la riqueza de la banda.
+	if level >= 4 and inv.gold > 0:
+		var gold_pct: float
+		match level:
+			4:       gold_pct = 0.10
+			5:       gold_pct = 0.20
+			6:       gold_pct = 0.30
+			7:       gold_pct = 0.40
+			8:       gold_pct = 0.50
+			_:       gold_pct = 0.70  # nivel 9+
+		var gold_stolen: int = maxi(1, int(float(inv.gold) * gold_pct))
+		gold_stolen = mini(gold_stolen, inv.gold)
+		inv.spend_gold(gold_stolen)
+		# El oro robado engorda la riqueza de la banda
+		var faction_data: FactionHostilityData = FactionHostilityManager.get_faction_state(faction_id)
+		faction_data.band_wealth += float(gold_stolen)
+		Debug.log("faction_hostility", "[DEC] gold stolen — faction=%s nivel=%d gold=%d (%.0f%%)" % [
+			faction_id, level, gold_stolen, gold_pct * 100.0])
+
+	# ── Robo de ítems (nivel 6+) ──────────────────────────────────────────
+	if not profile.can_loot_player:
+		return
+
 	# Cuántos slots robar según nivel
-	var level: int = profile.hostility_level
 	var steal_all: bool = level >= 9
 	var max_steal: int = 0
 	match level:
@@ -278,11 +313,10 @@ func _try_loot_target(session: Dictionary, faction_id: String) -> void:
 		return
 
 	var participants: Array = session.get("participant_uids", []) as Array
-	var looters: Array[Node2D] = _find_enemies_by_uids_sorted(participants, (target as Node2D).global_position)
+	var looters: Array[Node2D] = _find_enemies_by_uids_sorted(participants, target_pos)
 	if looters.is_empty():
 		return
 
-	var target_pos: Vector2 = (target as Node2D).global_position
 	var anchor: Vector2 = _find_faction_container_pos(faction_id, (looters[0] as Node2D).global_position)
 
 	# Spawnear un ItemDrop por ítem y asignarlo al bandit correspondiente (round-robin)

@@ -32,6 +32,9 @@ var times_workbench_hit:  int = 0
 var times_storage_hit:    int = 0
 var times_wall_hit:       int = 0
 var times_raided:         int = 0
+var times_base_detected:  int = 0   # veces que detectaron tu base
+var times_workbench_near: int = 0   # veces que detectaron tu taller
+var times_resource_ext:   int = 0   # veces que detectaron extracción de recursos
 
 # ── Memoria de pagos ──────────────────────────────────────────────────────
 # Registra el historial de pagos de extorsión del jugador a esta facción.
@@ -72,8 +75,11 @@ func to_dict() -> Dictionary:
 		"times_looted":        times_looted,
 		"times_workbench_hit": times_workbench_hit,
 		"times_storage_hit":   times_storage_hit,
-		"times_wall_hit":      times_wall_hit,
-		"times_raided":        times_raided,
+		"times_wall_hit":       times_wall_hit,
+		"times_raided":         times_raided,
+		"times_base_detected":  times_base_detected,
+		"times_workbench_near": times_workbench_near,
+		"times_resource_ext":   times_resource_ext,
 		"last_paid_day":       last_paid_day,
 		"last_paid_amount":    last_paid_amount,
 		"total_paid_gold":     total_paid_gold,
@@ -98,8 +104,11 @@ func from_dict(d: Dictionary) -> void:
 	times_looted         = int(d.get("times_looted",            0))
 	times_workbench_hit  = int(d.get("times_workbench_hit",     0))
 	times_storage_hit    = int(d.get("times_storage_hit",       0))
-	times_wall_hit       = int(d.get("times_wall_hit",          0))
-	times_raided         = int(d.get("times_raided",            0))
+	times_wall_hit        = int(d.get("times_wall_hit",          0))
+	times_raided          = int(d.get("times_raided",            0))
+	times_base_detected   = int(d.get("times_base_detected",    0))
+	times_workbench_near  = int(d.get("times_workbench_near",   0))
+	times_resource_ext    = int(d.get("times_resource_ext",     0))
 	last_paid_day        = int(d.get("last_paid_day",           -1))
 	last_paid_amount     = int(d.get("last_paid_amount",        0))
 	total_paid_gold      = int(d.get("total_paid_gold",         0))

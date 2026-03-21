@@ -37,6 +37,97 @@ const DEPOSIT_REASSIGN_GUARD_SQ: float = 72.0 * 72.0  # no reasignar si ya está
 
 const DEBUG_ALERTED_CHASE: bool = true
 
+# ---------------------------------------------------------------------------
+# Frases de reconocimiento — cuando la banda te tiene fichado y te ve venir
+# ---------------------------------------------------------------------------
+## Clave = nivel mínimo de hostilidad. Se usa el mayor nivel que no supere el actual.
+const RECOGNITION_PHRASES: Dictionary = {
+	3: [
+		"Sigues apareciendo por aquí...",
+		"Otro día. Otro problema.",
+		"No aprendes, ¿verdad?",
+		"Vaya. Tú de nuevo.",
+		"Qué puntual. Como siempre.",
+	],
+	5: [
+		"Ya sé quién eres. Y lo que has hecho.",
+		"Te tenemos en la lista. Lleva tiempo.",
+		"No te hagas el desconocido. Nos acordamos.",
+		"Sabes perfectamente que no eres bienvenido aquí.",
+		"De todos los sitios. Tienes que aparecer aquí.",
+	],
+	7: [
+		"Precisamente tú. Qué mala suerte la tuya.",
+		"Mal momento para aparecer. O quizá el peor.",
+		"No te iba a pasar nada. Hasta que apareciste.",
+		"Hoy me alegra verte. Por primera vez.",
+		"Llevas tiempo mereciéndote esto.",
+	],
+	9: [
+		"Buscábamos una excusa. Gracias por darnos una.",
+		"No sé si eres valiente o estúpido. Hoy da igual.",
+		"Ya no hay negociación. Solo cuentas que saldar.",
+		"Querían que apareciera alguien como tú. Y aquí estás.",
+		"Esta vez no hay opción de pagar.",
+	],
+}
+
+## Distancia máxima (px²) al jugador para que se dispare el reconocimiento.
+const RECOGNITION_RANGE_SQ: float = 350.0 * 350.0
+## Cooldown mínimo (s) entre burbujas de reconocimiento por NPC.
+const RECOGNITION_COOLDOWN: float = 45.0
+
+# ---------------------------------------------------------------------------
+# Diálogo ambiental — frases de mundo mientras el NPC está ocioso o patrullando
+# ---------------------------------------------------------------------------
+const IDLE_CHAT_PHRASES: Array[String] = [
+	# Aburrimiento de guardia
+	"Otro día más vigilando piedras.",
+	"¿Cuántas veces he dado esta vuelta? No sé. Muchas.",
+	"El jefe dijo 'vigilancia discreta'. Llevamos aquí tres días.",
+	"Nadie me dijo que este trabajo iba a ser tan aburrido.",
+	"¿Cuánto falta para que me releven? Demasiado. Siempre demasiado.",
+	"Si alguien me pregunta qué hora es, le cobro.",
+	# Reflexiones sobre el oficio
+	"Buena zona. Mala paga.",
+	"Si aparece alguien, cobro. Si no aparece nadie, cobro igual. No está mal.",
+	"Mi madre quería que fuera carpintero. No sé por qué no la escuché.",
+	"El último que intentó pasar sin pagar... bueno. Al menos ya no tiene ese problema.",
+	"Dicen que hay gente que trabaja en oficinas. Qué raro debe ser eso.",
+	"Algún día me jubilo. Me compro una cabaña. Lejos de todo esto.",
+	"Llevo años en esto y todavía me sorprende la gente que dice que no.",
+	"El jefe habla mucho de 'expansión territorial'. Nosotros caminamos.",
+	# Territorio y orgullo
+	"Por aquí no pasa nadie sin que yo me entere. Nadie.",
+	"Buena visibilidad hoy. Cosa rara.",
+	"Esta zona es nuestra. Ha sido nuestra siempre. Lo seguirá siendo.",
+	"A veces me pregunto quién estaba aquí antes que nosotros. Y luego me dejo de preguntar.",
+	# Observaciones random
+	"Me duelen los pies. A nadie más le duelen los pies. Solo a mí.",
+	"Hace frío. O calor. Siempre algo.",
+	"¿Comemos hoy? Mejor que ayer, espero.",
+	"Me prometieron que esto iba a ser temporal. Eso fue hace cuatro años.",
+	"Tengo una teoría sobre por qué la gente siempre lleva menos dinero del que parece.",
+	"Si me dieran un perro por cada idiota que he visto pasar... tendría muchos perros.",
+	"El suelo de aquí es más cómodo que el del campamento. Eso dice algo.",
+	# Humor seco / oscuro
+	"A veces los trabajo bonitos no son tan bonitos. Este sí que no lo es.",
+	"Lo bueno de este trabajo: si alguien te fastidia, le fastidias tú a él.",
+	"Hay días que no pasa nadie. Hay días que pasan demasiados. Hoy todavía no sé.",
+	"Zona tranquila. Eso o nadie quiere pasar. Ambas opciones me vienen bien.",
+	"Que no se me olvide: cobrar primero, preguntar después.",
+	"Dicen que los bandidos no tenemos honor. Los que lo dicen nunca han visto cómo nos pagamos los unos a los otros.",
+	"He visto gente que miraba mal y acabó mirando al suelo. Así funciona.",
+	"A este paso, me voy a conocer cada piedra de aquí de nombre.",
+	"Alguno cree que si corre más rápido no le alcanzamos. Se equivoca siempre.",
+]
+
+## Cooldown entre frases idle (segundos). Se añade variación aleatoria por NPC.
+const IDLE_CHAT_COOLDOWN_MIN: float = 35.0
+const IDLE_CHAT_COOLDOWN_MAX: float = 90.0
+## Distancia mínima al jugador para soltar frases ambientales (que no suene a reacción).
+const IDLE_CHAT_PLAYER_DIST_MIN_SQ: float = 280.0 * 280.0
+
 var _npc_simulator:  NpcSimulator             = null
 var _group_intel:    BanditGroupIntel         = null
 var _player:         Node2D                   = null
@@ -49,6 +140,8 @@ var _extortion_director: BanditExtortionDirector = null
 var _raid_director:      BanditRaidDirector      = null
 var _stash:              BanditCampStashSystem   = null
 var _find_wall_cb:       Callable                = Callable()
+var _find_workbench_cb:  Callable                = Callable()
+var _find_storage_cb:    Callable                = Callable()
 
 # Cached world-level lists (rebuilt once per tick, shared across all enemies)
 var _all_drops_cache:     Array = []
@@ -106,11 +199,18 @@ func setup_group_intel(ctx: Dictionary) -> void:
 		"get_detected_bases_near":   ctx.get("get_detected_bases_near",   Callable()),
 	})
 
-	# Guardar wall query callable — se pasa al RaidDirector y también al ctx de cada tick
+	# Guardar query callables — se pasan al RaidDirector y también al ctx de cada tick
 	var wall_cb: Callable = ctx.get("find_nearest_player_wall_world_pos", Callable())
 	_find_wall_cb = wall_cb
 	if _raid_director != null and wall_cb.is_valid():
 		_raid_director.set_wall_query(wall_cb)
+	_find_workbench_cb = ctx.get("find_nearest_player_workbench_world_pos", Callable())
+	_find_storage_cb   = ctx.get("find_nearest_player_storage_world_pos",   Callable())
+	if _raid_director != null:
+		if _find_workbench_cb.is_valid():
+			_raid_director.set_workbench_query(_find_workbench_cb)
+		if _find_storage_cb.is_valid():
+			_raid_director.set_storage_query(_find_storage_cb)
 
 
 # ---------------------------------------------------------------------------
@@ -239,15 +339,19 @@ func _tick_behaviors() -> void:
 
 		var node_pos: Vector2 = node.global_position
 		var ctx: Dictionary = {
-			"node_pos":              node_pos,
-			"nearby_drops_info":     _build_drops_info(node_pos),
-			"nearby_res_info":       _build_res_info(node_pos),
-			"find_nearest_player_wall": _find_wall_cb,
+			"node_pos":                       node_pos,
+			"nearby_drops_info":              _build_drops_info(node_pos),
+			"nearby_res_info":                _build_res_info(node_pos),
+			"find_nearest_player_wall":       _find_wall_cb,
+			"find_nearest_player_workbench":  _find_workbench_cb,
+			"find_nearest_player_storage":    _find_storage_cb,
 		}
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
 
 		beh.tick(BanditTuningScript.behavior_tick_interval(), ctx)
+		_maybe_show_recognition_bubble(beh, node, node_pos)
+		_maybe_show_idle_chat(beh, node, node_pos)
 
 		# Detección de aggro mientras aún es eligible
 		if not beh._cargo_manifest.is_empty():
@@ -401,6 +505,90 @@ func _prune_behaviors() -> void:
 		if NpcPathService.is_ready():
 			NpcPathService.clear_agent(enemy_id)
 		Debug.log("bandit_ai", "[BanditBL] behavior pruned id=%s" % enemy_id)
+
+
+# ---------------------------------------------------------------------------
+# Recognition bubbles — feedback "te tienen fichado"
+# ---------------------------------------------------------------------------
+
+## Muestra una burbuja de reconocimiento si el NPC ve al jugador mientras
+## la hostilidad es alta. Cooldown por NPC para evitar spam.
+func _maybe_show_recognition_bubble(beh: BanditWorldBehavior,
+		node: Node, node_pos: Vector2) -> void:
+	if _bubble_manager == null or _player == null:
+		return
+	if beh.group_id == "":
+		return
+	# Solo si está cazando activamente
+	var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
+	if String(g.get("current_group_intent", "")) != "hunting":
+		return
+	# Cooldown por NPC
+	if RunClock.now() < beh.recognition_bubble_until:
+		return
+	# Solo si el jugador está cerca
+	if _player.global_position.distance_squared_to(node_pos) > RECOGNITION_RANGE_SQ:
+		return
+	# Nivel de hostilidad suficiente
+	var faction_id: String = String(g.get("faction_id", ""))
+	if faction_id == "":
+		return
+	var h_level: int = FactionHostilityManager.get_hostility_level(faction_id)
+	if h_level < 3:
+		return
+	# Elegir el tier de frases más alto que no supere el nivel actual
+	var phrase_tier: int = 3
+	for tier: int in [9, 7, 5, 3]:
+		if h_level >= tier:
+			phrase_tier = tier
+			break
+	var phrases: Array = RECOGNITION_PHRASES.get(phrase_tier, []) as Array
+	if phrases.is_empty():
+		return
+	var phrase: String = phrases[randi() % phrases.size()] as String
+	_bubble_manager.show_actor_bubble(node as Node2D, phrase, 3.5)
+	beh.recognition_bubble_until = RunClock.now() + RECOGNITION_COOLDOWN
+	Debug.log("bandit_ai", "[BBL] recognition bubble npc=%s h_level=%d tier=%d" % [
+		beh.member_id, h_level, phrase_tier])
+
+
+# ---------------------------------------------------------------------------
+# Idle chat — diálogo ambiental de mundo
+# ---------------------------------------------------------------------------
+
+## Dispara una frase ambiental ocasional cuando el NPC está ocioso o patrullando,
+## sin que el jugador esté cerca. Crea sensación de mundo vivo.
+func _maybe_show_idle_chat(beh: BanditWorldBehavior,
+		node: Node, node_pos: Vector2) -> void:
+	if _bubble_manager == null:
+		return
+	# Cooldown por NPC (escalonado desde setup para que no hablen todos a la vez)
+	if RunClock.now() < beh.idle_chat_until:
+		return
+	# Solo en estados ociosos — no mientras caza, extorsiona, carga material ni vuelve al camp
+	var state_ok: bool = beh.state == NpcWorldBehavior.State.IDLE_AT_HOME \
+		or beh.state == NpcWorldBehavior.State.PATROL
+	if not state_ok:
+		return
+	# No chatear si el grupo está en intención activa
+	if beh.group_id != "":
+		var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
+		var intent: String = String(g.get("current_group_intent", ""))
+		if intent == "hunting" or intent == "extorting" or intent == "raiding":
+			return
+	# No chatear si el jugador está demasiado cerca (que no suene a reacción)
+	if _player != null and is_instance_valid(_player):
+		if _player.global_position.distance_squared_to(node_pos) < IDLE_CHAT_PLAYER_DIST_MIN_SQ:
+			return
+	# Baja probabilidad por tick para que no salga en cada tick elegible
+	# (tick interval ~0.5s → ~1/20 = 5% chance por tick elegible → frase cada ~10s en ventana)
+	if randf() > 0.05:
+		beh.idle_chat_until = RunClock.now() + 2.0  # micro-cooldown para no re-tirar cada frame
+		return
+	var phrase: String = IDLE_CHAT_PHRASES[randi() % IDLE_CHAT_PHRASES.size()]
+	_bubble_manager.show_actor_bubble(node as Node2D, phrase, 3.5)
+	# Cooldown aleatorio para que cada NPC hable a su propio ritmo
+	beh.idle_chat_until = RunClock.now() + randf_range(IDLE_CHAT_COOLDOWN_MIN, IDLE_CHAT_COOLDOWN_MAX)
 
 
 func _get_behavior(enemy_id: String) -> BanditWorldBehavior:

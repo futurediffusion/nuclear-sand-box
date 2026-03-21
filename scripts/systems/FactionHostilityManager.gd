@@ -167,6 +167,14 @@ const INCIDENT_WEIGHTS: Dictionary = {
 	"storage_damaged":     50.0,
 	"wall_damaged":        40.0,
 
+	# — Presencia del jugador (detectada por BanditGroupIntel cada scan) —
+	# Cada categoría se dispara por separado; pueden acumularse en el mismo scan.
+	# Orden de gravedad: base > workbench > resource > structure > trespassed.
+	"base_detected":       10.0,   # detectaron tu base — amenaza territorial seria
+	"workbench_near":       5.0,   # tienes taller cerca — estás produciendo, progresando
+	"resource_extracted":   2.5,   # estás sacando recursos de su zona
+	"structure_near":       1.5,   # estás construyendo — señal de asentamiento
+
 	# — Reducciones —
 	"extortion_paid":      -5.0,
 	"ally_helped":        -15.0,
@@ -192,6 +200,11 @@ const HEAT_WEIGHTS: Dictionary = {
 	"extortion_paid":       0.0,
 	"ally_helped":          0.0,
 	"quest_completed":      0.0,
+	# Presencia del jugador — heat bajo, es presión acumulada no incidente agudo
+	"base_detected":       18.0,
+	"workbench_near":       8.0,
+	"resource_extracted":   4.0,
+	"structure_near":       2.0,
 }
 
 # ---------------------------------------------------------------------------
@@ -569,6 +582,9 @@ func _increment_counter(data: FactionHostilityData, reason: String) -> void:
 		"storage_damaged":    data.times_storage_hit      += 1
 		"wall_damaged":       data.times_wall_hit         += 1
 		"can_raid_base":      data.times_raided           += 1
+		"base_detected":      data.times_base_detected    += 1
+		"workbench_near":     data.times_workbench_near   += 1
+		"resource_extracted": data.times_resource_ext     += 1
 
 
 # ---------------------------------------------------------------------------

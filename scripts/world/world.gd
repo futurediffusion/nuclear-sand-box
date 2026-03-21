@@ -507,7 +507,9 @@ func _ready() -> void:
 		_bandit_behavior_layer.setup_group_intel({
 			"get_interest_markers_near":      Callable(self, "get_interest_markers_near"),
 			"get_detected_bases_near":        Callable(self, "get_detected_bases_near"),
-			"find_nearest_player_wall_world_pos": Callable(self, "find_nearest_player_wall_world_pos"),
+			"find_nearest_player_wall_world_pos":       Callable(self, "find_nearest_player_wall_world_pos"),
+		"find_nearest_player_workbench_world_pos":  Callable(self, "find_nearest_player_workbench_world_pos"),
+		"find_nearest_player_storage_world_pos":    Callable(self, "find_nearest_player_storage_world_pos"),
 		})
 
 	await update_chunks(current_player_chunk)
@@ -935,6 +937,36 @@ func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Ve
 	if _player_wall_system == null:
 		return Vector2(-1.0, -1.0)
 	return _player_wall_system.find_nearest_player_wall_world_pos(world_pos, radius)
+
+func find_nearest_player_workbench_world_pos(world_pos: Vector2, radius: float) -> Vector2:
+	var best_dsq: float = radius * radius
+	var best_pos: Vector2 = Vector2(-1.0, -1.0)
+	for node in get_tree().get_nodes_in_group("workbench"):
+		if not is_instance_valid(node):
+			continue
+		var n2d: Node2D = node as Node2D
+		if n2d == null:
+			continue
+		var dsq: float = world_pos.distance_squared_to(n2d.global_position)
+		if dsq < best_dsq:
+			best_dsq = dsq
+			best_pos = n2d.global_position
+	return best_pos
+
+func find_nearest_player_storage_world_pos(world_pos: Vector2, radius: float) -> Vector2:
+	var best_dsq: float = radius * radius
+	var best_pos: Vector2 = Vector2(-1.0, -1.0)
+	for node in get_tree().get_nodes_in_group("chest"):
+		if not is_instance_valid(node):
+			continue
+		var n2d: Node2D = node as Node2D
+		if n2d == null:
+			continue
+		var dsq: float = world_pos.distance_squared_to(n2d.global_position)
+		if dsq < best_dsq:
+			best_dsq = dsq
+			best_pos = n2d.global_position
+	return best_pos
 
 func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 20.0, allow_structural_feedback: bool = true) -> bool:
 	return _player_wall_system != null and _player_wall_system.hit_wall_at_world_pos(world_pos, amount, radius, allow_structural_feedback)

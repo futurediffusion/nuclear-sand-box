@@ -35,6 +35,24 @@ func enqueue_raid(faction_id: String, group_id: String, leader_id: String,
 		group_id, base_id, str(base_center)])
 
 
+func enqueue_light_raid(faction_id: String, group_id: String, leader_id: String,
+		base_center: Vector2, base_id: String) -> void:
+	var intent: Dictionary = {
+		"faction_id":  faction_id,
+		"group_id":    group_id,
+		"leader_id":   leader_id,
+		"base_center": base_center,
+		"base_id":     base_id,
+		"raid_type":   "light",
+		"created_at":  RunClock.now(),
+	}
+	_intents.append(intent)
+	if group_id != "":
+		_last_raid_time_by_group[group_id] = RunClock.now()
+	Debug.log("raid", "[RQ] light raid enqueued — group=%s base=%s center=%s" % [
+		group_id, base_id, str(base_center)])
+
+
 func has_pending_for_group(group_id: String) -> bool:
 	for i in _intents:
 		if String(i.get("group_id", "")) == group_id:

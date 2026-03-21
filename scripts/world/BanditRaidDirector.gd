@@ -24,6 +24,14 @@ func set_wall_query(cb: Callable) -> void:
 	if _flow != null:
 		_flow.set_wall_query(cb)
 
+func set_workbench_query(cb: Callable) -> void:
+	if _flow != null:
+		_flow.set_workbench_query(cb)
+
+func set_storage_query(cb: Callable) -> void:
+	if _flow != null:
+		_flow.set_storage_query(cb)
+
 
 func process_raid() -> void:
 	if _flow != null:

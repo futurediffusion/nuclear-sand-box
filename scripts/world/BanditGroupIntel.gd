@@ -98,12 +98,11 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 
 	var faction_id: String = String(g.get("faction_id", "bandits"))
 
-	# ── Trespassing: cada scan con actividad detectada acumula hostilidad ─
-	# Conecta el sistema de intel con el de hostilidad. Sin esto el jugador
-	# nunca llega orgánicamente al nivel 1 y can_extort nunca es true.
-	if score > 0.0:
-		FactionHostilityManager.add_hostility(faction_id, 0.0, "player_trespassed",
-			{"group_id": group_id, "entity_id": group_id, "position": home_pos})
+	# ── Presencia del jugador: eventos granulares por tipo de actividad ───
+	# Cada categoría detectada dispara su propio incidente con entity_id distinto
+	# para que el dedup no los bloquee entre sí. El total por scan puede ser
+	# mayor que un simple "player_trespassed" si el jugador tiene base + taller + minería.
+	_fire_presence_hostility(markers, bases, faction_id, group_id, home_pos)
 
 	# ── Hostility modifier ────────────────────────────────────────────────
 	# El nivel de hostilidad del grupo contra el jugador afecta cuán
@@ -176,10 +175,15 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	if score >= T_EXTORT and interest != null and profile.can_extort and not profile.can_knockout:
 		_maybe_enqueue_extortion(group_id, g, interest, score)
 
-	# Raid: capacidad exclusiva de nivel 10. Requiere base detectada.
+	# Raid completo: capacidad exclusiva de nivel 10. Requiere base detectada.
 	# Tiene prioridad sobre hunting/extorting — la facción va directo a la base.
 	if profile.can_raid_base and not bases.is_empty():
 		_maybe_enqueue_raid(group_id, g, bases[0], faction_id)
+
+	# Raid leve: niveles 7-9 con can_damage_workbenches y base detectada.
+	# Grupo converge en la base para sabotear talleres/storage (30s, sin asalto de muros).
+	elif profile.can_damage_workbenches and not bases.is_empty():
+		_maybe_enqueue_light_raid(group_id, g, bases[0], faction_id)
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +332,66 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 
 
 # ---------------------------------------------------------------------------
+# Presence hostility — disparo granular por tipo de actividad detectada
+# ---------------------------------------------------------------------------
+
+## Dispara un incidente de hostilidad por cada categoría de actividad presente
+## en el scan. Cada categoría tiene entity_id distinto para que el dedup
+## no bloquee el conjunto — base + workbench + minería suman todos.
+##
+## Tabla de pts/scan (producción, SCAN_INTERVAL ≈ 8 s):
+##   base_detected     10 pts  — amenaza territorial seria
+##   workbench_near     5 pts  — estás produciendo, progresando
+##   resource_extracted 2.5 pts — sacando recursos de su zona
+##   structure_near     1.5 pts — señal de asentamiento
+##   player_trespassed  6 pts  — fallback: actividad sin categoría clara
+func _fire_presence_hostility(markers: Array, bases: Array,
+		faction_id: String, group_id: String, home_pos: Vector2) -> void:
+	var fired: bool = false
+
+	# Base detectada — la mayor amenaza
+	for b in bases:
+		var base_id: String = String(b.get("id", group_id + ":base"))
+		FactionHostilityManager.add_hostility(faction_id, 0.0, "base_detected",
+			{"group_id": group_id, "entity_id": base_id, "position": home_pos})
+		fired = true
+		break  # una base por scan es suficiente
+
+	# Clasificar marcadores por tipo
+	var has_workbench: bool = false
+	var has_structure: bool = false
+	var has_mining:    bool = false
+	for m in markers:
+		match String(m.get("kind", "")):
+			"workbench":        has_workbench = true
+			"structure_placed": has_structure = true
+			"copper_mined", "stone_mined", "wood_chopped":
+				has_mining = true
+
+	if has_workbench:
+		FactionHostilityManager.add_hostility(faction_id, 0.0, "workbench_near",
+			{"group_id": group_id, "entity_id": group_id + ":wb", "position": home_pos})
+		fired = true
+
+	if has_mining:
+		FactionHostilityManager.add_hostility(faction_id, 0.0, "resource_extracted",
+			{"group_id": group_id, "entity_id": group_id + ":mine", "position": home_pos})
+		fired = true
+
+	if has_structure:
+		FactionHostilityManager.add_hostility(faction_id, 0.0, "structure_near",
+			{"group_id": group_id, "entity_id": group_id + ":st", "position": home_pos})
+		fired = true
+
+	# Fallback: actividad genérica sin categoría clara (o jugador merodeando sin dejar rastro)
+	if not fired:
+		var score_val: float = _score_activity(markers, bases)
+		if score_val > 0.0:
+			FactionHostilityManager.add_hostility(faction_id, 0.0, "player_trespassed",
+				{"group_id": group_id, "entity_id": group_id, "position": home_pos})
+
+
+# ---------------------------------------------------------------------------
 # Extortion reason — causa dominante de esta extorsión
 # ---------------------------------------------------------------------------
 
@@ -355,6 +419,37 @@ func _pick_extort_reason(markers: Array, bases: Array,
 		return "visible_wealth"
 	# "Te dejamos pasar una vez. Esta vez cobras peaje."
 	return "territorial"
+
+
+# ---------------------------------------------------------------------------
+# Light raid enqueue — niveles 7-9, requiere base detectada
+# ---------------------------------------------------------------------------
+
+## Encola un raid leve para bandas de nivel 7-9 con can_damage_workbenches.
+## El grupo converge en la base del jugador para sabotear workbenches y storage.
+## Cooldown independiente: 120s (más frecuente que el raid completo de nivel 10).
+func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
+		base: Dictionary, faction_id: String) -> void:
+	# Guard 1: ya raideando o con raid pendiente
+	var current_intent: String = String(BanditGroupMemory.get_group(group_id).get("current_group_intent", ""))
+	if current_intent == "raiding":
+		return
+	if RaidQueue.has_pending_for_group(group_id):
+		return
+	# Guard 2: cooldown desde el último raid
+	var last_time: float = RaidQueue.get_last_raid_time(group_id)
+	if RunClock.now() - last_time < 120.0:
+		return
+
+	var leader_id: String    = String(g.get("leader_id", ""))
+	var base_center: Vector2 = base.get("center_world_pos", Vector2.ZERO) as Vector2
+	var base_id: String      = String(base.get("id", ""))
+
+	RaidQueue.enqueue_light_raid(faction_id, group_id, leader_id, base_center, base_id)
+	BanditGroupMemory.update_intent(group_id, "raiding")
+	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
+	Debug.log("bandit_intel", "[BGI] light raid enqueued group=%s leader=%s base=%s" % [
+		group_id, leader_id, base_id])
 
 
 # ---------------------------------------------------------------------------

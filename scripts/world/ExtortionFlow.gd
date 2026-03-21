@@ -7,16 +7,78 @@ extends Node
 
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 
+## Frases de acercamiento — se muestran cuando el grupo ya está cerca del jugador.
 const TAUNT_PHRASES: Array[String] = [
 	"Mira quién cree que puede pasar por aquí.",
 	"Paga y quizá sigas respirando.",
 	"No pongas esa cara. Esto es solo negocios.",
+	"Qué conveniente encontrarte aquí.",
+	"Para. Tenemos que hablar de tu cuenta pendiente.",
+	"No te muevas. Esto será rápido.",
+	"Sabíamos que aparecerías. Siempre apareces.",
+	"Hoy tienes cara de que me vas a pagar.",
+	"Elige bien lo que dices ahora.",
+	"Cuánto tiempo. Aunque no tanto como para olvidar que nos debes.",
 ]
 
+## Frases cuando el jugador no puede pagar.
 const POVERTY_TAUNT_PHRASES: Array[String] = [
 	"¿Esto es todo lo que tienes? ¡Qué miseria!",
 	"Tan pobre que ni para el peaje. Da asco.",
 	"Acuérdate de esta paliza. La próxima te va a costar el doble... si es que sobrevives.",
+	"Sin dinero. Qué decepción. Vamos a tener que cobrarnos de otra forma.",
+	"¿De verdad? ¿Ni un perro? Entonces vas a aprender lo que cuesta no tener.",
+	"No hay plata. Vale. Hay otras monedas.",
+]
+
+## Frases cuando el jugador paga — se muestran mientras se retiran.
+const PAY_ACK_PHRASES: Array[String] = [
+	"Buen movimiento.",
+	"Siempre supe que eras razonable.",
+	"Nos vemos pronto. Ya sabes cómo va esto.",
+	"Smart. Muy smart.",
+	"Te va a durar poco eso que te queda. Volveremos.",
+	"Hasta la próxima. Que será pronto.",
+	"Gracias por los negocios.",
+]
+
+## Reacciones al rechazo (opción 2) — antes del warning strike.
+const REFUSE_REACTION_PHRASES: Array[String] = [
+	"Error que vas a lamentar.",
+	"Bien. Que sea la última vez que dices no.",
+	"Decidiste el camino difícil. Respeto eso. Pero te va a doler.",
+	"No. Mira lo que pasa cuando dices no.",
+	"Como quieras. Pero esto no queda así.",
+	"Qué valiente. Veremos cuánto te dura.",
+	"Bonita decisión. Equivocada, pero bonita.",
+]
+
+## Reacciones al insulto (opción 3) — antes del aggro completo.
+const INSULT_REACTION_PHRASES: Array[String] = [
+	"¿Eso acabas de decir? Último error.",
+	"Genial. Ahora vas a aprender modales.",
+	"Que te guste el dolor. Te va a hacer falta.",
+	"Palabras muy grandes para alguien tan solo.",
+	"Ya no hay negociación. Solo consecuencias.",
+	"No sé qué te pasa por la cabeza. Pero sí sé lo que te va a pasar ahora.",
+]
+
+## Frases cuando alguien del grupo vio caer al líder.
+const LEADER_KILLED_PHRASES: Array[String] = [
+	"¡Mató al jefe! ¡Recuerda su cara!",
+	"Esto no se olvida. No se olvida nunca.",
+	"¡Al jefe! ¡Le mató al jefe! ¡Vais a pagar por esto!",
+	"Te vamos a encontrar. No importa dónde vayas.",
+	"Eso fue un error muy grande.",
+]
+
+## Frases cuando el jugador huyó durante la extorsión.
+const PLAYER_RAN_PHRASES: Array[String] = [
+	"La próxima no se escapa.",
+	"Corre. Disfrútalo. No va a durar.",
+	"Muy listo. Por ahora.",
+	"La deuda sigue ahí. Nosotros también.",
+	"Vuelve cuando tengas agallas. Y dinero.",
 ]
 
 var _npc_simulator:           NpcSimulator              = null
@@ -104,6 +166,7 @@ func on_choice_resolved(option: int, gid: String) -> void:
 				FactionHostilityManager.add_hostility(faction, 0.0, "extortion_paid",
 					{"group_id": gid, "amount": pay_amount})
 				Debug.log("extortion", "[EXTORT] paid %d gold group=%s" % [pay_amount, gid])
+				_show_reaction_bubble(job, PAY_ACK_PHRASES)
 				_resolve_extortion_idle(job)
 			else:
 				# El jugador quiso pagar pero no tiene oro: misma gravedad que negarse
@@ -115,10 +178,12 @@ func on_choice_resolved(option: int, gid: String) -> void:
 		2:
 			FactionHostilityManager.add_hostility(faction, 0.0, "extortion_refused",
 				{"group_id": gid})
+			_show_reaction_bubble(job, REFUSE_REACTION_PHRASES)
 			_resolve_extortion_warn(job)
 		3:
 			FactionHostilityManager.add_hostility(faction, 0.0, "extortion_insulted",
 				{"group_id": gid})
+			_show_reaction_bubble(job, INSULT_REACTION_PHRASES)
 			_resolve_extortion_aggro(job)
 
 
@@ -197,6 +262,8 @@ func _abort_job(gid: String, job: ExtortionJob, reason: String) -> void:
 	var group_data: Dictionary = BanditGroupMemory.get_group(gid)
 	if String(group_data.get("current_group_intent", "idle")) == "extorting":
 		BanditGroupMemory.update_intent(gid, "idle")
+	# Feedback visual según el motivo del abort
+	_show_abort_feedback(job, reason, group_data)
 	Debug.log("extortion", "[EXTORT ABORT] group=%s reason=%s" % [gid, reason])
 
 
@@ -434,6 +501,58 @@ func _get_job_faction_id(job: ExtortionJob) -> String:
 		if enode != null and is_instance_valid(enode) and "faction_id" in enode:
 			return String(enode.get("faction_id"))
 	return "bandits"
+
+
+# ---------------------------------------------------------------------------
+# Reaction bubble helpers
+# ---------------------------------------------------------------------------
+
+## Muestra una frase aleatoria del array desde el speaker del job (taunt_speaker_id).
+## Silencioso si el speaker ya no existe.
+func _show_reaction_bubble(job: ExtortionJob, phrases: Array[String]) -> void:
+	if _bubble_manager == null or phrases.is_empty():
+		return
+	var speaker_id: String = job.taunt_speaker_id
+	if speaker_id == "":
+		speaker_id = job.assigned_ids[0] if job.assigned_ids.size() > 0 else ""
+	if speaker_id == "":
+		return
+	var speaker := _npc_simulator.get_enemy_node(speaker_id)
+	if speaker == null or not is_instance_valid(speaker):
+		return
+	var phrase: String = phrases[randi() % phrases.size()]
+	_bubble_manager.show_actor_bubble(speaker as Node2D, phrase,
+		BanditTuningScript.extort_taunt_bubble_duration(job.group_id))
+
+
+## Muestra feedback visual según el motivo de abort.
+## Elige el speaker más apropiado según si el líder sigue vivo o no.
+func _show_abort_feedback(job: ExtortionJob, reason: String,
+		group_data: Dictionary) -> void:
+	if _bubble_manager == null:
+		return
+	var phrases: Array[String] = []
+	match reason:
+		"leader_dead":
+			phrases = LEADER_KILLED_PHRASES
+		"player_too_far":
+			phrases = PLAYER_RAN_PHRASES
+		_:
+			return  # otros aborts son internos, sin feedback visual
+
+	# Para leader_dead: buscar un miembro vivo que pueda hablar
+	var speaker := _npc_simulator.get_enemy_node(job.taunt_speaker_id) \
+		if job.taunt_speaker_id != "" else null
+	if speaker == null or not is_instance_valid(speaker):
+		for mid in group_data.get("member_ids", []):
+			var mnode := _npc_simulator.get_enemy_node(String(mid))
+			if mnode != null and is_instance_valid(mnode):
+				speaker = mnode
+				break
+	if speaker == null:
+		return
+	var phrase: String = phrases[randi() % phrases.size()]
+	_bubble_manager.show_actor_bubble(speaker as Node2D, phrase, 4.0)
 
 
 # ---------------------------------------------------------------------------

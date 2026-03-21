@@ -111,6 +111,18 @@ var _last_intent: String = ""
 # Cooldown por NPC para que no spamee el ataque al mismo muro.
 var _wall_assault_cooldown_until: float = 0.0
 
+# ── Property sabotage (workbench / storage) ───────────────────────────────────
+# Cooldown por NPC para ataques oportunistas a placeables del jugador (nivel 7+).
+var _property_sabotage_cooldown_until: float = 0.0
+
+# ── Reconocimiento del jugador ────────────────────────────────────────────────
+# Cooldown para que este NPC no muestre burbujas de reconocimiento muy seguido.
+var recognition_bubble_until: float = 0.0
+
+# ── Diálogo ambiental ─────────────────────────────────────────────────────────
+# Cooldown para frases de mundo mientras el NPC está ocioso o patrullando.
+var idle_chat_until: float = 0.0
+
 # ── Hostility profile ─────────────────────────────────────────────────────
 # Actualizado al inicio de cada tick. No persiste: se recalcula desde el manager.
 var faction_id: String              = "bandits"
@@ -275,6 +287,7 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	# progresiva a partir de nivel 6. Sin raids — comportamiento individual.
 	if state == State.IDLE_AT_HOME or state == State.PATROL:
 		_try_opportunistic_wall_assault(ctx)
+		_try_property_sabotage(ctx)
 
 	# ── 5. Leader: proactive roam toward reported resources / territory ───
 	if role == "leader" and (state == State.IDLE_AT_HOME or state == State.PATROL):
@@ -712,6 +725,46 @@ func enter_wall_assault(wall_pos: Vector2) -> void:
 	_move_target = wall_pos
 	state        = State.APPROACH_INTEREST
 	_state_timer = 0.0
+
+
+## Sabotaje oportunista a placeables (workbench / storage) — no raid:
+## A partir de nivel 7 los NPCs atacan talleres; nivel 8+ también atacan storage.
+## Probabilidad: (nivel-6) × 2% por tick. Cooldown: 35s por NPC.
+## La IA normal (slash.gd) inflige el daño al llegar y golpear el placeable.
+func _try_property_sabotage(ctx: Dictionary) -> void:
+	if RunClock.now() < _property_sabotage_cooldown_until:
+		return
+	if _profile == null:
+		return
+	var h_level: int = _profile.hostility_level
+	if h_level < 7:
+		return
+	# (nivel-6) × 2% — nivel 7→2%, 8→4%, 9→6%, 10→8%
+	var chance: float = float(h_level - 6) * 0.02
+	if _rng.randf() > chance:
+		return
+	var node_pos: Vector2 = ctx.get("node_pos", home_pos) as Vector2
+	var target_pos: Vector2 = Vector2(-1.0, -1.0)
+	# Nivel 7+: workbench
+	if h_level >= 7:
+		var find_wb: Callable = ctx.get("find_nearest_player_workbench", Callable())
+		if find_wb.is_valid():
+			target_pos = find_wb.call(node_pos, 400.0) as Vector2
+	# Nivel 8+: storage — preferir el más cercano entre los dos tipos
+	if h_level >= 8:
+		var find_st: Callable = ctx.get("find_nearest_player_storage", Callable())
+		if find_st.is_valid():
+			var st_pos: Vector2 = find_st.call(node_pos, 400.0) as Vector2
+			if st_pos.x >= 0.0:
+				if target_pos.x < 0.0 or \
+						node_pos.distance_squared_to(st_pos) < node_pos.distance_squared_to(target_pos):
+					target_pos = st_pos
+	if target_pos.x < 0.0:
+		return
+	enter_wall_assault(target_pos)
+	_property_sabotage_cooldown_until = RunClock.now() + 35.0
+	Debug.log("bandit_ai", "[BWB] property sabotage — member=%s level=%d target=%s" % [
+		member_id, h_level, str(target_pos)])
 
 
 ## Comportamiento oportunista individual (no raid):
