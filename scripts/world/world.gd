@@ -1088,6 +1088,69 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionary = {}) -> void:
 	if _settlement_intel != null:
 		_settlement_intel.record_interest_event(kind, world_pos, metadata)
+	_check_territory_intrusion(kind, world_pos)
+
+
+# Hostilidad inmediata por actividad del jugador dentro de territorio bandido.
+# Complementa los escaneos periódicos de BanditGroupIntel — cuando algo ocurre
+# dentro del radio de influencia de un grupo se dispara de inmediato, sin esperar.
+#
+# Pesos (en pts de hostilidad directa):
+#   workbench        → 8 pts  ("están poniendo un taller aquí")
+#   structure_placed → 5 pts  ("están asentándose")
+#   copper/stone     → 4 pts  ("están saqueando nuestros recursos")
+#   wood_chopped     → 2 pts  ("molesta pero menor")
+const _TERRITORY_INTRUSION_PTS: Dictionary = {
+	"workbench":        8.0,
+	"structure_placed": 5.0,
+	"copper_mined":     4.0,
+	"stone_mined":      4.0,
+	"wood_chopped":     2.0,
+}
+# Cooldown por facción para no spamear la misma reacción (segundos reales).
+var _territory_intrusion_cooldown: Dictionary = {}  # faction_id → RunClock timestamp
+
+func _check_territory_intrusion(kind: String, world_pos: Vector2) -> void:
+	if not _TERRITORY_INTRUSION_PTS.has(kind):
+		return
+	var groups: Array[Dictionary] = BanditTerritoryQuery.groups_at(world_pos)
+	if groups.is_empty():
+		return
+	var pts: float = float(_TERRITORY_INTRUSION_PTS[kind])
+	var now: float = RunClock.now()
+	var reacted_faction: String = ""
+	for entry in groups:
+		var faction_id: String = String(entry.get("faction_id", ""))
+		# Cooldown por facción: 6s entre disparos de intrusión
+		if now - float(_territory_intrusion_cooldown.get(faction_id, 0.0)) < 6.0:
+			continue
+		_territory_intrusion_cooldown[faction_id] = now
+		var group_id: String = String(entry.get("group_id", ""))
+		# Razón: usa las razones existentes para que los pesos de FHM sean correctos
+		var reason: String
+		match kind:
+			"workbench":                            reason = "workbench_near"
+			"copper_mined", "stone_mined", "wood_chopped": reason = "resource_extracted"
+			_:                                      reason = "structure_near"
+		# Entity_id único por acción para que el dedup de 300ms no bloquee eventos
+		# legítimamente separados (ej. workbench colocado + minería son distintos)
+		var entity_id: String = "territory:" + faction_id + ":" + kind
+		FactionHostilityManager.add_hostility(faction_id, pts, reason, {
+			"entity_id": entity_id,
+			"group_id":  group_id,
+			"position":  world_pos,
+		})
+		Debug.log("territory", "[TERRITORY] intrusion kind=%s faction=%s pts=%.0f pos=%s" % [
+			kind, faction_id, pts, str(world_pos)])
+		if reacted_faction == "":
+			reacted_faction = faction_id
+	# Notificar a BanditBehaviorLayer para que un NPC cercano reaccione con burbuja
+	if reacted_faction != "" and _bandit_behavior_layer != null:
+		var top: Dictionary = groups[0]
+		_bandit_behavior_layer.notify_territory_reaction(
+			String(top.get("faction_id", "")),
+			String(top.get("group_id", "")),
+			world_pos, kind)
 
 func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dictionary]:
 	if _settlement_intel == null:

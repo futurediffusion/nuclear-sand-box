@@ -173,7 +173,7 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	# Extortion: solo válida si el perfil lo permite (niveles 1-3 principalmente)
 	# En nivel 5+ la extorsión pierde sentido como salida principal — prefieren cazar
 	if score >= T_EXTORT and interest != null and profile.can_extort and not profile.can_knockout:
-		_maybe_enqueue_extortion(group_id, g, interest, score)
+		_maybe_enqueue_extortion(group_id, g, interest, score, markers, bases)
 
 	# Raid completo: capacidad exclusiva de nivel 10. Requiere base detectada.
 	# Tiene prioridad sobre hunting/extorting — la facción va directo a la base.
@@ -280,7 +280,8 @@ func _pick_scout(group_id: String, g: Dictionary) -> String:
 # ---------------------------------------------------------------------------
 
 func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
-		interest: Dictionary, score: float) -> void:
+		interest: Dictionary, score: float,
+		markers: Array, bases: Array) -> void:
 	# Guard 1: already queued for this group
 	if ExtortionQueue.has_pending_for_group(group_id):
 		Debug.log("bandit_intel", "[BGI] extortion pending — skip group=%s" % group_id)

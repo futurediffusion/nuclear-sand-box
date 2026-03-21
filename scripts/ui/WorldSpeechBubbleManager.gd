@@ -33,8 +33,17 @@ func show_actor_bubble(actor: Node2D, text: String, duration: float = 2.5) -> vo
 	_kill_entry(id)
 
 	var bubble: SpeechBubble = BUBBLE_SCENE.instantiate() as SpeechBubble
+	# Posicionar ANTES de add_child para evitar el frame en (0,0).
+	# size no está disponible aún, así que se usa Vector2.ZERO como placeholder
+	# y _process() ajustará desde el primer frame real. Para eliminar el titilado
+	# visible lo ocultamos hasta que _process() haya corrido al menos una vez.
+	bubble.visible = false
 	add_child(bubble)
 	bubble.set_text(text)
+	# Primera posición inmediata — size ya es válido tras add_child + set_text
+	var screen_pos: Vector2 = actor.get_global_transform_with_canvas().origin
+	bubble.position = screen_pos - Vector2(bubble.size.x * 0.5 - SIDE_OFFSET, bubble.size.y + HEAD_OFFSET)
+	bubble.visible = true
 
 	_active[id] = {
 		"bubble": bubble,

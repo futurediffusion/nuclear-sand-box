@@ -58,7 +58,9 @@
       "Bash(godot --headless --check-only --script scripts/world/NpcWorldBehavior.gd)",
       "mcp__godot-mcp__get_scene_tree",
       "Bash(grep -E \"\\\\.\\(gd\\)$\")",
-      "Bash(godot --path . --check-only --script scripts/world/BanditWorldBehavior.gd)"
+      "Bash(godot --path . --check-only --script scripts/world/BanditWorldBehavior.gd)",
+      "Bash(godot --path . --check-only --script scripts/world/BanditTerritoryQuery.gd)",
+      "Bash(godot --path . --check-only --script scripts/world/world.gd)"
     ]
   }
 }
