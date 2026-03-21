@@ -624,6 +624,8 @@ func _handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			)
 
 	beh._cargo_manifest.clear()
+	# Notify behavior to leave the barrel area immediately
+	beh.on_deposit_complete()
 	Debug.log("bandit_ai", "[BanditBL] cargo depositado id=%s pos=%s chest=%s" % [
 		beh.member_id, str(spawn_pos), str(chest != null)])
 

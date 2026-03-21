@@ -12,10 +12,11 @@ class_name BanditWorldBehavior
 # Role behaviours:
 #   scavenger — wide patrol; claims & reports resources to group memory;
 #               avoids re-visiting the same resource for 45 s; yields to claims.
-#   leader    — less static; inspects resources reported by scavengers;
-#               proactive territory roam every 18-40 s.
-#   bodyguard — follows leader with per-instance jitter offset (not single-file);
-#               auto-escorts leader when it moves > 120 px from home.
+#   leader    — two phases: "local" (near camp) then "exploring" (full map);
+#               coordinates roaming guards by dispatching them on return.
+#   bodyguard — HALF are "stay guards" (follow leader, current behaviour);
+#               HALF are "roaming guards" (patrol full map, check in with
+#               leader periodically, get dispatched to a new direction).
 
 const _PATROL_RADIUS_BY_ROLE: Dictionary = {
 	"leader":    160.0,
@@ -30,7 +31,6 @@ const _SPEED_BY_ROLE: Dictionary = {
 }
 
 # Safety leash: how far from home before being forced RETURN_HOME
-# Leader roam reaches up to 160*1.8 = 288 px — leash must be well above that
 const _HOME_RETURN_DIST_BY_ROLE: Dictionary = {
 	"leader":    520.0,
 	"bodyguard": 760.0,
@@ -45,30 +45,65 @@ const _MAX_PATROL_TIME_BY_ROLE: Dictionary = {
 }
 
 const _IDLE_BIAS_BY_ROLE: Dictionary = {
-	"leader":    1.8,   # was 3.0 — less static; _try_leader_roam drives proactive movement
+	"leader":    1.8,
 	"bodyguard": 1.5,
 	"scavenger": 1.0,
 }
 
-# How much cargo each role can carry before heading home
 const _CARGO_CAP_BY_ROLE: Dictionary = {
 	"leader":    1,
 	"bodyguard": 2,
 	"scavenger": 4,
 }
 
+# ── Roaming guard constants ────────────────────────────────────────────────────
+# Roaming guards patrol the full 64×64-tile map (≈2048 px per axis at 32 px/tile).
+const ROAMING_GUARD_PATROL_RADIUS: float = 2200.0   # max dispatch radius from leader
+const ROAMING_GUARD_PATROL_TIME: float   = 55.0     # seconds on wide patrol before returning
+const ROAMING_GUARD_WAIT_TIME: float     = 7.0      # seconds near leader before next dispatch
+
+# ── Leader exploration phase constants ────────────────────────────────────────
+const LEADER_LOCAL_DURATION: float    = 40.0    # seconds near camp before switching to explore
+const LEADER_EXPLORE_RADIUS: float    = 2000.0  # roam radius during explore phase
+const LEADER_EXPLORE_RETURN: float    = 3500.0  # home-leash while exploring
+
+# ── Post-deposit: leave the barrel area immediately ────────────────────────────
+const POST_DEPOSIT_WANDER_RADIUS: float = 420.0  # distance from home_pos to wander after deposit
+
+# ── Barrel exclusion zone ─────────────────────────────────────────────────────
+# No NPC may stand inside this radius of deposit_pos unless actively depositing
+# (i.e. RETURN_HOME with cargo_count > 0).
+const BARREL_EXCLUSION_RADIUS_SQ: float = 88.0 * 88.0
+
 # ── Resource claim / avoidance (scavenger) ────────────────────────────────────
-var _claimed_res_key: String = ""     # BanditGroupMemory claim key while in RESOURCE_WATCH
-var _avoid_res_key: String   = ""     # recently-watched resource to skip for a cooldown
-var _avoid_res_until: float  = 0.0   # RunClock.now() timestamp when cooldown expires
+var _claimed_res_key: String = ""
+var _avoid_res_key: String   = ""
+var _avoid_res_until: float  = 0.0
 
 # ── Bodyguard follow jitter ───────────────────────────────────────────────────
-var _follow_offset: Vector2  = Vector2.ZERO  # per-instance offset from leader position
-var _jitter_timer: float     = 0.0           # time until next offset re-roll
-var _raw_leader_pos: Vector2 = Vector2.ZERO  # leader pos before jitter (for escort check)
+var _follow_offset: Vector2  = Vector2.ZERO
+var _jitter_timer: float     = 0.0
+var _raw_leader_pos: Vector2 = Vector2.ZERO
 
 # ── Leader proactive roam ─────────────────────────────────────────────────────
-var _leader_roam_timer: float = 0.0   # time until next proactive roam/resource check
+var _leader_roam_timer: float = 0.0
+
+# ── Roaming guard state ───────────────────────────────────────────────────────
+# Determined once in setup() by member_id hash — stable across sessions.
+var _is_roaming_guard: bool       = false
+# "patrolling" | "returning" | "waiting"
+var _roaming_phase: String        = "patrolling"
+var _roaming_timer: float         = 0.0
+# Leader position at last dispatch — roaming target is relative to this.
+var _roaming_dispatch_pos: Vector2 = Vector2.ZERO
+
+# ── Leader exploration phase ──────────────────────────────────────────────────
+# "local" | "exploring"
+var _leader_explore_phase: String = "local"
+var _leader_phase_timer: float    = 0.0
+
+# ── Post-deposit flag ─────────────────────────────────────────────────────────
+var _pending_leave_home: bool = false
 
 var _last_intent: String = ""
 
@@ -85,8 +120,17 @@ func setup(cfg: Dictionary) -> void:
 		var angle: float = _rng.randf_range(0.0, TAU)
 		_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(64.0, 140.0)
 		_jitter_timer  = _rng.randf_range(2.0, 5.0)
+		# Deterministic split: even hash → roaming guard, odd hash → stay guard
+		_is_roaming_guard = (absi(hash(member_id)) % 2 == 0)
+		if _is_roaming_guard:
+			_roaming_dispatch_pos = home_pos
+			_roaming_phase        = "patrolling"
+			# Stagger initial dispatch so not all roamers leave at once
+			_roaming_timer = _rng.randf_range(3.0, 18.0)
 	if role == "leader":
-		_leader_roam_timer = _rng.randf_range(8.0, 18.0)
+		_leader_roam_timer  = _rng.randf_range(8.0, 18.0)
+		_leader_phase_timer = _rng.randf_range(15.0, LEADER_LOCAL_DURATION)
+		_leader_explore_phase = "local"
 
 
 # ---------------------------------------------------------------------------
@@ -94,15 +138,28 @@ func setup(cfg: Dictionary) -> void:
 # ---------------------------------------------------------------------------
 
 func _get_patrol_radius() -> float:
+	if role == "leader" and _leader_explore_phase == "exploring":
+		return LEADER_EXPLORE_RADIUS
 	return float(_PATROL_RADIUS_BY_ROLE.get(role, 64.0))
 
 func _get_speed() -> float:
 	return float(_SPEED_BY_ROLE.get(role, 55.0))
 
 func _get_home_return_dist() -> float:
+	# Roaming guards handle their own return via timer — disable distance leash
+	if role == "bodyguard" and _is_roaming_guard:
+		return 9999.0
+	# Leader has wider leash while exploring
+	if role == "leader" and _leader_explore_phase == "exploring":
+		return LEADER_EXPLORE_RETURN
 	return float(_HOME_RETURN_DIST_BY_ROLE.get(role, 192.0))
 
 func _get_max_patrol_time() -> float:
+	# Roaming guards and exploring leader need longer time to reach distant targets
+	if role == "bodyguard" and _is_roaming_guard:
+		return 120.0
+	if role == "leader" and _leader_explore_phase == "exploring":
+		return 100.0
 	return float(_MAX_PATROL_TIME_BY_ROLE.get(role, 14.0))
 
 func _enter_idle_at_home() -> void:
@@ -128,6 +185,19 @@ func tick(delta: float, ctx: Dictionary) -> void:
 		else:
 			_raw_leader_pos = home_pos
 
+	# ── 0b. Post-deposit: leave home immediately ───────────────────────────
+	if _pending_leave_home:
+		_pending_leave_home = false
+		_enter_patrol_away_from_home()
+
+	# ── 0c. Roaming guard phase management ────────────────────────────────
+	if role == "bodyguard" and _is_roaming_guard:
+		_tick_roaming_guard_phase(delta, ctx)
+
+	# ── 0d. Leader exploration phase ──────────────────────────────────────
+	if role == "leader":
+		_tick_leader_phase(delta)
+
 	# ── 1. React to group intent changes ──────────────────────────────────
 	if group_id != "":
 		var g: Dictionary = BanditGroupMemory.get_group(group_id)
@@ -152,8 +222,18 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	if prev_state == State.RESOURCE_WATCH and state != State.RESOURCE_WATCH:
 		_on_leave_resource_watch()
 
-	# ── 3b. Bodyguard band escort: push away when too close to raw leader ─
-	if role == "bodyguard" and state == State.FOLLOW_LEADER:
+	# ── 3b. Barrel exclusion zone ─────────────────────────────────────────
+	# Any NPC inside the barrel radius that is NOT actively depositing gets
+	# kicked out immediately. "Actively depositing" = RETURN_HOME + cargo > 0.
+	if deposit_pos != Vector2.ZERO:
+		var node_pos_ex: Vector2 = ctx.get("node_pos", home_pos)
+		var is_depositing: bool  = state == State.RETURN_HOME and cargo_count > 0
+		if not is_depositing \
+				and node_pos_ex.distance_squared_to(deposit_pos) < BARREL_EXCLUSION_RADIUS_SQ:
+			_enter_patrol_away_from_home()
+
+	# ── 3c. Stay-bodyguard band escort: push away when too close to raw leader ─
+	if role == "bodyguard" and not _is_roaming_guard and state == State.FOLLOW_LEADER:
 		var node_pos: Vector2 = ctx.get("node_pos", home_pos)
 		var to_leader: Vector2 = node_pos - _raw_leader_pos
 		var d_leader: float = to_leader.length()
@@ -168,7 +248,6 @@ func tick(delta: float, ctx: Dictionary) -> void:
 		_try_grab_visible_drop(ctx)
 
 	# ── 4b. From quiescent states, try to find other useful work ─────────
-	# Guard: no buscar trabajo si ya hay una colecta pendiente este tick
 	if pending_collect_id == 0 and (state == State.IDLE_AT_HOME or state == State.PATROL):
 		_try_find_work(ctx)
 
@@ -180,21 +259,150 @@ func tick(delta: float, ctx: Dictionary) -> void:
 
 
 # ---------------------------------------------------------------------------
+# Roaming guard phase tick
+# ---------------------------------------------------------------------------
+
+func _tick_roaming_guard_phase(delta: float, ctx: Dictionary) -> void:
+	var node_pos: Vector2   = ctx.get("node_pos",   home_pos)
+	var leader_pos: Vector2 = ctx.get("leader_pos", home_pos)
+
+	match _roaming_phase:
+		"patrolling":
+			_roaming_timer -= delta
+			if _roaming_timer <= 0.0:
+				# Time to check in with leader
+				_roaming_phase   = "returning"
+				_move_target     = leader_pos
+				state            = State.APPROACH_INTEREST
+				_state_timer     = 0.0
+				_invalidate_npc_path()
+				Debug.log("bandit_ai", "[BWB] roaming_guard→returning member=%s" % member_id)
+
+		"returning":
+			# Keep the approach target updated as the leader moves
+			if state == State.APPROACH_INTEREST:
+				_move_target = leader_pos
+			# Arrival: either super.tick() already transitioned us to IDLE or we're close
+			var near_leader := node_pos.distance_squared_to(leader_pos) < 110.0 * 110.0
+			if state == State.IDLE_AT_HOME or near_leader:
+				_roaming_phase   = "waiting"
+				_roaming_timer   = ROAMING_GUARD_WAIT_TIME
+				state            = State.HOLD_POSITION
+				Debug.log("bandit_ai", "[BWB] roaming_guard→waiting member=%s" % member_id)
+
+		"waiting":
+			_roaming_timer -= delta
+			if _roaming_timer <= 0.0:
+				# Leader dispatches the guard to a new area
+				_roaming_dispatch_pos = leader_pos
+				_roaming_phase        = "patrolling"
+				_roaming_timer        = _rng.randf_range(
+					ROAMING_GUARD_PATROL_TIME * 0.6, ROAMING_GUARD_PATROL_TIME)
+				_enter_wide_patrol()
+				Debug.log("bandit_ai", "[BWB] roaming_guard dispatched member=%s from=%s" % [
+					member_id, str(leader_pos)])
+
+
+# ---------------------------------------------------------------------------
+# Leader exploration phase tick
+# ---------------------------------------------------------------------------
+
+func _tick_leader_phase(delta: float) -> void:
+	_leader_phase_timer -= delta
+	if _leader_phase_timer <= 0.0:
+		if _leader_explore_phase == "local":
+			_leader_explore_phase = "exploring"
+			_leader_phase_timer   = _rng.randf_range(80.0, 160.0)
+			Debug.log("bandit_ai", "[BWB] leader→exploring phase member=%s" % member_id)
+		else:
+			_leader_explore_phase = "local"
+			_leader_phase_timer   = _rng.randf_range(25.0, LEADER_LOCAL_DURATION)
+			# Return home when switching back to local phase
+			if state != State.RETURN_HOME and state != State.IDLE_AT_HOME:
+				_enter_return_home()
+			Debug.log("bandit_ai", "[BWB] leader→local phase member=%s" % member_id)
+
+
+# ---------------------------------------------------------------------------
+# Wide patrol helpers
+# ---------------------------------------------------------------------------
+
+## Override: avoid picking patrol targets near the barrel (deposit_pos).
+## NPCs should only approach the barrel when they have cargo to deposit.
+func _enter_patrol(ctx: Dictionary) -> void:
+	const BARREL_AVOID_RADIUS_SQ: float = 96.0 * 96.0
+	var radius: float = _get_patrol_radius()
+	var angle: float  = _rng.randf_range(0.0, TAU)
+	var dist: float   = _rng.randf_range(radius * 0.3, radius)
+	var candidate: Vector2 = home_pos + Vector2(cos(angle), sin(angle)) * dist
+	# If a barrel is assigned, retry up to 4 times to find a target outside its area
+	if deposit_pos != Vector2.ZERO:
+		for _i in 4:
+			if candidate.distance_squared_to(deposit_pos) > BARREL_AVOID_RADIUS_SQ:
+				break
+			angle     = _rng.randf_range(0.0, TAU)
+			dist      = _rng.randf_range(radius * 0.3, radius)
+			candidate = home_pos + Vector2(cos(angle), sin(angle)) * dist
+	_move_target  = candidate
+	state         = State.PATROL
+	_state_timer  = 0.0
+	_invalidate_npc_path()
+
+
+## Roaming guard wide patrol — target is relative to dispatch position (leader pos).
+func _enter_wide_patrol() -> void:
+	var origin := _roaming_dispatch_pos if _roaming_dispatch_pos != Vector2.ZERO else home_pos
+	var angle := _rng.randf_range(0.0, TAU)
+	var dist  := _rng.randf_range(ROAMING_GUARD_PATROL_RADIUS * 0.3, ROAMING_GUARD_PATROL_RADIUS)
+	_move_target = origin + Vector2(cos(angle), sin(angle)) * dist
+	state        = State.PATROL
+	_state_timer = 0.0
+	_invalidate_npc_path()
+
+## Forces the NPC to patrol away from the barrel area.
+## Guarantees the target is outside BARREL_EXCLUSION_RADIUS_SQ.
+func _enter_patrol_away_from_home() -> void:
+	if role == "bodyguard" and _is_roaming_guard:
+		_roaming_phase = "patrolling"
+		_roaming_timer = _rng.randf_range(ROAMING_GUARD_PATROL_TIME * 0.5, ROAMING_GUARD_PATROL_TIME)
+		_enter_wide_patrol()
+		return
+	# Pick a direction pointing away from the barrel center so the target
+	# is guaranteed to land outside the exclusion zone.
+	var avoid_center: Vector2 = deposit_pos if deposit_pos != Vector2.ZERO else home_pos
+	var angle := _rng.randf_range(0.0, TAU)
+	var dist  := _rng.randf_range(POST_DEPOSIT_WANDER_RADIUS * 0.6, POST_DEPOSIT_WANDER_RADIUS)
+	var candidate := home_pos + Vector2(cos(angle), sin(angle)) * dist
+	# Retry up to 5 times until the target is safely outside the exclusion zone
+	for _i in 5:
+		if candidate.distance_squared_to(avoid_center) > BARREL_EXCLUSION_RADIUS_SQ:
+			break
+		angle     = _rng.randf_range(0.0, TAU)
+		dist      = _rng.randf_range(POST_DEPOSIT_WANDER_RADIUS * 0.6, POST_DEPOSIT_WANDER_RADIUS)
+		candidate = home_pos + Vector2(cos(angle), sin(angle)) * dist
+	_move_target  = candidate
+	state         = State.PATROL
+	_state_timer  = 0.0
+	_invalidate_npc_path()
+
+
+# ---------------------------------------------------------------------------
 # Drop grab — alta prioridad, interrumpe cualquier estado excepto los críticos
 # ---------------------------------------------------------------------------
 
-## Todos los roles: un drop visible es irresistible. Interrumpe órbita,
-## patrulla, follow_leader, etc. No interrumpe RETURN_HOME ni extorsión.
 func _try_grab_visible_drop(ctx: Dictionary) -> void:
-	# Si hay una colecta pendiente este tick (set por _tick_loot_approach justo antes),
-	# no re-apuntar al mismo drop — evita el bucle de LOOT_APPROACH infinita.
 	if pending_collect_id != 0:
 		return
 	match state:
 		State.RETURN_HOME, State.HOLD_POSITION, \
 		State.LOOT_APPROACH, State.RESOURCE_WATCH, \
 		State.EXTORT_APPROACH, State.EXTORT_RETREAT:
-			return   # estos estados no se interrumpen
+			return
+		_:
+			# Roaming guard in "returning" or "waiting" phase: don't interrupt
+			if role == "bodyguard" and _is_roaming_guard:
+				if _roaming_phase == "returning" or _roaming_phase == "waiting":
+					return
 
 	var drops: Array = ctx.get("nearby_drops_info", [])
 	if drops.is_empty():
@@ -212,7 +420,14 @@ func _try_grab_visible_drop(ctx: Dictionary) -> void:
 func _try_find_work(ctx: Dictionary) -> void:
 	var node_pos: Vector2 = ctx.get("node_pos", home_pos)
 
-	# Bodyguard: escort leader when they've moved well away from home
+	# Roaming bodyguard: manages its own movement cycle
+	if role == "bodyguard" and _is_roaming_guard:
+		# If idle during "patrolling" phase, kick off a wide patrol immediately
+		if _roaming_phase == "patrolling" and state == State.IDLE_AT_HOME:
+			_enter_wide_patrol()
+		return  # never follow leader or do normal work; loot is handled via _try_grab_visible_drop
+
+	# Stay bodyguard: escort leader when they've moved well away from home
 	if role == "bodyguard":
 		if _raw_leader_pos.distance_squared_to(home_pos) > 72.0 * 72.0:
 			state        = State.FOLLOW_LEADER
@@ -241,7 +456,7 @@ func _try_find_work(ctx: Dictionary) -> void:
 # ---------------------------------------------------------------------------
 
 func _can_loot() -> bool:
-	return true   # todos los roles recogen drops
+	return true
 
 func _can_watch_resources() -> bool:
 	return role == "scavenger"
@@ -251,7 +466,6 @@ func _can_watch_resources() -> bool:
 # Resource claim / report (scavenger)
 # ---------------------------------------------------------------------------
 
-## Override: claim the resource in group memory and report it before entering orbit.
 func enter_resource_watch(resource_pos: Vector2, resource_id: int = 0) -> void:
 	var key: String  = _res_key(resource_pos)
 	_claimed_res_key = key
@@ -263,7 +477,6 @@ func enter_resource_watch(resource_pos: Vector2, resource_id: int = 0) -> void:
 	super.enter_resource_watch(resource_pos, resource_id)
 
 
-## Called when leaving RESOURCE_WATCH (detected via state transition in tick).
 func _on_leave_resource_watch() -> void:
 	if group_id != "" and _claimed_res_key != "":
 		BanditGroupMemory.release_resource_by_member(group_id, member_id)
@@ -271,11 +484,26 @@ func _on_leave_resource_watch() -> void:
 
 
 # ---------------------------------------------------------------------------
+# Post-deposit notification — called by BanditBehaviorLayer after deposit
+# ---------------------------------------------------------------------------
+
+## Called by BanditBehaviorLayer once cargo has been deposited in the barrel.
+## Forces the NPC to leave the barrel/home area immediately.
+func on_deposit_complete() -> void:
+	_pending_leave_home = true
+
+
+# ---------------------------------------------------------------------------
 # Leader proactive roam
 # ---------------------------------------------------------------------------
 
 func _try_leader_roam() -> void:
-	_leader_roam_timer = _rng.randf_range(18.0, 40.0)
+	var is_exploring: bool = _leader_explore_phase == "exploring"
+	if is_exploring:
+		_leader_roam_timer = _rng.randf_range(30.0, 65.0)
+	else:
+		_leader_roam_timer = _rng.randf_range(18.0, 40.0)
+
 	# Prioritise resources reported by scavengers
 	if group_id != "":
 		var reported: Array = BanditGroupMemory.get_reported_resources(group_id)
@@ -283,19 +511,28 @@ func _try_leader_roam() -> void:
 			var pick: Dictionary = reported[_rng.randi() % reported.size()] as Dictionary
 			var pos_raw          = pick.get("pos", null)
 			if not (pos_raw is Vector2):
-				return  # datos corruptos de sesión anterior — ignorar
+				return
 			var rpos: Vector2 = pos_raw
 			if rpos != Vector2.ZERO and rpos.distance_squared_to(home_pos) > 64.0 * 64.0:
 				_move_target = rpos
 				state        = State.APPROACH_INTEREST
 				_state_timer = 0.0
 				_invalidate_npc_path()
-				Debug.log("bandit_ai", "[BWB] leader→resource %s gid=%s" % [str(rpos), group_id])
+				Debug.log("bandit_ai", "[BWB] leader→resource %s gid=%s phase=%s" % [
+					str(rpos), group_id, _leader_explore_phase])
 				return
-	# No reported resources — broad territory sweep
-	var radius: float = float(_PATROL_RADIUS_BY_ROLE.get("leader", 160.0)) * 1.8
-	var angle: float  = _rng.randf_range(0.0, TAU)
-	_move_target = home_pos + Vector2(cos(angle), sin(angle)) * _rng.randf_range(80.0, radius)
+
+	# Territory sweep — full map when exploring, local when not
+	var radius: float
+	var min_dist: float
+	if is_exploring:
+		radius   = _rng.randf_range(LEADER_EXPLORE_RADIUS * 0.3, LEADER_EXPLORE_RADIUS)
+		min_dist = 400.0
+	else:
+		radius   = float(_PATROL_RADIUS_BY_ROLE.get("leader", 160.0)) * 1.8
+		min_dist = 80.0
+	var angle: float = _rng.randf_range(0.0, TAU)
+	_move_target = home_pos + Vector2(cos(angle), sin(angle)) * _rng.randf_range(min_dist, radius)
 	state        = State.PATROL
 	_state_timer = 0.0
 	_invalidate_npc_path()
@@ -305,8 +542,6 @@ func _try_leader_roam() -> void:
 # Pick helpers — work on plain data (no node access)
 # ---------------------------------------------------------------------------
 
-# Drops dentro de este radio de home_pos se ignoran (items depositados en base,
-# no hay barril todavía — evita el bucle de recogida infinita).
 const HOME_DROP_IGNORE_RADIUS_SQ: float = 80.0 * 80.0
 
 func _pick_nearest_drop_id(drops_info: Array, node_pos: Vector2) -> int:
@@ -315,7 +550,6 @@ func _pick_nearest_drop_id(drops_info: Array, node_pos: Vector2) -> int:
 	for d in drops_info:
 		var info: Dictionary = d as Dictionary
 		var pos: Vector2     = info.get("pos", Vector2.ZERO)
-		# Ignorar drops cerca de la propia base (depositados o sueltos allí)
 		if pos.distance_squared_to(home_pos) < HOME_DROP_IGNORE_RADIUS_SQ:
 			continue
 		var dsq: float = node_pos.distance_squared_to(pos)
@@ -325,8 +559,6 @@ func _pick_nearest_drop_id(drops_info: Array, node_pos: Vector2) -> int:
 	return best_id
 
 
-## Picks nearest resource, skipping claimed-by-other and recently-visited.
-## Returns {pos, id} or empty dict if none found.
 func _pick_nearest_res(res_info: Array, node_pos: Vector2) -> Dictionary:
 	var best: Dictionary = {}
 	var best_dsq: float  = INF
@@ -337,10 +569,8 @@ func _pick_nearest_res(res_info: Array, node_pos: Vector2) -> Dictionary:
 		if pos == Vector2.ZERO:
 			continue
 		var key: String = _res_key(pos)
-		# Skip if in avoid-cooldown for this resource
 		if key == _avoid_res_key and now < _avoid_res_until:
 			continue
-		# Skip if another group member has claimed it
 		if group_id != "" and BanditGroupMemory.is_resource_claimed_by_other(group_id, key, member_id):
 			continue
 		var dsq: float = node_pos.distance_squared_to(pos)
@@ -350,7 +580,6 @@ func _pick_nearest_res(res_info: Array, node_pos: Vector2) -> Dictionary:
 	return best
 
 
-## Stable 32 px grid key for a world position.
 static func _res_key(pos: Vector2) -> String:
 	return "%d_%d" % [int(pos.x / 32.0), int(pos.y / 32.0)]
 
@@ -374,20 +603,30 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 						state        = State.APPROACH_INTEREST
 						_state_timer = 0.0
 				"bodyguard":
-					state        = State.FOLLOW_LEADER
-					_state_timer = 0.0
+					if _is_roaming_guard:
+						# Roaming guard converges on interest point during hunt
+						var g: Dictionary = BanditGroupMemory.get_group(group_id)
+						var interest_pos: Vector2 = g.get("last_interest_pos", home_pos)
+						if interest_pos.distance_squared_to(home_pos) > 1.0:
+							_roaming_phase = "returning"  # reuse returning logic
+							_move_target   = interest_pos
+							state          = State.APPROACH_INTEREST
+							_state_timer   = 0.0
+							_invalidate_npc_path()
+					else:
+						state        = State.FOLLOW_LEADER
+						_state_timer = 0.0
 				_:
-					pass  # scavengers keep their own work
+					pass
 
 		"extorting":
 			match role:
 				"leader", "bodyguard":
 					_enter_group_extort_approach()
 				_:
-					pass  # scavengers keep their own work
+					pass
 
 		"alerted":
-			# One designated scout investigates; others hold their current state
 			if group_id != "" and member_id != "":
 				var scout_id: String = BanditGroupMemory.get_scout(group_id)
 				if scout_id == member_id:
@@ -401,10 +640,17 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 							member_id, str(interest_pos)])
 
 		"idle":
-			# Wind down any active group pursuit when returning to idle
 			if state == State.APPROACH_INTEREST or state == State.FOLLOW_LEADER \
 					or state == State.EXTORT_APPROACH:
-				_enter_return_home()
+				if role == "bodyguard" and _is_roaming_guard:
+					# Resume wide patrol from current leader position
+					var leader_pos: Vector2 = ctx.get("leader_pos", home_pos)
+					_roaming_dispatch_pos = leader_pos
+					_roaming_phase        = "patrolling"
+					_roaming_timer        = _rng.randf_range(5.0, 20.0)
+					_enter_wide_patrol()
+				else:
+					_enter_return_home()
 
 
 func _enter_group_extort_approach() -> void:
@@ -420,20 +666,33 @@ func _enter_group_extort_approach() -> void:
 
 func export_state() -> Dictionary:
 	var d: Dictionary = super.export_state()
-	d["wb_last_intent"]   = _last_intent
-	d["wb_claimed_key"]   = _claimed_res_key
-	d["wb_avoid_key"]     = _avoid_res_key
-	d["wb_avoid_until"]   = _avoid_res_until
-	d["wb_follow_offset"] = _follow_offset
-	d["wb_leader_roam_t"] = _leader_roam_timer
+	d["wb_last_intent"]       = _last_intent
+	d["wb_claimed_key"]       = _claimed_res_key
+	d["wb_avoid_key"]         = _avoid_res_key
+	d["wb_avoid_until"]       = _avoid_res_until
+	d["wb_follow_offset"]     = _follow_offset
+	d["wb_leader_roam_t"]     = _leader_roam_timer
+	d["wb_is_roaming_guard"]  = _is_roaming_guard
+	d["wb_roaming_phase"]     = _roaming_phase
+	d["wb_roaming_timer"]     = _roaming_timer
+	d["wb_roaming_dispatch"]  = _roaming_dispatch_pos
+	d["wb_leader_phase"]      = _leader_explore_phase
+	d["wb_leader_phase_t"]    = _leader_phase_timer
 	return d
 
 func import_state(data: Dictionary) -> void:
 	super.import_state(data)
-	_last_intent       = String(data.get("wb_last_intent",   ""))
-	_claimed_res_key   = String(data.get("wb_claimed_key",   ""))
-	_avoid_res_key     = String(data.get("wb_avoid_key",     ""))
-	_avoid_res_until   = float(data.get("wb_avoid_until",    0.0))
+	_last_intent       = String(data.get("wb_last_intent",      ""))
+	_claimed_res_key   = String(data.get("wb_claimed_key",      ""))
+	_avoid_res_key     = String(data.get("wb_avoid_key",        ""))
+	_avoid_res_until   = float(data.get("wb_avoid_until",       0.0))
 	var fo             = data.get("wb_follow_offset", Vector2.ZERO)
 	_follow_offset     = fo if fo is Vector2 else Vector2.ZERO
-	_leader_roam_timer = float(data.get("wb_leader_roam_t",  0.0))
+	_leader_roam_timer = float(data.get("wb_leader_roam_t",     0.0))
+	_is_roaming_guard  = bool(data.get("wb_is_roaming_guard",   false))
+	_roaming_phase     = String(data.get("wb_roaming_phase",    "patrolling"))
+	_roaming_timer     = float(data.get("wb_roaming_timer",     0.0))
+	var rdp            = data.get("wb_roaming_dispatch", Vector2.ZERO)
+	_roaming_dispatch_pos = rdp if rdp is Vector2 else Vector2.ZERO
+	_leader_explore_phase = String(data.get("wb_leader_phase",  "local"))
+	_leader_phase_timer   = float(data.get("wb_leader_phase_t", 0.0))

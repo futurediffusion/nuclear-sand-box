@@ -277,11 +277,13 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 				_enter_idle_at_home()
 
 		State.RETURN_HOME:
-			var return_target := deposit_pos if deposit_pos != Vector2.ZERO else home_pos
+			# Only navigate to the barrel when actually carrying cargo.
+			# Empty returns go straight to home_pos so NPCs don't crowd the barrel.
+			var carrying: bool = cargo_count > 0
+			var return_target := (deposit_pos if deposit_pos != Vector2.ZERO else home_pos) \
+				if carrying else home_pos
 			_desired_velocity = _pathfind_dir(node_pos, return_target) * _get_speed()
-			var arrive_sq := DEPOSIT_ARRIVED_DIST_SQ \
-				if deposit_pos != Vector2.ZERO and cargo_count > 0 \
-				else ARRIVED_DIST_SQ
+			var arrive_sq := DEPOSIT_ARRIVED_DIST_SQ if carrying else ARRIVED_DIST_SQ
 			if node_pos.distance_squared_to(return_target) < arrive_sq:
 				_enter_idle_at_home()
 

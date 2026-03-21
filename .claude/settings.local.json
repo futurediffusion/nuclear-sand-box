@@ -53,7 +53,9 @@
       "Bash(cmd.exe /c \"dir \\\\\"C:\\\\\\\\Users\\\\\\\\walva\\\\\\\\AppData\\\\\\\\Local\\\\\" /b 2>&1\" | head -20)",
       "Bash(cd:*)",
       "Bash(python3:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(godot --headless --check-only --script scripts/world/BanditWorldBehavior.gd)",
+      "Bash(godot --headless --check-only --script scripts/world/NpcWorldBehavior.gd)"
     ]
   }
 }
