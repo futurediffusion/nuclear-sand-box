@@ -95,6 +95,13 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 
 	var score: float = _score_activity(markers, bases)
 
+	# ── Trespassing: cada scan con actividad detectada acumula hostilidad ─
+	# Conecta el sistema de intel con el de hostilidad. Sin esto el jugador
+	# nunca llega orgánicamente al nivel 1 y can_extort nunca es true.
+	if score > 0.0:
+		FactionHostilityManager.add_hostility(faction_id, 0.0, "player_trespassed",
+			{"group_id": group_id, "entity_id": group_id, "position": home_pos})
+
 	# ── Hostility modifier ────────────────────────────────────────────────
 	# El nivel de hostilidad del grupo contra el jugador afecta cuán
 	# fácilmente el grupo escala su intención:
