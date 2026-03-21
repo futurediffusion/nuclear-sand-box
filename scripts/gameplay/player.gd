@@ -111,6 +111,7 @@ var block_wiggle_t: float = 0.0
 enum SecondaryActionState { NONE, BLOCK, CARRY_SCAN, CARRYING }
 var secondary_action_state: int = SecondaryActionState.NONE
 var _secondary_stamina_locked: bool = false
+var _death_pos: Vector2 = Vector2.ZERO
 
 var _current_weapon_controller: WeaponController = null
 var _movement_control_mode: StringName = &"player"
@@ -914,6 +915,7 @@ func _trigger_death_shake() -> void:
 		cam.shake(death_shake_magnitude * mul)
 
 func _on_character_dying_started() -> void:
+	_death_pos = global_position
 	_trigger_death_shake()
 	if _is_finisher_death and use_vfx_component and vfx_component != null:
 		vfx_component.play_hit_vfx(Vector2.DOWN, true)
@@ -927,7 +929,34 @@ func _on_character_dying_started() -> void:
 func _on_character_death_finished() -> void:
 	GameManager.player_died.emit()
 
+const _DEATH_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
+
+func _drop_inventory_on_death() -> void:
+	if inventory_component == null:
+		return
+	var drop_pos := _death_pos if _death_pos != Vector2.ZERO else global_position
+	var world := get_tree().current_scene
+	var overrides := {
+		"drop_scene": _DEATH_DROP_SCENE,
+		"scatter_mode": "prop_radial_short",
+	}
+	for i in range(inventory_component.slots.size()):
+		var slot = inventory_component.slots[i]
+		if slot == null or not (slot is Dictionary):
+			continue
+		var item_id := String(slot.get("id", ""))
+		var amount  := int(slot.get("count", 0))
+		if item_id == "" or amount <= 0:
+			continue
+		LootSystem.spawn_drop(null, item_id, amount, drop_pos, world, overrides)
+	# Clear all slots
+	for i in range(inventory_component.slots.size()):
+		inventory_component.slots[i] = null
+	inventory_component.emit_signal("inventory_changed")
+
+
 func respawn(pos: Vector2) -> void:
+	_drop_inventory_on_death()
 	_leave_seat(false)
 	dying = false
 	is_downed = false

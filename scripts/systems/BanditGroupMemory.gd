@@ -196,6 +196,16 @@ func get_scout(group_id: String) -> String:
 	return String(_groups.get(group_id, {}).get("scout_npc_id", ""))
 
 
+func add_wealth(group_id: String, delta: float) -> void:
+	if not _groups.has(group_id):
+		return
+	_groups[group_id]["wealth"] = float(_groups[group_id].get("wealth", 0.0)) + delta
+
+
+func get_wealth(group_id: String) -> float:
+	return float(_groups.get(group_id, {}).get("wealth", 0.0))
+
+
 func _make_group(group_id: String, faction_id: String, home_world_pos: Vector2) -> Dictionary:
 	return {
 		"group_id":                   group_id,
@@ -209,6 +219,7 @@ func _make_group(group_id: String, faction_id: String, home_world_pos: Vector2) 
 		"scout_npc_id":               "",
 		"reported_resources":         [],   # [{pos, reporter_id, res_key, time}]
 		"resource_claims":            {},   # {res_key -> member_id}
+		"wealth":                     0.0, # cumulative sell-price of stashed goods
 	}
 
 

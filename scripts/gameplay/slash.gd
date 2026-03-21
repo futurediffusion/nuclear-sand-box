@@ -169,6 +169,9 @@ func _try_damage(raw_target: Node) -> void:
 
 		already_hit[id] = true
 		target.call("take_damage", damage, from_pos)
+		if owner_node != null and owner_node.is_in_group("player") \
+				and target.has_method("notify_player_hit"):
+			target.call("notify_player_hit")
 		_register_non_wall_hit(target_world_pos)
 
 		if impact_sound and impact_sound.stream:

@@ -39,7 +39,9 @@ enum State {
 }
 
 # ── Spatial ──────────────────────────────────────────────────────────────────
-const ARRIVED_DIST_SQ: float     = 12.0 * 12.0
+const ARRIVED_DIST_SQ: float        = 12.0 * 12.0
+# Radio ampliado para depositar en barril: cualquier tile alrededor cuenta (~3 tiles)
+const DEPOSIT_ARRIVED_DIST_SQ: float = 52.0 * 52.0
 const COLLECT_DIST_SQ: float     = 16.0 * 16.0  # close enough to collect a drop
 const FOLLOW_STOP_DIST_SQ: float = 20.0 * 20.0
 const DEFAULT_HOME_RETURN_DIST: float = 192.0
@@ -57,8 +59,10 @@ const STUCK_MIN_PROGRESS_SQ: float   = 20.0 * 20.0  # must move 20 px per interv
 
 # ── Identity ─────────────────────────────────────────────────────────────────
 var state: State    = State.IDLE_AT_HOME
-var home_pos: Vector2  = Vector2.ZERO
-var role: String       = "scavenger"
+var home_pos: Vector2     = Vector2.ZERO
+## When non-zero, RETURN_HOME navigates here instead of home_pos (used for barrel deposit).
+var deposit_pos: Vector2  = Vector2.ZERO
+var role: String          = "scavenger"
 var group_id: String   = ""
 var member_id: String  = ""
 
@@ -273,8 +277,12 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 				_enter_idle_at_home()
 
 		State.RETURN_HOME:
-			_desired_velocity = _pathfind_dir(node_pos, home_pos) * _get_speed()
-			if node_pos.distance_squared_to(home_pos) < ARRIVED_DIST_SQ:
+			var return_target := deposit_pos if deposit_pos != Vector2.ZERO else home_pos
+			_desired_velocity = _pathfind_dir(node_pos, return_target) * _get_speed()
+			var arrive_sq := DEPOSIT_ARRIVED_DIST_SQ \
+				if deposit_pos != Vector2.ZERO and cargo_count > 0 \
+				else ARRIVED_DIST_SQ
+			if node_pos.distance_squared_to(return_target) < arrive_sq:
 				_enter_idle_at_home()
 
 		State.HOLD_POSITION:

@@ -90,6 +90,7 @@ var group_id: String = ""
 var last_engaged_time: float = 0.0
 var _enemy_death_sound: AudioStream = DEFAULT_ENEMY_DEATH_SOUND
 var _enemy_death_volume_db: float = 2.0
+var _last_hit_was_from_player: bool = false
 
 const WARMUP_META_KEY := "warmup_instance"
 
@@ -679,6 +680,7 @@ func release_carry() -> void:
 
 func _on_character_downed_entered() -> void:
 	_trigger_death_shake()
+	_drop_carried_items()
 	if carry_component != null:
 		carry_component.force_drop_all()
 	if ai_component != null:
@@ -725,7 +727,37 @@ func _on_character_death_finished() -> void:
 	if not should_keep_corpses:
 		queue_free()
 
+## Reparenta al mundo cualquier ItemDrop que este NPC llevaba como carry.
+## Llamado al entrar en estado downed para que los drops caigan antes de que el nodo sea liberado.
+func _drop_carried_items() -> void:
+	var world := get_tree().current_scene
+	if world == null:
+		return
+	for child in get_children():
+		if not (child is ItemDrop):
+			continue
+		var drop := child as ItemDrop
+		if drop.is_queued_for_deletion():
+			continue
+		var world_pos := drop.global_position
+		drop.reparent(world, true)   # true = mantiene global_position
+		drop.add_to_group("item_drop")
+		drop.set_deferred("collision_layer", 4)
+		drop.set_deferred("monitoring", true)
+		drop.set_process(true)
+		var dir := Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 0.2)).normalized()
+		drop.throw_from(world_pos, dir, randf_range(60.0, 110.0))
+
+
+## Called by slash / arrow when the hit source is the player.
+func notify_player_hit() -> void:
+	_last_hit_was_from_player = true
+
+
 func _trigger_death_shake() -> void:
+	# Only shake when the player dealt the killing blow — not in enemy-vs-enemy fights
+	if not _last_hit_was_from_player:
+		return
 	if ai_component == null or not is_instance_valid(ai_component.player):
 		return
 	var p := ai_component.player

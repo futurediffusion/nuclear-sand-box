@@ -25,6 +25,7 @@ const TICK_INTERVAL: float = 0.5
 # We add this so net movement ≈ behavior's intended speed after friction.
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 const ITEM_DROP_SCENE: PackedScene = preload("res://scenes/items/ItemDrop.tscn")
+const CAMP_BARREL_SCENE: PackedScene = preload("res://scenes/placeables/barrel_world.tscn")
 
 
 # World-layer ally separation (sleeping NPCs don't run CharacterBody2D separation)
@@ -55,6 +56,9 @@ var _extortion_director: BanditExtortionDirector = null
 # Cached world-level item/resource lists (rebuilt once per tick, shared across all enemies)
 var _all_drops_cache: Array    = []   # Array of ItemDrop nodes
 var _all_resources_cache: Array = []  # Array of world_resource nodes
+
+# One physical barrel per camp group — spawned by this layer, tracked by instance_id
+var _camp_barrels: Dictionary = {}   # group_id (String) -> instance_id (int)
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +175,7 @@ func _process(delta: float) -> void:
 	_tick_timer = 0.0
 
 	_refresh_world_caches()
+	_ensure_camp_barrels()
 	_ensure_behaviors_for_active_enemies()
 	_tick_behaviors()
 	_prune_behaviors()
@@ -251,6 +256,52 @@ func _tick_behaviors() -> void:
 
 
 # ---------------------------------------------------------------------------
+# Camp barrel management — one real barrel_world.tscn per camp group
+# ---------------------------------------------------------------------------
+
+func _ensure_camp_barrels() -> void:
+	for group_id in BanditGroupMemory.get_all_group_ids():
+		var barrel_id: int = int(_camp_barrels.get(group_id, 0))
+		if barrel_id != 0 and is_instance_id_valid(barrel_id):
+			var existing := instance_from_id(barrel_id) as Node
+			if existing != null and is_instance_valid(existing) \
+					and not existing.is_queued_for_deletion():
+				_update_deposit_pos(group_id, (existing as Node2D).global_position)
+				continue  # barrel is alive
+		# Barrel missing or destroyed — spawn a new one
+		var g: Dictionary = BanditGroupMemory.get_group(group_id)
+		if (g.get("member_ids", []) as Array).is_empty():
+			continue   # no active members — don't spawn barrel yet
+		var home: Vector2 = g.get("home_world_pos", Vector2.ZERO)
+		var barrel := _spawn_camp_barrel(home, 0)
+		if barrel != null:
+			_camp_barrels[group_id] = barrel.get_instance_id()
+			_update_deposit_pos(group_id, (barrel as Node2D).global_position)
+
+
+## Propaga la posición del barril a todos los comportamientos del grupo
+## para que RETURN_HOME navegue directo al barril en vez del centro del camp.
+func _update_deposit_pos(group_id: String, barrel_pos: Vector2) -> void:
+	for eid in _behaviors:
+		var beh: BanditWorldBehavior = _behaviors[eid]
+		if beh.group_id == group_id:
+			beh.deposit_pos = barrel_pos
+
+
+func _spawn_camp_barrel(home_pos: Vector2, column: int = 0) -> Node:
+	if CAMP_BARREL_SCENE == null:
+		push_warning("[BanditBL] CAMP_BARREL_SCENE not loaded")
+		return null
+	var barrel := CAMP_BARREL_SCENE.instantiate()
+	var world := get_tree().current_scene
+	world.add_child(barrel)
+	# Place barrel slightly offset from camp center; each extra barrel goes to the right
+	barrel.global_position = home_pos + Vector2(column * 28.0, 0.0)
+	Debug.log("camp_stash", "[BanditBL] spawned camp barrel at=%s col=%d" % [str(home_pos), column])
+	return barrel
+
+
+# ---------------------------------------------------------------------------
 # Mining — called when behavior emits a pending_mine_id
 # ---------------------------------------------------------------------------
 
@@ -299,6 +350,9 @@ func _drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			var drop_node := instance_from_id(node_id) as ItemDrop
 			if drop_node != null and is_instance_valid(drop_node) \
 					and not drop_node.is_queued_for_deletion():
+				# Si ya fue soltado por _drop_carried_items en enemy.gd, no relanzar
+				if drop_node.is_in_group("item_drop"):
+					continue
 				drop_node.reparent(get_tree().current_scene, false)
 				drop_node.add_to_group("item_drop")
 				drop_node.set_deferred("collision_layer", orig_layer)
@@ -434,16 +488,31 @@ func _handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	if enemy_node != null and is_instance_valid(enemy_node):
 		spawn_pos = (enemy_node as Node2D).global_position
 
-	# Buscar cofre cercano (NPCs usan distancia, no Area2D)
-	var chest: ContainerPlaceable = null
-	for node in get_tree().get_nodes_in_group("interactable"):
-		if node is ContainerPlaceable:
-			if (node as ContainerPlaceable).is_position_nearby(spawn_pos):
-				chest = node as ContainerPlaceable
+	# 1) Prefer the camp's own barrel (direct lookup by group_id, no proximity check needed)
+	var chest: Node = null
+	if beh.group_id != "":
+		var barrel_id: int = int(_camp_barrels.get(beh.group_id, 0))
+		if barrel_id != 0 and is_instance_id_valid(barrel_id):
+			var bn := instance_from_id(barrel_id) as Node
+			if bn != null and is_instance_valid(bn) and not bn.is_queued_for_deletion():
+				chest = bn
+
+	# 2) Fallback: any nearby interactable with insert support
+	if chest == null:
+		for node in get_tree().get_nodes_in_group("interactable"):
+			if not node.has_method("try_insert_item") or not node.has_method("is_position_nearby"):
+				continue
+			if node.call("is_position_nearby", spawn_pos):
+				chest = node
 				break
 
 	const FALL_TIME:   float = 0.25   # duración de la caída (igual que CarryableComponent)
 	const SFX_STAGGER: float = 0.07   # delay entre sonidos (tururur)
+
+	# Items caen hacia el barril/cofre, no hacia los pies del NPC
+	var land_target: Vector2 = spawn_pos
+	if chest != null and chest is Node2D:
+		land_target = (chest as Node2D).global_position
 
 	for i in beh._cargo_manifest.size():
 		var entry: Dictionary = beh._cargo_manifest[i]
@@ -451,8 +520,8 @@ func _handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		var item_id: String = String(entry.get("item_id", ""))
 		var amount: int     = int(entry.get("amount",     1))
 		var orig_layer: int = int(entry.get("orig_layer", 4))
-		var offset    := Vector2(randf_range(-12.0, 12.0), randf_range(-8.0, 8.0))
-		var ground_pos := spawn_pos + offset
+		var offset    := Vector2(randf_range(-8.0, 8.0), randf_range(-4.0, 4.0))
+		var ground_pos := land_target + offset
 
 		# Obtener o re-spawnar el nodo del drop
 		var drop_node: ItemDrop = null
@@ -488,24 +557,39 @@ func _handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		var cap_item_id := item_id
 		var cap_amount  := amount
 		var cap_sfx: AudioStream = drop_node.get("pickup_sfx") as AudioStream
+		var cap_group_id := beh.group_id
 
 		if chest != null:
-			# Con cofre: sfx al aterrizar + absorber con stagger (tururur)
+			# Con cofre/barril: sfx al aterrizar + absorber con stagger (tururur)
 			var deposit_delay := FALL_TIME + i * SFX_STAGGER
 			get_tree().create_timer(deposit_delay).timeout.connect(func() -> void:
 				if not is_instance_valid(cap_drop) or cap_drop.is_queued_for_deletion():
 					return
-				var inserted := chest.try_insert_item(cap_item_id, cap_amount)
+				var inserted := int(chest.call("try_insert_item", cap_item_id, cap_amount))
 				if inserted > 0:
 					if cap_sfx != null:
 						AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
 					cap_drop.queue_free()
-				else:
-					# Cofre lleno — dejar en el suelo
-					cap_drop.add_to_group("item_drop")
-					cap_drop.set_deferred("collision_layer", orig_layer)
-					cap_drop.set_deferred("monitoring",      true)
-					cap_drop.set_process(true)
+					return
+				# Barril lleno — spawnear uno nuevo para este camp y reintentar
+				if cap_group_id != "":
+					var col: int = 0
+					for gid in _camp_barrels:
+						if String(gid).begins_with(cap_group_id):
+							col += 1
+					var new_barrel := _spawn_camp_barrel(spawn_pos, col)
+					if new_barrel != null:
+						_camp_barrels[cap_group_id + "_extra_%d" % col] = new_barrel.get_instance_id()
+						new_barrel.call("try_insert_item", cap_item_id, cap_amount)
+						if cap_sfx != null:
+							AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
+						cap_drop.queue_free()
+						return
+				# Sin espacio en ningún barril — dejar en el suelo
+				cap_drop.add_to_group("item_drop")
+				cap_drop.set_deferred("collision_layer", orig_layer)
+				cap_drop.set_deferred("monitoring",      true)
+				cap_drop.set_process(true)
 			)
 		else:
 			# Sin cofre: re-activar al aterrizar para que sea recogible

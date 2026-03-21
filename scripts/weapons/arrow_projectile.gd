@@ -230,6 +230,11 @@ func _handle_area_hit(hit: Dictionary) -> bool:
 	global_position = hit.get("position", global_position)
 	if area.has_method("take_damage"):
 		area.take_damage(damage, global_position)
+		var owner_node := _get_owner_node()
+		if owner_node != null and owner_node.is_in_group("player"):
+			var target_entity := area.get_parent()
+			if target_entity != null and target_entity.has_method("notify_player_hit"):
+				target_entity.call("notify_player_hit")
 	queue_free()
 	return true
 
