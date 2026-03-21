@@ -55,6 +55,8 @@ func save_world() -> void:
 		"bandit_group_memory":  BanditGroupMemory.serialize(),
 		"extortion_queue":      ExtortionQueue.serialize(),
 		"run_clock":            RunClock.get_save_data(),
+		"world_time":           WorldTime.get_save_data(),
+		"faction_hostility":    FactionHostilityManager.serialize(),
 	}
 
 	var json_str: String = JSON.stringify(data)
@@ -176,6 +178,14 @@ func load_world_save() -> bool:
 	if rc is Dictionary:
 		RunClock.load_save_data(rc)
 
+	var wt = data.get("world_time", {})
+	if wt is Dictionary:
+		WorldTime.load_save_data(wt)
+
+	var fh = data.get("faction_hostility", {})
+	if fh is Dictionary:
+		FactionHostilityManager.deserialize(fh)
+
 	# Restore chunk_save into world's existing dict (mutate in-place so references stay valid)
 	if _world != null:
 		var cs = _des(data.get("chunk_save", {}))
@@ -209,6 +219,8 @@ func new_game() -> void:
 	BanditGroupMemory.reset()
 	ExtortionQueue.reset()
 	RunClock.reset()
+	WorldTime.load_save_data({})
+	FactionHostilityManager.reset()
 
 	# Generar semilla aleatoria real, ignorando debug_seed
 	var new_seed := int(Time.get_unix_time_from_system()) % 2147483647

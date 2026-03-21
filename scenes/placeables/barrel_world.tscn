@@ -17,6 +17,7 @@ closed_texture = ExtResource("1_barreltex")
 open_texture = ExtResource("1_barreltex")
 drop_item_id = "barrel"
 container_group = &"barrel"
+faction_owner_id = "bandits"
 
 [node name="chestcollision" type="CollisionShape2D" parent="."]
 position = Vector2(16, 26)

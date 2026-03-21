@@ -291,49 +291,56 @@ func _make_weapon_node(weapon_id: String) -> WeaponBase:
 		"bow":
 			return BowWeapon.new()
 		"axe_wood":
+			# Herramienta pesada — siempre más lenta que todo, 2 hits a enemigo base
 			var w := MeleeWeapon.new()
-			w.attack_cooldown = 0.35
-			w.damage_bonus = 0
+			w.attack_cooldown = 0.55
+			w.damage_bonus = 1
 			return w
 		"axe_stone":
+			# Stone: mismo daño que wood pero levemente menos lento — sigue siendo 2 hits
 			var w := MeleeWeapon.new()
-			w.attack_cooldown = 0.35
+			w.attack_cooldown = 0.52
 			w.damage_bonus = 1
 			return w
 		"axe_copper":
+			# Copper: gran salto de daño — 1 hit, sigue siendo la más lenta
 			var w := MeleeWeapon.new()
-			w.attack_cooldown = 0.35
-			w.damage_bonus = 2
+			w.attack_cooldown = 0.50
+			w.damage_bonus = 3
 			return w
 		"sword_wood":
+			# Arma de combate: la más rápida, mayor DPS por tier
 			var w := MeleeWeapon.new()
-			w.attack_cooldown = 0.20
+			w.attack_cooldown = 0.22
 			w.damage_bonus = 1
 			return w
 		"sword_stone":
+			# Stone: mismo daño que wood pero más rápida — sigue siendo 2 hits
 			var w := MeleeWeapon.new()
-			w.attack_cooldown = 0.20
-			w.damage_bonus = 2
+			w.attack_cooldown = 0.18
+			w.damage_bonus = 1
 			return w
 		"sword_copper":
 			var w := MeleeWeapon.new()
-			w.attack_cooldown = 0.20
+			w.attack_cooldown = 0.16
 			w.damage_bonus = 3
 			return w
 		"pickaxe_wood":
+			# Herramienta de minería — más lenta que armas, un poco más rápida que hachas
 			var w := MeleeWeapon.new()
-			w.attack_cooldown = 0.25
+			w.attack_cooldown = 0.45
 			w.damage_bonus = 0
 			return w
 		"pickaxe_stone":
 			var w := MeleeWeapon.new()
-			w.attack_cooldown = 0.25
+			w.attack_cooldown = 0.43
 			w.damage_bonus = 0
 			return w
 		"pickaxe_copper":
+			# Copper: finalmente usable como arma de emergencia
 			var w := MeleeWeapon.new()
-			w.attack_cooldown = 0.25
-			w.damage_bonus = 0
+			w.attack_cooldown = 0.42
+			w.damage_bonus = 1
 			return w
 		_:
 			return null

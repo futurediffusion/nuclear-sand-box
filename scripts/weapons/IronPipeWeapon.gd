@@ -2,7 +2,7 @@ extends WeaponBase
 class_name IronPipeWeapon
 
 @export var stamina_cost: float = 10.0
-@export var attack_cooldown: float = 0.25
+@export var attack_cooldown: float = 0.30
 
 var _cooldown: float = 0.0
 var _character_hitbox: CharacterHitbox = null

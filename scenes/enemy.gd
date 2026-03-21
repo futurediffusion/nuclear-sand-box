@@ -671,6 +671,9 @@ func _on_character_dying_started() -> void:
 	EnemyRegistry.unregister_enemy(self)
 	if GameEvents != null and GameEvents.has_method("emit_entity_died"):
 		GameEvents.emit_entity_died(entity_uid, "enemy", global_position, null)
+	if _last_hit_was_from_player:
+		FactionHostilityManager.add_hostility(faction_id, 0.0, "member_killed",
+			{"entity_id": entity_uid, "position": global_position})
 	_play_death_sound()
 	_trigger_death_shake()
 	if carry_component != null:
@@ -716,6 +719,8 @@ func _drop_carried_items() -> void:
 ## Called by slash / arrow when the hit source is the player.
 func notify_player_hit() -> void:
 	_last_hit_was_from_player = true
+	FactionHostilityManager.add_hostility(faction_id, 0.0, "member_attacked",
+		{"entity_id": entity_uid, "position": global_position})
 
 
 func _trigger_death_shake() -> void:

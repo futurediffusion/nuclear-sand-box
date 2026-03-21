@@ -95,14 +95,46 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 
 	var score: float = _score_activity(markers, bases)
 
-	# Determine new intent
+	# ── Hostility modifier ────────────────────────────────────────────────
+	# El nivel de hostilidad del grupo contra el jugador afecta cuán
+	# fácilmente el grupo escala su intención:
+	#   • El heat reciente amplifica el score detectado (reacción más caliente)
+	#   • El nivel reduce el umbral de hunting (grupos hostiles son más reactivos)
+	#   • A nivel 9+ el grupo busca activamente al jugador incluso sin actividad
+	var faction_id: String = String(g.get("faction_id", "bandits"))
+	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
+	var h_level: int   = profile.hostility_level
+	var h_heat: float  = profile.heat_modifier  # 0.0..1.0
+
+	# El heat amplifica el score detectado hasta un 60% extra
+	var effective_score: float = score * (1.0 + h_heat * 0.6)
+
+	# El nivel baja el umbral de hunting: cada nivel resta 0.4 del umbral
+	# (nivel 5 = umbral de hunting en 6.0, nivel 8 = 4.8, nivel 10 = 4.0)
+	var effective_t_hunting: float = maxf(T_HUNTING - float(h_level) * 0.4, 2.0)
+
+	# Nivel 9+: si hay cualquier actividad detectada (score > 0), forzar hunting
+	# Nivel 10: forzar hunting incluso sin actividad — la facción busca activamente
+	if h_level >= 10:
+		effective_score = maxf(effective_score, T_HUNTING + 1.0)
+	elif h_level >= 9 and score > 0.0:
+		effective_score = maxf(effective_score, effective_t_hunting + 0.1)
+
+	# ── Determine new intent ──────────────────────────────────────────────
 	var new_intent: String
-	if score >= T_HUNTING:
+	if effective_score >= effective_t_hunting:
 		new_intent = "hunting"
-	elif score >= T_ALERTED:
+	elif effective_score >= T_ALERTED:
 		new_intent = "alerted"
 	else:
 		new_intent = "idle"
+
+	# Nivel 4+: la extorsión deja de ser la respuesta por defecto a "idle"
+	# cuando el perfil dice que la facción ya puede atacar directamente.
+	# La extorsión sigue siendo válida en niveles 1-3 (presión territorial).
+	# En niveles 7+ la facción va directo a hunting si hay cualquier señal.
+	if h_level >= 7 and new_intent == "idle" and score > 0.0:
+		new_intent = "alerted"
 
 	BanditGroupMemory.update_intent(group_id, new_intent)
 
@@ -114,8 +146,8 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var interest = _pick_best_interest(markers, bases)
 	if interest != null:
 		BanditGroupMemory.record_interest(group_id, interest.pos, interest.kind)
-		Debug.log("bandit_intel", "[BGI] group=%s score=%.1f intent=%s kind=%s pos=%s" % [
-			group_id, score, new_intent, interest.kind, str(interest.pos)])
+		Debug.log("bandit_intel", "[BGI] group=%s score=%.1f eff=%.1f intent=%s lv%d heat=%.2f" % [
+			group_id, score, effective_score, new_intent, h_level, h_heat])
 
 	# For "alerted": designate exactly one scout
 	if new_intent == "alerted":
@@ -125,8 +157,9 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 		# hunting/extorting: clear scout (leader + bodyguards handle it)
 		BanditGroupMemory.set_scout(group_id, "")
 
-	# Extortion intent if threshold crossed
-	if score >= T_EXTORT and interest != null:
+	# Extortion: solo válida si el perfil lo permite (niveles 1-3 principalmente)
+	# En nivel 5+ la extorsión pierde sentido como salida principal — prefieren cazar
+	if score >= T_EXTORT and interest != null and profile.can_extort and not profile.can_knockout:
 		_maybe_enqueue_extortion(group_id, g, interest, score)
 
 

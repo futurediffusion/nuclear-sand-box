@@ -92,6 +92,7 @@ func on_choice_resolved(option: int, gid: String) -> void:
 	var job: ExtortionJob = _active_extortions[gid] as ExtortionJob
 	if job == null:
 		return
+	var faction: String = _get_job_faction_id(job)
 	match option:
 		0:
 			_resolve_extortion_warn(job)
@@ -100,15 +101,24 @@ func on_choice_resolved(option: int, gid: String) -> void:
 			var pay_amount: int = BanditTuningScript.extort_pay_amount(inv.gold if inv != null else 0, gid)
 			if inv != null and inv.gold >= pay_amount:
 				inv.spend_gold(pay_amount)
+				FactionHostilityManager.add_hostility(faction, 0.0, "extortion_paid",
+					{"group_id": gid, "amount": pay_amount})
 				Debug.log("extortion", "[EXTORT] paid %d gold group=%s" % [pay_amount, gid])
 				_resolve_extortion_idle(job)
 			else:
+				# El jugador quiso pagar pero no tiene oro: misma gravedad que negarse
+				FactionHostilityManager.add_hostility(faction, 0.0, "extortion_refused",
+					{"group_id": gid, "reason": "cant_pay"})
 				Debug.log("extortion", "[EXTORT] can't pay, forced refuse group=%s" % gid)
 				_show_poverty_taunts(job)
 				_resolve_extortion_warn(job)
 		2:
+			FactionHostilityManager.add_hostility(faction, 0.0, "extortion_refused",
+				{"group_id": gid})
 			_resolve_extortion_warn(job)
 		3:
+			FactionHostilityManager.add_hostility(faction, 0.0, "extortion_insulted",
+				{"group_id": gid})
 			_resolve_extortion_aggro(job)
 
 
@@ -407,6 +417,20 @@ func _tick_warning_strike(job: ExtortionJob, player_pos: Vector2, friction_compe
 		_set_enemy_scripted_control(speaker, true)
 		_drive_enemy_toward_point(speaker, player_pos,
 			BanditTuningScript.extort_warn_approach_speed(job.group_id) + friction_compensation)
+
+
+# ---------------------------------------------------------------------------
+# Faction ID helper
+# ---------------------------------------------------------------------------
+
+## Obtiene el faction_id del primer enemy asignado al job.
+## Si no hay node disponible, retorna el fallback "bandits".
+func _get_job_faction_id(job: ExtortionJob) -> String:
+	for aid: String in job.assigned_ids:
+		var enode := _npc_simulator.get_enemy_node(aid)
+		if enode != null and is_instance_valid(enode) and "faction_id" in enode:
+			return String(enode.get("faction_id"))
+	return "bandits"
 
 
 # ---------------------------------------------------------------------------

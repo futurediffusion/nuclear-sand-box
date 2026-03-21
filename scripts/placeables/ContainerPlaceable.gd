@@ -22,6 +22,9 @@ const HIT_FLASH_TIME: float = 0.06
 @export var locked: bool = false
 @export var loot_profile: StringName = &""
 @export var break_behavior: StringName = &"drop_contents"
+## Si no está vacío, notifica a FactionHostilityManager cuando este contenedor
+## es destruido. Debe coincidir con el faction_id del enemy dueño (e.g. "bandits").
+@export var faction_owner_id: String = ""
 
 @onready var chest_area: Area2D = $chestarea
 @onready var chest_sprite: Sprite2D = $chestsprite
@@ -119,6 +122,9 @@ func _play_hit_feedback() -> void:
 func _destroy() -> void:
 	if _ui_open:
 		_close_ui()
+	if faction_owner_id != "":
+		FactionHostilityManager.add_hostility(faction_owner_id, 0.0, "barrel_sacked",
+			{"asset_type": String(container_group), "position": global_position})
 	_play_break_sfx()
 
 	var world_node := get_parent()

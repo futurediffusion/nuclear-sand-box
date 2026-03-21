@@ -107,6 +107,11 @@ var _pending_leave_home: bool = false
 
 var _last_intent: String = ""
 
+# ── Hostility profile ─────────────────────────────────────────────────────
+# Actualizado al inicio de cada tick. No persiste: se recalcula desde el manager.
+var faction_id: String              = "bandits"
+var _profile: FactionBehaviorProfile = null
+
 
 # ---------------------------------------------------------------------------
 # Setup — override to set role-based cargo capacity and role init
@@ -116,6 +121,7 @@ func setup(cfg: Dictionary) -> void:
 	super.setup(cfg)
 	cargo_capacity  = int(_CARGO_CAP_BY_ROLE.get(role, 3))
 	_raw_leader_pos = home_pos
+	faction_id      = String(cfg.get("faction_id", "bandits"))
 	if role == "bodyguard":
 		var angle: float = _rng.randf_range(0.0, TAU)
 		_follow_offset = Vector2(cos(angle), sin(angle)) * _rng.randf_range(64.0, 140.0)
@@ -143,7 +149,13 @@ func _get_patrol_radius() -> float:
 	return float(_PATROL_RADIUS_BY_ROLE.get(role, 64.0))
 
 func _get_speed() -> float:
-	return float(_SPEED_BY_ROLE.get(role, 55.0))
+	var base: float = float(_SPEED_BY_ROLE.get(role, 55.0))
+	if _profile == null:
+		return base
+	# effective_intensity() devuelve 0.0 en nivel 0, hasta ~12 en nivel 10 con heat alto.
+	# Escalamos velocidad hasta un +25% máximo para no romper navegación.
+	var intensity_boost: float = clampf(_profile.effective_intensity() / 40.0, 0.0, 0.25)
+	return base * (1.0 + intensity_boost)
 
 func _get_home_return_dist() -> float:
 	# Roaming guards handle their own return via timer — disable distance leash
@@ -172,6 +184,9 @@ func _enter_idle_at_home() -> void:
 # ---------------------------------------------------------------------------
 
 func tick(delta: float, ctx: Dictionary) -> void:
+	# ── Hostility profile (recalculado cada tick, barato) ─────────────────
+	_profile = FactionHostilityManager.get_behavior_profile(faction_id)
+
 	# ── 0. Bodyguard: jitter offset injected into ctx before base tick ─────
 	if role == "bodyguard":
 		_jitter_timer -= delta
@@ -594,6 +609,11 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 
 	match intent:
 		"hunting":
+			# Nivel 1-2: el grupo no tiene autorización para perseguir activamente.
+			# Se quedan en "alerted" (solo un scout se mueve).
+			if _profile != null and not _profile.can_pursue_briefly:
+				_on_group_intent_changed("alerted", ctx)
+				return
 			match role:
 				"leader":
 					var g: Dictionary = BanditGroupMemory.get_group(group_id)
@@ -620,6 +640,12 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 					pass
 
 		"extorting":
+			# can_knockout se habilita en nivel 5. A partir de ahí la facción
+			# prefiere la violencia directa y ya no extorsiona.
+			# (La condición !can_extort sería nivel 0, lo cual es incorrecto.)
+			if _profile != null and _profile.can_knockout:
+				_on_group_intent_changed("hunting", ctx)
+				return
 			match role:
 				"leader", "bodyguard":
 					_enter_group_extort_approach()

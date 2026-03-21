@@ -490,6 +490,7 @@ func _ensure_data_behavior(enemy_id: String, state: Dictionary) -> BanditWorldBe
 		"group_id":    String(state.get("group_id", "")),
 		"member_id":   enemy_id,
 		"cargo_count": int(state.get("cargo_count", 0)),
+		"faction_id":  String(state.get("faction_id", "bandits")),
 	})
 	var wb = state.get("world_behavior", {})
 	if wb is Dictionary and not (wb as Dictionary).is_empty():
