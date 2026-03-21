@@ -1,4 +1,4 @@
-[gd_scene load_steps=37 format=3 uid="uid://38k36ggowmkb"]
+[gd_scene load_steps=41 format=3 uid="uid://38k36ggowmkb"]
 
 [ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="1_3vyb7"]
 [ext_resource type="Script" uid="uid://ckcw5d4tk1kyo" path="res://scripts/gameplay/player.gd" id="1_qhqgy"]
@@ -18,10 +18,10 @@
 [ext_resource type="Script" uid="uid://ctgv8fsqlh1dp" path="res://scripts/components/WallOcclusionComponent.gd" id="12_wall"]
 [ext_resource type="Script" path="res://scripts/components/VFXComponent.gd" id="13_vfx"]
 [ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="17_qfm1y"]
-[ext_resource type="Script" uid="uid://dng8wgnb2a8d4" path="res://scripts/components/InventoryComponent.gd" id="18_inv"]
-[ext_resource type="Script" uid="uid://b6p8j0x2k1w1w" path="res://scripts/components/WeaponComponent.gd" id="19_weap"]
-[ext_resource type="Script" uid="uid://c6a8r1p1x1w1w" path="res://scripts/weapons/PlayerWeaponController.gd" id="20_pctrl"]
-[ext_resource type="Script" path="res://scripts/components/CarryComponent.gd" id="21_carry"]
+[ext_resource type="Script" uid="uid://e5xb8ti105fj" path="res://scripts/components/InventoryComponent.gd" id="18_inv"]
+[ext_resource type="Script" uid="uid://vc4dnilcl62w" path="res://scripts/components/WeaponComponent.gd" id="19_weap"]
+[ext_resource type="Script" uid="uid://v3itidwrdfyo" path="res://scripts/weapons/PlayerWeaponController.gd" id="20_pctrl"]
+[ext_resource type="Script" uid="uid://v7a8ys3p2x4s" path="res://scripts/components/CarryComponent.gd" id="21_carry"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_qfm1y"]
 atlas = ExtResource("3_smehm")
@@ -165,6 +165,9 @@ slash_scene = ExtResource("2_qlg0r")
 droplet_scene = ExtResource("4_y4r1p")
 droplet_speed_min = 60.0
 droplet_speed_max = 120.0
+dash_speed = 500.0
+dash_duration = 0.01
+dash_stamina_cost = 17.0
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("7_healthc")

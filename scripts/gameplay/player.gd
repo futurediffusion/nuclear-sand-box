@@ -121,6 +121,15 @@ var _is_seated: bool = false
 var _seat_source_ref: WeakRef = null
 var _seat_return_world_pos: Vector2 = Vector2.INF
 
+@export_group("Dash")
+@export var dash_speed: float = 520.0
+@export var dash_duration: float = 0.12
+@export var dash_cooldown_time: float = 0.35
+@export var dash_stamina_cost: float = 34.0
+
+var _dash_vel: Vector2 = Vector2.ZERO
+var _dash_t: float = 0.0
+var _dash_cooldown: float = 0.0
 
 signal stamina_changed(stamina: float, max_stamina: float)
 signal request_attack
@@ -395,6 +404,9 @@ func _reset_control_transient_state() -> void:
 	blocking = false
 	secondary_action_state = SecondaryActionState.NONE
 	_secondary_stamina_locked = false
+	_dash_vel = Vector2.ZERO
+	_dash_t = 0.0
+	_dash_cooldown = 0.0
 
 	if block_component != null:
 		block_component.set_block_requested(false)
@@ -627,6 +639,22 @@ func _input(event: InputEvent) -> void:
 				weapon_component.equip_next()
 			return
 
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ALT or event.physical_keycode == KEY_ALT:
+			_try_dash()
+
+func _try_dash() -> void:
+	if _dash_cooldown > 0.0:
+		return
+	if stamina_component == null or not stamina_component.spend(dash_stamina_cost):
+		return
+	var dir := last_direction
+	if dir.is_zero_approx():
+		dir = Vector2.from_angle(mouse_angle)
+	_dash_vel = dir.normalized() * dash_speed
+	_dash_t = dash_duration
+	_dash_cooldown = dash_cooldown_time
+
 func _physics_process(delta: float) -> void:
 	if dying or is_downed:
 		velocity = Vector2.ZERO
@@ -702,6 +730,12 @@ func _physics_process(delta: float) -> void:
 	if attack_push_t > 0.0:
 		attack_push_t -= delta
 		velocity += attack_push_vel
+
+	if _dash_t > 0.0:
+		_dash_t -= delta
+		velocity += _dash_vel
+	if _dash_cooldown > 0.0:
+		_dash_cooldown -= delta
 
 	_apply_knockback_step(delta)
 	_update_wall(delta)
