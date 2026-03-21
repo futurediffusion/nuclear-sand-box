@@ -73,9 +73,6 @@ var _was_sleeping_last_frame: bool = false
 var attack_t: float = 0.0
 var _setup_done: bool = false
 var _save_state_applied: bool = false
-var _logged_duplicate_inventory_count: bool = false
-var _logged_duplicate_weapon_count: bool = false
-var _logged_duplicate_controller_count: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
 var _sep_timer: float = 0.0
 var _is_lite_mode: bool = false
@@ -152,19 +149,6 @@ func _on_character_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
 func _validate_core_components() -> bool:
 	var valid := true
 
-	# We must assign the nodes because `get_node_or_null` might return null initially if not in the right order
-	# or if we are validating before `_ready` runs on them.
-	# Actually, since they are `@onready var` they should be populated.
-	# But just in case, we'll try to get them if they are null.
-	if ai_component == null:
-		ai_component = get_node_or_null("AIComponent") as AIComponent
-	if inventory_component == null:
-		inventory_component = get_node_or_null("InventoryComponent") as InventoryComponent
-	if weapon_component == null:
-		weapon_component = get_node_or_null("WeaponComponent") as WeaponComponent
-	if ai_weapon_controller == null:
-		ai_weapon_controller = get_node_or_null("AIWeaponController") as AIWeaponController
-
 	if ai_component == null:
 		push_error("[Enemy] Missing required core component 'AIComponent' on '%s'" % name)
 		if OS.is_debug_build():
@@ -219,7 +203,6 @@ func _run_setup_once() -> void:
 	_setup_done = true
 
 	_setup_components()
-	_setup_inventory_component()
 	if not _save_state_applied:
 		_grant_temporary_starting_weapon()
 	_setup_weapon_component()
@@ -227,11 +210,6 @@ func _run_setup_once() -> void:
 func _setup_components() -> void:
 	if ai_component != null:
 		ai_component.setup(self)
-
-func _setup_inventory_component() -> void:
-	if inventory_component != null:
-		_setup_log("setup_inventory reuse")
-		return
 
 func _grant_temporary_starting_weapon() -> void:
 	if inventory_component == null:
@@ -270,8 +248,6 @@ func _setup_weapon_component() -> void:
 	weapon_component.equip_runtime_weapon(self, ctrl)
 
 func _ensure_ai_weapon_controller() -> AIWeaponController:
-	if ai_weapon_controller != null:
-		_setup_log("setup_ai_controller reuse")
 	return ai_weapon_controller
 
 func _count_children_by_name(node_name: String) -> int:
@@ -375,21 +351,12 @@ func end_scripted_control() -> void:
 	external_ai_override = false
 	_pending_scripted_melee_action = false
 
-## Alias legacy para mantener compatibilidad con callers antiguos.
-func end_scripted_action() -> void:
-	end_scripted_control()
-
-
 func set_scripted_control_enabled(enabled: bool) -> void:
 	external_ai_override = enabled
 
 
 func set_scripted_velocity(world_velocity: Vector2) -> void:
 	velocity = world_velocity
-
-func perform_attack(_target_position: Vector2) -> void:
-	# Legacy entrypoint intentionally disabled to prevent duplicate attacks.
-	return
 
 func queue_ai_attack_press(aim_global_position: Vector2) -> void:
 	if _is_lite_mode:
@@ -408,7 +375,7 @@ func _calculate_attack_angle(base_angle: float) -> void:
 		target_attack_angle = base_angle + deg_to_rad(angle_offset_right)
 	use_left_offset = not use_left_offset
 
-func _spawn_slash(angle: float) -> void:
+func spawn_slash(angle: float) -> void:
 	if slash_scene == null:
 		return
 	var parent := get_tree().current_scene
@@ -419,9 +386,6 @@ func _spawn_slash(angle: float) -> void:
 	s.position = parent.to_local(slash_spawn.global_position)
 	s.rotation = angle
 	parent.add_child(s)
-
-func spawn_slash(angle: float) -> void:
-	_spawn_slash(angle)
 
 func set_ai_attack_intent(attack_down: bool, aim_global_position: Vector2) -> void:
 	if _is_lite_mode and attack_down:

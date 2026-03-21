@@ -116,32 +116,46 @@ func clear_all() -> void:
 # Persistence
 # ---------------------------------------------------------------------------
 
-func serialize() -> Array:
-	var out: Array = []
+func serialize() -> Dictionary:
+	var intents_out: Array = []
 	for intent in _intents:
 		var s: Dictionary = (intent as Dictionary).duplicate(true)
 		var wp: Vector2 = s.get("world_pos", Vector2.ZERO)
 		s["world_pos"] = {"x": wp.x, "y": wp.y}
-		out.append(s)
-	out.append({"__meta__": "extortion_queue_state", "last_request_time_by_group": _last_request_time_by_group.duplicate(true)})
-	return out
+		intents_out.append(s)
+	return {
+		"intents":                    intents_out,
+		"last_request_time_by_group": _last_request_time_by_group.duplicate(true),
+	}
 
 
-func deserialize(data: Array) -> void:
+func deserialize(data: Variant) -> void:
 	_intents.clear()
 	_last_request_time_by_group.clear()
-	for item in data:
+
+	# Migración: formato legacy era un Array con __meta__ al final
+	var intents_raw: Array = []
+	if data is Dictionary:
+		intents_raw = (data as Dictionary).get("intents", []) as Array
+		_last_request_time_by_group = \
+			((data as Dictionary).get("last_request_time_by_group", {}) as Dictionary).duplicate(true)
+	elif data is Array:
+		for item in (data as Array):
+			if not item is Dictionary:
+				continue
+			if String((item as Dictionary).get("__meta__", "")) == "extortion_queue_state":
+				_last_request_time_by_group = \
+					((item as Dictionary).get("last_request_time_by_group", {}) as Dictionary).duplicate(true)
+			else:
+				intents_raw.append(item)
+
+	for item in intents_raw:
 		if not item is Dictionary:
 			continue
 		var i: Dictionary = (item as Dictionary).duplicate(true)
-		if String(i.get("__meta__", "")) == "extortion_queue_state":
-			_last_request_time_by_group = i.get("last_request_time_by_group", {}).duplicate(true)
-			continue
 		var wp = i.get("world_pos", {"x": 0.0, "y": 0.0})
-		if wp is Dictionary:
-			i["world_pos"] = Vector2(float(wp.get("x", 0.0)), float(wp.get("y", 0.0)))
-		else:
-			i["world_pos"] = Vector2.ZERO
+		i["world_pos"] = Vector2(float((wp as Dictionary).get("x", 0.0)), float((wp as Dictionary).get("y", 0.0))) \
+			if wp is Dictionary else Vector2.ZERO
 		_intents.append(i)
 
 

@@ -80,7 +80,7 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var leader_id: String = String(g.get("leader_id", ""))
 	if leader_id == "":
 		return
-	if _npc_simulator == null or _npc_simulator._get_active_enemy_node(leader_id) == null:
+	if _npc_simulator == null or _npc_simulator.get_enemy_node(leader_id) == null:
 		return
 
 	var home_pos: Vector2 = g.get("home_world_pos", Vector2.ZERO)
@@ -194,7 +194,7 @@ func _pick_scout(group_id: String, g: Dictionary) -> String:
 		var id: String = String(mid)
 		if id == leader_id:
 			continue
-		var node = _npc_simulator._get_active_enemy_node(id)
+		var node = _npc_simulator.get_enemy_node(id)
 		if node == null:
 			continue
 		var r: String = String(NpcProfileSystem.get_profile(id).get("role", ""))

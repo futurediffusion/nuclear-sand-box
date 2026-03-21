@@ -1,0 +1,128 @@
+[gd_scene load_steps=6 format=3 uid="uid://bnr7l81qo5fgf"]
+
+[ext_resource type="Script" uid="uid://c77t5uerbips7" path="res://scripts/tests/duel_test.gd" id="1_script"]
+[ext_resource type="Script" uid="uid://c3berl1x58n1r" path="res://scripts/world/NpcSimulator.gd" id="2_npc"]
+[ext_resource type="PackedScene" uid="uid://cmysaqnuq4nfh" path="res://scenes/cursor_2d.tscn" id="3_cursor"]
+[ext_resource type="TileSet" uid="uid://bts015k5iokqt" path="res://scenes/TileMap_Ground.tres" id="4_ground"]
+[ext_resource type="TileSet" uid="uid://dqq1nwydgswfm" path="res://scenes/TileMap_Cliffs .tres" id="5_cliffs"]
+
+[node name="DuelTest" type="Node2D"]
+script = ExtResource("1_script")
+
+[node name="GroundMap" type="TileMap" parent="."]
+z_index = -2
+tile_set = ExtResource("4_ground")
+format = 2
+layer_0/name = "Ground"
+
+[node name="CliffsMap" type="TileMap" parent="."]
+z_index = 5
+tile_set = ExtResource("5_cliffs")
+format = 2
+layer_0/name = "Cliffs"
+
+[node name="ArenaWalls" type="StaticBody2D" parent="."]
+collision_layer = 16
+collision_mask = 0
+
+[node name="WallTop" type="CollisionShape2D" parent="ArenaWalls"]
+
+[node name="WallBottom" type="CollisionShape2D" parent="ArenaWalls"]
+
+[node name="WallLeft" type="CollisionShape2D" parent="ArenaWalls"]
+
+[node name="WallRight" type="CollisionShape2D" parent="ArenaWalls"]
+
+[node name="WorldLayer" type="Node2D" parent="."]
+
+[node name="SpawnCenter" type="Marker2D" parent="."]
+
+[node name="NpcSimulator" type="Node" parent="."]
+script = ExtResource("2_npc")
+lite_enabled = false
+data_only_enabled = false
+
+[node name="Camera2D" type="Camera2D" parent="."]
+
+[node name="CursorLayer" type="CanvasLayer" parent="."]
+layer = 100
+
+[node name="MouseCursor" parent="CursorLayer" instance=ExtResource("3_cursor")]
+z_index = 50
+scale = Vector2(3.75, 3.75)
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="DebugPanel" type="PanelContainer" parent="UI"]
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 490.0
+offset_bottom = 310.0
+
+[node name="Margin" type="MarginContainer" parent="UI/DebugPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="UI/DebugPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TitleLabel" type="Label" parent="UI/DebugPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "=== TEST: DUELO ENTRE ENEMIES ==="
+
+[node name="HintLabel" type="Label" parent="UI/DebugPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+theme_override_font_sizes/font_size = 11
+text = "[SPACE] spawn/reset — los enemies pelean en la arena"
+
+[node name="StatusLabel" type="Label" parent="UI/DebugPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.3, 1)
+theme_override_font_sizes/font_size = 13
+text = "Presiona SPACE o SPAWN para iniciar."
+autowrap_mode = 3
+
+[node name="Sep1" type="HSeparator" parent="UI/DebugPanel/Margin/VBox"]
+layout_mode = 2
+
+[node name="EnemyALabel" type="Label" parent="UI/DebugPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
+theme_override_font_sizes/font_size = 12
+text = "EnemyA: —"
+
+[node name="EnemyBLabel" type="Label" parent="UI/DebugPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.5, 0.5, 1)
+theme_override_font_sizes/font_size = 12
+text = "EnemyB: —"
+
+[node name="Sep2" type="HSeparator" parent="UI/DebugPanel/Margin/VBox"]
+layout_mode = 2
+
+[node name="LogLabel" type="Label" parent="UI/DebugPanel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 88)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.9, 0.7, 1)
+theme_override_font_sizes/font_size = 11
+autowrap_mode = 3
+
+[node name="Buttons" type="HBoxContainer" parent="UI/DebugPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SpawnButton" type="Button" parent="UI/DebugPanel/Margin/VBox/Buttons"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "SPAWN DUEL"
+
+[node name="ResetButton" type="Button" parent="UI/DebugPanel/Margin/VBox/Buttons"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "RESET"

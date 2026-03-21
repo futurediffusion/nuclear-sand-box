@@ -67,7 +67,7 @@ func _clear_enemy_tracking(enemy_id: String, clear_spawning: bool = true) -> voi
 	if clear_spawning:
 		spawning_enemy_ids.erase(enemy_id)
 
-func _get_active_enemy_node(enemy_id: String) -> Node:
+func get_enemy_node(enemy_id: String) -> Node:
 	if not active_enemies.has(enemy_id):
 		return null
 	var node_v = active_enemies[enemy_id]
@@ -84,11 +84,11 @@ func _get_active_enemy_node(enemy_id: String) -> Node:
 		return null
 	return node
 
-func _get_active_enemy_chunk_key(enemy_id: String) -> String:
+func get_enemy_chunk_key(enemy_id: String) -> String:
 	return String(active_enemy_chunk.get(enemy_id, ""))
 
-func _has_live_active_enemy(enemy_id: String) -> bool:
-	return _get_active_enemy_node(enemy_id) != null
+func has_enemy_node(enemy_id: String) -> bool:
+	return get_enemy_node(enemy_id) != null
 
 func _register_active_enemy(enemy_id: String, chunk_key: String, node: Node) -> void:
 	active_enemies[enemy_id] = node
@@ -177,7 +177,7 @@ func _tick_data_only(delta: float) -> void:
 			var enemy_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
 			var dist: float = enemy_pos.distance_to(player_pos)
 			var is_dead: bool = bool(state.get("is_dead", false))
-			var node := _get_active_enemy_node(enemy_id)
+			var node := get_enemy_node(enemy_id)
 			var should_spawn: bool = spawn_with_chunk or dist < visual_r
 			if should_spawn and not is_dead and node == null and not spawning_enemy_ids.has(enemy_id):
 				# spawn_with_chunk: node lives while chunk is loaded; lite when outside full-AI radius
@@ -225,8 +225,8 @@ func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary, sta
 	_spawn_queue.enqueue(job)
 
 func despawn_enemy(enemy_id: String) -> void:
-	var node := _get_active_enemy_node(enemy_id)
-	var chunk_key := _get_active_enemy_chunk_key(enemy_id)
+	var node := get_enemy_node(enemy_id)
+	var chunk_key := get_enemy_chunk_key(enemy_id)
 	if node != null:
 		if node.has_method("capture_save_state"):
 			var state: Dictionary = node.call("capture_save_state")
@@ -311,7 +311,7 @@ func on_enemy_job_skipped(job: Dictionary) -> void:
 
 # Llamado desde World._on_entity_died
 func on_entity_died(uid: String) -> void:
-	var chunk_key := _get_active_enemy_chunk_key(uid)
+	var chunk_key := get_enemy_chunk_key(uid)
 	if chunk_key != "":
 		WorldSave.mark_enemy_dead(chunk_key, uid)
 		# We do not clear tracking here to allow the corpse to persist if enabled.
@@ -337,7 +337,7 @@ func on_entity_died(uid: String) -> void:
 func on_chunk_unloaded(chunk_key: String) -> void:
 	var ids_to_despawn: Array[String] = []
 	for enemy_id in active_enemy_chunk.keys():
-		if _get_active_enemy_chunk_key(String(enemy_id)) == chunk_key:
+		if get_enemy_chunk_key(String(enemy_id)) == chunk_key:
 			ids_to_despawn.append(String(enemy_id))
 	for enemy_id in ids_to_despawn:
 		despawn_enemy(enemy_id)
@@ -506,7 +506,7 @@ func _remove_data_behavior(enemy_id: String) -> void:
 	_data_behaviors.erase(enemy_id)
 
 
-const _RES_SCAN_RADIUS_SQ: float = 288.0 * 288.0   # matches BanditBehaviorLayer
+const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 
 func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary:
 	var node_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
@@ -524,7 +524,7 @@ func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary
 	if leader_id == "" or leader_id == enemy_id:
 		return ctx
 	# Leader active?
-	var lnode = _get_active_enemy_node(leader_id)
+	var lnode = get_enemy_node(leader_id)
 	if lnode != null:
 		ctx["leader_pos"] = lnode.global_position
 		return ctx
@@ -542,7 +542,7 @@ func _scan_nearby_resources(node_pos: Vector2) -> Array:
 		if res_node == null or not is_instance_valid(res_node) \
 				or res_node.is_queued_for_deletion():
 			continue
-		if node_pos.distance_squared_to(res_node.global_position) <= _RES_SCAN_RADIUS_SQ:
+		if node_pos.distance_squared_to(res_node.global_position) <= BanditTuningScript.resource_scan_radius_sq():
 			result.append({"pos": res_node.global_position})
 	return result
 

@@ -177,10 +177,17 @@ func _try_damage(raw_target: Node) -> void:
 		# Neither will re-engage the player or group-up until one dies.
 		if owner_node != null and owner_node != target:
 			var a_ai: AIComponent = owner_node.get_node_or_null("AIComponent") as AIComponent
-			var v_ai: AIComponent = target.get_node_or_null("AIComponent")   as AIComponent
+			# target puede ser el Hurtbox (Area2D) en lugar del enemy directamente —
+			# buscar AIComponent en target, si no, en su padre.
+			var v_ai: AIComponent = target.get_node_or_null("AIComponent") as AIComponent
+			var duel_victim: Node = target
+			if v_ai == null and target.get_parent() != null:
+				v_ai = target.get_parent().get_node_or_null("AIComponent") as AIComponent
+				if v_ai != null:
+					duel_victim = target.get_parent()
 			if a_ai != null and v_ai != null:
-				a_ai.force_target(target,    25.0)
-				v_ai.force_target(owner_node, 25.0)
+				a_ai.force_target(duel_victim, 25.0)
+				v_ai.force_target(owner_node,  25.0)
 		_register_non_wall_hit(target_world_pos)
 
 		if impact_sound and impact_sound.stream:

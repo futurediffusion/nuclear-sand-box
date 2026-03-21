@@ -256,7 +256,7 @@ func _delete_speaker() -> void:
 			speaker_id = String(job.taunt_speaker_id)
 	if speaker_id == "":
 		speaker_id = LEADER_ID
-	var speaker := _npc_simulator._get_active_enemy_node(speaker_id)
+	var speaker := _npc_simulator.get_enemy_node(speaker_id)
 	if speaker == null or not is_instance_valid(speaker):
 		_append_status("No hay speaker vivo para borrar.")
 		return

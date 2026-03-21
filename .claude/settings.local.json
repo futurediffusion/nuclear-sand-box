@@ -55,7 +55,8 @@
       "Bash(python3:*)",
       "Bash(python:*)",
       "Bash(godot --headless --check-only --script scripts/world/BanditWorldBehavior.gd)",
-      "Bash(godot --headless --check-only --script scripts/world/NpcWorldBehavior.gd)"
+      "Bash(godot --headless --check-only --script scripts/world/NpcWorldBehavior.gd)",
+      "mcp__godot-mcp__get_scene_tree"
     ]
   }
 }

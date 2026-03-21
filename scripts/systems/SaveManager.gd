@@ -168,8 +168,8 @@ func load_world_save() -> bool:
 	if bgm is Dictionary:
 		BanditGroupMemory.deserialize(bgm)
 
-	var eq = data.get("extortion_queue", [])
-	if eq is Array:
+	var eq = data.get("extortion_queue")
+	if eq is Dictionary or eq is Array:
 		ExtortionQueue.deserialize(eq)
 
 	var rc = data.get("run_clock", {})

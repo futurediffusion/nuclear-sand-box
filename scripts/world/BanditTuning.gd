@@ -7,8 +7,41 @@ class_name BanditTuning
 
 const DEFAULT_FACTION: String = "default"
 
+# ---------------------------------------------------------------------------
+# World simulation
+# ---------------------------------------------------------------------------
+const BEHAVIOR_TICK_INTERVAL: float = 0.5      # segundos entre ticks de behavior
+
+# Scan radii — distancias máximas para detectar drops/recursos por tick
+const LOOT_SCAN_RADIUS:     float = 144.0
+const RESOURCE_SCAN_RADIUS: float = 288.0
+
+# Rango melee para que un NPC golpee un recurso mientras minea
+const MINE_RANGE: float = 52.0
+
+# ---------------------------------------------------------------------------
+# Physics / separation
+# ---------------------------------------------------------------------------
 const FRICTION_COMPENSATION: float = 25.0
 const ALERTED_SCOUT_CHASE_SPEED: float = 55.0
+
+# Separación entre aliados en el mismo grupo (sleeping NPCs sin CharacterBody2D sep)
+const ALLY_SEP_RADIUS: float = 44.0
+const ALLY_SEP_FORCE:  float = 55.0
+
+# ---------------------------------------------------------------------------
+# Cargo pickup radii
+# ---------------------------------------------------------------------------
+# Radio de recogida durante órbita de minería (desde el centro del recurso)
+const ORBIT_COLLECT_RADIUS:       float = 56.0
+# Radio de recogida al llegar a un drop objetivo (barre todo lo cercano)
+const LOOT_ARRIVE_COLLECT_RADIUS: float = 40.0
+
+# ---------------------------------------------------------------------------
+# Cargo deposit animation / audio
+# ---------------------------------------------------------------------------
+const CARGO_FALL_TIME:   float = 0.25   # duración de la caída visual de items al barril
+const CARGO_SFX_STAGGER: float = 0.07   # delay entre sonidos al depositar varios items
 
 const TAUNT_RANGE_SQ: float = 300.0 * 300.0
 const COLLECT_RANGE_SQ: float = 160.0 * 160.0
@@ -25,11 +58,57 @@ const EXTORT_WARN_STRIKE_RANGE_BONUS: float = 8.0
 static func faction_for_group(_group_id: String) -> String:
 	return DEFAULT_FACTION
 
+# ---------------------------------------------------------------------------
+# World simulation accessors
+# ---------------------------------------------------------------------------
+
+static func behavior_tick_interval() -> float:
+	return BEHAVIOR_TICK_INTERVAL
+
+static func loot_scan_radius_sq() -> float:
+	return LOOT_SCAN_RADIUS * LOOT_SCAN_RADIUS
+
+static func resource_scan_radius_sq() -> float:
+	return RESOURCE_SCAN_RADIUS * RESOURCE_SCAN_RADIUS
+
+static func mine_range_sq() -> float:
+	return MINE_RANGE * MINE_RANGE
+
+# ---------------------------------------------------------------------------
+# Physics / separation accessors
+# ---------------------------------------------------------------------------
+
 static func friction_compensation() -> float:
 	return FRICTION_COMPENSATION
 
 static func alerted_scout_chase_speed(_group_id: String = "") -> float:
 	return ALERTED_SCOUT_CHASE_SPEED
+
+static func ally_sep_radius() -> float:
+	return ALLY_SEP_RADIUS
+
+static func ally_sep_force() -> float:
+	return ALLY_SEP_FORCE
+
+# ---------------------------------------------------------------------------
+# Cargo pickup accessors
+# ---------------------------------------------------------------------------
+
+static func orbit_collect_radius_sq() -> float:
+	return ORBIT_COLLECT_RADIUS * ORBIT_COLLECT_RADIUS
+
+static func loot_arrive_collect_radius_sq() -> float:
+	return LOOT_ARRIVE_COLLECT_RADIUS * LOOT_ARRIVE_COLLECT_RADIUS
+
+# ---------------------------------------------------------------------------
+# Cargo deposit accessors
+# ---------------------------------------------------------------------------
+
+static func cargo_fall_time() -> float:
+	return CARGO_FALL_TIME
+
+static func cargo_sfx_stagger() -> float:
+	return CARGO_SFX_STAGGER
 
 static func extort_taunt_range_sq(_group_id: String = "") -> float:
 	return TAUNT_RANGE_SQ
