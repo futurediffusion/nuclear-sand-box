@@ -172,6 +172,15 @@ func _try_damage(raw_target: Node) -> void:
 		if owner_node != null and owner_node.is_in_group("player") \
 				and target.has_method("notify_player_hit"):
 			target.call("notify_player_hit")
+
+		# Enemy-vs-enemy hit: initiate a 1v1 duel between them.
+		# Neither will re-engage the player or group-up until one dies.
+		if owner_node != null and owner_node != target:
+			var a_ai: AIComponent = owner_node.get_node_or_null("AIComponent") as AIComponent
+			var v_ai: AIComponent = target.get_node_or_null("AIComponent")   as AIComponent
+			if a_ai != null and v_ai != null:
+				a_ai.force_target(target,    25.0)
+				v_ai.force_target(owner_node, 25.0)
 		_register_non_wall_hit(target_world_pos)
 
 		if impact_sound and impact_sound.stream:

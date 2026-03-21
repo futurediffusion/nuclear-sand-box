@@ -68,6 +68,11 @@ var _current_target_id: int = -1
 var _ignored_target_id: int = -1
 var _ignore_target_until: float = 0.0
 
+## Duel system: when set, this AI ignores normal target acquisition and chases
+## the duel opponent until they die or the lock expires.
+var _duel_target_id: int    = -1
+var _duel_locked_until: float = 0.0
+
 var _bow_state: BowState = BowState.IDLE
 var _bow_charge_t: float = 0.0
 var _bow_charge_target: float = 0.0
@@ -157,7 +162,37 @@ func clear_current_target() -> void:
 	_current_target_ref = null
 	_current_target_id = -1
 
+## Forces this AI to target opponent for a 1v1 duel.
+## Both the attacker and the victim should call this on each other.
+## The duel persists until the target dies or lock_duration seconds elapse.
+func force_target(opponent: Node, lock_duration: float = 25.0) -> void:
+	if opponent == null or not is_instance_valid(opponent):
+		return
+	_duel_target_id    = opponent.get_instance_id()
+	_duel_locked_until = RunClock.now() + lock_duration
+	set_current_target(opponent)
+	wake_now()
+	if current_state != AIState.DEAD and current_state != AIState.DOWNED:
+		current_state = AIState.CHASE
+
 func get_current_target() -> Node:
+	# Duel lock: override everything while the opponent is alive and lock is active
+	if _duel_target_id != -1:
+		if RunClock.now() < _duel_locked_until and is_instance_id_valid(_duel_target_id):
+			var duel_node := instance_from_id(_duel_target_id) as Node
+			if duel_node != null and is_instance_valid(duel_node):
+				var target_dead: bool = false
+				if duel_node.has_method("is_final_dead"):
+					target_dead = bool(duel_node.call("is_final_dead"))
+				if not target_dead:
+					current_target = duel_node as CharacterBody2D
+					_current_target_ref = weakref(duel_node)
+					_current_target_id  = _duel_target_id
+					return current_target
+		# Duel ended: target died or timed out
+		_duel_target_id    = -1
+		_duel_locked_until = 0.0
+
 	if current_target != null and is_instance_valid(current_target):
 		return current_target
 	if _current_target_ref != null:
@@ -962,6 +997,9 @@ func _get_owner_path_id() -> String:
 func _find_player() -> void:
 	if owner_entity == null:
 		return
+	# Don't touch target assignment while locked in a duel
+	if _duel_target_id != -1 and RunClock.now() < _duel_locked_until:
+		return
 	var players: Array = owner_entity.get_tree().get_nodes_in_group("player")
 	if players.size() > 0:
 		player = players[0] as CharacterBody2D
@@ -980,6 +1018,11 @@ func _on_sleep_check_timeout() -> void:
 	if not is_instance_valid(self) or owner_entity == null:
 		return
 	if current_state == AIState.DEAD or current_state == AIState.DOWNED:
+		return
+	# Never sleep while locked in a duel
+	if _duel_target_id != -1 and RunClock.now() < _duel_locked_until:
+		sleeping = false
+		_schedule_sleep_check()
 		return
 
 	var target = get_current_target()
