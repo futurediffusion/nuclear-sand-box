@@ -114,6 +114,7 @@ var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
 var _settlement_intel: SettlementIntel
 var _bandit_behavior_layer: BanditBehaviorLayer
+var _resource_repopulator: ResourceRepopulator
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
 var _wall_feedback: WallFeedback
@@ -151,6 +152,7 @@ const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const SettlementIntelScript := preload("res://scripts/world/SettlementIntel.gd")
 const BanditBehaviorLayerScript        := preload("res://scripts/world/BanditBehaviorLayer.gd")
+const ResourceRepopulatorScript        := preload("res://scripts/world/ResourceRepopulator.gd")
 const WorldSpeechBubbleManagerScript   := preload("res://scripts/ui/WorldSpeechBubbleManager.gd")
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
@@ -454,6 +456,11 @@ func _ready() -> void:
 		"player":                player,
 		"speech_bubble_manager": _speech_bubble_manager,
 	})  # Setup del sistema de extorsión
+
+	_resource_repopulator = ResourceRepopulatorScript.new()
+	_resource_repopulator.name = "ResourceRepopulator"
+	add_child(_resource_repopulator)
+	_resource_repopulator.setup(stone_ore_scene, copper_ore_scene, tilemap)
 
 	_vegetation_root.setup({
 		"ground_tilemap": ground_tilemap,

@@ -59,7 +59,10 @@ func _ready() -> void:
 	# un pelín random para que no floten igual
 	_t = randf() * 10.0
 
-	magnet_delay.timeout.connect(func(): _magnet_on = true)
+	magnet_delay.timeout.connect(func():
+		_magnet_on = true
+		call_deferred("_recheck_player_overlap")
+	)
 	magnet_delay.start()
 
 	body_entered.connect(_on_body_entered)

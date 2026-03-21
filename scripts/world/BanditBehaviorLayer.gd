@@ -580,20 +580,47 @@ func _handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 						AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
 					cap_drop.queue_free()
 					return
-				# Barril lleno — spawnear uno nuevo para este camp y reintentar
+				# Barril lleno — buscar otro barril del grupo con espacio antes de spawnear
 				if cap_group_id != "":
-					var col: int = 0
-					for gid in _camp_barrels:
-						if String(gid).begins_with(cap_group_id):
-							col += 1
-					var new_barrel := _spawn_camp_barrel(spawn_pos, col)
-					if new_barrel != null:
-						_camp_barrels[cap_group_id + "_extra_%d" % col] = new_barrel.get_instance_id()
-						new_barrel.call("try_insert_item", cap_item_id, cap_amount)
-						if cap_sfx != null:
-							AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
-						cap_drop.queue_free()
-						return
+					# Intentar insertar en barriles extras ya existentes para este grupo
+					var found_space := false
+					for gid in _camp_barrels.keys():
+						if not String(gid).begins_with(cap_group_id) or String(gid) == cap_group_id:
+							continue  # skip el primario (ya está lleno) y los de otros grupos
+						var bid: int = int(_camp_barrels[gid])
+						if bid == 0 or not is_instance_id_valid(bid):
+							continue
+						var bn2 := instance_from_id(bid) as Node
+						if bn2 == null or not is_instance_valid(bn2) or not bn2.has_method("try_insert_item"):
+							continue
+						var ins2 := int(bn2.call("try_insert_item", cap_item_id, cap_amount))
+						if ins2 > 0:
+							# Promover este barril a primario para que los NPCs vengan aquí
+							_camp_barrels[cap_group_id] = bid
+							_update_deposit_pos(cap_group_id, (bn2 as Node2D).global_position)
+							if cap_sfx != null:
+								AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
+							cap_drop.queue_free()
+							found_space = true
+							break
+					if not found_space:
+						# Ningún barril existente tiene espacio — spawnear uno nuevo
+						var col: int = 0
+						for gid in _camp_barrels:
+							if String(gid).begins_with(cap_group_id):
+								col += 1
+						var new_barrel := _spawn_camp_barrel(spawn_pos, col)
+						if new_barrel != null:
+							var nrid: int = new_barrel.get_instance_id()
+							_camp_barrels[cap_group_id + "_extra_%d" % col] = nrid
+							# Promover el nuevo barril a primario para futuras visitas
+							_camp_barrels[cap_group_id] = nrid
+							_update_deposit_pos(cap_group_id, (new_barrel as Node2D).global_position)
+							new_barrel.call("try_insert_item", cap_item_id, cap_amount)
+							if cap_sfx != null:
+								AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
+							cap_drop.queue_free()
+							return
 				# Sin espacio en ningún barril — dejar en el suelo
 				cap_drop.add_to_group("item_drop")
 				cap_drop.set_deferred("collision_layer", orig_layer)

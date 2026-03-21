@@ -24,8 +24,8 @@ func get_hit_sound() -> AudioStream:
 @onready var hit_particles: GPUParticles2D = $HitParticles
 
 # coper finito
-@export var total_min: int = 1500
-@export var total_max: int = 3000
+@export var total_min: int = 15
+@export var total_max: int = 15
 @export var remaining: int = -1  # -1 => se inicializa random
 @export var yield_per_hit: int = 1
 
@@ -49,6 +49,7 @@ var _hit_accumulator: int = 0
 
 func _ready() -> void:
 	add_to_group("world_resource")
+	add_to_group("world_copper")
 	if remaining < 0:
 		remaining = randi_range(total_min, total_max)
 	_base_sprite_pos = sprite.position
@@ -124,6 +125,10 @@ func hit(by: Node) -> void:
 
 	if remaining <= 0:
 		ore_depleted.emit(origin)
+		for node in get_tree().get_nodes_in_group("resource_repopulator"):
+			if node.has_method("on_resource_depleted"):
+				node.call("on_resource_depleted", "copper")
+		queue_free()
 
 
 func _get_copper_interval(by: Node) -> int:

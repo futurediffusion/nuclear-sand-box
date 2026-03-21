@@ -30,8 +30,8 @@ func get_hit_sound() -> AudioStream:
 @onready var hit_particles: GPUParticles2D = $HitParticles
 
 # stone finito
-@export var total_min: int = 2000
-@export var total_max: int = 5000
+@export var total_min: int = 5
+@export var total_max: int = 5
 @export var remaining: int = -1  # -1 => se inicializa random
 @export var yield_per_hit: int = 1
 
@@ -53,6 +53,7 @@ var _hit_accumulator: int = 0
 
 func _ready() -> void:
 	add_to_group("world_resource")
+	add_to_group("world_stone")
 	if remaining < 0:
 		remaining = randi_range(total_min, total_max)
 	_base_sprite_pos = sprite.position
@@ -127,6 +128,10 @@ func hit(by: Node) -> void:
 
 	if remaining <= 0:
 		ore_depleted.emit(origin)
+		for node in get_tree().get_nodes_in_group("resource_repopulator"):
+			if node.has_method("on_resource_depleted"):
+				node.call("on_resource_depleted", "stone")
+		queue_free()
 
 
 func _get_stone_interval(by: Node) -> int:
