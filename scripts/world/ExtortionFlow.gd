@@ -13,11 +13,17 @@ const TAUNT_PHRASES: Array[String] = [
 	"No pongas esa cara. Esto es solo negocios.",
 ]
 
+const POVERTY_TAUNT_PHRASES: Array[String] = [
+	"¿Esto es todo lo que tienes? ¡Qué miseria!",
+	"Tan pobre que ni para el peaje. Da asco.",
+	"Acuérdate de esta paliza. La próxima te va a costar el doble... si es que sobrevives.",
+]
+
 var _npc_simulator:           NpcSimulator              = null
 var _player:                  Node2D                    = null
 var _bubble_manager:          WorldSpeechBubbleManager  = null
 var _get_behavior_for_enemy:  Callable                  = Callable()
-var _show_choice_ui:          Callable                  = Callable()  # (gid: String) -> void
+var _show_choice_ui:          Callable                  = Callable()  # (gid: String, pay_amount: int, is_minimum: bool) -> void
 var _close_choice_ui:         Callable                  = Callable()  # (gid: String) -> void
 
 var _active_extortions: Dictionary = {}  # gid -> ExtortionJob  (runtime-only)
@@ -91,13 +97,14 @@ func on_choice_resolved(option: int, gid: String) -> void:
 			_resolve_extortion_warn(job)
 		1:
 			var inv := _player.get_node_or_null("InventoryComponent") as InventoryComponent
-			var pay_amount: int = BanditTuningScript.extort_pay_amount(gid)
+			var pay_amount: int = BanditTuningScript.extort_pay_amount(inv.gold if inv != null else 0, gid)
 			if inv != null and inv.gold >= pay_amount:
 				inv.spend_gold(pay_amount)
 				Debug.log("extortion", "[EXTORT] paid %d gold group=%s" % [pay_amount, gid])
 				_resolve_extortion_idle(job)
 			else:
 				Debug.log("extortion", "[EXTORT] can't pay, forced refuse group=%s" % gid)
+				_show_poverty_taunts(job)
 				_resolve_extortion_warn(job)
 		2:
 			_resolve_extortion_warn(job)
@@ -237,7 +244,11 @@ func _consume_extortion_queue() -> void:
 						> BanditTuningScript.extort_collect_range_sq(job.group_id):
 					continue
 				job.mark_waiting_choice()
-				_show_choice_ui.call(gid)
+				var inv_pre := _player.get_node_or_null("InventoryComponent") as InventoryComponent
+				var player_gold_pre: int = inv_pre.gold if inv_pre != null else 0
+				var preview_amount: int = BanditTuningScript.extort_pay_amount(player_gold_pre, gid)
+				var is_minimum: bool    = int(player_gold_pre * 0.2) < 1
+				_show_choice_ui.call(gid, preview_amount, is_minimum)
 				Debug.log("extortion", "[EXTORT] collection triggered group=%s speaker=%s" % [gid, eid])
 				break
 
@@ -396,6 +407,35 @@ func _tick_warning_strike(job: ExtortionJob, player_pos: Vector2, friction_compe
 		_set_enemy_scripted_control(speaker, true)
 		_drive_enemy_toward_point(speaker, player_pos,
 			BanditTuningScript.extort_warn_approach_speed(job.group_id) + friction_compensation)
+
+
+# ---------------------------------------------------------------------------
+# Poverty taunts
+# ---------------------------------------------------------------------------
+
+func _show_poverty_taunts(job: ExtortionJob) -> void:
+	if _bubble_manager == null:
+		return
+	var speaker_id: String = job.taunt_speaker_id
+	if speaker_id == "":
+		speaker_id = job.assigned_ids[0] if job.assigned_ids.size() > 0 else ""
+	if speaker_id == "":
+		return
+	var dur: float = BanditTuningScript.extort_taunt_bubble_duration(job.group_id)
+	var step: float = dur + 0.4
+	for i in POVERTY_TAUNT_PHRASES.size():
+		var phrase: String = POVERTY_TAUNT_PHRASES[i]
+		var delay: float   = step * i
+		if delay == 0.0:
+			var speaker := _npc_simulator.get_enemy_node(speaker_id)
+			if speaker != null and is_instance_valid(speaker):
+				_bubble_manager.show_actor_bubble(speaker as Node2D, phrase, dur)
+		else:
+			get_tree().create_timer(delay).timeout.connect(func() -> void:
+				var s := _npc_simulator.get_enemy_node(speaker_id)
+				if s != null and is_instance_valid(s):
+					_bubble_manager.show_actor_bubble(s as Node2D, phrase, dur)
+			)
 
 
 # ---------------------------------------------------------------------------

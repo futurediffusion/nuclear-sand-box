@@ -28,7 +28,7 @@ func setup(bubble_manager: WorldSpeechBubbleManager) -> void:
 # API pública
 # ---------------------------------------------------------------------------
 
-func show_choice(gid: String) -> void:
+func show_choice(gid: String, pay_amount: int = 0, is_minimum: bool = false) -> void:
 	if _bubble_manager == null:
 		return
 	var bubble: ExtortionChoiceBubble = CHOICE_SCENE.instantiate() as ExtortionChoiceBubble
@@ -36,6 +36,7 @@ func show_choice(gid: String) -> void:
 	var visual:  Vector2 = bubble.custom_minimum_size * bubble.scale
 	bubble.position = (vp_size - visual) * 0.5
 	bubble.set_main_text("¿Entonces qué?\n¿Pagas o prefieres problemas?")
+	bubble.set_pay_amount(pay_amount, is_minimum)
 	bubble.choice_made.connect(func(option: int): _on_raw_choice(option, gid), CONNECT_ONE_SHOT)
 	_choice_gid  = gid
 	_choice_node = ModalWorldUIController.show_modal(

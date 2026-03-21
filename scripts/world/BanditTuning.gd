@@ -119,8 +119,8 @@ static func extort_collect_range_sq(_group_id: String = "") -> float:
 static func extort_abort_distance_sq(_group_id: String = "") -> float:
 	return ABORT_PLAYER_DISTANCE_SQ
 
-static func extort_pay_amount(_group_id: String = "") -> int:
-	return EXTORT_PAY_AMOUNT
+static func extort_pay_amount(player_gold: int, _group_id: String = "") -> int:
+	return maxi(1, int(player_gold * 0.2))
 
 static func extort_taunt_bubble_duration(_group_id: String = "") -> float:
 	return EXTORT_TAUNT_BUBBLE_DURATION
