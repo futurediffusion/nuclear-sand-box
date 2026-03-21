@@ -121,6 +121,12 @@ func hit(_by: Node) -> void:
 	# Primer golpe del player a un barril de facción: alertar a los enemies cercanos
 	if _hit_count == 1 and faction_owner_id != "":
 		_alert_nearby_faction_enemies()
+	# Enemy golpea storage del player (no de facción): registrar incidente
+	if faction_owner_id == "" and _by != null and _by.is_in_group("enemy") and "faction_id" in _by:
+		var fid: String = String(_by.get("faction_id"))
+		if fid != "":
+			FactionHostilityManager.add_hostility(fid, 0.0, "storage_damaged",
+				{"position": global_position})
 	if _hit_count >= MAX_HITS:
 		_destroy()
 

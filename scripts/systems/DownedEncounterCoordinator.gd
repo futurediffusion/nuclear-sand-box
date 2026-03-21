@@ -220,8 +220,157 @@ func _resolve_verdict(session: Dictionary, faction_id: String) -> void:
 	else:
 		session["verdict"] = Verdict.SPARE
 		session["ignore_until"] = RunClock.now() + spare_ignore_seconds
+		# can_loot_player (nivel 6+): la facción te roba ítems al dejarte KO
+		_try_loot_target(session, faction_id)
 
 	session["resolved_at"] = RunClock.now()
+
+
+## Progresión de saqueo por nivel de hostilidad:
+##   6 → 1 ítem  (1 bandit lo lleva)
+##   7 → 2 ítems (2 bandits, uno cada uno)
+##   8 → 3 ítems (3 bandits)
+##   9 → todo    (todos los participants, reparto round-robin)
+func _try_loot_target(session: Dictionary, faction_id: String) -> void:
+	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
+	if not profile.can_loot_player:
+		return
+	var target_ref: WeakRef = session.get("target_ref") as WeakRef
+	if target_ref == null:
+		return
+	var target: Node = target_ref.get_ref()
+	if target == null or not is_instance_valid(target):
+		return
+	var inv: InventoryComponent = target.get_node_or_null("InventoryComponent") as InventoryComponent
+	if inv == null:
+		return
+
+	# Cuántos slots robar según nivel
+	var level: int = profile.hostility_level
+	var steal_all: bool = level >= 9
+	var max_steal: int = 0
+	match level:
+		6:       max_steal = 1
+		7:       max_steal = 2
+		8:       max_steal = 3
+		_:       max_steal = inv.max_slots  # nivel 9: todo
+
+	# Recolectar ítems a robar
+	var stolen: Array[Dictionary] = []  # [{id, count}]
+	for i in range(inv.max_slots):
+		if not steal_all and stolen.size() >= max_steal:
+			break
+		var s: Variant = inv.slots[i]
+		if s == null:
+			continue
+		var id: String = String((s as Dictionary).get("id", ""))
+		var count: int  = int((s as Dictionary).get("count", 0))
+		if id == "" or count <= 0:
+			continue
+		inv.remove_item(id, count)
+		stolen.append({"id": id, "count": count})
+
+	if stolen.is_empty():
+		return
+
+	var world_node: Node = get_tree().current_scene
+	if world_node == null:
+		return
+
+	var participants: Array = session.get("participant_uids", []) as Array
+	var looters: Array[Node2D] = _find_enemies_by_uids_sorted(participants, (target as Node2D).global_position)
+	if looters.is_empty():
+		return
+
+	var target_pos: Vector2 = (target as Node2D).global_position
+	var anchor: Vector2 = _find_faction_container_pos(faction_id, (looters[0] as Node2D).global_position)
+
+	# Spawnear un ItemDrop por ítem y asignarlo al bandit correspondiente (round-robin)
+	for i in range(stolen.size()):
+		var item: Dictionary = stolen[i]
+		var drop_node: Node = LootSystem.spawn_drop(null, item["id"], item["count"],
+			target_pos, world_node, {"drop_scene": ContainerPlaceable.ITEM_DROP_SCENE})
+		if drop_node == null:
+			continue
+
+		var looter: Node2D = looters[i % looters.size()]
+		var carry: CarryComponent = looter.get_node_or_null("CarryComponent") as CarryComponent
+		if carry == null:
+			continue
+
+		# Escalonar ligeramente cada pickup para evitar que todos actúen al mismo frame
+		var delay: float = 0.1 + i * 0.05
+		var cap_carry  := carry
+		var cap_drop   := drop_node as Node2D
+		var cap_looter := looter
+		var cap_faction := faction_id
+		get_tree().create_timer(delay).timeout.connect(func() -> void:
+			if not is_instance_valid(cap_carry) or not is_instance_valid(cap_drop):
+				return
+			if not cap_carry.try_pickup(cap_drop):
+				return
+			var ai: AIComponent = cap_looter.get_node_or_null("AIComponent") as AIComponent
+			if ai != null:
+				ai.begin_carry_return(anchor)
+		)
+
+	FactionHostilityManager.add_hostility(faction_id, 0.0, "player_looted",
+		{"position": target_pos})
+	Debug.log("faction_hostility", "[DEC] loot — faction=%s nivel=%d items=%d" % [
+		faction_id, level, stolen.size()])
+
+
+## Devuelve enemies de los UIDs indicados, ordenados por distancia al origen.
+func _find_enemies_by_uids_sorted(uids: Array, origin: Vector2) -> Array[Node2D]:
+	var result: Array[Node2D] = []
+	for e in EnemyRegistry.get_live_enemies():
+		if not is_instance_valid(e):
+			continue
+		if not "entity_uid" in e:
+			continue
+		if not uids.has(String(e.get("entity_uid"))):
+			continue
+		result.append(e)
+	result.sort_custom(func(a: Node2D, b: Node2D) -> bool:
+		return origin.distance_squared_to(a.global_position) < origin.distance_squared_to(b.global_position)
+	)
+	return result
+
+
+## Encuentra el enemy participante más cercano al origen por UID.
+func _find_closest_enemy_by_uids(uids: Array, origin: Vector2) -> Node2D:
+	var best: Node2D = null
+	var best_dist: float = INF
+	for e in EnemyRegistry.get_live_enemies():
+		if not is_instance_valid(e):
+			continue
+		if not "entity_uid" in e:
+			continue
+		if not uids.has(String(e.get("entity_uid"))):
+			continue
+		var dist: float = origin.distance_to(e.global_position)
+		if dist < best_dist:
+			best_dist = dist
+			best = e
+	return best
+
+
+## Devuelve la posición del cofre de facción más cercano como destino de retorno.
+## Fallback: alejarse 300px del origen si no hay cofre.
+func _find_faction_container_pos(faction_id: String, from_pos: Vector2) -> Vector2:
+	var best_pos: Vector2 = from_pos + Vector2(300.0, 0.0)
+	var best_dist: float = INF
+	for node in get_tree().get_nodes_in_group("chest"):
+		if not (node is ContainerPlaceable):
+			continue
+		var chest := node as ContainerPlaceable
+		if chest.faction_owner_id != faction_id:
+			continue
+		var dist: float = from_pos.distance_to(chest.global_position)
+		if dist < best_dist:
+			best_dist = dist
+			best_pos = chest.global_position
+	return best_pos
 
 func _get_context_modifier(session: Dictionary) -> float:
 	# Future expansion point

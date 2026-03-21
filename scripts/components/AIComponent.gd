@@ -369,6 +369,11 @@ func _execute_light_tick(delta: float, force_hold_override: bool = false) -> voi
 				# Anchor reached — resume normal routine instead of freezing here
 				current_state = AIState.IDLE
 				_release_attack_input()
+				# Si llegó cargando loot, depositar en el chest más cercano
+				if owner_entity != null and owner_entity.has_method("release_carry"):
+					var carry: Node = owner_entity.get_node_or_null("CarryComponent")
+					if carry != null and carry.has_method("is_carrying") and bool(carry.call("is_carrying")):
+						owner_entity.call("release_carry")
 		AIState.HOLD_PERIMETER:
 			var dist: float = owner_entity.global_position.distance_to(_perimeter_anchor)
 			if dist > 40.0:
@@ -602,6 +607,14 @@ func _update_state() -> void:
 
 ## Llamar desde el enemy cuando el player le pegó directamente.
 ## Activa autodefensa: el enemy puede perseguir aunque el perfil de facción no lo permita.
+## Inicia retorno al origen llevando loot. Al llegar al anchor, release_carry() deposita
+## el ítem en el chest más cercano via CarryComponent.release_with_chest_check().
+func begin_carry_return(anchor: Vector2) -> void:
+	_disengage_anchor = anchor
+	current_state = AIState.DISENGAGE
+	_release_attack_input()
+
+
 func notify_provoked(duration: float = 15.0) -> void:
 	_provoked_until = RunClock.now() + duration
 
@@ -623,11 +636,21 @@ func _can_acquire_player() -> bool:
 
 
 func _get_effective_acquire_radius() -> float:
+	var base: float
 	if acquire_radius > 0.0:
-		return acquire_radius
-	if owner_entity != null and "detection_range" in owner_entity:
-		return float(owner_entity.get("detection_range"))
-	return 400.0
+		base = acquire_radius
+	elif owner_entity != null and "detection_range" in owner_entity:
+		base = float(owner_entity.get("detection_range"))
+	else:
+		base = 400.0
+	# can_hunt_player (nivel 9+): la facción busca activamente al player — radio x1.6
+	if owner_entity != null and "faction_id" in owner_entity:
+		var fid: String = String(owner_entity.get("faction_id"))
+		if fid != "":
+			var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(fid)
+			if profile.can_hunt_player:
+				return base * 1.6
+	return base
 
 func _get_effective_retain_radius() -> float:
 	if chase_retain_radius > 0.0:
