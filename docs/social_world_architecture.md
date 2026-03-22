@@ -24,3 +24,35 @@ Documento corto de frontera para la siguiente etapa social.
 2. Implementar `TavernAuthorityPolicy` para decidir acceso, sospecha y escalado local.
 3. Implementar `TavernResponseDirector` para traducir decisiones en respuestas de keeper/guards.
 4. Conectar esas piezas a `LocalSocialAuthorityPorts` desde `world.gd`, sin volver a meter lógica social en actores o en el propio world.
+
+## Nota de diseño: jobs diferidos de dominio
+
+Para `ExtortionFlow` y futuros flows sociales, la siguiente pasada ideal sería
+formalizar un criterio para jobs diferidos de dominio antes de crear un
+servicio genérico.
+
+### Mantener scheduling local al flow cuando
+
+- El callback es **runtime-only** y puede perderse sin problema si el chunk o el
+  mundo se reconstruyen.
+- El owner natural del delay es **un único flow**.
+- No hace falta persistencia, inspección global ni cancelación desde otros
+  subsistemas.
+- El volumen es pequeño y no justifica una capa extra de coordinación.
+
+### Extraer un scheduler world-owned cuando
+
+- Existan **dos o más flows** reutilizando el mismo patrón de callbacks
+  diferidos.
+- Haga falta **cancelación o visibilidad compartida** entre sistemas.
+- El mundo necesite **auditar, pausar o budgetear** estos jobs desde un punto
+  central.
+- Algún callback deba **sobrevivir reload/rebuild** o integrarse con estado
+  persistente.
+
+### Decisión actual
+
+Todavía **no hace falta**. En este momento, extraer un scheduler world-owned
+sería más abstracción que claridad. El equilibrio actual favorece mantener los
+callbacks diferidos pegados al flow que los entiende, y revisar la decisión
+cuando aparezca un segundo consumidor real.
