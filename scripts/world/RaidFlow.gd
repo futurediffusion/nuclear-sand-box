@@ -291,8 +291,13 @@ func _abort_invalid_jobs() -> void:
 func _finish_raid(gid: String, reason: String) -> void:
 	if not _active_jobs.has(gid):
 		return
+	var job: Dictionary = _active_jobs[gid] as Dictionary
 	_active_jobs.erase(gid)
+	BanditGroupMemory.push_social_cooldown(gid, 18.0 if String(job.get("raid_type", "full")) == "full" else 10.0)
 	BanditGroupMemory.update_intent(gid, "idle")
+	var faction_id: String = String(job.get("faction_id", ""))
+	if faction_id != "":
+		FactionHostilityManager.add_hostility(faction_id, 0.0, "raid_executed", {"group_id": gid, "entity_id": gid + ":raid"})
 	Debug.log("raid", "[RF] raid finished — group=%s reason=%s" % [gid, reason])
 
 
