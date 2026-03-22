@@ -22,10 +22,10 @@ const MINE_RANGE: float = 52.0
 # ---------------------------------------------------------------------------
 # Group social policy
 # ---------------------------------------------------------------------------
-const GROUP_SCAN_INTERVAL: float = 1.0
-const GROUP_TERRITORY_RADIUS: float = 5000.0
-const GROUP_EXTORT_COOLDOWN: float = 0.0
-const GROUP_RAID_COOLDOWN: float = 0.0
+const GROUP_SCAN_INTERVAL: float = 8.0
+const GROUP_TERRITORY_RADIUS: float = 384.0
+const GROUP_EXTORT_COOLDOWN: float = 90.0
+const GROUP_RAID_COOLDOWN: float = 120.0
 const GROUP_ALERTED_THRESHOLD: float = 3.0
 const GROUP_HUNTING_THRESHOLD: float = 8.0
 const GROUP_ALERTED_RELEASE_THRESHOLD: float = 2.0
@@ -59,7 +59,6 @@ const CARGO_SFX_STAGGER: float = 0.07   # delay entre sonidos al depositar vario
 const TAUNT_RANGE_SQ: float = 300.0 * 300.0
 const COLLECT_RANGE_SQ: float = 160.0 * 160.0
 const ABORT_PLAYER_DISTANCE_SQ: float = 6000.0 * 6000.0
-const EXTORT_PAY_AMOUNT: int = 10
 const EXTORT_TAUNT_BUBBLE_DURATION: float = 3.5
 const EXTORT_WARN_MELEE_LOCK_DURATION: float = 7.0
 const EXTORT_AI_REENABLE_DELAY: float = 12.0
