@@ -121,6 +121,7 @@ var _settlement_intel: SettlementIntel
 var _player_territory: PlayerTerritoryMap
 var _player_territory_dirty: bool = false
 var _bandit_behavior_layer: BanditBehaviorLayer
+var _world_territory_policy: WorldTerritoryPolicy
 var _resource_repopulator: ResourceRepopulator
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
@@ -499,6 +500,12 @@ func _ready() -> void:
 	})
 	_player_territory = PlayerTerritoryMap.new()
 	_player_territory_dirty = true
+	_world_territory_policy = WorldTerritoryPolicy.new()
+	_world_territory_policy.setup({
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"get_tavern_center_tile": Callable(self, "get_tavern_center_tile"),
+		"react_to_bandit_territory_intrusion": Callable(self, "_on_bandit_territory_intrusion"),
+	})
 	PlacementSystem.register_placement_validator(Callable(self, "_validate_placement_restrictions"))
 
 	NpcPathService.setup({
@@ -1120,131 +1127,32 @@ func get_player_territory_zones() -> Array[Dictionary]:
 # ---------------------------------------------------------------------------
 # Build restrictions — validador registrado en PlacementSystem
 # ---------------------------------------------------------------------------
-#
-# Tres restricciones en capas de gravedad creciente:
-#
-#   1. TAVERN ZONE (200 px)      — zona neutral de la taberna, no es tuya
-#   2. BANDIT CAMP CORE (350 px) — literalmente el campamento activo
-#   3. CONTESTED TERRITORY       — territorio bandido con facción activa (nivel 3+)
-#      Sin conflicto previo no puedes colonizar donde ya hay alguien.
-#
-# Las restricciones 2 y 3 solo aplican a grupos con líder vivo.
-# A nivel 1-2 (bandidos débiles) el tercer check pasa — puedes construir ahí,
-# pero en 3.1 ya les provocas tensión. A nivel 3+ bloquea.
-
-const _TAVERN_BUILD_RADIUS_SQ: float = 320.0 * 320.0  # 10 tiles
-const _CONTEST_MIN_LEVEL: int        = 3               # nivel mínimo para bloquear colonización pasiva
-
+# La política concreta vive en WorldTerritoryPolicy; world.gd solo registra el
+# validator y delega la decisión.
 func _validate_placement_restrictions(tile_pos: Vector2i) -> bool:
-	var world_pos: Vector2 = _tile_to_world(tile_pos)
-
-	# ── 1. Zona de taberna ────────────────────────────────────────────────
-	var tavern_tile: Vector2i = get_tavern_center_tile(tavern_chunk)
-	var tavern_pos: Vector2   = _tile_to_world(tavern_tile)
-	if world_pos.distance_squared_to(tavern_pos) <= _TAVERN_BUILD_RADIUS_SQ:
-		return false
-
-	# ── 2 + 3. Grupos bandidos ────────────────────────────────────────────
-	for gid in BanditGroupMemory.get_all_group_ids():
-		var g: Dictionary = BanditGroupMemory.get_group(gid)
-		if g.is_empty():
-			continue
-		# Solo grupos activos (líder_id presente = grupo no destruido)
-		var leader_id: String = String(g.get("leader_id", ""))
-		if leader_id == "":
-			continue
-		var home_pos: Vector2  = g.get("home_world_pos", Vector2.ZERO) as Vector2
-		var faction_id: String = String(g.get("faction_id", "bandits"))
-
-		# Radio de territorio del grupo según su nivel (igual que BanditTerritoryQuery)
-		var t_radius: float = BanditTerritoryQuery.radius_for_faction(faction_id)
-		var dist: float     = world_pos.distance_to(home_pos)
-
-		# 2. Dentro del radio territorial → siempre bloqueado (campamento activo)
-		if dist <= t_radius:
-			return false
-
-		# 3. Territorio en disputa — nivel 3+ bloquea un anillo exterior adicional
-		# (equivalente al radio siguiente en la tabla: bandas muy hostiles reivindican más)
-		var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
-		if profile.hostility_level >= _CONTEST_MIN_LEVEL:
-			var extended_radius: float = t_radius + 200.0  # buffer extra para facciones hostiles
-			if dist <= extended_radius:
-				return false
-
-	return true
+	if _world_territory_policy == null:
+		return true
+	return _world_territory_policy.validate_placement(tile_pos, tavern_chunk)
 
 
 ## SettlementIntel — interest marker facade
 func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionary = {}) -> void:
 	if _settlement_intel != null:
 		_settlement_intel.record_interest_event(kind, world_pos, metadata)
-	_check_territory_intrusion(kind, world_pos)
+	if _world_territory_policy != null:
+		_world_territory_policy.record_interest_event(kind, world_pos)
 	# Estructura colocada o workbench → reconstruir mapa de territorio del jugador
 	if kind == "workbench" or kind == "structure_placed":
 		_player_territory_dirty = true
 
-
-# Hostilidad inmediata por actividad del jugador dentro de territorio bandido.
-# Complementa los escaneos periódicos de BanditGroupIntel — cuando algo ocurre
-# dentro del radio de influencia de un grupo se dispara de inmediato, sin esperar.
-#
-# Pesos (en pts de hostilidad directa):
-#   workbench        → 8 pts  ("están poniendo un taller aquí")
-#   structure_placed → 5 pts  ("están asentándose")
-#   copper/stone     → 4 pts  ("están saqueando nuestros recursos")
-#   wood_chopped     → 2 pts  ("molesta pero menor")
-const _TERRITORY_INTRUSION_PTS: Dictionary = {
-	"workbench":        8.0,
-	"structure_placed": 5.0,
-	"copper_mined":     4.0,
-	"stone_mined":      4.0,
-	"wood_chopped":     2.0,
-}
-# Cooldown por facción para no spamear la misma reacción (segundos reales).
-var _territory_intrusion_cooldown: Dictionary = {}  # faction_id → RunClock timestamp
-
-func _check_territory_intrusion(kind: String, world_pos: Vector2) -> void:
-	if not _TERRITORY_INTRUSION_PTS.has(kind):
+func _on_bandit_territory_intrusion(group_entry: Dictionary, world_pos: Vector2, kind: String) -> void:
+	if _bandit_behavior_layer == null:
 		return
-	var groups: Array[Dictionary] = BanditTerritoryQuery.groups_at(world_pos)
-	if groups.is_empty():
-		return
-	var pts: float = float(_TERRITORY_INTRUSION_PTS[kind])
-	var now: float = RunClock.now()
-	var reacted_faction: String = ""
-	for entry in groups:
-		var faction_id: String = String(entry.get("faction_id", ""))
-		# Cooldown por facción: 6s entre disparos de intrusión
-		if now - float(_territory_intrusion_cooldown.get(faction_id, 0.0)) < 6.0:
-			continue
-		_territory_intrusion_cooldown[faction_id] = now
-		var group_id: String = String(entry.get("group_id", ""))
-		# Razón: usa las razones existentes para que los pesos de FHM sean correctos
-		var reason: String
-		match kind:
-			"workbench":                            reason = "workbench_near"
-			"copper_mined", "stone_mined", "wood_chopped": reason = "resource_extracted"
-			_:                                      reason = "structure_near"
-		# Entity_id único por acción para que el dedup de 300ms no bloquee eventos
-		# legítimamente separados (ej. workbench colocado + minería son distintos)
-		var entity_id: String = "territory:" + faction_id + ":" + kind
-		FactionHostilityManager.add_hostility(faction_id, pts, reason, {
-			"entity_id": entity_id,
-			"group_id":  group_id,
-			"position":  world_pos,
-		})
-		Debug.log("territory", "[TERRITORY] intrusion kind=%s faction=%s pts=%.0f pos=%s" % [
-			kind, faction_id, pts, str(world_pos)])
-		if reacted_faction == "":
-			reacted_faction = faction_id
-	# Notificar a BanditBehaviorLayer para que un NPC cercano reaccione con burbuja
-	if reacted_faction != "" and _bandit_behavior_layer != null:
-		var top: Dictionary = groups[0]
-		_bandit_behavior_layer.notify_territory_reaction(
-			String(top.get("faction_id", "")),
-			String(top.get("group_id", "")),
-			world_pos, kind)
+	_bandit_behavior_layer.notify_territory_reaction(
+		String(group_entry.get("faction_id", "")),
+		String(group_entry.get("group_id", "")),
+		world_pos,
+		kind)
 
 func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dictionary]:
 	if _settlement_intel == null:
