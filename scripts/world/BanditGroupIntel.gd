@@ -26,7 +26,10 @@ const W_CHOP: float           =  2.0
 var _get_markers_near: Callable
 var _get_bases_near: Callable
 var _npc_simulator: NpcSimulator
-var _scan_timer: float = 0.0
+const GROUP_SCAN_SLICE_COUNT: int = 4
+
+var _scan_timer: float = BanditTuning.group_scan_interval() * 0.37
+var _scan_cursor: int = 0
 var _intent_policy := BanditIntentPolicy.new()
 
 
@@ -45,19 +48,31 @@ func setup(ctx: Dictionary) -> void:
 # ---------------------------------------------------------------------------
 
 func tick(delta: float) -> void:
+	var slice_interval: float = BanditTuning.group_scan_interval() / float(maxi(GROUP_SCAN_SLICE_COUNT, 1))
 	_scan_timer += delta
-	if _scan_timer < BanditTuning.group_scan_interval():
+	if _scan_timer < slice_interval:
 		return
-	_scan_timer = 0.0
-	_scan_all_groups()
+	_scan_timer -= slice_interval
+	_scan_group_slice()
 
 
 # ---------------------------------------------------------------------------
 # Scan all registered groups
 # ---------------------------------------------------------------------------
 
-func _scan_all_groups() -> void:
-	for group_id in BanditGroupMemory.get_all_group_ids():
+func _scan_group_slice() -> void:
+	var group_ids: Array = BanditGroupMemory.get_all_group_ids()
+	if group_ids.is_empty():
+		_scan_cursor = 0
+		return
+	var per_slice: int = maxi(1, int(ceil(float(group_ids.size()) / float(maxi(GROUP_SCAN_SLICE_COUNT, 1)))))
+	for _i in per_slice:
+		if group_ids.is_empty():
+			break
+		if _scan_cursor >= group_ids.size():
+			_scan_cursor = 0
+		var group_id: String = String(group_ids[_scan_cursor])
+		_scan_cursor += 1
 		var g: Dictionary = BanditGroupMemory.get_group(group_id)
 		if g.is_empty():
 			continue

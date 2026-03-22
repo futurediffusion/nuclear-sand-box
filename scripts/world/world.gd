@@ -131,6 +131,7 @@ var _wall_persistence: WallPersistence
 var _structural_wall_persistence: StructuralWallPersistence
 var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
+var _cadence: WorldCadenceCoordinator
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -170,6 +171,7 @@ const StructuralWallPersistenceScript := preload("res://scripts/world/Structural
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
 const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
 const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd")
+const WorldCadenceCoordinatorScript := preload("res://scripts/world/WorldCadenceCoordinator.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -188,6 +190,11 @@ const BIOME_ID_DENSE_GRASS: int = 2
 
 func _ready() -> void:
 	_wall_refresh_queue = WallRefreshQueueScript.new()
+	_cadence = WorldCadenceCoordinatorScript.new()
+	_cadence.configure_lane(&"short_pulse", 0.12, 0.15)
+	_cadence.configure_lane(&"medium_pulse", 0.50, 0.42)
+	_cadence.configure_lane(&"chunk_pulse", chunk_check_interval, 0.68)
+	_cadence.configure_lane(&"autosave", autosave_interval, 0.31, 1)
 	_chunk_wall_collider_cache = ChunkWallColliderCacheScript.new()
 	_chunk_wall_collider_cache.setup({
 		"walls_tilemap": walls_tilemap,
@@ -496,6 +503,7 @@ func _ready() -> void:
 
 	_settlement_intel = SettlementIntelScript.new()
 	_settlement_intel.setup({
+		"cadence": _cadence,
 		"world_to_tile":    Callable(self, "_world_to_tile"),
 		"tile_to_world":    Callable(self, "_tile_to_world"),
 		"player_pos_getter": Callable(self, "_get_player_world_pos"),
@@ -593,24 +601,26 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 		rebuild_budget -= 1
 
 func _process(delta: float) -> void:
+	if _cadence != null:
+		_cadence.advance(delta)
 	if _settlement_intel != null:
 		_settlement_intel.process(delta)
-	_tick_player_territory()
+	var medium_pulses: int = _cadence.consume_lane(&"medium_pulse") if _cadence != null else 1
+	for _pulse in medium_pulses:
+		_tick_player_territory()
 	pipeline.process(delta)
-	_process_wall_refresh_queue(1)
-	_process_tile_erase_queue()
+	var short_pulses: int = _cadence.consume_lane(&"short_pulse") if _cadence != null else 1
+	for _pulse in short_pulses:
+		_process_wall_refresh_queue(1)
+		_process_tile_erase_queue()
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
 	_update_cliff_occlusion()
 	_process_chunk_perf_debug(delta)
-	_autosave_timer += delta
-	if _autosave_timer >= autosave_interval:
-		_autosave_timer = 0.0
+	if _cadence != null and _cadence.consume_lane(&"autosave") > 0:
 		SaveManager.save_world()
-	_chunk_timer += delta
-	if _chunk_timer < chunk_check_interval:
+	if _cadence != null and _cadence.consume_lane(&"chunk_pulse") <= 0:
 		return
-	_chunk_timer = 0.0
 	if not player:
 		return
 	var pchunk := world_to_chunk(player.global_position)

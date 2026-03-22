@@ -144,7 +144,8 @@ var _player:         Node2D                   = null
 var _bubble_manager: WorldSpeechBubbleManager = null
 
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
-var _tick_timer: float     = 0.0
+var _tick_timer: float     = BanditTuningScript.behavior_tick_interval() * 0.35
+var _director_timer: float = 0.08
 
 var _extortion_director: BanditExtortionDirector = null
 var _raid_director:      BanditRaidDirector      = null
@@ -317,10 +318,13 @@ func _process(delta: float) -> void:
 		return
 	if _group_intel != null:
 		_group_intel.tick(delta)
-	if _extortion_director != null:
-		_extortion_director.process_extortion()
-	if _raid_director != null:
-		_raid_director.process_raid()
+	_director_timer += delta
+	if _director_timer >= 0.12:
+		_director_timer -= 0.12
+		if _extortion_director != null:
+			_extortion_director.process_extortion(0.12)
+		if _raid_director != null:
+			_raid_director.process_raid()
 	_tick_timer += delta
 	if _tick_timer < BanditTuningScript.behavior_tick_interval():
 		return
