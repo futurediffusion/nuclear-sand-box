@@ -28,6 +28,7 @@ const BanditExtortionDirectorScript := preload("res://scripts/world/BanditExtort
 const BanditRaidDirectorScript      := preload("res://scripts/world/BanditRaidDirector.gd")
 const BanditCampStashSystemScript   := preload("res://scripts/world/BanditCampStashSystem.gd")
 const BanditTerritoryResponseScript := preload("res://scripts/world/BanditTerritoryResponse.gd")
+const BanditWorkCoordinatorScript   := preload("res://scripts/world/BanditWorkCoordinator.gd")
 
 # ---------------------------------------------------------------------------
 # Camp layout constants — local geometry, not cross-system gameplay tuning.
@@ -144,6 +145,7 @@ var _extortion_director: BanditExtortionDirector = null
 var _raid_director:      BanditRaidDirector      = null
 var _stash:              BanditCampStashSystem   = null
 var _territory_response: BanditTerritoryResponse = null
+var _work_coordinator:   BanditWorkCoordinator   = null
 var _find_wall_cb:       Callable                = Callable()
 var _find_workbench_cb:  Callable                = Callable()
 var _find_storage_cb:    Callable                = Callable()
@@ -199,6 +201,15 @@ func setup(ctx: Dictionary) -> void:
 	add_child(_stash)
 	_stash.setup({
 		"update_deposit_pos_cb": Callable(self, "_update_deposit_pos"),
+	})
+
+	if _work_coordinator != null and is_instance_valid(_work_coordinator):
+		_work_coordinator.queue_free()
+	_work_coordinator = BanditWorkCoordinatorScript.new() as BanditWorkCoordinator
+	_work_coordinator.name = "BanditWorkCoordinator"
+	add_child(_work_coordinator)
+	_work_coordinator.setup({
+		"stash": _stash,
 	})
 
 
@@ -345,8 +356,8 @@ func _tick_behaviors() -> void:
 		var node = _npc_simulator.get_enemy_node(enemy_id)
 		if node == null or not node.has_method("is_world_behavior_eligible") \
 				or not node.is_world_behavior_eligible():
-			if not beh._cargo_manifest.is_empty():
-				_stash.drop_carry_on_aggro(beh, node)
+			if _work_coordinator != null:
+				_work_coordinator.process_post_behavior(beh, node, _all_drops_cache)
 			continue
 
 		var node_pos: Vector2 = node.global_position
@@ -365,73 +376,14 @@ func _tick_behaviors() -> void:
 		_maybe_show_recognition_bubble(beh, node, node_pos)
 		_maybe_show_idle_chat(beh, node, node_pos)
 
-		# Detección de aggro mientras aún es eligible
-		if not beh._cargo_manifest.is_empty():
-			var ai_comp := node.get_node_or_null("AIComponent")
-			if ai_comp != null and ai_comp.get("target") != null:
-				_stash.drop_carry_on_aggro(beh, node)
-
 		# Sync save-state: cargo y behavior para continuidad data-only
 		var save_state_ref: Dictionary = _get_save_state_for(enemy_id)
 		if not save_state_ref.is_empty():
 			save_state_ref["cargo_count"]    = beh.cargo_count
 			save_state_ref["world_behavior"] = beh.export_state()
 
-		_handle_mining(beh, node)
-
-		if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH:
-			var res_center := node_pos
-			if beh._resource_node_id != 0 and is_instance_id_valid(beh._resource_node_id):
-				var res := instance_from_id(beh._resource_node_id) as Node2D
-				if res != null and is_instance_valid(res):
-					res_center = res.global_position
-			_stash.sweep_collect_orbit(beh, node, res_center, _all_drops_cache)
-		elif beh.pending_collect_id != 0:
-			_stash.sweep_collect_arrive(beh, node, node_pos, _all_drops_cache)
-
-		_stash.handle_cargo_deposit(beh, node)
-
-
-# ---------------------------------------------------------------------------
-# Mining
-# ---------------------------------------------------------------------------
-
-func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
-	var mine_id: int = beh.pending_mine_id
-	if mine_id == 0:
-		return
-	beh.pending_mine_id = 0
-	if not is_instance_id_valid(mine_id):
-		beh._resource_node_id = 0
-		return
-	var res_node: Node = instance_from_id(mine_id) as Node
-	if res_node == null or not is_instance_valid(res_node):
-		beh._resource_node_id = 0
-		return
-	var enemy_pos: Vector2 = (enemy_node as Node2D).global_position
-	var res_pos:   Vector2 = (res_node   as Node2D).global_position
-	if enemy_pos.distance_squared_to(res_pos) > BanditTuningScript.mine_range_sq():
-		return
-
-	# La minería requiere ironpipe. Si tiene otra arma activa, cambiar primero.
-	# Esto garantiza que el swing visual y el daño sean siempre del arma cuerpo a cuerpo.
-	var wc: WeaponComponent = enemy_node.get_node_or_null("WeaponComponent") as WeaponComponent
-	if wc != null:
-		if wc.current_weapon_id != "ironpipe":
-			wc.equip_weapon_id("ironpipe")
-			# Aplazar el golpe al siguiente tick para que la animación de cambio se muestre.
-			# Si no tiene ironpipe en inventario, abortar la minería.
-			if wc.current_weapon_id != "ironpipe":
-				return
-			beh.pending_mine_id = mine_id  # re-queue para el próximo tick
-			return
-
-	res_node.hit(enemy_node)
-	# queue_ai_attack_press en lugar de spawn_slash directo para que
-	# IronPipeWeapon procese el ataque: swingea el arma (attacking=true +
-	# target_attack_angle) y spawnea el slash visual por su propio flujo.
-	if enemy_node.has_method("queue_ai_attack_press"):
-		enemy_node.call("queue_ai_attack_press", res_pos)
+		if _work_coordinator != null:
+			_work_coordinator.process_post_behavior(beh, node, _all_drops_cache)
 
 
 # ---------------------------------------------------------------------------
