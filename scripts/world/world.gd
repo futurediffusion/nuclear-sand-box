@@ -1,5 +1,10 @@
 extends Node2D
 
+# Responsibility boundary:
+# world.gd is the top-level orchestrator/facade for world subsystems. It wires
+# systems together and exposes public gameplay hooks, but social policy and
+# other subsystem internals should live in dedicated services instead of here.
+
 signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
 
 @onready var tilemap: TileMap = $WorldTileMap

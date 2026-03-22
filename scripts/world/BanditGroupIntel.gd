@@ -2,27 +2,12 @@ extends RefCounted
 class_name BanditGroupIntel
 
 # ── BanditGroupIntel ─────────────────────────────────────────────────────────
-# Group-level intelligence scanner. Runs once every SCAN_INTERVAL seconds and
-# checks SettlementIntel for player activity near each bandit group's home.
-#
-# Responsibilities:
-#   • Compute an "opportunity score" per group from nearby markers + detected bases.
-#   • Update BanditGroupMemory: intent, last_interest_pos/kind, scout_npc_id.
-#   • Enqueue a single ExtortionQueue intent per group when threshold is crossed.
-#
-# Anti-spam guarantees:
-#   • One scan per group per SCAN_INTERVAL (8 s).
-#   • Only fires if the group has a live leader node.
-#   • Extortion: skipped if group already has pending intent OR cooldown not elapsed.
-#   • Scout selection: one specific NPC is designated per group (not all at once).
-#
-# Does NOT modify NPC behavior states directly — intent changes are picked up by
-# BanditWorldBehavior.tick() on the next 0.5 s behavior tick.
-
-const SCAN_INTERVAL: float     = 1.0     # Ajuste de sistema real (era 8.0)
-const TERRITORY_RADIUS: float  = 5000.0  # Ajuste de sistema real: cubre mundo 64×64 completo (era 384.0)
-const EXTORT_COOLDOWN: float   = 0.0     # Ajuste de sistema real: sin cooldown (era 90.0)
-const RAID_COOLDOWN: float     = 0.0     # Ajuste de sistema real: sin cooldown (producción: ~300.0)
+# Responsibility boundary:
+# BanditGroupIntel owns sensing only: scan nearby settlement markers/bases,
+# build the base activity score, choose the best interest point, and forward
+# the score + persistent faction profile to BanditIntentPolicy.
+# It does not own long-term hostility state, intent policy tuning, or social
+# escalation rules beyond dispatching the chosen intent/eligibility outcomes.
 
 # ── Scoring weights ───────────────────────────────────────────────────────────
 const W_BASE_DETECTED: float  = 15.0
@@ -31,15 +16,11 @@ const W_STRUCTURE: float      =  6.0
 const W_MINE: float           =  3.0
 const W_CHOP: float           =  2.0
 
-# ── Intent thresholds (cumulative score) ─────────────────────────────────────
-const T_ALERTED: float  =  3.0   # → "alerted",  send 1 scout
-const T_HUNTING: float  =  8.0   # → "hunting",  leader + bodyguards advance
-const T_EXTORT: float   =  3.0   # Ajuste de sistema real: mismo threshold que alerted (era 12.0)
-
 var _get_markers_near: Callable
 var _get_bases_near: Callable
 var _npc_simulator: NpcSimulator
 var _scan_timer: float = 0.0
+var _intent_policy := BanditIntentPolicy.new()
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +39,7 @@ func setup(ctx: Dictionary) -> void:
 
 func tick(delta: float) -> void:
 	_scan_timer += delta
-	if _scan_timer < SCAN_INTERVAL:
+	if _scan_timer < BanditTuning.group_scan_interval():
 		return
 	_scan_timer = 0.0
 	_scan_all_groups()
@@ -90,9 +71,9 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var markers: Array[Dictionary] = []
 	var bases: Array[Dictionary]   = []
 	if _get_markers_near.is_valid():
-		markers = _get_markers_near.call(home_pos, TERRITORY_RADIUS)
+		markers = _get_markers_near.call(home_pos, BanditTuning.group_territory_radius())
 	if _get_bases_near.is_valid():
-		bases = _get_bases_near.call(home_pos, TERRITORY_RADIUS)
+		bases = _get_bases_near.call(home_pos, BanditTuning.group_territory_radius())
 
 	var score: float = _score_activity(markers, bases)
 
@@ -104,50 +85,15 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	# mayor que un simple "player_trespassed" si el jugador tiene base + taller + minería.
 	_fire_presence_hostility(markers, bases, faction_id, group_id, home_pos)
 
-	# ── Hostility modifier ────────────────────────────────────────────────
-	# El nivel de hostilidad del grupo contra el jugador afecta cuán
-	# fácilmente el grupo escala su intención:
-	#   • El heat reciente amplifica el score detectado (reacción más caliente)
-	#   • El nivel reduce el umbral de hunting (grupos hostiles son más reactivos)
-	#   • A nivel 9+ el grupo busca activamente al jugador incluso sin actividad
 	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
-	var h_level: int    = profile.hostility_level
-	var h_heat: float   = profile.heat_modifier  # 0.0..1.0
-	var w_tier: int     = FactionHostilityManager.get_wealth_tier(faction_id)
-
-	# El heat amplifica el score detectado hasta un 60% extra
-	var effective_score: float = score * (1.0 + h_heat * 0.6)
-
-	# Banda rica tiene más confianza territorial — reacciona a menor actividad.
-	# tier 3 → T_ALERTED baja 1.5 puntos; incluso 1 tronco cortado es motivo de visita.
-	var effective_t_alerted: float = maxf(T_ALERTED - FactionHostilityManager.WEALTH_TERRITORIAL_BONUS[w_tier], 1.0)
-
-	# El nivel baja el umbral de hunting: cada nivel resta 0.4 del umbral
-	# (nivel 5 = umbral de hunting en 6.0, nivel 8 = 4.8, nivel 10 = 4.0)
-	var effective_t_hunting: float = maxf(T_HUNTING - float(h_level) * 0.4, 2.0)
-
-	# Nivel 9+: si hay cualquier actividad detectada (score > 0), forzar hunting
-	# Nivel 10: forzar hunting incluso sin actividad — la facción busca activamente
-	if h_level >= 10:
-		effective_score = maxf(effective_score, T_HUNTING + 1.0)
-	elif h_level >= 9 and score > 0.0:
-		effective_score = maxf(effective_score, effective_t_hunting + 0.1)
-
-	# ── Determine new intent ──────────────────────────────────────────────
-	var new_intent: String
-	if effective_score >= effective_t_hunting:
-		new_intent = "hunting"
-	elif effective_score >= effective_t_alerted:
-		new_intent = "alerted"
-	else:
-		new_intent = "idle"
-
-	# Nivel 4+: la extorsión deja de ser la respuesta por defecto a "idle"
-	# cuando el perfil dice que la facción ya puede atacar directamente.
-	# La extorsión sigue siendo válida en niveles 1-3 (presión territorial).
-	# En niveles 7+ la facción va directo a hunting si hay cualquier señal.
-	if h_level >= 7 and new_intent == "idle" and score > 0.0:
-		new_intent = "alerted"
+	var h_level: int = profile.hostility_level
+	var w_tier: int = FactionHostilityManager.get_wealth_tier(faction_id)
+	var current_intent: String = String(g.get("current_group_intent", "idle"))
+	var policy: Dictionary = _intent_policy.evaluate(score, profile, w_tier, current_intent)
+	var effective_score: float = float(policy.get("effective_score", score))
+	var effective_t_alerted: float = float(policy.get("effective_alerted_threshold", BanditTuning.alerted_threshold()))
+	var effective_t_hunting: float = float(policy.get("effective_hunting_threshold", BanditTuning.hunting_threshold()))
+	var new_intent: String = String(policy.get("next_intent", current_intent))
 
 	BanditGroupMemory.update_intent(group_id, new_intent)
 
@@ -159,8 +105,8 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var interest = _pick_best_interest(markers, bases)
 	if interest != null:
 		BanditGroupMemory.record_interest(group_id, interest.pos, interest.kind)
-		Debug.log("bandit_intel", "[BGI] group=%s score=%.1f eff=%.1f intent=%s lv%d heat=%.2f" % [
-			group_id, score, effective_score, new_intent, h_level, h_heat])
+		Debug.log("bandit_intel", "[BGI] group=%s score=%.1f eff=%.1f intent=%s lv%d a=%.1f h=%.1f" % [
+			group_id, score, effective_score, new_intent, h_level, effective_t_alerted, effective_t_hunting])
 
 	# For "alerted": designate exactly one scout
 	if new_intent == "alerted":
@@ -170,19 +116,12 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 		# hunting/extorting: clear scout (leader + bodyguards handle it)
 		BanditGroupMemory.set_scout(group_id, "")
 
-	# Extortion: solo válida si el perfil lo permite (niveles 1-3 principalmente)
-	# En nivel 5+ la extorsión pierde sentido como salida principal — prefieren cazar
-	if score >= T_EXTORT and interest != null and profile.can_extort and not profile.can_knockout:
+	if interest != null and bool(policy.get("can_extort_now", false)):
 		_maybe_enqueue_extortion(group_id, g, interest, score, markers, bases)
 
-	# Raid completo: capacidad exclusiva de nivel 10. Requiere base detectada.
-	# Tiene prioridad sobre hunting/extorting — la facción va directo a la base.
-	if profile.can_raid_base and not bases.is_empty():
+	if not bases.is_empty() and bool(policy.get("can_full_raid_now", false)):
 		_maybe_enqueue_raid(group_id, g, bases[0], faction_id)
-
-	# Raid leve: niveles 7-9 con can_damage_workbenches y base detectada.
-	# Grupo converge en la base para sabotear talleres/storage (30s, sin asalto de muros).
-	elif profile.can_damage_workbenches and not bases.is_empty():
+	elif not bases.is_empty() and bool(policy.get("can_light_raid_now", false)):
 		_maybe_enqueue_light_raid(group_id, g, bases[0], faction_id)
 
 
@@ -299,14 +238,14 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	var elapsed: float     = RunClock.now() - last_time
 	var compliance_factor: float = 1.0 - pay_data.compliance_score * 0.5
 	var wealth_factor: float     = FactionHostilityManager.WEALTH_EXTORT_COOLDOWN_FACTOR[w_tier]
-	var effective_cooldown: float = EXTORT_COOLDOWN * compliance_factor * wealth_factor
+	var effective_cooldown: float = BanditTuning.extort_cooldown_base() * compliance_factor * wealth_factor
 	if elapsed < effective_cooldown:
 		Debug.log("bandit_intel", "[BGI] extortion cooldown %.0fs left group=%s" % [
 			effective_cooldown - elapsed, group_id])
 		return
 
 	# Severity: score base + bonus compliance (saben que paga) + bonus wealth (demandan más)
-	var base_severity: float    = clampf((score - T_EXTORT) / (W_BASE_DETECTED * 2.0), 0.1, 1.0)
+	var base_severity: float    = clampf((score - BanditIntentPolicy.EXTORT_SCORE_THRESHOLD) / (W_BASE_DETECTED * 2.0), 0.1, 1.0)
 	var compliance_bonus: float = pay_data.compliance_score * 0.3
 	var wealth_bonus: float     = float(w_tier) * 0.1  # tier 3 → +0.3 severidad
 	var severity: float         = clampf(base_severity + compliance_bonus + wealth_bonus, 0.1, 1.0)
@@ -439,7 +378,7 @@ func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
 		return
 	# Guard 2: cooldown desde el último raid
 	var last_time: float = RaidQueue.get_last_raid_time(group_id)
-	if RunClock.now() - last_time < 120.0:
+	if RunClock.now() - last_time < BanditTuning.raid_cooldown_base():
 		return
 
 	var leader_id: String    = String(g.get("leader_id", ""))
@@ -468,7 +407,7 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 	# Guard 2: cooldown desde el último raid, reducido por riqueza de la banda
 	var w_tier_raid: int         = FactionHostilityManager.get_wealth_tier(faction_id)
 	var raid_cd_factor: float    = FactionHostilityManager.WEALTH_RAID_COOLDOWN_FACTOR[w_tier_raid]
-	var effective_raid_cd: float = RAID_COOLDOWN * raid_cd_factor
+	var effective_raid_cd: float = BanditTuning.raid_cooldown_base() * raid_cd_factor
 	var last_time: float         = RaidQueue.get_last_raid_time(group_id)
 	if RunClock.now() - last_time < effective_raid_cd:
 		Debug.log("bandit_intel", "[BGI] raid cooldown — group=%s" % group_id)

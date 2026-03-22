@@ -20,6 +20,19 @@ const RESOURCE_SCAN_RADIUS: float = 288.0
 const MINE_RANGE: float = 52.0
 
 # ---------------------------------------------------------------------------
+# Group social policy
+# ---------------------------------------------------------------------------
+const GROUP_SCAN_INTERVAL: float = 1.0
+const GROUP_TERRITORY_RADIUS: float = 5000.0
+const GROUP_EXTORT_COOLDOWN: float = 0.0
+const GROUP_RAID_COOLDOWN: float = 0.0
+const GROUP_ALERTED_THRESHOLD: float = 3.0
+const GROUP_HUNTING_THRESHOLD: float = 8.0
+const GROUP_ALERTED_RELEASE_THRESHOLD: float = 2.0
+const GROUP_HUNTING_RELEASE_THRESHOLD: float = 6.5
+const GROUP_INTENT_HYSTERESIS_GRACE: float = 10.0
+
+# ---------------------------------------------------------------------------
 # Physics / separation
 # ---------------------------------------------------------------------------
 const FRICTION_COMPENSATION: float = 25.0
@@ -142,3 +155,40 @@ static func extort_warn_strike_range(_group_id: String = "") -> float:
 
 static func extort_warn_strike_range_bonus(_group_id: String = "") -> float:
 	return EXTORT_WARN_STRIKE_RANGE_BONUS
+
+# ---------------------------------------------------------------------------
+# Group social policy accessors
+# ---------------------------------------------------------------------------
+
+static func group_scan_interval() -> float:
+	return GROUP_SCAN_INTERVAL
+
+static func group_territory_radius() -> float:
+	return GROUP_TERRITORY_RADIUS
+
+static func extort_cooldown_base() -> float:
+	return GROUP_EXTORT_COOLDOWN
+
+static func raid_cooldown_base() -> float:
+	return GROUP_RAID_COOLDOWN
+
+static func alerted_threshold() -> float:
+	return GROUP_ALERTED_THRESHOLD
+
+static func hunting_threshold() -> float:
+	return GROUP_HUNTING_THRESHOLD
+
+static func alerted_release_threshold() -> float:
+	return GROUP_ALERTED_RELEASE_THRESHOLD
+
+static func hunting_release_threshold() -> float:
+	return GROUP_HUNTING_RELEASE_THRESHOLD
+
+static func intent_hysteresis_grace() -> float:
+	return GROUP_INTENT_HYSTERESIS_GRACE
+
+static func minimum_alerted_threshold() -> float:
+	return 1.0
+
+static func minimum_hunting_threshold() -> float:
+	return 2.0
