@@ -53,6 +53,15 @@ var _drag_painted_wall_tiles: Dictionary = {}
 ## Tracking de instancias vivas en el mundo: uid(String) -> Node
 var runtime_placeable_instances_by_uid: Dictionary = {}
 
+## Validadores externos registrados por otros sistemas.
+## Cada callable recibe (tile_pos: Vector2i) → bool.
+## Si cualquiera devuelve false, el tile se bloquea.
+var _extra_validators: Array[Callable] = []
+
+func register_placement_validator(cb: Callable) -> void:
+	if cb.is_valid() and not _extra_validators.has(cb):
+		_extra_validators.append(cb)
+
 # Máscara de capas que bloquean colocación: WALLPROPS(16) + Resources(8) + Player(1)
 const BLOCK_MASK: int = CollisionLayers.WORLD_WALL_LAYER_MASK \
 					  | CollisionLayers.RESOURCES_LAYER_MASK \
@@ -270,6 +279,12 @@ func can_place_at(tile_pos: Vector2i) -> bool:
 			var collider: Variant = hit.get("collider", null)
 			if _is_physics_hit_blocking_for_item(collider):
 				return false
+
+	# ── 4. External validators (territory restrictions, etc.) ─────────────
+	# Se evalúan ANTES del check de tile_wall para que apliquen a todos los modos.
+	for validator in _extra_validators:
+		if validator.is_valid() and not validator.call(tile_pos):
+			return false
 
 	if _placement_mode == PLACEMENT_MODE_TILE_WALL:
 		if world.has_method("can_place_player_wall_at_tile"):

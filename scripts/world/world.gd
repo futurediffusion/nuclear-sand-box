@@ -113,6 +113,8 @@ var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
 var _settlement_intel: SettlementIntel
+var _player_territory: PlayerTerritoryMap
+var _player_territory_dirty: bool = false
 var _bandit_behavior_layer: BanditBehaviorLayer
 var _resource_repopulator: ResourceRepopulator
 var _speech_bubble_manager: WorldSpeechBubbleManager
@@ -490,6 +492,9 @@ func _ready() -> void:
 		"tile_to_world":    Callable(self, "_tile_to_world"),
 		"player_pos_getter": Callable(self, "_get_player_world_pos"),
 	})
+	_player_territory = PlayerTerritoryMap.new()
+	_player_territory_dirty = true
+	PlacementSystem.register_placement_validator(Callable(self, "_validate_placement_restrictions"))
 
 	NpcPathService.setup({
 		"cliffs_tilemap":  cliffs_tilemap,
@@ -573,6 +578,7 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 func _process(delta: float) -> void:
 	if _settlement_intel != null:
 		_settlement_intel.process(delta)
+	_tick_player_territory()
 	pipeline.process(delta)
 	_process_wall_refresh_queue(1)
 	_process_tile_erase_queue()
@@ -1003,6 +1009,7 @@ func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) ->
 				_wall_refresh_queue.enqueue(chunk_pos)
 	if _settlement_intel != null and not tile_positions.is_empty():
 		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_positions[0]))
+	_player_territory_dirty = true
 
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	if _chunk_wall_collider_cache != null:
@@ -1074,6 +1081,7 @@ func _get_player_world_pos() -> Vector2:
 func _on_wall_drop_for_intel(tile_pos: Vector2i, _item_id: String, _amount: int) -> void:
 	if _settlement_intel != null:
 		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_pos))
+	_player_territory_dirty = true
 
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
 	if kind != "enemy":
@@ -1084,11 +1092,88 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 
 
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.
+## PlayerTerritoryMap — territorio del jugador
+func _tick_player_territory() -> void:
+	if not _player_territory_dirty or _player_territory == null or _settlement_intel == null:
+		return
+	_player_territory_dirty = false
+	var wb_nodes: Array = get_tree().get_nodes_in_group("workbench")
+	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_near(Vector2.ZERO, 999999.0)
+	_player_territory.rebuild(wb_nodes, bases)
+
+func is_in_player_territory(world_pos: Vector2) -> bool:
+	if _player_territory == null:
+		return false
+	return _player_territory.is_in_player_territory(world_pos)
+
+func get_player_territory_zones() -> Array[Dictionary]:
+	if _player_territory == null:
+		return []
+	return _player_territory.get_zones()
+
+
+# ---------------------------------------------------------------------------
+# Build restrictions — validador registrado en PlacementSystem
+# ---------------------------------------------------------------------------
+#
+# Tres restricciones en capas de gravedad creciente:
+#
+#   1. TAVERN ZONE (200 px)      — zona neutral de la taberna, no es tuya
+#   2. BANDIT CAMP CORE (350 px) — literalmente el campamento activo
+#   3. CONTESTED TERRITORY       — territorio bandido con facción activa (nivel 3+)
+#      Sin conflicto previo no puedes colonizar donde ya hay alguien.
+#
+# Las restricciones 2 y 3 solo aplican a grupos con líder vivo.
+# A nivel 1-2 (bandidos débiles) el tercer check pasa — puedes construir ahí,
+# pero en 3.1 ya les provocas tensión. A nivel 3+ bloquea.
+
+const _TAVERN_BUILD_RADIUS_SQ: float    = 320.0 * 320.0  # 10 tiles
+const _BANDIT_CAMP_RADIUS_SQ: float     = 256.0 * 256.0  # 8 tiles
+const _CONTEST_MIN_LEVEL: int           = 3               # nivel mínimo para bloquear colonización
+
+func _validate_placement_restrictions(tile_pos: Vector2i) -> bool:
+	var world_pos: Vector2 = _tile_to_world(tile_pos)
+
+	# ── 1. Zona de taberna ────────────────────────────────────────────────
+	var tavern_tile: Vector2i = get_tavern_center_tile(tavern_chunk)
+	var tavern_pos: Vector2   = _tile_to_world(tavern_tile)
+	if world_pos.distance_squared_to(tavern_pos) <= _TAVERN_BUILD_RADIUS_SQ:
+		return false
+
+	# ── 2 + 3. Grupos bandidos ────────────────────────────────────────────
+	for gid in BanditGroupMemory.get_all_group_ids():
+		var g: Dictionary = BanditGroupMemory.get_group(gid)
+		if g.is_empty():
+			continue
+		# Solo grupos activos (líder_id presente = grupo no destruido)
+		var leader_id: String = String(g.get("leader_id", ""))
+		if leader_id == "":
+			continue
+		var home_pos: Vector2  = g.get("home_world_pos", Vector2.ZERO) as Vector2
+		var faction_id: String = String(g.get("faction_id", "bandits"))
+
+		# 2. Núcleo del campamento — zona de exclusión fija
+		if world_pos.distance_squared_to(home_pos) <= _BANDIT_CAMP_RADIUS_SQ:
+			return false
+
+		# 3. Territorio en disputa — nivel 3+ bloquea colonización pasiva
+		var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
+		if profile.hostility_level >= _CONTEST_MIN_LEVEL:
+			var t_radius: float = BanditTerritoryQuery.radius_for_faction(faction_id)
+			if world_pos.distance_to(home_pos) <= t_radius:
+				return false
+
+	return true
+
+
 ## SettlementIntel — interest marker facade
 func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionary = {}) -> void:
 	if _settlement_intel != null:
 		_settlement_intel.record_interest_event(kind, world_pos, metadata)
 	_check_territory_intrusion(kind, world_pos)
+	# Estructura colocada o workbench → reconstruir mapa de territorio del jugador
+	if kind == "workbench" or kind == "structure_placed":
+		_player_territory_dirty = true
 
 
 # Hostilidad inmediata por actividad del jugador dentro de territorio bandido.
@@ -1160,6 +1245,7 @@ func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dicti
 func rescan_workbench_markers() -> void:
 	if _settlement_intel != null:
 		_settlement_intel.rescan_workbench_markers()
+	_player_territory_dirty = true
 
 func mark_interest_scan_dirty() -> void:
 	if _settlement_intel != null:
