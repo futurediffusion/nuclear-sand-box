@@ -8,6 +8,11 @@ class_name BanditGroupIntel
 # the score + persistent faction profile to BanditIntentPolicy.
 # It does not own long-term hostility state, intent policy tuning, or social
 # escalation rules beyond dispatching the chosen intent/eligibility outcomes.
+#
+# Future tavern note:
+# when a local civil authority exists, its memory/authority should feed this
+# layer as extra inputs or parallel signals, not replace the bandit global
+# hostility profile and not live inside BanditBehaviorLayer.
 
 # ── Scoring weights ───────────────────────────────────────────────────────────
 const W_BASE_DETECTED: float  = 15.0

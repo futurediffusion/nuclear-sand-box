@@ -6,6 +6,11 @@ class_name BanditWorkCoordinator
 ## BanditBehaviorLayer emite intención y persistencia; este coordinador ejecuta
 ## interacciones concretas con el mundo y delega el ciclo de cargo a
 ## BanditCampStashSystem.
+##
+## Frontera futura:
+## si mañana existe una TavernResponseDirector, no debe entrar aquí salvo como
+## efecto ya resuelto externamente. Este coordinador sigue siendo runtime
+## laboral/físico, no autoridad social.
 
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 

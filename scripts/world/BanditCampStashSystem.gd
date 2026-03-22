@@ -12,6 +12,11 @@ extends Node
 ##
 ## No accede a _behaviors directamente — comunica cambios de barril al caller
 ## a través del callable update_deposit_pos_cb(group_id, barrel_pos).
+##
+## Frontera futura:
+## no debe absorber memoria social local ni autoridad civil. Si una taberna
+## responde a robo/daño, eso irá por otro director; este sistema sigue siendo
+## solo logística física de campamento bandido.
 
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 const CAMP_BARREL_SCENE:  PackedScene = preload("res://scenes/placeables/barrel_world.tscn")

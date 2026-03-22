@@ -9,6 +9,10 @@ class_name BanditIntentPolicy
 # hold-timers, because that keeps intent transitions deterministic and local to
 # score evaluation. It does not scan the world, mutate BanditGroupMemory,
 # enqueue flows, or persist hostility outside FactionHostilityManager.
+#
+# Future tavern note:
+# local civil authority can add parallel policy elsewhere, but must not dilute
+# this module's role as the bandit-global intent policy.
 
 const EXTORT_SCORE_THRESHOLD: float = 3.0
 
