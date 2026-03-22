@@ -23,14 +23,18 @@ const W_STRUCTURE: float      =  6.0
 const W_MINE: float           =  3.0
 const W_CHOP: float           =  2.0
 
+const SimulationLODPolicyScript := preload("res://scripts/world/SimulationLODPolicy.gd")
+
 var _get_markers_near: Callable
 var _get_bases_near: Callable
 var _npc_simulator: NpcSimulator
+var _player: Node2D
 const GROUP_SCAN_SLICE_COUNT: int = 4
 
 var _scan_timer: float = BanditTuning.group_scan_interval() * 0.37
 var _scan_cursor: int = 0
 var _intent_policy := BanditIntentPolicy.new()
+var _scan_accumulator_by_group: Dictionary = {}
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +45,7 @@ func setup(ctx: Dictionary) -> void:
 	_get_markers_near = ctx.get("get_interest_markers_near", Callable())
 	_get_bases_near   = ctx.get("get_detected_bases_near",   Callable())
 	_npc_simulator    = ctx.get("npc_simulator")
+	_player           = ctx.get("player") as Node2D
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +73,9 @@ func _scan_group_slice() -> void:
 	var group_ids: Array = BanditGroupMemory.get_all_group_ids()
 	if group_ids.is_empty():
 		_scan_cursor = 0
+		_scan_accumulator_by_group.clear()
 		return
+	_prune_removed_groups(group_ids)
 	var per_slice: int = maxi(1, int(ceil(float(group_ids.size()) / float(maxi(GROUP_SCAN_SLICE_COUNT, 1)))))
 	for _i in per_slice:
 		if group_ids.is_empty():
@@ -80,8 +87,60 @@ func _scan_group_slice() -> void:
 		var g: Dictionary = BanditGroupMemory.get_group(group_id)
 		if g.is_empty():
 			continue
+		var elapsed: float = _get_elapsed_for_group(group_id)
+		var interval: float = _get_group_scan_interval(group_id, g)
+		if elapsed < interval:
+			continue
 		_scan_group(group_id, g)
+		_scan_accumulator_by_group[group_id] = maxf(elapsed - interval, 0.0)
 
+
+
+
+func _prune_removed_groups(group_ids: Array) -> void:
+	var live: Dictionary = {}
+	for gid in group_ids:
+		live[String(gid)] = true
+	for gid in _scan_accumulator_by_group.keys():
+		if not live.has(String(gid)):
+			_scan_accumulator_by_group.erase(gid)
+
+
+func _get_elapsed_for_group(group_id: String) -> float:
+	var elapsed: float = float(_scan_accumulator_by_group.get(group_id, 0.0))
+	elapsed += BanditTuning.group_scan_interval() / float(maxi(GROUP_SCAN_SLICE_COUNT, 1))
+	_scan_accumulator_by_group[group_id] = elapsed
+	return elapsed
+
+
+func _get_group_scan_interval(group_id: String, g: Dictionary) -> float:
+	var leader_id: String = String(g.get("leader_id", ""))
+	var leader = _npc_simulator.get_enemy_node(leader_id) if _npc_simulator != null and leader_id != "" else null
+	var home_pos: Vector2 = g.get("home_world_pos", Vector2.ZERO)
+	var distance_to_player: float = INF
+	var is_visible: bool = false
+	if _player != null and is_instance_valid(_player):
+		var anchor: Vector2 = leader.global_position if leader != null else home_pos
+		distance_to_player = anchor.distance_to(_player.global_position)
+		if leader != null and leader.has_method("is_on_screen"):
+			is_visible = bool(leader.is_on_screen())
+	var current_intent: String = String(g.get("current_group_intent", "idle"))
+	var recently_engaged: bool = false
+	var in_combat: bool = false
+	if leader != null:
+		recently_engaged = SimulationLODPolicyScript.was_recently_engaged(float(leader.get("last_engaged_time", 0.0)))
+		if leader.has_method("is_sleeping"):
+			in_combat = not bool(leader.is_sleeping()) and current_intent != "idle"
+	return SimulationLODPolicyScript.get_bandit_group_scan_interval({
+		"base_interval": BanditTuning.group_scan_interval(),
+		"distance_to_player": distance_to_player,
+		"intent": current_intent,
+		"is_visible": is_visible,
+		"in_combat": in_combat,
+		"recently_engaged": recently_engaged,
+		"has_player_signal": current_intent != "idle",
+		"has_base_signal": String(g.get("last_interest_kind", "")) == "base_detected",
+	})
 
 func _scan_group(group_id: String, g: Dictionary) -> void:
 	# Only react if the group has a live leader node

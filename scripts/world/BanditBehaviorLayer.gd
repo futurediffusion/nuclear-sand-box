@@ -34,6 +34,7 @@ const BanditRaidDirectorScript      := preload("res://scripts/world/BanditRaidDi
 const BanditCampStashSystemScript   := preload("res://scripts/world/BanditCampStashSystem.gd")
 const BanditTerritoryResponseScript := preload("res://scripts/world/BanditTerritoryResponse.gd")
 const BanditWorkCoordinatorScript   := preload("res://scripts/world/BanditWorkCoordinator.gd")
+const SimulationLODPolicyScript     := preload("res://scripts/world/SimulationLODPolicy.gd")
 
 # ---------------------------------------------------------------------------
 # Camp layout constants — local geometry, not cross-system gameplay tuning.
@@ -145,6 +146,7 @@ var _bubble_manager: WorldSpeechBubbleManager = null
 var _cadence:        WorldCadenceCoordinator  = null
 
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
+var _behavior_elapsed: Dictionary = {}
 var _tick_timer: float     = BanditTuningScript.behavior_tick_interval() * 0.35
 var _director_fallback_timer: float = 0.08
 
@@ -228,6 +230,7 @@ func setup_group_intel(ctx: Dictionary) -> void:
 	_group_intel = BanditGroupIntelScript.new()
 	_group_intel.setup({
 		"npc_simulator":             _npc_simulator,
+		"player":                    _player,
 		"get_interest_markers_near": ctx.get("get_interest_markers_near", Callable()),
 		"get_detected_bases_near":   ctx.get("get_detected_bases_near",   Callable()),
 	})
@@ -349,6 +352,7 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------------------
 
 func _tick_behaviors() -> void:
+	_prune_behavior_timers()
 	var drop_nodes_snapshot: Array = _get_all_drop_nodes()
 	var leader_pos_by_group: Dictionary = {}
 	for enemy_id in _behaviors:
@@ -369,6 +373,15 @@ func _tick_behaviors() -> void:
 			continue
 
 		var node_pos: Vector2 = node.global_position
+		var tick_interval: float = _get_behavior_tick_interval(beh, node, node_pos)
+		var elapsed: float = float(_behavior_elapsed.get(enemy_id, 0.0)) + BanditTuningScript.behavior_tick_interval()
+		_behavior_elapsed[enemy_id] = elapsed
+		if elapsed < tick_interval:
+			if _work_coordinator != null:
+				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
+			continue
+		_behavior_elapsed[enemy_id] = maxf(elapsed - tick_interval, 0.0)
+
 		var ctx: Dictionary = {
 			"node_pos":                       node_pos,
 			"nearby_drops_info":              _build_drops_info(node_pos),
@@ -380,7 +393,7 @@ func _tick_behaviors() -> void:
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
 
-		beh.tick(BanditTuningScript.behavior_tick_interval(), ctx)
+		beh.tick(elapsed, ctx)
 		_maybe_show_recognition_bubble(beh, node, node_pos)
 		_maybe_show_idle_chat(beh, node, node_pos)
 
@@ -475,6 +488,7 @@ func _ensure_behaviors_for_active_enemies() -> void:
 			beh._rng.seed = absi(int(save_state.get("seed", 0)) ^ hash(enemy_id_str))
 			beh._idle_timer = beh._rng.randf_range(NpcWorldBehavior.IDLE_WAIT_MIN, NpcWorldBehavior.IDLE_WAIT_MAX)
 		_behaviors[enemy_id_str] = beh
+		_behavior_elapsed[enemy_id_str] = randf() * BanditTuningScript.behavior_tick_interval()
 		Debug.log("bandit_ai", "[BanditBL] behavior created id=%s role=%s group=%s cargo_cap=%d home=%s" % [
 			enemy_id_str, beh.role, beh.group_id, beh.cargo_capacity, str(beh.home_pos)])
 
@@ -490,6 +504,7 @@ func _prune_behaviors() -> void:
 			to_remove.append(enemy_id)
 	for enemy_id in to_remove:
 		_behaviors.erase(enemy_id)
+		_behavior_elapsed.erase(enemy_id)
 		if NpcPathService.is_ready():
 			NpcPathService.clear_agent(enemy_id)
 		Debug.log("bandit_ai", "[BanditBL] behavior pruned id=%s" % enemy_id)
@@ -637,3 +652,34 @@ func _get_home_pos(save_state: Dictionary) -> Vector2:
 	if hp is Dictionary:
 		return Vector2(float((hp as Dictionary).get("x", 0.0)), float((hp as Dictionary).get("y", 0.0)))
 	return Vector2.ZERO
+
+
+func _prune_behavior_timers() -> void:
+	for enemy_id in _behavior_elapsed.keys():
+		if not _behaviors.has(enemy_id):
+			_behavior_elapsed.erase(enemy_id)
+
+
+func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos: Vector2) -> float:
+	var distance_to_player: float = INF
+	if _player != null and is_instance_valid(_player):
+		distance_to_player = node_pos.distance_to(_player.global_position)
+	var group_intent: String = "idle"
+	if beh.group_id != "":
+		group_intent = String(BanditGroupMemory.get_group(beh.group_id).get("current_group_intent", "idle"))
+	var ai_state_name: String = ""
+	if beh.state >= 0 and beh.state < NpcWorldBehavior.State.size():
+		ai_state_name = NpcWorldBehavior.State.keys()[beh.state]
+	var recently_engaged: bool = SimulationLODPolicyScript.was_recently_engaged(float(node.get("last_engaged_time", 0.0)))
+	return SimulationLODPolicyScript.get_behavior_tick_interval({
+		"base_interval": BanditTuningScript.behavior_tick_interval(),
+		"distance_to_player": distance_to_player,
+		"intent": group_intent,
+		"role": beh.role,
+		"state_name": ai_state_name,
+		"has_cargo": beh.cargo_count > 0,
+		"is_visible": (node as CanvasItem).is_visible_in_tree() if node is CanvasItem else false,
+		"is_sleeping": bool(node.has_method("is_sleeping") and node.is_sleeping()),
+		"in_combat": bool(node.has_method("is_world_behavior_eligible") and not node.is_world_behavior_eligible()),
+		"recently_engaged": recently_engaged,
+	})
