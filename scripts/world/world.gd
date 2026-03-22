@@ -44,6 +44,7 @@ var _tile_painter := TilePainter.new()
 @export var max_cached_chunk_colliders: int = 64
 @export var debug_collision_cache: bool = false
 @export var autosave_interval: float = 120.0
+@export var debug_world_sim_telemetry_enabled: bool = true
 
 @export_group("Player Walls")
 @export var player_wallwood_max_hp: int = 3
@@ -131,6 +132,9 @@ var _structural_wall_persistence: StructuralWallPersistence
 var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
+var _world_sim_telemetry: WorldSimTelemetry
+var _save_count: int = 0
+var _last_save_time_msec: int = -1
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -172,6 +176,7 @@ const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
 const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
 const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd")
 const WorldCadenceCoordinatorScript := preload("res://scripts/world/WorldCadenceCoordinator.gd")
+const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -552,6 +557,17 @@ func _ready() -> void:
 			and not _player_wall_system.player_wall_drop.is_connected(_on_wall_drop_for_intel):
 		_player_wall_system.player_wall_drop.connect(_on_wall_drop_for_intel)
 
+	_world_sim_telemetry = WorldSimTelemetryScript.new()
+	_world_sim_telemetry.setup({
+		"enabled": debug_world_sim_telemetry_enabled,
+		"world": self,
+		"cadence": _cadence,
+		"bandit_behavior_layer": _bandit_behavior_layer,
+		"settlement_intel": _settlement_intel,
+		"world_spatial_index": _world_spatial_index,
+		"maintenance_snapshot_cb": Callable(self, "_get_world_maintenance_debug_snapshot"),
+	})
+
 	# Wire SettlementIntel into BanditGroupIntel (must be after _settlement_intel is ready)
 	if _bandit_behavior_layer != null:
 		_bandit_behavior_layer.setup_group_intel({
@@ -577,12 +593,12 @@ func _clear_chunk_wall_runtime_cache() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
-		SaveManager.save_world()
+		_perform_world_save("window_close")
 		get_tree().quit()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_save_game"):
-		SaveManager.save_world()
+		_perform_world_save("manual")
 	elif event.is_action_pressed("ui_load_game"):
 		if SaveManager.has_save():
 			get_tree().reload_current_scene()
@@ -638,7 +654,7 @@ func _process(delta: float) -> void:
 	_update_cliff_occlusion()
 	_process_chunk_perf_debug(delta)
 	if _cadence != null and _cadence.consume_lane(&"autosave") > 0:
-		SaveManager.save_world()
+		_perform_world_save("autosave")
 	if _cadence != null and _cadence.consume_lane(&"chunk_pulse") <= 0:
 		return
 	if not player:
@@ -1214,3 +1230,51 @@ func _paint_outer_ground_band() -> void:
 			cells.append(Vector2i(width + i - 1, y))
 	if not cells.is_empty():
 		ground_tilemap.set_cells_terrain_connect(0, cells, 0, 1, false)
+
+
+func get_debug_snapshot() -> Dictionary:
+	if _world_sim_telemetry == null:
+		return {"enabled": false}
+	return _world_sim_telemetry.get_debug_snapshot()
+
+
+func dump_debug_summary() -> String:
+	if _world_sim_telemetry == null:
+		return "WORLD SIM\n- telemetry: unavailable"
+	return _world_sim_telemetry.dump_debug_summary()
+
+
+func build_overlay_lines() -> PackedStringArray:
+	if _world_sim_telemetry == null:
+		return PackedStringArray()
+	return _world_sim_telemetry.build_overlay_lines()
+
+
+func _perform_world_save(_reason: String = "manual") -> void:
+	SaveManager.save_world()
+	_last_save_time_msec = Time.get_ticks_msec()
+	_save_count += 1
+
+
+func _get_world_maintenance_debug_snapshot() -> Dictionary:
+	var loaded_count: int = loaded_chunks.size()
+	var generated_count: int = pipeline.generated_chunks.size() if pipeline != null else 0
+	var terrain_pending: int = pipeline.terrain_paint_center_ring0_pending if pipeline != null else 0
+	var autosave_due: int = _cadence.lane_due(&"autosave") if _cadence != null else 0
+	var last_save_age: float = -1.0
+	if _last_save_time_msec >= 0:
+		last_save_age = float(Time.get_ticks_msec() - _last_save_time_msec) / 1000.0
+	return {
+		"pending_tile_erases": _pending_tile_erases.size(),
+		"loaded_chunks": loaded_count,
+		"generated_chunks": generated_count,
+		"terrain_paint_ring0_pending": terrain_pending,
+		"spawn_queue": _spawn_queue.debug_dump() if _spawn_queue != null else {},
+		"wall_refresh": _wall_refresh_queue.get_debug_snapshot() if _wall_refresh_queue != null else {},
+		"autosave": {
+			"interval": autosave_interval,
+			"due": autosave_due,
+			"save_count": _save_count,
+			"last_save_age": snappedf(last_save_age, 0.01) if last_save_age >= 0.0 else -1.0,
+		},
+	}

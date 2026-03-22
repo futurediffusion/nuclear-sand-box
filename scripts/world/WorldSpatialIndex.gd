@@ -344,3 +344,26 @@ func _ensure_placeables_cache() -> void:
 func _get_cached_placeables_for_item_in_chunk(item_id: String, chunk_key: String) -> Array:
 	var by_chunk: Dictionary = _placeables_by_item_id_and_chunk.get(item_id, {})
 	return by_chunk.get(chunk_key, [])
+
+
+func get_debug_snapshot() -> Dictionary:
+	var runtime_counts := {
+		"item_drop": get_all_runtime_nodes(KIND_ITEM_DROP).size(),
+		"world_resource": get_all_runtime_nodes(KIND_WORLD_RESOURCE).size(),
+		"workbench": get_all_runtime_nodes(KIND_WORKBENCH).size(),
+		"storage": get_all_runtime_nodes(KIND_STORAGE).size(),
+	}
+	_ensure_placeables_cache()
+	var persistent_counts: Dictionary = {}
+	for item_id in ["workbench", "doorwood", "chest", "barrel"]:
+		persistent_counts[item_id] = get_all_placeables_by_item_id(item_id).size()
+	var total_runtime: int = 0
+	for count in runtime_counts.values():
+		total_runtime += int(count)
+	return {
+		"alive": total_runtime > 0 or not _placeables_by_item_id_and_chunk.is_empty(),
+		"runtime_counts": runtime_counts,
+		"persistent_cache_revision": _placeables_cache_revision,
+		"persistent_item_counts": persistent_counts,
+		"persistent_cache_item_ids": _placeables_by_item_id_and_chunk.size(),
+	}

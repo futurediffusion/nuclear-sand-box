@@ -164,3 +164,14 @@ func _try_pop_from_queue(queue: Array[Vector2i], now: int) -> Dictionary:
 		"revision": -1,
 		"next_ready_in_ms": min_wait
 	}
+
+
+func get_debug_snapshot() -> Dictionary:
+	return {
+		"pending": has_pending(),
+		"hot_size": _hot_queue.size(),
+		"normal_size": _normal_queue.size(),
+		"tracked_chunks": _enqueued_status.size(),
+		"requested_revisions": _requested_revisions.size(),
+		"rebuilt_revisions": _rebuilt_revisions.size(),
+	}
