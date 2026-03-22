@@ -1,55 +1,159 @@
-[gd_scene load_steps=6 format=3 uid="uid://bnp5okb4xk2j3"]
+[gd_scene load_steps=27 format=3 uid="uid://7u81ce63dfdb"]
 
-[ext_resource type="Script" path="res://scripts/npc/sentinel.gd" id="1_sentinel"]
+[ext_resource type="Script" uid="uid://dpwkob1rx2am5" path="res://scripts/npc/sentinel.gd" id="1_sentinel"]
+[ext_resource type="Texture2D" uid="uid://csi1e66pf1k75" path="res://art/sprites/GOBLIN1-death.png" id="2_brrmb"]
+[ext_resource type="PackedScene" uid="uid://bo7s8ewd7s0wy" path="res://scenes/slash.tscn" id="2_g0kl7"]
 [ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="2_hurtbox"]
+[ext_resource type="Texture2D" uid="uid://cy2jbrjibs00h" path="res://art/sprites/goblinhurt.png" id="3_g0kl7"]
+[ext_resource type="Texture2D" uid="uid://dy54fgkyqcke8" path="res://art/sprites/GOBLIN1-Sheet-idle.png" id="4_cp02j"]
+[ext_resource type="Texture2D" uid="uid://vje5af61y85f" path="res://art/sprites/GOBLIN1-Shee-walkt.png" id="5_31y5k"]
 
-# ── SpriteFrames ──────────────────────────────────────────────────────────────
-# Animaciones vacías — asignar frames desde el Inspector o reemplazar el recurso
-# con una SpriteFrames compartida cuando haya arte del sentinel disponible.
-# El script espera: "idle", "walk", "attack"
+[sub_resource type="AtlasTexture" id="AtlasTexture_hm2ur"]
+atlas = ExtResource("2_brrmb")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_strw4"]
+atlas = ExtResource("2_brrmb")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_klie5"]
+atlas = ExtResource("2_brrmb")
+region = Rect2(32, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_v75jc"]
+atlas = ExtResource("3_g0kl7")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_8t7gu"]
+atlas = ExtResource("3_g0kl7")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_1j6s5"]
+atlas = ExtResource("4_cp02j")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_51tfr"]
+atlas = ExtResource("4_cp02j")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_efx03"]
+atlas = ExtResource("4_cp02j")
+region = Rect2(32, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_hyu8a"]
+atlas = ExtResource("4_cp02j")
+region = Rect2(48, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fth71"]
+atlas = ExtResource("5_31y5k")
+region = Rect2(0, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_l2t4s"]
+atlas = ExtResource("5_31y5k")
+region = Rect2(16, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_kdpno"]
+atlas = ExtResource("5_31y5k")
+region = Rect2(32, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_53qhl"]
+atlas = ExtResource("5_31y5k")
+region = Rect2(48, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_wwbne"]
+atlas = ExtResource("5_31y5k")
+region = Rect2(64, 0, 16, 16)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_ic4rp"]
+atlas = ExtResource("5_31y5k")
+region = Rect2(80, 0, 16, 16)
+
 [sub_resource type="SpriteFrames" id="SpriteFrames_sentinel"]
 animations = [{
-"frames": [],
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_hm2ur")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_strw4")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_klie5")
+}],
+"loop": true,
+"name": &"death",
+"speed": 5.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_v75jc")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_8t7gu")
+}],
+"loop": true,
+"name": &"hurt",
+"speed": 5.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_1j6s5")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_51tfr")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_efx03")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_hyu8a")
+}],
 "loop": true,
 "name": &"idle",
 "speed": 5.0
 }, {
-"frames": [],
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_fth71")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_l2t4s")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_kdpno")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_53qhl")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_wwbne")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_ic4rp")
+}],
 "loop": true,
 "name": &"walk",
 "speed": 8.0
-}, {
-"frames": [],
-"loop": false,
-"name": &"attack",
-"speed": 8.0
 }]
 
-# ── Shapes ────────────────────────────────────────────────────────────────────
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
 size = Vector2(9, 16)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_hurtbox"]
 size = Vector2(8, 14)
 
-# DetectionArea: radio = detection_range export (default 180 px)
 [sub_resource type="CircleShape2D" id="CircleShape2D_detection"]
 radius = 180.0
 
-# ── Scene tree ────────────────────────────────────────────────────────────────
-# collision_layer = 4   → capa 3 = EnemyNCP (CollisionLayers.gd)
-# collision_mask  = 21  → Player(1) + EnemyNCP(4) + WALLPROPS(16)
-#
-# AJUSTAR capas en el Inspector si el sentinel necesita capa propia.
-# El Hurtbox usa los defaults de hurtbox.gd (no necesita override aquí).
 [node name="Sentinel" type="CharacterBody2D"]
 collision_layer = 4
 collision_mask = 21
 script = ExtResource("1_sentinel")
+slash_scene = ExtResource("2_g0kl7")
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_sentinel")
-animation = &"idle"
+animation = &"walk"
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("RectangleShape2D_body")
@@ -60,8 +164,6 @@ script = ExtResource("2_hurtbox")
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
 shape = SubResource("RectangleShape2D_hurtbox")
 
-# monitorable=false: otras áreas no necesitan saber que el sentinel existe.
-# monitoring=true (default): el sentinel puede detectar cuerpos que entren.
 [node name="DetectionArea" type="Area2D" parent="."]
 monitorable = false
 

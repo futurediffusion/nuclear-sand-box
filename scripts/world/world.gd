@@ -30,6 +30,7 @@ var _tile_painter := TilePainter.new()
 @export var bandit_scene: PackedScene
 @export_range(0.0, 1.0, 0.01) var camp_spawn_chance: float = 1.0
 @export var tavern_keeper_scene: PackedScene
+@export var sentinel_scene: PackedScene
 @export_group("Chunk Perf Debug")
 @export var debug_chunk_perf_enabled: bool = true
 @export var debug_chunk_perf_window_size: int = 64
@@ -1111,6 +1112,71 @@ func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 	var x0: int = chunk_pos.x * chunk_size + 4
 	var y0: int = chunk_pos.y * chunk_size + 3
 	return Vector2i(x0 + 6, y0 + 4)
+
+
+## Posición world del tile exterior a la puerta de la taberna.
+## La puerta es la ausencia de pared en el tile inferior central (x0+6, y0+7).
+## Este método devuelve el tile justo afuera: (door_x, inner_max.y + 2).
+func get_tavern_exit_world_pos() -> Vector2:
+	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
+	if not keepers.is_empty():
+		var keeper := keepers[0]
+		var inner_min: Vector2i = keeper.get("tavern_inner_min")
+		var inner_max: Vector2i = keeper.get("tavern_inner_max")
+		var door_x: int = (inner_min.x + inner_max.x + 1) / 2
+		return _tile_to_world(Vector2i(door_x, inner_max.y + 2))
+	# Fallback por geometría fija desde tavern_chunk
+	var x0: int = tavern_chunk.x * chunk_size + 4
+	var y0: int = tavern_chunk.y * chunk_size + 3
+	return _tile_to_world(Vector2i(x0 + 6, y0 + 8))
+
+
+## Rect2 en world-space del interior de la taberna (sin incluir las paredes).
+func get_tavern_inner_bounds_world() -> Rect2:
+	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
+	if not keepers.is_empty():
+		var keeper := keepers[0]
+		var inner_min: Vector2i = keeper.get("tavern_inner_min")
+		var inner_max: Vector2i = keeper.get("tavern_inner_max")
+		var min_world := _tile_to_world(inner_min)
+		var max_world := _tile_to_world(inner_max + Vector2i(1, 1))
+		return Rect2(min_world, max_world - min_world)
+	# Fallback
+	var x0: int = tavern_chunk.x * chunk_size + 4
+	var y0: int = tavern_chunk.y * chunk_size + 3
+	var min_world := _tile_to_world(Vector2i(x0 + 1, y0 + 1))
+	var max_world := _tile_to_world(Vector2i(x0 + 11, y0 + 7))
+	return Rect2(min_world, max_world - min_world)
+
+
+## Spawnea un sentinel cerca de la taberna y lo parenta bajo _entity_root.
+## Llama esto desde main.gd o después de que la taberna esté generada.
+##
+## Uso:
+##   var s := world.spawn_sentinel_near_tavern()
+##   if s == null: print("sentinel_scene no asignada en Inspector")
+##
+## El sentinel queda a 3 tiles (96 px) a la derecha del centro de la taberna.
+## home_pos se inicializa en esa posición para que regrese ahí tras una orden.
+func spawn_sentinel_near_tavern() -> Sentinel:
+	if sentinel_scene == null:
+		Debug.log("world", "spawn_sentinel_near_tavern: sentinel_scene no asignada en el Inspector")
+		return null
+	if _entity_root == null:
+		Debug.log("world", "spawn_sentinel_near_tavern: _entity_root no disponible — llamar después de _ready")
+		return null
+	var center_tile := get_tavern_center_tile(tavern_chunk)
+	var world_pos   := _tile_to_world(center_tile)
+	# 3 tiles a la derecha de la entrada (3 × 32 px = 96 px)
+	var spawn_pos   := world_pos + Vector2(96.0, 0.0)
+	var sentinel    := sentinel_scene.instantiate() as Sentinel
+	_entity_root.add_child(sentinel)
+	sentinel.global_position = spawn_pos
+	sentinel.home_pos        = spawn_pos
+	Debug.log("world", "Sentinel spawneado en %s (tavern_chunk=%s)" % [
+		str(spawn_pos), str(tavern_chunk)
+	])
+	return sentinel
 
 
 func _on_wall_hit_activity(tile_pos: Vector2i) -> void:

@@ -1,4 +1,4 @@
-[gd_scene load_steps=34 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=35 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
@@ -32,6 +32,7 @@
 [ext_resource type="PackedScene" uid="uid://cccpmg7n24spe" path="res://scenes/ui/chest_ui.tscn" id="29_tel4y"]
 [ext_resource type="PackedScene" uid="uid://qlf2bj00x63j" path="res://scenes/placeables/workbench_world.tscn" id="29_wbworld"]
 [ext_resource type="Script" uid="uid://tq4fi4lfk12p" path="res://scripts/systems/SoundPanel.gd" id="30_soundpanel"]
+[ext_resource type="PackedScene" uid="uid://7u81ce63dfdb" path="res://scenes/sentinel.tscn" id="31_sentinel"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_0ld40"]
 shader = ExtResource("8_0ld40")
@@ -88,6 +89,7 @@ grass_tuft_scene = ExtResource("7_2f3dj")
 bandit_camp_scene = ExtResource("24_camp")
 bandit_scene = ExtResource("25_bandit")
 tavern_keeper_scene = ExtResource("26_keeper")
+sentinel_scene = ExtResource("31_sentinel")
 stone_dirt_max = 5
 tree_grass_max = 20
 tree_dirt_min = 3

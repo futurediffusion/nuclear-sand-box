@@ -7,9 +7,29 @@ class_name CommandSystem
 
 const ENEMY_SCENE: PackedScene      = preload("res://scenes/enemy.tscn")
 const WORKBENCH_SCENE: PackedScene  = preload("res://scenes/placeables/workbench_world.tscn")
+const SENTINEL_SCENE: PackedScene   = preload("res://scenes/sentinel.tscn")
 
 const COMMAND_PREFIX          := "/"
 const COMMAND_BAR_HEIGHT      := 34.0
+const MAX_SUGGESTIONS         := 8
+const SUGGESTION_ROW_H        := 22.0
+const SUGGESTION_PANEL_MAX_W  := 380.0
+
+## Árbol de autocompletado. Valor vacío = sin subcomandos conocidos.
+const COMMAND_COMPLETIONS: Dictionary = {
+	"give":            [],
+	"gv":              [],
+	"dog":             [],
+	"summon":          ["enemy", "sentinel"],
+	"sentinel":        ["warn", "eject", "subdue", "return"],
+	"spawn":           [],
+	"spawn_workbench": [],
+	"inv":             [],
+	"gotocamp":        [],
+	"camp":            [],
+	"sellall":         [],
+	"buydbg":          [],
+}
 const COMMAND_SPAWN_MIN_DIST  := 56.0
 const COMMAND_SPAWN_MAX_DIST  := 110.0
 const DEFAULT_COMMAND_TILE_SIZE := 16.0
@@ -63,6 +83,12 @@ var _give_shortcut_alias_to_item: Dictionary = {}
 var _give_shortcut_alias_to_amount: Dictionary = {}
 var _give_shortcut_conflicts: Dictionary = {}
 var _give_shortcuts_ready: bool = false
+
+# Autocompletado
+var _suggestion_root: Control       = null
+var _suggestion_vbox: VBoxContainer = null
+var _suggestion_candidates: Array[String] = []
+var _suggestion_index: int          = -1
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +162,48 @@ func _setup_command_bar() -> void:
 	_command_input.clear_button_enabled = true
 	_command_input.text_submitted.connect(_on_command_submitted)
 	_command_input.gui_input.connect(_on_command_gui_input)
+	_command_input.text_changed.connect(_on_command_text_changed)
 	_command_container.add_child(_command_input)
+
+	_setup_suggestion_panel()
+
+
+func _setup_suggestion_panel() -> void:
+	_suggestion_root = Control.new()
+	_suggestion_root.name = "SuggestionPanel"
+	_suggestion_root.visible = false
+	_suggestion_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_suggestion_root.anchor_left   = 0.0
+	_suggestion_root.anchor_top    = 1.0
+	_suggestion_root.anchor_right  = 0.0
+	_suggestion_root.anchor_bottom = 1.0
+	_suggestion_root.offset_left   = 8.0
+	_suggestion_root.offset_right  = 8.0 + SUGGESTION_PANEL_MAX_W
+	var bar_top: float = -(COMMAND_BAR_HEIGHT + 8.0 + 4.0)
+	_suggestion_root.offset_bottom = bar_top
+	_suggestion_root.offset_top    = bar_top   # altura 0 hasta que haya sugerencias
+	_ui_layer.add_child(_suggestion_root)
+
+	var bg := ColorRect.new()
+	bg.anchor_right  = 1.0
+	bg.anchor_bottom = 1.0
+	bg.color = Color(0.05, 0.05, 0.05, 0.88)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_suggestion_root.add_child(bg)
+
+	_suggestion_vbox = VBoxContainer.new()
+	_suggestion_vbox.anchor_right  = 1.0
+	_suggestion_vbox.anchor_bottom = 1.0
+	_suggestion_vbox.add_theme_constant_override("separation", 0)
+	_suggestion_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_suggestion_root.add_child(_suggestion_vbox)
 
 
 func _open_command_bar() -> void:
 	if _command_container == null or _command_input == null:
 		return
 	_command_open = true
+	UiManager.notify_command_bar_open(true)
 	_command_container.visible = true
 	if _command_input.text.is_empty():
 		_command_input.text = COMMAND_PREFIX
@@ -155,9 +216,14 @@ func _close_command_bar() -> void:
 	if _command_container == null or _command_input == null:
 		return
 	_command_open = false
+	UiManager.notify_command_bar_open(false)
 	_command_container.visible = false
 	_command_input.text = ""
 	_command_input.release_focus()
+	if _suggestion_root != null:
+		_suggestion_root.visible = false
+	_suggestion_candidates = []
+	_suggestion_index = -1
 
 
 func _on_command_gui_input(event: InputEvent) -> void:
@@ -169,12 +235,22 @@ func _on_command_gui_input(event: InputEvent) -> void:
 			_close_command_bar()
 			_command_input.accept_event()
 			return
+		if key_event.keycode == KEY_TAB:
+			_apply_suggestion()
+			_command_input.accept_event()
+			return
 		if key_event.keycode == KEY_UP:
-			_navigate_command_history(-1)
+			if not _suggestion_candidates.is_empty():
+				_navigate_suggestions(-1)
+			else:
+				_navigate_command_history(-1)
 			_command_input.accept_event()
 			return
 		if key_event.keycode == KEY_DOWN:
-			_navigate_command_history(1)
+			if not _suggestion_candidates.is_empty():
+				_navigate_suggestions(1)
+			else:
+				_navigate_command_history(1)
 			_command_input.accept_event()
 			return
 
@@ -218,6 +294,121 @@ func _navigate_command_history(direction: int) -> void:
 
 
 # ---------------------------------------------------------------------------
+# Autocompletado
+# ---------------------------------------------------------------------------
+
+func _on_command_text_changed(text: String) -> void:
+	_suggestion_index = -1
+	_suggestion_candidates = _get_suggestion_candidates(text)
+	_rebuild_suggestion_ui()
+
+
+func _get_suggestion_candidates(text: String) -> Array[String]:
+	if not text.begins_with(COMMAND_PREFIX):
+		return []
+	var raw      := text.substr(1)
+	var has_space := " " in raw
+	var parts    := raw.split(" ", false)
+	var result: Array[String] = []
+
+	if not has_space:
+		# Completar el comando base
+		var partial: String = parts[0] if parts.size() > 0 else ""
+		for cmd: String in COMMAND_COMPLETIONS.keys():
+			if not cmd.begins_with(partial):
+				continue
+			if cmd in ["sellall", "buydbg"] and not Debug.dev_cheats_enabled:
+				continue
+			result.append(cmd)
+		result.sort()
+	else:
+		# Completar subcomando
+		var base: String = parts[0] if parts.size() > 0 else ""
+		if COMMAND_COMPLETIONS.has(base):
+			var subs: Array = COMMAND_COMPLETIONS[base]
+			var partial: String = parts[1] if parts.size() > 1 else ""
+			for sub: String in subs:
+				if sub.begins_with(partial):
+					result.append(sub)
+	return result
+
+
+func _rebuild_suggestion_ui() -> void:
+	if _suggestion_vbox == null or _suggestion_root == null:
+		return
+	for child in _suggestion_vbox.get_children():
+		child.queue_free()
+
+	var n := mini(_suggestion_candidates.size(), MAX_SUGGESTIONS)
+	if n == 0:
+		_suggestion_root.visible = false
+		return
+
+	for i in range(n):
+		var candidate := _suggestion_candidates[i]
+		var selected  := (i == _suggestion_index)
+
+		var row := Control.new()
+		row.custom_minimum_size = Vector2(0.0, SUGGESTION_ROW_H)
+		row.size_flags_horizontal = Control.SIZE_FILL
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+		var row_bg := ColorRect.new()
+		row_bg.anchor_right  = 1.0
+		row_bg.anchor_bottom = 1.0
+		row_bg.color = Color(0.18, 0.44, 0.76, 0.65) if selected else Color(0.0, 0.0, 0.0, 0.0)
+		row_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(row_bg)
+
+		var lbl := Label.new()
+		lbl.text = candidate
+		lbl.anchor_bottom = 1.0
+		lbl.offset_left   = 10.0
+		lbl.offset_right  = -4.0
+		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lbl.add_theme_color_override("font_color",
+			Color(1.0, 1.0, 1.0, 0.95) if selected else Color(0.78, 0.78, 0.78, 0.88))
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(lbl)
+
+		_suggestion_vbox.add_child(row)
+
+	_suggestion_root.offset_top = _suggestion_root.offset_bottom - n * SUGGESTION_ROW_H
+	_suggestion_root.visible = true
+
+
+func _navigate_suggestions(dir: int) -> void:
+	var n := _suggestion_candidates.size()
+	if n == 0:
+		return
+	if _suggestion_index < 0:
+		_suggestion_index = (n - 1) if dir < 0 else 0
+	else:
+		_suggestion_index = (_suggestion_index + dir + n) % n
+	_rebuild_suggestion_ui()
+
+
+func _apply_suggestion() -> void:
+	if _suggestion_candidates.is_empty():
+		return
+	var idx     := 0 if _suggestion_index < 0 else _suggestion_index
+	if idx >= _suggestion_candidates.size():
+		return
+	var chosen  := _suggestion_candidates[idx]
+	var raw     := _command_input.text.substr(1)
+	var has_space := " " in raw
+	if not has_space:
+		_command_input.text = COMMAND_PREFIX + chosen + " "
+	else:
+		var base := raw.split(" ", false)[0]
+		_command_input.text = COMMAND_PREFIX + base + " " + chosen + " "
+	_command_input.caret_column = _command_input.text.length()
+	_suggestion_index = -1
+	_suggestion_candidates = _get_suggestion_candidates(_command_input.text)
+	_rebuild_suggestion_ui()
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher de comandos
 # ---------------------------------------------------------------------------
 func _execute_command(command_text: String) -> void:
@@ -249,8 +440,12 @@ func _execute_command(command_text: String) -> void:
 		"summon":
 			if parts.size() >= 2 and String(parts[1]).to_lower() == "enemy":
 				_cmd_summon_enemy(parts.slice(2))
+			elif parts.size() >= 2 and String(parts[1]).to_lower() == "sentinel":
+				_cmd_summon_sentinel()
 			else:
-				Debug.log("commands", "Uso: /summon enemy [cantidad] [offset_x_tiles] [offset_y_tiles]")
+				Debug.log("commands", "Uso: /summon enemy [n] [ox] [oy]  |  /summon sentinel")
+		"sentinel":
+			_cmd_sentinel(parts.slice(1))
 		"gotocamp", "camp":
 			_cmd_goto_camp()
 		"sellall":
@@ -811,3 +1006,58 @@ func _get_player_inventory() -> Node:
 	if _player == null:
 		return null
 	return _player.get_node_or_null("InventoryComponent")
+
+
+# ---------------------------------------------------------------------------
+# Sentinel — summon y control de debug
+# ---------------------------------------------------------------------------
+
+## /summon sentinel — instancia un sentinel cerca del player para pruebas.
+## Se parenta bajo EntitiesRoot (si existe) para respetar y_sort del mundo.
+func _cmd_summon_sentinel() -> void:
+	if _world == null:
+		Debug.log("commands", "/summon sentinel: world no disponible")
+		return
+	var entity_root := _world.get_node_or_null("EntitiesRoot")
+	var parent: Node = entity_root if entity_root != null else _world
+	var sentinel := SENTINEL_SCENE.instantiate() as Sentinel
+	var spawn_pos := _get_spawn_position(null)
+	parent.add_child(sentinel)
+	sentinel.global_position = spawn_pos
+	sentinel.home_pos = spawn_pos
+	Debug.log("commands", "Sentinel spawneado en %s (bajo '%s')" % [
+		str(spawn_pos), parent.name
+	])
+
+
+## /sentinel warn|eject|subdue|return — envía órdenes de debug al primer sentinel.
+func _cmd_sentinel(raw_args: Array) -> void:
+	if raw_args.is_empty():
+		Debug.log("commands", "Uso: /sentinel warn | eject | subdue | return")
+		return
+	var sentinel := _get_first_sentinel()
+	if sentinel == null:
+		Debug.log("commands", "/sentinel: no hay sentinel en escena — usa /summon sentinel primero")
+		return
+	var player_cb := _player as CharacterBody2D
+	match String(raw_args[0]).to_lower():
+		"warn":
+			sentinel.debug_warn(player_cb)
+		"eject":
+			sentinel.debug_eject(player_cb)
+		"subdue":
+			sentinel.debug_subdue(player_cb)
+		"return":
+			sentinel.debug_return()
+		_:
+			Debug.log("commands", "/sentinel: subcomando desconocido '%s'. Usa: warn | eject | subdue | return" % raw_args[0])
+
+
+func _get_first_sentinel() -> Sentinel:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var nodes := tree.get_nodes_in_group("sentinel")
+	if nodes.is_empty():
+		return null
+	return nodes[0] as Sentinel

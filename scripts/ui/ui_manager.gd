@@ -8,6 +8,7 @@ var _cursor: CanvasItem = null
 var _block_interact_until_msec: int = 0
 var _combat_block_count: int = 0
 var _combat_block_until_msec: int = 0
+var _command_bar_open: bool = false
 
 
 func _ready() -> void:
@@ -78,11 +79,17 @@ func block_interact_for(ms: int) -> void:
 	_block_interact_until_msec = Time.get_ticks_msec() + max(ms, 0)
 
 
+func notify_command_bar_open(open: bool) -> void:
+	_command_bar_open = open
+
+
 func is_interact_blocked() -> bool:
-	return Time.get_ticks_msec() < _block_interact_until_msec
+	return _command_bar_open or Time.get_ticks_msec() < _block_interact_until_msec
 
 
 func is_interact_prompt_suppressed() -> bool:
+	if _command_bar_open:
+		return true
 	for player in get_tree().get_nodes_in_group("player"):
 		if player == null:
 			continue

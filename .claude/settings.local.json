@@ -60,7 +60,9 @@
       "Bash(grep -E \"\\\\.\\(gd\\)$\")",
       "Bash(godot --path . --check-only --script scripts/world/BanditWorldBehavior.gd)",
       "Bash(godot --path . --check-only --script scripts/world/BanditTerritoryQuery.gd)",
-      "Bash(godot --path . --check-only --script scripts/world/world.gd)"
+      "Bash(godot --path . --check-only --script scripts/world/world.gd)",
+      "Bash(godot --path . --check-only --script scripts/npc/sentinel.gd)",
+      "Bash(godot --path . --check-only scripts/npc/sentinel.gd)"
     ]
   }
 }
