@@ -1127,9 +1127,8 @@ func get_player_territory_zones() -> Array[Dictionary]:
 # A nivel 1-2 (bandidos débiles) el tercer check pasa — puedes construir ahí,
 # pero en 3.1 ya les provocas tensión. A nivel 3+ bloquea.
 
-const _TAVERN_BUILD_RADIUS_SQ: float    = 320.0 * 320.0  # 10 tiles
-const _BANDIT_CAMP_RADIUS_SQ: float     = 256.0 * 256.0  # 8 tiles
-const _CONTEST_MIN_LEVEL: int           = 3               # nivel mínimo para bloquear colonización
+const _TAVERN_BUILD_RADIUS_SQ: float = 320.0 * 320.0  # 10 tiles
+const _CONTEST_MIN_LEVEL: int        = 3               # nivel mínimo para bloquear colonización pasiva
 
 func _validate_placement_restrictions(tile_pos: Vector2i) -> bool:
 	var world_pos: Vector2 = _tile_to_world(tile_pos)
@@ -1152,15 +1151,20 @@ func _validate_placement_restrictions(tile_pos: Vector2i) -> bool:
 		var home_pos: Vector2  = g.get("home_world_pos", Vector2.ZERO) as Vector2
 		var faction_id: String = String(g.get("faction_id", "bandits"))
 
-		# 2. Núcleo del campamento — zona de exclusión fija
-		if world_pos.distance_squared_to(home_pos) <= _BANDIT_CAMP_RADIUS_SQ:
+		# Radio de territorio del grupo según su nivel (igual que BanditTerritoryQuery)
+		var t_radius: float = BanditTerritoryQuery.radius_for_faction(faction_id)
+		var dist: float     = world_pos.distance_to(home_pos)
+
+		# 2. Dentro del radio territorial → siempre bloqueado (campamento activo)
+		if dist <= t_radius:
 			return false
 
-		# 3. Territorio en disputa — nivel 3+ bloquea colonización pasiva
+		# 3. Territorio en disputa — nivel 3+ bloquea un anillo exterior adicional
+		# (equivalente al radio siguiente en la tabla: bandas muy hostiles reivindican más)
 		var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
 		if profile.hostility_level >= _CONTEST_MIN_LEVEL:
-			var t_radius: float = BanditTerritoryQuery.radius_for_faction(faction_id)
-			if world_pos.distance_to(home_pos) <= t_radius:
+			var extended_radius: float = t_radius + 200.0  # buffer extra para facciones hostiles
+			if dist <= extended_radius:
 				return false
 
 	return true
