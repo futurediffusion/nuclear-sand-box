@@ -44,6 +44,7 @@ var _walls_tilemap: TileMap     = null
 var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
 var _is_ready: bool             = false
+var _world_spatial_index: WorldSpatialIndex = null
 
 # Optional world bounds in tile coords — tiles outside are treated as blocked.
 # Set via setup ctx key "world_tile_rect" (Rect2i). Left unset = no bounds check.
@@ -63,6 +64,7 @@ func setup(ctx: Dictionary) -> void:
 	_walls_tilemap    = ctx.get("walls_tilemap")
 	_world_to_tile_cb = ctx.get("world_to_tile", Callable())
 	_tile_to_world_cb = ctx.get("tile_to_world", Callable())
+	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 	_is_ready = (
 		_cliffs_tilemap != null and is_instance_valid(_cliffs_tilemap) and
 		_walls_tilemap  != null and is_instance_valid(_walls_tilemap)  and
@@ -300,20 +302,15 @@ func _is_blocked(tile: Vector2i, placed_blockers: Dictionary) -> bool:
 ## All placeables are solid EXCEPT: floorwood/woodfloor (no collision shape)
 ## and doorwood when open (collision shape disabled while open).
 func _placeable_blocks_movement(item_id: String, uid: String) -> bool:
+	if _world_spatial_index != null:
+		return _world_spatial_index.placeable_blocks_movement(item_id, uid)
 	if item_id == "":
 		return false
-	# Purely walkable floor tiles — never block
 	if item_id in PASSABLE_ITEM_IDS:
 		return false
-	# Door: passable when open, blocking when closed
 	if item_id == "doorwood":
 		var data: Dictionary = WorldSave.get_placed_entity_data(uid)
-		# Default false = closed (conservative: treat unknown state as closed)
 		return not bool(data.get("is_open", false))
-	# ── Hook: add future passable item_ids above this line ───────────────────
-	# Example: if item_id == "fence_gate" and gate is open: return false
-	# ─────────────────────────────────────────────────────────────────────────
-	# All other placeables (chest, barrel, table, stool, workbench) are solid
 	return true
 
 
@@ -321,6 +318,8 @@ func _placeable_blocks_movement(item_id: String, uid: String) -> bool:
 ## inside the given tile-coordinate window [min_x..min_x+w, min_y..min_y+h].
 ## Called once per A* solve — O(entities in affected chunks).
 func _collect_placed_blockers(min_x: int, min_y: int, w: int, h: int) -> Dictionary:
+	if _world_spatial_index != null:
+		return _world_spatial_index.get_blocker_tiles_in_rect(min_x, min_y, w, h)
 	var blockers: Dictionary = {}
 	var min_cx: int = int(floor(float(min_x) / CHUNK_SIZE))
 	var max_cx: int = int(floor(float(min_x + w - 1) / CHUNK_SIZE))
@@ -332,7 +331,6 @@ func _collect_placed_blockers(min_x: int, min_y: int, w: int, h: int) -> Diction
 			for entry in WorldSave.get_placed_entities_in_chunk(cx, cy):
 				var tx: int = int(entry.get("tile_pos_x", 0))
 				var ty: int = int(entry.get("tile_pos_y", 0))
-				# Skip tiles outside our window
 				if tx < min_x or tx >= min_x + w or ty < min_y or ty >= min_y + h:
 					continue
 				var item_id: String = String(entry.get("item_id", ""))

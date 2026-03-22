@@ -50,9 +50,11 @@ var _stone_hit_volume_db: float = 0.0
 
 var entity_uid: String = ""
 var _hit_accumulator: int = 0
+var _world_spatial_index: WorldSpatialIndex = null
 
 func _ready() -> void:
 	add_to_group("world_resource")
+	_register_in_world_index()
 	add_to_group("world_stone")
 	if remaining < 0:
 		remaining = randi_range(total_min, total_max)
@@ -66,6 +68,10 @@ func _ready() -> void:
 		Debug.log("stone", "drop_item id=%s" % drop_item.id)
 	else:
 		Debug.log("stone", "using legacy give_item_id=%s" % give_item_id)
+
+func _exit_tree() -> void:
+	_unregister_from_world_index()
+
 
 func _physics_process(delta: float) -> void:
 	# --- Temblor ---
@@ -264,3 +270,15 @@ func get_save_state() -> Dictionary:
 func apply_save_state(state: Dictionary) -> void:
 	if state.has("remaining"):
 		remaining = int(state["remaining"])
+
+
+func _register_in_world_index() -> void:
+	_world_spatial_index = get_tree().get_first_node_in_group("world_spatial_index") as WorldSpatialIndex
+	if _world_spatial_index != null:
+		_world_spatial_index.register_runtime_node(WorldSpatialIndex.KIND_WORLD_RESOURCE, self)
+
+
+func _unregister_from_world_index() -> void:
+	if _world_spatial_index != null:
+		_world_spatial_index.unregister_runtime_node(self)
+		_world_spatial_index = null

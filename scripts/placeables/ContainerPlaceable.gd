@@ -46,10 +46,12 @@ var placed_uid: String = ""
 
 ## Hooks de persistencia por UID (contenido interno serializable).
 var stored_slots: Array = []
+var _world_spatial_index: WorldSpatialIndex = null
 
 
 func _ready() -> void:
 	add_to_group("interactable")
+	_register_in_world_index()
 	if String(container_group) != "":
 		add_to_group(container_group)
 	interact_icon.visible = false
@@ -75,6 +77,10 @@ func _ready() -> void:
 		sync_persistence_data()
 		return
 	apply_persistence_data(persisted)
+
+
+func _exit_tree() -> void:
+	_unregister_from_world_index()
 
 
 func _physics_process(delta: float) -> void:
@@ -424,3 +430,15 @@ func _resolve_sound_panel() -> SoundPanel:
 	if node is SoundPanel:
 		return node as SoundPanel
 	return null
+
+
+func _register_in_world_index() -> void:
+	_world_spatial_index = get_tree().get_first_node_in_group("world_spatial_index") as WorldSpatialIndex
+	if _world_spatial_index != null and _world_spatial_index.is_storage_item_id(drop_item_id):
+		_world_spatial_index.register_runtime_node(WorldSpatialIndex.KIND_STORAGE, self)
+
+
+func _unregister_from_world_index() -> void:
+	if _world_spatial_index != null:
+		_world_spatial_index.unregister_runtime_node(self)
+		_world_spatial_index = null

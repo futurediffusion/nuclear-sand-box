@@ -156,10 +156,7 @@ var _work_coordinator:   BanditWorkCoordinator   = null
 var _find_wall_cb:       Callable                = Callable()
 var _find_workbench_cb:  Callable                = Callable()
 var _find_storage_cb:    Callable                = Callable()
-
-# Cached world-level lists (rebuilt once per tick, shared across all enemies)
-var _all_drops_cache:     Array = []
-var _all_resources_cache: Array = []
+var _world_spatial_index: WorldSpatialIndex      = null
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +168,7 @@ func setup(ctx: Dictionary) -> void:
 	_npc_simulator  = ctx.get("npc_simulator")
 	_player         = ctx.get("player")
 	_bubble_manager = ctx.get("speech_bubble_manager")
+	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 	# Temporal governance boundary:
 	# world cadence drives cross-system directors so extortion/raid orchestration
 	# shares the same world pulse grid as chunk/autosave maintenance. This layer
@@ -340,20 +338,10 @@ func _process(delta: float) -> void:
 		return
 	_tick_timer = 0.0
 
-	_refresh_world_caches()
 	_ensure_behaviors_for_active_enemies()
 	_stash.ensure_barrels()
 	_tick_behaviors()
 	_prune_behaviors()
-
-
-# ---------------------------------------------------------------------------
-# World caches (rebuilt once per tick)
-# ---------------------------------------------------------------------------
-
-func _refresh_world_caches() -> void:
-	_all_drops_cache     = get_tree().get_nodes_in_group("item_drop")
-	_all_resources_cache = get_tree().get_nodes_in_group("world_resource")
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +364,7 @@ func _tick_behaviors() -> void:
 		if node == null or not node.has_method("is_world_behavior_eligible") \
 				or not node.is_world_behavior_eligible():
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node, _all_drops_cache)
+				_work_coordinator.process_post_behavior(beh, node, _get_all_drop_nodes())
 			continue
 
 		var node_pos: Vector2 = node.global_position
@@ -402,7 +390,7 @@ func _tick_behaviors() -> void:
 			save_state_ref["world_behavior"] = beh.export_state()
 
 		if _work_coordinator != null:
-			_work_coordinator.process_post_behavior(beh, node, _all_drops_cache)
+			_work_coordinator.process_post_behavior(beh, node, _get_all_drop_nodes())
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +399,12 @@ func _tick_behaviors() -> void:
 
 func _build_drops_info(node_pos: Vector2) -> Array:
 	var result: Array = []
-	for drop in _all_drops_cache:
+	var nearby_drops: Array = []
+	if _world_spatial_index != null:
+		nearby_drops = _world_spatial_index.get_runtime_nodes_near(WorldSpatialIndex.KIND_ITEM_DROP, node_pos, BanditTuningScript.loot_scan_radius())
+	else:
+		nearby_drops = get_tree().get_nodes_in_group("item_drop")
+	for drop in nearby_drops:
 		var drop_node := drop as Node2D
 		if drop_node == null or not is_instance_valid(drop_node) \
 				or drop_node.is_queued_for_deletion():
@@ -428,7 +421,12 @@ func _build_drops_info(node_pos: Vector2) -> Array:
 
 func _build_res_info(node_pos: Vector2) -> Array:
 	var result: Array = []
-	for res in _all_resources_cache:
+	var nearby_resources: Array = []
+	if _world_spatial_index != null:
+		nearby_resources = _world_spatial_index.get_runtime_nodes_near(WorldSpatialIndex.KIND_WORLD_RESOURCE, node_pos, BanditTuningScript.resource_scan_radius())
+	else:
+		nearby_resources = get_tree().get_nodes_in_group("world_resource")
+	for res in nearby_resources:
 		var res_node := res as Node2D
 		if res_node == null or not is_instance_valid(res_node) \
 				or res_node.is_queued_for_deletion():
@@ -437,6 +435,12 @@ func _build_res_info(node_pos: Vector2) -> Array:
 			continue
 		result.append({"pos": res_node.global_position, "id": res_node.get_instance_id()})
 	return result
+
+
+func _get_all_drop_nodes() -> Array:
+	if _world_spatial_index != null:
+		return _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_ITEM_DROP)
+	return get_tree().get_nodes_in_group("item_drop")
 
 
 # ---------------------------------------------------------------------------

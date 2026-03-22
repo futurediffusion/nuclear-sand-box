@@ -45,6 +45,7 @@ var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
 var _player_pos_getter: Callable
 var _cadence: WorldCadenceCoordinator
+var _world_spatial_index: WorldSpatialIndex
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +57,7 @@ func setup(ctx: Dictionary) -> void:
 	_tile_to_world_cb  = ctx.get("tile_to_world",    Callable())
 	_player_pos_getter = ctx.get("player_pos_getter", Callable())
 	_cadence = ctx.get("cadence") as WorldCadenceCoordinator
+	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 	# Temporal governance boundary:
 	# SettlementIntel now consumes cadence-defined world maintenance lanes for its
 	# expensive rescans. It remains locally autonomous only for dirty/forced work
@@ -210,12 +212,19 @@ func mark_base_scan_dirty_near(_world_pos: Vector2) -> void:
 
 func _scan_workbenches() -> void:
 	var live_uids: Dictionary = {}
-	for ckey in WorldSave.placed_entities_by_chunk:
-		var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
-		for uid in chunk_dict:
-			var entry: Dictionary = chunk_dict[uid]
-			if String(entry.get("item_id", "")).strip_edges() == "workbench":
-				live_uids[uid] = entry
+	if _world_spatial_index != null:
+		for ckey in WorldSave.placed_entities_by_chunk.keys():
+			for entry in _world_spatial_index.get_placeables_in_chunk_key(String(ckey), ["workbench"]):
+				var uid := String(entry.get("uid", ""))
+				if uid != "":
+					live_uids[uid] = entry
+	else:
+		for ckey in WorldSave.placed_entities_by_chunk:
+			var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
+			for uid in chunk_dict:
+				var entry: Dictionary = chunk_dict[uid]
+				if String(entry.get("item_id", "")).strip_edges() == "workbench":
+					live_uids[uid] = entry
 
 	# Remove stale workbench markers
 	var i := _markers.size() - 1
@@ -276,18 +285,24 @@ func _ensure_base_scan_job(center: Vector2, radius: float, force_restart: bool =
 
 func _collect_candidate_doors(center: Vector2, radius: float) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
-	var r2 := radius * radius
-	for ckey in WorldSave.placed_entities_by_chunk:
-		var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
-		for uid in chunk_dict:
-			var entry: Dictionary = chunk_dict[uid]
-			if String(entry.get("item_id", "")).strip_edges() != "doorwood":
-				continue
-			var door_tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
-			var door_world := _tile_to_world(door_tile)
-			if r2 > 0.0 and door_world.distance_squared_to(center) > r2:
-				continue
-			result.append(door_tile)
+	var entries: Array[Dictionary] = []
+	if _world_spatial_index != null:
+		entries = _world_spatial_index.get_placeables_by_item_ids_near(center, radius, ["doorwood"])
+	else:
+		var r2 := radius * radius
+		for ckey in WorldSave.placed_entities_by_chunk:
+			var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
+			for uid in chunk_dict:
+				var entry: Dictionary = chunk_dict[uid]
+				if String(entry.get("item_id", "")).strip_edges() != "doorwood":
+					continue
+				var door_tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
+				var door_world := _tile_to_world(door_tile)
+				if r2 > 0.0 and door_world.distance_squared_to(center) > r2:
+					continue
+				entries.append(entry)
+	for entry in entries:
+		result.append(Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0))))
 	return result
 
 
