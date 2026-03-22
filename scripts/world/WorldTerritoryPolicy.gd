@@ -5,6 +5,11 @@ class_name WorldTerritoryPolicy
 # orchestrates. It validates placement restrictions and translates player
 # actions into bandit-territory hostility events, while delegating bandit-side
 # reactions to a small callback bridge.
+#
+# Future-facing seam:
+# local civil authority (tavern, village, etc.) should plug in through
+# LocalSocialAuthorityPorts. This policy may consult those ports for local
+# rules later, but bandit global hostility remains independent and persistent.
 
 const TAVERN_BUILD_RADIUS_SQ: float = 320.0 * 320.0
 const CONTEST_MIN_LEVEL: int = 3
@@ -21,12 +26,14 @@ const TERRITORY_INTRUSION_PTS: Dictionary = {
 var _tile_to_world: Callable = Callable()
 var _get_tavern_center_tile: Callable = Callable()
 var _react_to_bandit_territory_intrusion: Callable = Callable()
+var _local_social_ports: LocalSocialAuthorityPorts = null
 var _territory_intrusion_cooldown: Dictionary = {}
 
 func setup(ctx: Dictionary) -> void:
 	_tile_to_world = ctx.get("tile_to_world", Callable())
 	_get_tavern_center_tile = ctx.get("get_tavern_center_tile", Callable())
 	_react_to_bandit_territory_intrusion = ctx.get("react_to_bandit_territory_intrusion", Callable())
+	_local_social_ports = ctx.get("local_social_ports") as LocalSocialAuthorityPorts
 
 func validate_placement(tile_pos: Vector2i, tavern_chunk: Vector2i) -> bool:
 	if not _tile_to_world.is_valid() or not _get_tavern_center_tile.is_valid():
@@ -34,6 +41,11 @@ func validate_placement(tile_pos: Vector2i, tavern_chunk: Vector2i) -> bool:
 	var world_pos: Vector2 = _tile_to_world.call(tile_pos)
 	var tavern_tile: Vector2i = _get_tavern_center_tile.call(tavern_chunk)
 	var tavern_pos: Vector2 = _tile_to_world.call(tavern_tile)
+
+	# Frontier note:
+	# this is only a spatial world rule today. A future tavern civil authority
+	# may add local permissions through _local_social_ports without moving the
+	# source of truth back into world.gd or NPC actors.
 	if world_pos.distance_squared_to(tavern_pos) <= TAVERN_BUILD_RADIUS_SQ:
 		return false
 	for gid in BanditGroupMemory.get_all_group_ids():
@@ -59,6 +71,15 @@ func validate_placement(tile_pos: Vector2i, tavern_chunk: Vector2i) -> bool:
 func record_interest_event(kind: String, world_pos: Vector2) -> void:
 	if not TERRITORY_INTRUSION_PTS.has(kind):
 		return
+
+	# Optional future bridge: local civil authority can observe the same world
+	# event stream later, but no tavern memory/sanction logic is implemented yet.
+	if _local_social_ports != null:
+		_local_social_ports.evaluate_local_authority("world_interest_event", {
+			"kind": kind,
+			"world_pos": world_pos,
+		})
+
 	var groups: Array[Dictionary] = BanditTerritoryQuery.groups_at(world_pos)
 	if groups.is_empty():
 		return

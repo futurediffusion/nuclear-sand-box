@@ -122,6 +122,7 @@ var _player_territory: PlayerTerritoryMap
 var _player_territory_dirty: bool = false
 var _bandit_behavior_layer: BanditBehaviorLayer
 var _world_territory_policy: WorldTerritoryPolicy
+var _local_social_ports: LocalSocialAuthorityPorts
 var _resource_repopulator: ResourceRepopulator
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
@@ -160,6 +161,7 @@ const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const SettlementIntelScript := preload("res://scripts/world/SettlementIntel.gd")
 const BanditBehaviorLayerScript        := preload("res://scripts/world/BanditBehaviorLayer.gd")
+const LocalSocialAuthorityPortsScript  := preload("res://scripts/world/LocalSocialAuthorityPorts.gd")
 const ResourceRepopulatorScript        := preload("res://scripts/world/ResourceRepopulator.gd")
 const WorldSpeechBubbleManagerScript   := preload("res://scripts/ui/WorldSpeechBubbleManager.gd")
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
@@ -500,11 +502,14 @@ func _ready() -> void:
 	})
 	_player_territory = PlayerTerritoryMap.new()
 	_player_territory_dirty = true
+	_local_social_ports = LocalSocialAuthorityPortsScript.new()
+	_local_social_ports.setup({})
 	_world_territory_policy = WorldTerritoryPolicy.new()
 	_world_territory_policy.setup({
 		"tile_to_world": Callable(self, "_tile_to_world"),
 		"get_tavern_center_tile": Callable(self, "get_tavern_center_tile"),
 		"react_to_bandit_territory_intrusion": Callable(self, "_on_bandit_territory_intrusion"),
+		"local_social_ports": _local_social_ports,
 	})
 	PlacementSystem.register_placement_validator(Callable(self, "_validate_placement_restrictions"))
 
@@ -1129,6 +1134,11 @@ func get_player_territory_zones() -> Array[Dictionary]:
 # ---------------------------------------------------------------------------
 # La política concreta vive en WorldTerritoryPolicy; world.gd solo registra el
 # validator y delega la decisión.
+#
+# Integración futura:
+# _local_social_ports es el punto de composición para TavernLocalMemory /
+# TavernAuthorityPolicy / TavernResponseDirector. world.gd seguirá cableando
+# módulos, no convirtiéndose en fuente de verdad social.
 func _validate_placement_restrictions(tile_pos: Vector2i) -> bool:
 	if _world_territory_policy == null:
 		return true

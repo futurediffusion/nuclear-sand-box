@@ -21,6 +21,11 @@ class_name BanditBehaviorLayer
 #
 # Carry preference: NPCs carry drops to base (cargo_count) rather than
 # putting them in inventory. Inventory is not touched here.
+#
+# Future tavern note:
+# local civil reactions (keeper, guards, sanctions, memory) must stay outside
+# this runtime layer. NPC actors may consume those directives later, but this
+# node should keep orchestrating active bandit runtime only.
 
 const BanditTuningScript            := preload("res://scripts/world/BanditTuning.gd")
 const BanditGroupIntelScript        := preload("res://scripts/world/BanditGroupIntel.gd")
