@@ -5,8 +5,8 @@ const INVALID_SPAWN_TILE := Vector2i(999999, 999999)
 const SAFE_PLAYER_SPAWN_RADIUS_TILES := 3
 const TAVERN_SAFE_MARGIN_TILES := 4
 ## Radio de exclusión en tiles que coincide con TAVERN_BUILD_RADIUS_SQ de WorldTerritoryPolicy
-## (320 px / 16 px-por-tile = 20 tiles). Previene spawns en chunks vecinos cercanos a la taberna.
-const TAVERN_EXCLUSION_RADIUS_TILES: int = 20
+## (320 px / 32 px-por-tile = 10 tiles). Previene spawns en chunks vecinos cercanos a la taberna.
+const TAVERN_EXCLUSION_RADIUS_TILES: int = 10
 const SPAWN_MAX_TRIES := 30
 const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
