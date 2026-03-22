@@ -1,0 +1,69 @@
+[gd_scene load_steps=6 format=3 uid="uid://bnp5okb4xk2j3"]
+
+[ext_resource type="Script" path="res://scripts/npc/sentinel.gd" id="1_sentinel"]
+[ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="2_hurtbox"]
+
+# ── SpriteFrames ──────────────────────────────────────────────────────────────
+# Animaciones vacías — asignar frames desde el Inspector o reemplazar el recurso
+# con una SpriteFrames compartida cuando haya arte del sentinel disponible.
+# El script espera: "idle", "walk", "attack"
+[sub_resource type="SpriteFrames" id="SpriteFrames_sentinel"]
+animations = [{
+"frames": [],
+"loop": true,
+"name": &"idle",
+"speed": 5.0
+}, {
+"frames": [],
+"loop": true,
+"name": &"walk",
+"speed": 8.0
+}, {
+"frames": [],
+"loop": false,
+"name": &"attack",
+"speed": 8.0
+}]
+
+# ── Shapes ────────────────────────────────────────────────────────────────────
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(9, 16)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_hurtbox"]
+size = Vector2(8, 14)
+
+# DetectionArea: radio = detection_range export (default 180 px)
+[sub_resource type="CircleShape2D" id="CircleShape2D_detection"]
+radius = 180.0
+
+# ── Scene tree ────────────────────────────────────────────────────────────────
+# collision_layer = 4   → capa 3 = EnemyNCP (CollisionLayers.gd)
+# collision_mask  = 21  → Player(1) + EnemyNCP(4) + WALLPROPS(16)
+#
+# AJUSTAR capas en el Inspector si el sentinel necesita capa propia.
+# El Hurtbox usa los defaults de hurtbox.gd (no necesita override aquí).
+[node name="Sentinel" type="CharacterBody2D"]
+collision_layer = 4
+collision_mask = 21
+script = ExtResource("1_sentinel")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+sprite_frames = SubResource("SpriteFrames_sentinel")
+animation = &"idle"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_body")
+
+[node name="Hurtbox" type="Area2D" parent="."]
+script = ExtResource("2_hurtbox")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Hurtbox"]
+shape = SubResource("RectangleShape2D_hurtbox")
+
+# monitorable=false: otras áreas no necesitan saber que el sentinel existe.
+# monitoring=true (default): el sentinel puede detectar cuerpos que entren.
+[node name="DetectionArea" type="Area2D" parent="."]
+monitorable = false
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="DetectionArea"]
+shape = SubResource("CircleShape2D_detection")
