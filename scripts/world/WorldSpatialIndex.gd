@@ -1,10 +1,11 @@
 class_name WorldSpatialIndex
 extends Node
 
-# Small, pragmatic spatial index for common local-world queries.
-# Runtime nodes are bucketed by world chunk using live references.
-# Persistent placeables remain in WorldSave; this index wraps chunk/window
-# queries so callers stop re-scanning the entire placed_entities_by_chunk map.
+# Small, pragmatic spatial helper for common world queries.
+# Runtime world entities (drops/resources/loaded workbenches/storage) are indexed
+# by chunk with live node references.
+# Persistent placeables still live canonically in WorldSave. This class only
+# offers query helpers plus small derived views over that persistence data.
 
 const KIND_ITEM_DROP: StringName = &"item_drop"
 const KIND_WORLD_RESOURCE: StringName = &"world_resource"
@@ -29,6 +30,10 @@ var _chunk_size: int = 32
 var _runtime_nodes_by_kind: Dictionary = {}
 # instance_id -> {"kind": StringName, "chunk_key": String, "node": Node}
 var _runtime_meta_by_id: Dictionary = {}
+# Derived persistent view: item_id -> chunk_key -> Array[Dictionary].
+# This is rebuilt from WorldSave when its structural revision changes.
+var _placeables_cache_revision: int = -1
+var _placeables_by_item_id_and_chunk: Dictionary = {}
 
 
 func setup(ctx: Dictionary) -> void:
@@ -148,15 +153,30 @@ func get_placeables_in_chunk_key(chunk_key: String, item_ids: Array[String] = []
 
 
 func get_placeables_in_chunk(cx: int, cy: int, item_ids: Array[String] = []) -> Array[Dictionary]:
-	var entries := WorldSave.get_placed_entities_in_chunk(cx, cy)
 	if item_ids.is_empty():
-		return entries
+		return WorldSave.get_placed_entities_in_chunk(cx, cy)
+	_ensure_placeables_cache()
 	var filter: Dictionary = _array_to_string_set(item_ids)
 	var result: Array[Dictionary] = []
-	for entry in entries:
-		var item_id := String(entry.get("item_id", "")).strip_edges()
-		if filter.has(item_id):
-			result.append(entry)
+	for item_id in filter.keys():
+		var chunk_entries: Array = _get_cached_placeables_for_item_in_chunk(String(item_id), WorldSave.chunk_key(cx, cy))
+		for entry in chunk_entries:
+			result.append((entry as Dictionary).duplicate(true))
+	return result
+
+
+## Persistent query helper only.
+## Reads a derived WorldSave view; does not turn placeables into live runtime nodes.
+func get_all_placeables_by_item_id(item_id: String) -> Array[Dictionary]:
+	var key := item_id.strip_edges()
+	if key == "":
+		return []
+	_ensure_placeables_cache()
+	var result: Array[Dictionary] = []
+	var by_chunk: Dictionary = _placeables_by_item_id_and_chunk.get(key, {})
+	for chunk_entries in by_chunk.values():
+		for entry in chunk_entries:
+			result.append((entry as Dictionary).duplicate(true))
 	return result
 
 
@@ -297,3 +317,30 @@ func _array_to_string_set(values: Array) -> Dictionary:
 		if key != "":
 			result[key] = true
 	return result
+
+
+func _ensure_placeables_cache() -> void:
+	var revision: int = int(WorldSave.placed_entities_revision)
+	if revision == _placeables_cache_revision:
+		return
+	_placeables_cache_revision = revision
+	_placeables_by_item_id_and_chunk.clear()
+	for chunk_key in WorldSave.placed_entities_by_chunk.keys():
+		var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[chunk_key]
+		for uid in chunk_dict.keys():
+			var entry: Dictionary = chunk_dict[uid]
+			var item_id := String(entry.get("item_id", "")).strip_edges()
+			if item_id == "":
+				continue
+			if not _placeables_by_item_id_and_chunk.has(item_id):
+				_placeables_by_item_id_and_chunk[item_id] = {}
+			var by_chunk: Dictionary = _placeables_by_item_id_and_chunk[item_id]
+			if not by_chunk.has(chunk_key):
+				by_chunk[chunk_key] = []
+			var bucket: Array = by_chunk[chunk_key]
+			bucket.append(entry.duplicate(true))
+
+
+func _get_cached_placeables_for_item_in_chunk(item_id: String, chunk_key: String) -> Array:
+	var by_chunk: Dictionary = _placeables_by_item_id_and_chunk.get(item_id, {})
+	return by_chunk.get(chunk_key, [])

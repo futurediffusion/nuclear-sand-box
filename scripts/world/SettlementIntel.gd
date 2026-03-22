@@ -58,11 +58,9 @@ func setup(ctx: Dictionary) -> void:
 	_player_pos_getter = ctx.get("player_pos_getter", Callable())
 	_cadence = ctx.get("cadence") as WorldCadenceCoordinator
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
-	# Temporal governance boundary:
-	# SettlementIntel now consumes cadence-defined world maintenance lanes for its
-	# expensive rescans. It remains locally autonomous only for dirty/forced work
-	# (immediate reactions and incremental door-scan budgeting).
-	# If the cadence is unavailable, it falls back to its legacy local timers.
+	# Cadence only schedules when expensive rescans run.
+	# The data boundary stays the same: runtime markers here, persistence in WorldSave.
+	# Without cadence, fall back to local timers.
 
 	if PlacementSystem != null \
 			and not PlacementSystem.placement_completed.is_connected(_on_placement_completed):
@@ -213,11 +211,12 @@ func mark_base_scan_dirty_near(_world_pos: Vector2) -> void:
 func _scan_workbenches() -> void:
 	var live_uids: Dictionary = {}
 	if _world_spatial_index != null:
-		for ckey in WorldSave.placed_entities_by_chunk.keys():
-			for entry in _world_spatial_index.get_placeables_in_chunk_key(String(ckey), ["workbench"]):
-				var uid := String(entry.get("uid", ""))
-				if uid != "":
-					live_uids[uid] = entry
+		# Honest boundary: workbench persistence is still canonical in WorldSave.
+		# WorldSpatialIndex only gives us a derived item-id view so we do not walk every chunk here.
+		for entry in _world_spatial_index.get_all_placeables_by_item_id("workbench"):
+			var uid := String(entry.get("uid", ""))
+			if uid != "":
+				live_uids[uid] = entry
 	else:
 		for ckey in WorldSave.placed_entities_by_chunk:
 			var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
