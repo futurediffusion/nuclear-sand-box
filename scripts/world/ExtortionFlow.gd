@@ -90,6 +90,14 @@ var _close_choice_ui:         Callable                  = Callable()  # (gid: St
 
 var _active_extortions: Dictionary = {}  # gid -> ExtortionJob  (runtime-only)
 var _post_pay_groups:   Dictionary = {}  # gid -> Array[String] de ids suprimidos
+# Runtime-only deferred jobs owned by this flow.
+# Criterio actual: mantenerlos locales mientras sean callbacks efímeros,
+# cancelables por destrucción del flow/chunk y usados solo por ExtortionFlow.
+# Extraer a un scheduler world-owned recién cuando:
+#   1) haya 2+ flows de dominio usando el mismo patrón,
+#   2) necesitemos introspección/cancelación compartida entre sistemas, o
+#   3) el job deba sobrevivir reload/rebuild del mundo.
+# Hoy no hace falta: un servicio genérico agregaría más abstracción que claridad.
 var _scheduled_callbacks: Array[Dictionary] = []
 
 
