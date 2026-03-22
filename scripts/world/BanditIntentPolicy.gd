@@ -4,8 +4,11 @@ class_name BanditIntentPolicy
 # Responsibility boundary:
 # BanditIntentPolicy owns social intent policy for bandit groups.
 # It translates scan score + persistent faction state into effective thresholds,
-# next intent, and social-action eligibility. It does not scan the world, mutate
-# BanditGroupMemory, enqueue flows, or persist hostility outside FactionHostilityManager.
+# next intent, and social-action eligibility. It uses threshold hysteresis
+# (different enter/release thresholds plus a short grace window) instead of
+# hold-timers, because that keeps intent transitions deterministic and local to
+# score evaluation. It does not scan the world, mutate BanditGroupMemory,
+# enqueue flows, or persist hostility outside FactionHostilityManager.
 
 const EXTORT_SCORE_THRESHOLD: float = 3.0
 
