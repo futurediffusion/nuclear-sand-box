@@ -36,10 +36,12 @@ var _base_sprite_pos: Vector2
 
 ## UID asignado cuando se coloca via PlacementSystem (para WorldSave).
 var placed_uid: String = ""
+var _world_spatial_index: WorldSpatialIndex = null
 
 
 func _ready() -> void:
 	add_to_group("interactable")
+	_register_in_world_index()
 	add_to_group("doorwood_placeable")
 	z_index = 1
 	interact_icon.visible = false
@@ -70,6 +72,10 @@ func _ready() -> void:
 		return
 	apply_persistence_data(persisted)
 	call_deferred("_refresh_double_door_pairing")
+
+
+func _exit_tree() -> void:
+	_unregister_from_world_index()
 
 
 func _physics_process(delta: float) -> void:
@@ -286,3 +292,13 @@ func _get_tile_pos() -> Vector2i:
 		floori(position.x / float(TILE_SIZE)),
 		floori(position.y / float(TILE_SIZE))
 	)
+
+
+func _register_in_world_index() -> void:
+	_world_spatial_index = get_tree().get_first_node_in_group("world_spatial_index") as WorldSpatialIndex
+
+
+func _unregister_from_world_index() -> void:
+	if _world_spatial_index != null:
+		_world_spatial_index.unregister_runtime_node(self)
+		_world_spatial_index = null

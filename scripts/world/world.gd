@@ -119,6 +119,7 @@ var _settlement_intel: SettlementIntel
 var _player_territory: PlayerTerritoryMap
 var _player_territory_dirty: bool = false
 var _bandit_behavior_layer: BanditBehaviorLayer
+var _world_spatial_index: WorldSpatialIndex
 var _world_territory_policy: WorldTerritoryPolicy
 var _local_social_ports: LocalSocialAuthorityPorts
 var _resource_repopulator: ResourceRepopulator
@@ -160,6 +161,7 @@ const PLAYER_WALL_FALLBACK_ALT: int = 2
 const PLAYER_WALL_HIT_TINT: Color = Color(0.86, 0.76, 0.6, 1.0)
 const SettlementIntelScript := preload("res://scripts/world/SettlementIntel.gd")
 const BanditBehaviorLayerScript        := preload("res://scripts/world/BanditBehaviorLayer.gd")
+const WorldSpatialIndexScript          := preload("res://scripts/world/WorldSpatialIndex.gd")
 const LocalSocialAuthorityPortsScript  := preload("res://scripts/world/LocalSocialAuthorityPorts.gd")
 const ResourceRepopulatorScript        := preload("res://scripts/world/ResourceRepopulator.gd")
 const WorldSpeechBubbleManagerScript   := preload("res://scripts/ui/WorldSpeechBubbleManager.gd")
@@ -470,6 +472,15 @@ func _ready() -> void:
 	_speech_bubble_manager.name = "WorldSpeechBubbleManager"
 	add_child(_speech_bubble_manager)
 
+	_world_spatial_index = WorldSpatialIndexScript.new()
+	_world_spatial_index.name = "WorldSpatialIndex"
+	add_child(_world_spatial_index)
+	_world_spatial_index.setup({
+		"world_to_tile": Callable(self, "_world_to_tile"),
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"chunk_size": chunk_size,
+	})
+
 	_bandit_behavior_layer = BanditBehaviorLayerScript.new()
 	_bandit_behavior_layer.name = "BanditBehaviorLayer"
 	add_child(_bandit_behavior_layer)
@@ -478,6 +489,7 @@ func _ready() -> void:
 		"npc_simulator":         npc_simulator,
 		"player":                player,
 		"speech_bubble_manager": _speech_bubble_manager,
+		"world_spatial_index": _world_spatial_index,
 	})  # Setup del sistema de extorsión
 
 	_resource_repopulator = ResourceRepopulatorScript.new()
@@ -513,6 +525,7 @@ func _ready() -> void:
 		"world_to_tile":    Callable(self, "_world_to_tile"),
 		"tile_to_world":    Callable(self, "_tile_to_world"),
 		"player_pos_getter": Callable(self, "_get_player_world_pos"),
+		"world_spatial_index": _world_spatial_index,
 	})
 	_player_territory = PlayerTerritoryMap.new()
 	_player_territory_dirty = true
@@ -533,6 +546,7 @@ func _ready() -> void:
 		"world_to_tile":   Callable(self, "_world_to_tile"),
 		"tile_to_world":   Callable(self, "_tile_to_world"),
 		"world_tile_rect": Rect2i(0, 0, width, height),
+		"world_spatial_index": _world_spatial_index,
 	})
 	if _player_wall_system != null \
 			and not _player_wall_system.player_wall_drop.is_connected(_on_wall_drop_for_intel):
@@ -978,34 +992,16 @@ func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Ve
 	return _player_wall_system.find_nearest_player_wall_world_pos(world_pos, radius)
 
 func find_nearest_player_workbench_world_pos(world_pos: Vector2, radius: float) -> Vector2:
-	var best_dsq: float = radius * radius
-	var best_pos: Vector2 = Vector2(-1.0, -1.0)
-	for node in get_tree().get_nodes_in_group("workbench"):
-		if not is_instance_valid(node):
-			continue
-		var n2d: Node2D = node as Node2D
-		if n2d == null:
-			continue
-		var dsq: float = world_pos.distance_squared_to(n2d.global_position)
-		if dsq < best_dsq:
-			best_dsq = dsq
-			best_pos = n2d.global_position
-	return best_pos
+	if _world_spatial_index == null:
+		return Vector2(-1.0, -1.0)
+	var node := _world_spatial_index.find_nearest_runtime_node(WorldSpatialIndex.KIND_WORKBENCH, world_pos, radius)
+	return node.global_position if node != null else Vector2(-1.0, -1.0)
 
 func find_nearest_player_storage_world_pos(world_pos: Vector2, radius: float) -> Vector2:
-	var best_dsq: float = radius * radius
-	var best_pos: Vector2 = Vector2(-1.0, -1.0)
-	for node in get_tree().get_nodes_in_group("chest"):
-		if not is_instance_valid(node):
-			continue
-		var n2d: Node2D = node as Node2D
-		if n2d == null:
-			continue
-		var dsq: float = world_pos.distance_squared_to(n2d.global_position)
-		if dsq < best_dsq:
-			best_dsq = dsq
-			best_pos = n2d.global_position
-	return best_pos
+	if _world_spatial_index == null:
+		return Vector2(-1.0, -1.0)
+	var node := _world_spatial_index.find_nearest_runtime_node(WorldSpatialIndex.KIND_STORAGE, world_pos, radius)
+	return node.global_position if node != null else Vector2(-1.0, -1.0)
 
 func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 20.0, allow_structural_feedback: bool = true) -> bool:
 	return _player_wall_system != null and _player_wall_system.hit_wall_at_world_pos(world_pos, amount, radius, allow_structural_feedback)
@@ -1130,7 +1126,7 @@ func _tick_player_territory() -> void:
 	if not _player_territory_dirty or _player_territory == null or _settlement_intel == null:
 		return
 	_player_territory_dirty = false
-	var wb_nodes: Array = get_tree().get_nodes_in_group("workbench")
+	var wb_nodes: Array = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH) if _world_spatial_index != null else get_tree().get_nodes_in_group("workbench")
 	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_near(Vector2.ZERO, 999999.0)
 	_player_territory.rebuild(wb_nodes, bases)
 

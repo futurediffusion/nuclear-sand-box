@@ -22,10 +22,12 @@ var _base_sprite_pos: Vector2
 
 ## UID asignado cuando se coloca via PlacementSystem (para WorldSave).
 var placed_uid: String = ""
+var _world_spatial_index: WorldSpatialIndex = null
 
 
 func _ready() -> void:
 	add_to_group("workbench")
+	_register_in_world_index()
 	add_to_group("interactable")
 	interact_icon.visible = false
 	_base_sprite_pos = sprite.position
@@ -42,6 +44,10 @@ func _ready() -> void:
 
 	area.body_entered.connect(_on_body_entered)
 	area.body_exited.connect(_on_body_exited)
+
+
+func _exit_tree() -> void:
+	_unregister_from_world_index()
 
 
 func _physics_process(delta: float) -> void:
@@ -162,3 +168,15 @@ func _get_workbench_menu() -> WorkbenchMenuUi:
 		if node is WorkbenchMenuUi:
 			return node as WorkbenchMenuUi
 	return null
+
+
+func _register_in_world_index() -> void:
+	_world_spatial_index = get_tree().get_first_node_in_group("world_spatial_index") as WorldSpatialIndex
+	if _world_spatial_index != null:
+		_world_spatial_index.register_runtime_node(WorldSpatialIndex.KIND_WORKBENCH, self)
+
+
+func _unregister_from_world_index() -> void:
+	if _world_spatial_index != null:
+		_world_spatial_index.unregister_runtime_node(self)
+		_world_spatial_index = null

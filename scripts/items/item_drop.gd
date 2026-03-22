@@ -45,8 +45,11 @@ var _scatter_duration: float = 0.0
 var _scatter_elapsed: float = 0.0
 var _scatter_arc_height: float = 0.0
 
+var _world_spatial_index: WorldSpatialIndex = null
+
 func _ready() -> void:
 	add_to_group("item_drop")
+	_register_in_world_index()
 	_resolve_item_data()
 
 	if icon != null:
@@ -67,6 +70,10 @@ func _ready() -> void:
 
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
+
+
+func _exit_tree() -> void:
+	_unregister_from_world_index()
 
 
 func _resolve_item_data() -> void:
@@ -92,6 +99,7 @@ func _resolve_item_data() -> void:
 		print("[ItemDrop] using legacy item_id=", item_id)
 
 func _process(delta: float) -> void:
+	_update_world_index()
 	var carry = get_node_or_null("CarryableComponent")
 	if carry != null and carry._is_carried:
 		# If being carried, don't do any floating/magnet/throw processing
@@ -293,3 +301,22 @@ func scatter_from(origin: Vector2, target: Vector2, duration: float, arc_height:
 	_pop_t = 0.0
 	spr.position.y = _base_y
 	spr.rotation_degrees = 0.0
+
+
+func _register_in_world_index() -> void:
+	_world_spatial_index = get_tree().get_first_node_in_group("world_spatial_index") as WorldSpatialIndex
+	if _world_spatial_index != null:
+		_world_spatial_index.register_runtime_node(WorldSpatialIndex.KIND_ITEM_DROP, self)
+
+
+func _update_world_index() -> void:
+	if _world_spatial_index == null:
+		_register_in_world_index()
+	if _world_spatial_index != null:
+		_world_spatial_index.update_runtime_node(WorldSpatialIndex.KIND_ITEM_DROP, self)
+
+
+func _unregister_from_world_index() -> void:
+	if _world_spatial_index != null:
+		_world_spatial_index.unregister_runtime_node(self)
+		_world_spatial_index = null

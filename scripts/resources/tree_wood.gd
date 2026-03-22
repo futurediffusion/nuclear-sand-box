@@ -63,10 +63,12 @@ var _tracked_player: Node2D = null
 var _wind_fade_tween: Tween = null
 var _wood_hit_sounds: Array[AudioStream] = []
 var _wood_hit_volume_db: float = 0.0
+var _world_spatial_index: WorldSpatialIndex = null
 
 
 func _ready() -> void:
 	add_to_group("world_resource")
+	_register_in_world_index()
 	collision_layer = CollisionLayers.WORLD_WALL_LAYER_MASK | CollisionLayers.RESOURCES_LAYER_MASK
 	collision_mask = 0
 	_base_pos = trunk_sprite.position
@@ -98,6 +100,10 @@ func _ready() -> void:
 
 	_setup_wind_range()
 	_setup_wind_audio()
+
+
+func _exit_tree() -> void:
+	_unregister_from_world_index()
 
 
 func _physics_process(delta: float) -> void:
@@ -408,3 +414,15 @@ func _to_valid_pool(pool: Array[AudioStream]) -> Array[AudioStream]:
 		if stream != null:
 			valid.append(stream)
 	return valid
+
+
+func _register_in_world_index() -> void:
+	_world_spatial_index = get_tree().get_first_node_in_group("world_spatial_index") as WorldSpatialIndex
+	if _world_spatial_index != null:
+		_world_spatial_index.register_runtime_node(WorldSpatialIndex.KIND_WORLD_RESOURCE, self)
+
+
+func _unregister_from_world_index() -> void:
+	if _world_spatial_index != null:
+		_world_spatial_index.unregister_runtime_node(self)
+		_world_spatial_index = null
