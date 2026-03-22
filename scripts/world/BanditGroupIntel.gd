@@ -3,11 +3,13 @@ class_name BanditGroupIntel
 
 # ── BanditGroupIntel ─────────────────────────────────────────────────────────
 # Responsibility boundary:
-# BanditGroupIntel owns sensing only: scan nearby settlement markers/bases,
-# build the base activity score, choose the best interest point, and forward
-# the score + persistent faction profile to BanditIntentPolicy.
-# It does not own long-term hostility state, intent policy tuning, or social
-# escalation rules beyond dispatching the chosen intent/eligibility outcomes.
+# BanditGroupIntel owns group-level sensing plus the immediate dispatch that
+# follows from each scan: it scans nearby settlement markers/bases, builds the
+# activity score, chooses the best interest point, forwards the score +
+# persistent faction profile to BanditIntentPolicy, and can enqueue short-term
+# group responses (presence hostility, extortion, raids) when policy gates pass.
+# It does not own long-term hostility state storage, the intent-policy tuning
+# itself, or the execution of those queued social escalations.
 #
 # Future tavern note:
 # when a local civil authority exists, its memory/authority should feed this

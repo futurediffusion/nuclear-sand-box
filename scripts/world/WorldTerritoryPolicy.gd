@@ -58,13 +58,14 @@ func validate_placement(tile_pos: Vector2i, tavern_chunk: Vector2i) -> bool:
 		var home_pos: Vector2 = g.get("home_world_pos", Vector2.ZERO) as Vector2
 		var faction_id: String = String(g.get("faction_id", "bandits"))
 		var territory_radius: float = BanditTerritoryQuery.radius_for_faction(faction_id)
+		var camp_core_radius: float = maxf(0.0, territory_radius - CONTESTED_TERRITORY_BUFFER)
 		var dist: float = world_pos.distance_to(home_pos)
-		if dist <= territory_radius:
+		if dist <= camp_core_radius:
 			return false
 		var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
 		if profile.hostility_level < CONTEST_MIN_LEVEL:
 			continue
-		if dist <= territory_radius + CONTESTED_TERRITORY_BUFFER:
+		if dist <= territory_radius:
 			return false
 	return true
 
