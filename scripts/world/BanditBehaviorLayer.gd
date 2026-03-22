@@ -2,8 +2,11 @@ extends Node
 class_name BanditBehaviorLayer
 
 # ── BanditBehaviorLayer ──────────────────────────────────────────────────────
-# Node child of World. Owns and ticks all BanditWorldBehavior instances for
-# active bandit enemies.
+# Responsibility boundary:
+# BanditBehaviorLayer owns runtime coordination for active bandit NPC nodes:
+# behavior ticking, movement application, carrying, stash interaction, and the
+# hand-off between world-layer systems. Social scanning/policy stays outside
+# here; this layer consumes group intent instead of deciding faction politics.
 #
 # Every TICK_INTERVAL seconds:
 #   1. Lazily creates behaviors for new sleeping bandits (group_id required).
