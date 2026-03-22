@@ -90,6 +90,7 @@ var _close_choice_ui:         Callable                  = Callable()  # (gid: St
 
 var _active_extortions: Dictionary = {}  # gid -> ExtortionJob  (runtime-only)
 var _post_pay_groups:   Dictionary = {}  # gid -> Array[String] de ids suprimidos
+var _scheduled_callbacks: Array[Dictionary] = []
 
 
 func setup(ctx: Dictionary) -> void:
@@ -105,7 +106,8 @@ func setup(ctx: Dictionary) -> void:
 # API pública
 # ---------------------------------------------------------------------------
 
-func process_flow() -> void:
+func process_flow(delta: float) -> void:
+	_tick_scheduled_callbacks(delta)
 	_abort_invalid_jobs()
 	_check_retaliation()
 	_consume_extortion_queue()
@@ -189,6 +191,33 @@ func on_choice_resolved(option: int, gid: String) -> void:
 			_show_reaction_bubble(job, INSULT_REACTION_PHRASES)
 			BanditGroupMemory.push_social_cooldown(gid, 12.0)
 			_resolve_extortion_aggro(job)
+
+
+
+func _tick_scheduled_callbacks(delta: float) -> void:
+	if _scheduled_callbacks.is_empty():
+		return
+	var i: int = 0
+	while i < _scheduled_callbacks.size():
+		var entry: Dictionary = _scheduled_callbacks[i]
+		entry["remaining"] = float(entry.get("remaining", 0.0)) - delta
+		if float(entry.get("remaining", 0.0)) > 0.0:
+			_scheduled_callbacks[i] = entry
+			i += 1
+			continue
+		var callback: Callable = entry.get("callback", Callable())
+		_scheduled_callbacks.remove_at(i)
+		if callback.is_valid():
+			callback.call()
+
+
+func _schedule_callback(delay: float, callback: Callable) -> void:
+	if not callback.is_valid():
+		return
+	_scheduled_callbacks.append({
+		"remaining": maxf(0.0, delay),
+		"callback": callback,
+	})
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +455,7 @@ func _resolve_extortion_idle(job: ExtortionJob) -> void:
 	var gid: String        = job.group_id
 	_post_pay_groups[gid]  = ids
 	var reenable_delay: float = BanditTuningScript.extort_ai_reenable_delay(gid)
-	get_tree().create_timer(reenable_delay).timeout.connect(func() -> void:
+	_schedule_callback(reenable_delay, func() -> void:
 		_post_pay_groups.erase(gid)
 		for aid: String in ids:
 			var anode := _npc_simulator.get_enemy_node(aid)
@@ -476,7 +505,7 @@ func _tick_warning_strike(job: ExtortionJob, player_pos: Vector2, friction_compe
 		var ids_warn: Array[String] = job.assigned_ids.duplicate()
 		var gid_warn: String        = job.group_id
 		_post_pay_groups[gid_warn]  = ids_warn
-		get_tree().create_timer(reenable_delay).timeout.connect(func() -> void:
+		_schedule_callback(reenable_delay, func() -> void:
 			_post_pay_groups.erase(gid_warn)
 			for aid: String in ids_warn:
 				if aid != speaker_id:
@@ -581,7 +610,7 @@ func _show_poverty_taunts(job: ExtortionJob) -> void:
 			if speaker != null and is_instance_valid(speaker):
 				_bubble_manager.show_actor_bubble(speaker as Node2D, phrase, dur)
 		else:
-			get_tree().create_timer(delay).timeout.connect(func() -> void:
+			_schedule_callback(delay, func() -> void:
 				var s := _npc_simulator.get_enemy_node(speaker_id)
 				if s != null and is_instance_valid(s):
 					_bubble_manager.show_actor_bubble(s as Node2D, phrase, dur)

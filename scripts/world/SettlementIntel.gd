@@ -20,6 +20,9 @@ const MIN_WALL_COUNT: int = 4
 const MIN_DOOR_WALL_ADJACENCY: int = 2
 const BASE_RESCAN_INTERVAL: float = 10.0
 const BASE_SCAN_RADIUS_DEFAULT: float = 576.0  # ~18 tiles from player
+const BASE_SCAN_DOOR_BUDGET_PER_PULSE: int = 4
+const BASE_SCAN_PHASE_RATIO: float = 0.28
+const WORKBENCH_SCAN_PHASE_RATIO: float = 0.61
 
 # Cardinal directions used in flood fill and adjacency checks
 const _CARDINALS: Array[Vector2i] = [
@@ -31,11 +34,14 @@ var _markers: Array[Dictionary] = []
 var _elapsed: float = 0.0
 var _rescan_timer: float = 0.0
 var _dirty: bool = false
+var _workbench_scan_due_in: float = WORKBENCH_RESCAN_INTERVAL * WORKBENCH_SCAN_PHASE_RATIO
 
 # --- Base detection state ---
 var _bases: Array[Dictionary] = []
 var _base_scan_dirty: bool = false
 var _base_rescan_timer: float = 0.0
+var _base_scan_due_in: float = BASE_RESCAN_INTERVAL * BASE_SCAN_PHASE_RATIO
+var _pending_base_scan: Dictionary = {}
 
 var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
@@ -50,6 +56,10 @@ func setup(ctx: Dictionary) -> void:
 	_world_to_tile_cb  = ctx.get("world_to_tile",    Callable())
 	_tile_to_world_cb  = ctx.get("tile_to_world",    Callable())
 	_player_pos_getter = ctx.get("player_pos_getter", Callable())
+	if ctx.has("cadence"):
+		# The world cadence exists mainly to phase global maintenance.
+		# SettlementIntel keeps its own timers, but begins with non-zero offsets so it does not align with chunk checks or other maintenance lanes.
+		pass
 
 	if PlacementSystem != null \
 			and not PlacementSystem.placement_completed.is_connected(_on_placement_completed):
@@ -71,6 +81,8 @@ func process(delta: float) -> void:
 	_elapsed += delta
 	_rescan_timer += delta
 	_base_rescan_timer += delta
+	_workbench_scan_due_in -= delta
+	_base_scan_due_in -= delta
 
 	# --- TTL expiry ---
 	var i := _markers.size() - 1
@@ -83,18 +95,19 @@ func process(delta: float) -> void:
 				_markers.remove_at(i)
 		i -= 1
 
-	# --- Workbench rescan ---
-	if _dirty or _rescan_timer >= WORKBENCH_RESCAN_INTERVAL:
+	if _dirty or _workbench_scan_due_in <= 0.0 or _rescan_timer >= WORKBENCH_RESCAN_INTERVAL:
 		_rescan_timer = 0.0
+		_workbench_scan_due_in = WORKBENCH_RESCAN_INTERVAL
 		_dirty = false
 		_scan_workbenches()
 
-	# --- Base rescan ---
-	if _base_scan_dirty or _base_rescan_timer >= BASE_RESCAN_INTERVAL:
+	if _player_pos_getter.is_valid() and (_base_scan_dirty or _base_scan_due_in <= 0.0 or _base_rescan_timer >= BASE_RESCAN_INTERVAL):
 		_base_rescan_timer = 0.0
+		_base_scan_due_in = BASE_RESCAN_INTERVAL
 		_base_scan_dirty = false
-		if _player_pos_getter.is_valid():
-			_rescan_bases_internal(_player_pos_getter.call(), BASE_SCAN_RADIUS_DEFAULT)
+		_ensure_base_scan_job(_player_pos_getter.call(), BASE_SCAN_RADIUS_DEFAULT)
+
+	_process_pending_base_scan(BASE_SCAN_DOOR_BUDGET_PER_PULSE)
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +175,8 @@ func mark_interest_scan_dirty() -> void:
 
 ## Force an immediate base rescan around `world_pos` within `radius` pixels.
 func rescan_bases_near(world_pos: Vector2, radius: float) -> void:
-	_rescan_bases_internal(world_pos, radius)
+	_ensure_base_scan_job(world_pos, radius, true)
+	_process_pending_base_scan(maxi(BASE_SCAN_DOOR_BUDGET_PER_PULSE * 2, 1))
 
 
 ## Return all detected bases whose center is within `radius` of `world_pos`.
@@ -244,10 +258,23 @@ func _scan_workbenches() -> void:
 # Base detection internals
 # ---------------------------------------------------------------------------
 
-func _rescan_bases_internal(center: Vector2, radius: float) -> void:
-	var old_count := _bases.size()
-	_bases.clear()
+func _ensure_base_scan_job(center: Vector2, radius: float, force_restart: bool = false) -> void:
+	if not force_restart and not _pending_base_scan.is_empty():
+		var existing_center: Vector2 = _pending_base_scan.get("center", Vector2.INF) as Vector2
+		var existing_radius: float = float(_pending_base_scan.get("radius", -1.0))
+		if existing_center.distance_squared_to(center) <= 1.0 and is_equal_approx(existing_radius, radius):
+			return
+	_pending_base_scan = {
+		"center": center,
+		"radius": radius,
+		"doors": _collect_candidate_doors(center, radius),
+		"cursor": 0,
+		"results": [],
+	}
 
+
+func _collect_candidate_doors(center: Vector2, radius: float) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
 	var r2 := radius * radius
 	for ckey in WorldSave.placed_entities_by_chunk:
 		var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
@@ -255,18 +282,34 @@ func _rescan_bases_internal(center: Vector2, radius: float) -> void:
 			var entry: Dictionary = chunk_dict[uid]
 			if String(entry.get("item_id", "")).strip_edges() != "doorwood":
 				continue
-
 			var door_tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
 			var door_world := _tile_to_world(door_tile)
-
-			# Radius filter (skip if no valid center was provided)
 			if r2 > 0.0 and door_world.distance_squared_to(center) > r2:
 				continue
+			result.append(door_tile)
+	return result
 
-			var base_data := _try_detect_base_at_door(door_tile)
-			if not base_data.is_empty():
-				_bases.append(base_data)
 
+func _process_pending_base_scan(door_budget: int) -> void:
+	if _pending_base_scan.is_empty():
+		return
+	var doors: Array[Vector2i] = _pending_base_scan.get("doors", [])
+	var cursor: int = int(_pending_base_scan.get("cursor", 0))
+	var results: Array = _pending_base_scan.get("results", [])
+	var processed: int = 0
+	while cursor < doors.size() and processed < maxi(door_budget, 1):
+		var base_data := _try_detect_base_at_door(doors[cursor])
+		if not base_data.is_empty():
+			results.append(base_data)
+		cursor += 1
+		processed += 1
+	_pending_base_scan["cursor"] = cursor
+	_pending_base_scan["results"] = results
+	if cursor < doors.size():
+		return
+	var old_count := _bases.size()
+	_bases = results.duplicate()
+	_pending_base_scan.clear()
 	var new_count := _bases.size()
 	if new_count > old_count:
 		for b in _bases:
@@ -274,6 +317,8 @@ func _rescan_bases_internal(center: Vector2, radius: float) -> void:
 				b.get("id", "?"), b.get("interior_tile_count", 0), b.get("wall_count", 0)])
 	elif new_count < old_count:
 		Debug.log("intel", "[BASE] lost %d base(s), now=%d" % [old_count - new_count, new_count])
+
+
 
 
 func _try_detect_base_at_door(door_tile: Vector2i) -> Dictionary:

@@ -33,9 +33,9 @@ func setup(ctx: Dictionary) -> void:
 	_ui.choice_resolved.connect(_flow.on_choice_resolved)
 
 
-func process_extortion() -> void:
+func process_extortion(delta: float) -> void:
 	if _flow != null:
-		_flow.process_flow()
+		_flow.process_flow(delta)
 
 
 func apply_extortion_movement(friction_compensation: float) -> void:
