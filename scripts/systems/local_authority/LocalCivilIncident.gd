@@ -89,25 +89,45 @@ var metadata: Dictionary = {}
 
 
 # ── Validación ────────────────────────────────────────────────────────────────
+#
+# Dos niveles deliberadamente separados:
+#
+#   is_valid()              — validación estructural: ¿puede procesarse este dato?
+#                             Coincide exactamente con validation_errors().is_empty().
+#
+#   has_known_domain_values() — validación semántica: ¿los valores son del vocabulario
+#                             conocido? Falla para saves viejos o tipos extendidos,
+#                             pero eso no hace el incidente inválido estructuralmente.
+#                             La policy decide si acepta valores desconocidos.
 
-## Devuelve true si el incidente tiene los campos mínimos para ser accionable.
-## No valida que offense_type sea un tipo conocido — eso es trabajo de la policy.
+## Validación estructural. Sincronizado con validation_errors() — nunca divergen.
 func is_valid() -> bool:
-	return not local_authority_id.is_empty() and not offense_type.is_empty()
+	return validation_errors().is_empty()
 
 
-## Lista de errores de validación legibles. Útil para logs de debug.
+## Lista de errores estructurales. Un incidente es válido cuando esta lista está vacía.
 func validation_errors() -> PackedStringArray:
 	var errs: PackedStringArray = PackedStringArray()
 	if local_authority_id.is_empty():
 		errs.append("local_authority_id vacío — incidente sin jurisdicción")
 	if offense_type.is_empty():
 		errs.append("offense_type vacío — tipo de ofensa indefinido")
-	if severity < 0.0 or severity > 1.0:
-		errs.append("severity %.2f fuera de rango [0.0, 1.0]" % severity)
 	if incident_id.is_empty():
 		errs.append("incident_id vacío — incidente sin identificador")
+	if severity < 0.0 or severity > 1.0:
+		errs.append("severity %.2f fuera de rango [0.0, 1.0]" % severity)
+	if day < 0:
+		errs.append("day %d negativo — valor de día inválido" % day)
 	return errs
+
+
+## Validación semántica: comprueba que los valores de dominio sean del vocabulario
+## conocido. NO equivale a is_valid() — un incidente puede ser estructuralmente
+## válido con valores desconocidos (saves viejos, extensiones, mods futuros).
+## La policy es quien decide si acepta o rechaza valores fuera del vocabulario.
+func has_known_domain_values() -> bool:
+	return LocalCivilAuthorityConstants.Offense.is_known(offense_type) \
+		and LocalCivilAuthorityConstants.VictimKind.is_known(victim_kind)
 
 
 # ── Serialización ─────────────────────────────────────────────────────────────
@@ -150,7 +170,9 @@ static func from_dict(d: Dictionary) -> LocalCivilIncident:
 	var raw_witnesses: Variant = d.get("witnesses", null)
 	if raw_witnesses is Array:
 		for w: Variant in raw_witnesses:
-			inc.witnesses.append(str(w))
+			var ws: String = str(w)
+			if not ws.is_empty() and not inc.witnesses.has(ws):
+				inc.witnesses.append(ws)
 	var raw_meta: Variant = d.get("metadata", null)
 	if raw_meta is Dictionary:
 		inc.metadata = raw_meta.duplicate()

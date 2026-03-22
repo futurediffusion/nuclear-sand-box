@@ -67,8 +67,10 @@ static func create(
 	inc.zone_id     = zone_id if not zone_id.is_empty() \
 	                  else LocalCivilAuthorityConstants.ZONE_UNKNOWN
 
-	# Arrays y dict: siempre copiar, nunca guardar referencia externa
-	inc.witnesses  = witnesses.duplicate()
+	# Witnesses: copiar y deduplicar. Un testigo duplicado es ruido para la policy.
+	for w: String in witnesses:
+		if not w.is_empty() and not inc.witnesses.has(w):
+			inc.witnesses.append(w)
 	inc.source_tag = source_tag
 	inc.metadata   = metadata.duplicate()
 
