@@ -323,7 +323,7 @@ func _process_pending_base_scan(door_budget: int) -> void:
 	if cursor < doors.size():
 		return
 	var old_count := _bases.size()
-	_bases = results.duplicate()
+	_bases.assign(results)
 	_pending_base_scan.clear()
 	var new_count := _bases.size()
 	if new_count > old_count:

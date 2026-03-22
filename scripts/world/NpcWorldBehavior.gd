@@ -49,13 +49,17 @@ const DEFAULT_HOME_RETURN_DIST: float = 192.0
 # ── Timing ───────────────────────────────────────────────────────────────────
 const DEFAULT_MAX_PATROL_TIME: float = 14.0
 const RESOURCE_WATCH_DURATION: float = 10.0   # s before giving up a watch position
+# Máximo tiempo en RETURN_HOME antes de aceptar la posición actual y disparar el depósito.
+# Previene NPCs bloqueados indefinidamente si el camino al barril está obstruido.
+const RETURN_HOME_TIMEOUT: float = 18.0
 const IDLE_WAIT_MIN: float         = 2.0
 const IDLE_WAIT_MAX: float         = 6.0
 const MINE_TICK_INTERVAL: float    = 0.9      # s between mining hits during RESOURCE_WATCH
 
 # ── Stuck detection ───────────────────────────────────────────────────────────
-const STUCK_CHECK_INTERVAL: float    = 2.5    # s between progress checks
+const STUCK_CHECK_INTERVAL: float    = 1.5    # s between progress checks
 const STUCK_MIN_PROGRESS_SQ: float   = 20.0 * 20.0  # must move 20 px per interval
+const DETOUR_DURATION: float         = 1.5    # s of perpendicular detour after NPC-collision
 
 # ── Identity ─────────────────────────────────────────────────────────────────
 var state: State    = State.IDLE_AT_HOME
@@ -103,9 +107,12 @@ var _mine_tick_timer: float         = 0.0    # countdown to next mine hit
 # Last known node position — lets enter_resource_watch compute initial angle
 var _last_node_pos: Vector2 = Vector2.ZERO
 
-# STUCK detection (PATROL / APPROACH_INTEREST)
+# STUCK detection (PATROL / APPROACH_INTEREST / RETURN_HOME / FOLLOW_LEADER)
 var _stuck_check_pos: Vector2 = Vector2.ZERO
 var _stuck_timer: float       = 0.0
+# Detour state: perpendicular nudge when blocked by another NPC
+var _detour_dir: Vector2      = Vector2.ZERO
+var _detour_timer: float      = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +152,11 @@ func tick(delta: float, ctx: Dictionary) -> void:
 
 	_tick_state(delta, ctx, node_pos)
 	_check_stuck(delta, node_pos)
+
+	# Apply perpendicular detour nudge when blocked by another NPC
+	if _detour_timer > 0.0:
+		_detour_timer -= delta
+		_desired_velocity += _detour_dir * (_get_speed() * 0.65)
 
 
 func get_desired_velocity() -> Vector2:
@@ -223,8 +235,8 @@ func _get_max_patrol_time() -> float:
 # Stuck detection
 # ---------------------------------------------------------------------------
 
-## Detects NPCs that haven't progressed in PATROL or APPROACH_INTEREST and
-## resets them to idle so they pick a new target instead of wall-hugging.
+## Detects NPCs that haven't progressed and either resets them to idle
+## (PATROL/APPROACH) or starts a perpendicular detour (RETURN_HOME/FOLLOW_LEADER).
 func _check_stuck(delta: float, node_pos: Vector2) -> void:
 	match state:
 		State.PATROL, State.APPROACH_INTEREST:
@@ -236,6 +248,26 @@ func _check_stuck(delta: float, node_pos: Vector2) -> void:
 				if moved_sq < STUCK_MIN_PROGRESS_SQ:
 					_invalidate_npc_path()
 					_enter_idle_at_home()
+
+		State.RETURN_HOME, State.FOLLOW_LEADER:
+			_stuck_timer += delta
+			if _stuck_timer >= STUCK_CHECK_INTERVAL:
+				var moved_sq: float = node_pos.distance_squared_to(_stuck_check_pos)
+				_stuck_check_pos = node_pos
+				_stuck_timer     = 0.0
+				if moved_sq < STUCK_MIN_PROGRESS_SQ and _detour_timer <= 0.0:
+					# Pick perpendicular direction to current heading to go around obstacle
+					var forward: Vector2 = _desired_velocity.normalized()
+					if forward.length_squared() < 0.01:
+						forward = Vector2(1.0, 0.0)
+					# Alternate left/right based on rng to avoid always going same side
+					var perp: Vector2 = Vector2(-forward.y, forward.x)
+					if _rng.randf() > 0.5:
+						perp = -perp
+					_detour_dir   = perp
+					_detour_timer = DETOUR_DURATION
+					_invalidate_npc_path()
+
 		_:
 			_stuck_check_pos = node_pos
 			_stuck_timer     = 0.0
@@ -284,7 +316,17 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 				if carrying else home_pos
 			_desired_velocity = _pathfind_dir(node_pos, return_target) * _get_speed()
 			var arrive_sq := DEPOSIT_ARRIVED_DIST_SQ if carrying else ARRIVED_DIST_SQ
-			if node_pos.distance_squared_to(return_target) < arrive_sq:
+			# Timeout: si lleva demasiado tiempo, ampliar radio progresivamente y
+			# eventualmente aceptar la posición actual para disparar el depósito.
+			# Evita NPCs bloqueados infinitamente cuando el barril está contra una pared.
+			if _state_timer > RETURN_HOME_TIMEOUT:
+				_enter_idle_at_home()
+			elif carrying and _state_timer > RETURN_HOME_TIMEOUT * 0.55:
+				# Radio ampliado al 55% del timeout: acepta posición si está razonablemente cerca
+				var relaxed_sq := arrive_sq * 4.0
+				if node_pos.distance_squared_to(return_target) < relaxed_sq:
+					_enter_idle_at_home()
+			elif node_pos.distance_squared_to(return_target) < arrive_sq:
 				_enter_idle_at_home()
 
 		State.HOLD_POSITION:
@@ -397,6 +439,8 @@ func _enter_idle_at_home() -> void:
 	_idle_timer       = _rng.randf_range(IDLE_WAIT_MIN, IDLE_WAIT_MAX)
 	_desired_velocity = Vector2.ZERO
 	_state_timer      = 0.0
+	_detour_timer     = 0.0
+	_detour_dir       = Vector2.ZERO
 
 
 func _enter_patrol(ctx: Dictionary) -> void:
@@ -410,8 +454,10 @@ func _enter_patrol(ctx: Dictionary) -> void:
 
 
 func _enter_return_home() -> void:
-	state        = State.RETURN_HOME
-	_state_timer = 0.0
+	state         = State.RETURN_HOME
+	_state_timer  = 0.0
+	_detour_timer = 0.0
+	_detour_dir   = Vector2.ZERO
 	_invalidate_npc_path()
 
 func force_return_home() -> void:

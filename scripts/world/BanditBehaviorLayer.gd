@@ -385,7 +385,12 @@ func _tick_behaviors() -> void:
 			if _work_coordinator != null:
 				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
 			continue
-		_behavior_elapsed[enemy_id] = maxf(elapsed - tick_interval, 0.0)
+		# Resetear a 0 en vez de acumular residual para evitar que elapsed crezca
+		# indefinidamente cuando tick_interval es corto (ej. 0.25s con jugador cerca).
+		# Un elapsed creciente pasado a beh.tick() como delta hace que _stuck_timer
+		# supere STUCK_CHECK_INTERVAL en el primer tick de PATROL, antes de que el
+		# NPC haya movido, disparando stuck detection de forma falsa.
+		_behavior_elapsed[enemy_id] = 0.0
 
 		var ctx: Dictionary = {
 			"node_pos":                       node_pos,
@@ -398,7 +403,9 @@ func _tick_behaviors() -> void:
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
 
-		beh.tick(elapsed, ctx)
+		# Pasar tick_interval como delta (tiempo real desde último tick),
+		# no elapsed que puede ser mayor que tick_interval.
+		beh.tick(tick_interval, ctx)
 		_maybe_show_recognition_bubble(beh, node, node_pos)
 		_maybe_show_idle_chat(beh, node, node_pos)
 
@@ -700,7 +707,8 @@ func _get_runtime_lod_signals(node: Node) -> Dictionary:
 	var is_in_direct_combat: bool = current_state == AIComponentScript.AIState.CHASE \
 			or current_state == AIComponentScript.AIState.ATTACK \
 			or has_active_target
-	var was_recently_engaged: bool = SimulationLODPolicyScript.was_recently_engaged(float(node.get("last_engaged_time", 0.0)))
+	var _let: Variant = node.get("last_engaged_time")
+	var was_recently_engaged: bool = SimulationLODPolicyScript.was_recently_engaged(float(_let) if _let != null else 0.0)
 	var is_runtime_busy_but_not_combat: bool = false
 	if not is_in_direct_combat:
 		is_runtime_busy_but_not_combat = current_state == AIComponentScript.AIState.HURT \

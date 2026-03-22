@@ -77,8 +77,14 @@ static func faction_for_group(_group_id: String) -> String:
 static func behavior_tick_interval() -> float:
 	return BEHAVIOR_TICK_INTERVAL
 
+static func loot_scan_radius() -> float:
+	return LOOT_SCAN_RADIUS
+
 static func loot_scan_radius_sq() -> float:
 	return LOOT_SCAN_RADIUS * LOOT_SCAN_RADIUS
+
+static func resource_scan_radius() -> float:
+	return RESOURCE_SCAN_RADIUS
 
 static func resource_scan_radius_sq() -> float:
 	return RESOURCE_SCAN_RADIUS * RESOURCE_SCAN_RADIUS

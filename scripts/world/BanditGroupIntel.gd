@@ -148,7 +148,8 @@ func _get_group_scan_interval(group_id: String, g: Dictionary) -> float:
 
 
 func _get_group_lod_signals(leader: Node, current_intent: String, g: Dictionary) -> Dictionary:
-	var last_engaged_time: float = float(leader.get("last_engaged_time", 0.0)) if leader != null else 0.0
+	var _let: Variant = leader.get("last_engaged_time") if leader != null else null
+	var last_engaged_time: float = float(_let) if _let != null else 0.0
 	var was_recently_engaged: bool = SimulationLODPolicyScript.was_recently_engaged(last_engaged_time)
 	var ai_comp = leader.get("ai_component") if leader != null else null
 	var current_state: int = int(ai_comp.get("current_state")) if ai_comp != null else -1

@@ -74,6 +74,9 @@ const POST_DEPOSIT_WANDER_RADIUS: float = 420.0  # distance from home_pos to wan
 # No NPC may stand inside this radius of deposit_pos unless actively depositing
 # (i.e. RETURN_HOME with cargo_count > 0).
 const BARREL_EXCLUSION_RADIUS_SQ: float = 88.0 * 88.0
+# Zona suave: NPCs en IDLE_AT_HOME dentro de este radio también se mueven.
+# Evita que se amontonen cerca del barril entre viajes de depósito.
+const BARREL_IDLE_SOFT_RADIUS_SQ: float = 160.0 * 160.0
 
 # ── Resource claim / avoidance (scavenger) ────────────────────────────────────
 var _claimed_res_key: String = ""
@@ -254,14 +257,20 @@ func tick(delta: float, ctx: Dictionary) -> void:
 		_on_leave_resource_watch()
 
 	# ── 3b. Barrel exclusion zone ─────────────────────────────────────────
-	# Any NPC inside the barrel radius that is NOT actively depositing gets
-	# kicked out immediately. "Actively depositing" = RETURN_HOME + cargo > 0.
+	# Hard exclusion: cualquier NPC que no esté depositando activamente
+	# y esté dentro de 88 px del barril → patrol inmediato.
+	# Soft exclusion: NPCs en IDLE_AT_HOME dentro de 160 px también se van
+	# para evitar que se amontonen mientras esperan su turno.
 	if deposit_pos != Vector2.ZERO:
 		var node_pos_ex: Vector2 = ctx.get("node_pos", home_pos)
 		var is_depositing: bool  = state == State.RETURN_HOME and cargo_count > 0
-		if not is_depositing \
-				and node_pos_ex.distance_squared_to(deposit_pos) < BARREL_EXCLUSION_RADIUS_SQ:
-			_enter_patrol_away_from_home()
+		if not is_depositing:
+			var dist_to_barrel_sq: float = node_pos_ex.distance_squared_to(deposit_pos)
+			if dist_to_barrel_sq < BARREL_EXCLUSION_RADIUS_SQ:
+				_enter_patrol_away_from_home()
+			elif state == State.IDLE_AT_HOME \
+					and dist_to_barrel_sq < BARREL_IDLE_SOFT_RADIUS_SQ:
+				_enter_patrol_away_from_home()
 
 	# ── 3c. Stay-bodyguard band escort: push away when too close to raw leader ─
 	if role == "bodyguard" and not _is_roaming_guard and state == State.FOLLOW_LEADER:
@@ -368,14 +377,20 @@ func _tick_leader_phase(delta: float) -> void:
 ## Override: avoid picking patrol targets near the barrel (deposit_pos).
 ## NPCs should only approach the barrel when they have cargo to deposit.
 func _enter_patrol(ctx: Dictionary) -> void:
-	const BARREL_AVOID_RADIUS_SQ: float = 96.0 * 96.0
+	const BARREL_AVOID_RADIUS_SQ: float = 140.0 * 140.0
 	var radius: float = _get_patrol_radius()
-	var angle: float  = _rng.randf_range(0.0, TAU)
-	var dist: float   = _rng.randf_range(radius * 0.3, radius)
-	var candidate: Vector2 = home_pos + Vector2(cos(angle), sin(angle)) * dist
-	# If a barrel is assigned, retry up to 4 times to find a target outside its area
+	# Sesgar el ángulo inicial alejándose del barril para reducir candidatos malos.
+	var base_angle: float = _rng.randf_range(0.0, TAU)
 	if deposit_pos != Vector2.ZERO:
-		for _i in 4:
+		var away: Vector2 = home_pos - deposit_pos
+		if away.length_squared() > 1.0:
+			base_angle = atan2(away.y, away.x) + _rng.randf_range(-PI * 0.5, PI * 0.5)
+	var angle: float = base_angle
+	var dist: float  = _rng.randf_range(radius * 0.3, radius)
+	var candidate: Vector2 = home_pos + Vector2(cos(angle), sin(angle)) * dist
+	# Si el barril está asignado, reintentar hasta 6 veces para salir de su área.
+	if deposit_pos != Vector2.ZERO:
+		for _i in 6:
 			if candidate.distance_squared_to(deposit_pos) > BARREL_AVOID_RADIUS_SQ:
 				break
 			angle     = _rng.randf_range(0.0, TAU)

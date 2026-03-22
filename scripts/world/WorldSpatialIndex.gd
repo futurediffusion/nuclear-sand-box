@@ -95,7 +95,7 @@ func get_runtime_nodes_near(kind: StringName, world_pos: Vector2, radius: float)
 			continue
 		var stale_ids: Array[int] = []
 		for iid in bucket.keys():
-			var node := bucket[iid]
+			var node: Node = bucket[iid]
 			var node2d := node as Node2D
 			if node == null or not is_instance_valid(node) or node2d == null or node.is_queued_for_deletion():
 				stale_ids.append(int(iid))
@@ -119,7 +119,7 @@ func get_all_runtime_nodes(kind: StringName) -> Array:
 		var bucket: Dictionary = by_chunk[chunk_key]
 		var stale_ids: Array[int] = []
 		for iid in bucket.keys():
-			var node := bucket[iid]
+			var node: Node = bucket[iid]
 			if node == null or not is_instance_valid(node) or node.is_queued_for_deletion():
 				stale_ids.append(int(iid))
 				continue

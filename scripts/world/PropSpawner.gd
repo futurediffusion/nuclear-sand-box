@@ -4,6 +4,9 @@ class_name PropSpawner
 const INVALID_SPAWN_TILE := Vector2i(999999, 999999)
 const SAFE_PLAYER_SPAWN_RADIUS_TILES := 3
 const TAVERN_SAFE_MARGIN_TILES := 4
+## Radio de exclusión en tiles que coincide con TAVERN_BUILD_RADIUS_SQ de WorldTerritoryPolicy
+## (320 px / 16 px-por-tile = 20 tiles). Previene spawns en chunks vecinos cercanos a la taberna.
+const TAVERN_EXCLUSION_RADIUS_TILES: int = 20
 const SPAWN_MAX_TRIES := 30
 const COPPER_FOOTPRINT_RADIUS_TILES := 0
 const CAMP_FOOTPRINT_RADIUS_TILES := 2
@@ -83,6 +86,7 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 	if chunk_pos == ctx["tavern_chunk"]:
 		generate_tavern_in_chunk(chunk_pos, ctx)
+		return  # No spawnar recursos dentro del chunk de la taberna
 
 	if ctx["copper_ore_scene"] == null:
 		return
@@ -282,16 +286,17 @@ func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: 
 	if tile_pos.x < 0 or tile_pos.x >= width or tile_pos.y < 0 or tile_pos.y >= height:
 		return false
 
-	# Exclusión global de la taberna — independiente del sistema de chunks.
-	# Cubre el caso de recursos en chunks vecinos que cruzan el borde de la taberna.
+	# Exclusión global de la taberna — usa radio circular equivalente a la zona no-build
+	# (WorldTerritoryPolicy.TAVERN_BUILD_RADIUS_SQ = 320px → ~20 tiles con tile_size=16).
+	# Cubre el chunk de la taberna y los vecinos cercanos.
 	if ctx.has("tavern_exclusion_rect"):
 		var trect: Rect2i = ctx["tavern_exclusion_rect"] as Rect2i
-		var fp: int = footprint_radius_tiles
-		var expanded := Rect2i(
-			trect.position.x - fp, trect.position.y - fp,
-			trect.size.x + fp * 2, trect.size.y + fp * 2
+		var tavern_center: Vector2i = Vector2i(
+			trect.position.x + trect.size.x / 2,
+			trect.position.y + trect.size.y / 2
 		)
-		if expanded.has_point(tile_pos):
+		var dist_tiles: float = float(tile_pos.distance_to(tavern_center))
+		if dist_tiles <= float(TAVERN_EXCLUSION_RADIUS_TILES + footprint_radius_tiles):
 			return false
 
 	var occ: Dictionary = ctx["chunk_occupied_tiles"].get(chunk_key, {})
