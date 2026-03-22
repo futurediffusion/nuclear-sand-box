@@ -35,6 +35,7 @@ const BanditCampStashSystemScript   := preload("res://scripts/world/BanditCampSt
 const BanditTerritoryResponseScript := preload("res://scripts/world/BanditTerritoryResponse.gd")
 const BanditWorkCoordinatorScript   := preload("res://scripts/world/BanditWorkCoordinator.gd")
 const SimulationLODPolicyScript     := preload("res://scripts/world/SimulationLODPolicy.gd")
+const AIComponentScript             := preload("res://scripts/components/AIComponent.gd")
 
 # ---------------------------------------------------------------------------
 # Camp layout constants — local geometry, not cross-system gameplay tuning.
@@ -159,6 +160,8 @@ var _find_wall_cb:       Callable                = Callable()
 var _find_workbench_cb:  Callable                = Callable()
 var _find_storage_cb:    Callable                = Callable()
 var _world_spatial_index: WorldSpatialIndex      = null
+var _lod_debug_last_npc: Dictionary              = {}
+var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +356,8 @@ func _process(delta: float) -> void:
 
 func _tick_behaviors() -> void:
 	_prune_behavior_timers()
+	_lod_debug_last_npc.clear()
+	_lod_debug_npc_counts = {"fast": 0, "medium": 0, "slow": 0}
 	var drop_nodes_snapshot: Array = _get_all_drop_nodes()
 	var leader_pos_by_group: Dictionary = {}
 	for enemy_id in _behaviors:
@@ -670,8 +675,8 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 	var ai_state_name: String = ""
 	if beh.state >= 0 and beh.state < NpcWorldBehavior.State.size():
 		ai_state_name = NpcWorldBehavior.State.keys()[beh.state]
-	var recently_engaged: bool = SimulationLODPolicyScript.was_recently_engaged(float(node.get("last_engaged_time", 0.0)))
-	return SimulationLODPolicyScript.get_behavior_tick_interval({
+	var runtime_signals: Dictionary = _get_runtime_lod_signals(node)
+	var lod_debug: Dictionary = SimulationLODPolicyScript.get_behavior_tick_debug({
 		"base_interval": BanditTuningScript.behavior_tick_interval(),
 		"distance_to_player": distance_to_player,
 		"intent": group_intent,
@@ -680,6 +685,70 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 		"has_cargo": beh.cargo_count > 0,
 		"is_visible": (node as CanvasItem).is_visible_in_tree() if node is CanvasItem else false,
 		"is_sleeping": bool(node.has_method("is_sleeping") and node.is_sleeping()),
-		"in_combat": bool(node.has_method("is_world_behavior_eligible") and not node.is_world_behavior_eligible()),
-		"recently_engaged": recently_engaged,
+		"in_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
+		"recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
 	})
+	_record_npc_lod_debug(beh, node, lod_debug, runtime_signals)
+	return float(lod_debug.get("interval", BanditTuningScript.behavior_tick_interval()))
+
+
+func _get_runtime_lod_signals(node: Node) -> Dictionary:
+	var ai_comp = node.get("ai_component") if node != null else null
+	var current_state: int = int(ai_comp.get("current_state")) if ai_comp != null else -1
+	var current_target = ai_comp.get_current_target() if ai_comp != null and ai_comp.has_method("get_current_target") else null
+	var has_active_target: bool = current_target != null and is_instance_valid(current_target)
+	var is_in_direct_combat: bool = current_state == AIComponentScript.AIState.CHASE \
+			or current_state == AIComponentScript.AIState.ATTACK \
+			or has_active_target
+	var was_recently_engaged: bool = SimulationLODPolicyScript.was_recently_engaged(float(node.get("last_engaged_time", 0.0)))
+	var is_runtime_busy_but_not_combat: bool = false
+	if not is_in_direct_combat:
+		is_runtime_busy_but_not_combat = current_state == AIComponentScript.AIState.HURT \
+				or current_state == AIComponentScript.AIState.DISENGAGE \
+				or current_state == AIComponentScript.AIState.HOLD_PERIMETER \
+				or bool(node.has_method("is_world_behavior_eligible") and not node.is_world_behavior_eligible())
+	return {
+		"is_in_direct_combat": is_in_direct_combat,
+		"was_recently_engaged": was_recently_engaged,
+		"is_runtime_busy_but_not_combat": is_runtime_busy_but_not_combat,
+	}
+
+
+func _record_npc_lod_debug(beh: BanditWorldBehavior, node: Node, lod_debug: Dictionary, runtime_signals: Dictionary) -> void:
+	var bucket: String = String(lod_debug.get("bucket", "medium"))
+	_lod_debug_npc_counts[bucket] = int(_lod_debug_npc_counts.get(bucket, 0)) + 1
+	_lod_debug_last_npc[beh.member_id] = {
+		"group_id": beh.group_id,
+		"role": beh.role,
+		"state": NpcWorldBehavior.State.keys()[beh.state] if beh.state >= 0 and beh.state < NpcWorldBehavior.State.size() else "",
+		"interval": float(lod_debug.get("interval", BanditTuningScript.behavior_tick_interval())),
+		"bucket": bucket,
+		"dominant_reason": String(lod_debug.get("dominant_reason", "baseline")),
+		"is_in_direct_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
+		"was_recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
+		"is_runtime_busy_but_not_combat": bool(runtime_signals.get("is_runtime_busy_but_not_combat", false)),
+		"is_world_behavior_eligible": bool(node.has_method("is_world_behavior_eligible") and node.is_world_behavior_eligible()),
+	}
+	if _is_lod_debug_logging_enabled():
+		Debug.log("bandit_lod", "[BanditLOD][npc] id=%s group=%s interval=%.2f bucket=%s reason=%s combat=%s engaged=%s busy=%s" % [
+			beh.member_id,
+			beh.group_id,
+			float(lod_debug.get("interval", 0.0)),
+			bucket,
+			String(lod_debug.get("dominant_reason", "baseline")),
+			str(bool(runtime_signals.get("is_in_direct_combat", false))),
+			str(bool(runtime_signals.get("was_recently_engaged", false))),
+			str(bool(runtime_signals.get("is_runtime_busy_but_not_combat", false))),
+		])
+
+
+func get_lod_debug_snapshot() -> Dictionary:
+	return {
+		"npc_counts": _lod_debug_npc_counts.duplicate(true),
+		"npc_intervals": _lod_debug_last_npc.duplicate(true),
+		"group_scan": _group_intel.get_lod_debug_snapshot() if _group_intel != null else {},
+	}
+
+
+func _is_lod_debug_logging_enabled() -> bool:
+	return Debug.is_enabled("ai") and Debug.is_enabled("bandit_lod")
