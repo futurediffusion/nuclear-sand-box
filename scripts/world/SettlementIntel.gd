@@ -504,3 +504,34 @@ func _tile_to_world(tile_pos: Vector2i) -> Vector2:
 	if _tile_to_world_cb.is_valid():
 		return _tile_to_world_cb.call(tile_pos)
 	return Vector2(tile_pos.x * 32.0 + 16.0, tile_pos.y * 32.0 + 16.0)
+
+
+func get_debug_snapshot() -> Dictionary:
+	var pending_doors: Array[Vector2i] = _pending_base_scan.get("doors", [])
+	var base_cursor: int = int(_pending_base_scan.get("cursor", 0))
+	var persistent_markers: int = 0
+	var workbench_markers: int = 0
+	for marker in _markers:
+		if bool(marker.get("persistent", false)):
+			persistent_markers += 1
+		if String(marker.get("kind", "")) == "workbench":
+			workbench_markers += 1
+	return {
+		"markers_total": _markers.size(),
+		"persistent_markers": persistent_markers,
+		"workbench_markers": workbench_markers,
+		"interest_scan_dirty": _dirty,
+		"base_scan_dirty": _base_scan_dirty,
+		"base_scan_running": not _pending_base_scan.is_empty(),
+		"base_scan_progress": {
+			"processed": base_cursor,
+			"pending": maxi(pending_doors.size() - base_cursor, 0),
+			"total": pending_doors.size(),
+		},
+		"bases_detected": _bases.size(),
+		"timers": {
+			"elapsed": snappedf(_elapsed, 0.01),
+			"workbench_rescan_timer": snappedf(_rescan_timer, 0.01),
+			"base_rescan_timer": snappedf(_base_rescan_timer, 0.01),
+		},
+	}
