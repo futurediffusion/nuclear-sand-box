@@ -28,6 +28,9 @@ var placed_entities_by_chunk: Dictionary = {}
 var placed_entity_chunk_by_uid: Dictionary = {}
 ## Datos persistentes por UID (inventarios, etc.): uid -> data
 var placed_entity_data_by_uid: Dictionary = {}
+## Revisión estructural de placeables persistentes.
+## Sube solo cuando cambia el set canónico (alta/baja/movimiento), no cuando cambia data por UID.
+var placed_entities_revision: int = 0
 
 const PLAYER_WALL_HP_KEY: String = "hp"
 
@@ -62,6 +65,7 @@ func add_placed_entity(entry: Dictionary) -> void:
 
 	placed_entities_by_chunk[ckey][uid] = final_entry
 	placed_entity_chunk_by_uid[uid] = ckey
+	placed_entities_revision += 1
 
 func remove_placed_entity(uid: String) -> void:
 	if not placed_entity_chunk_by_uid.has(uid):
@@ -77,10 +81,12 @@ func remove_placed_entity(uid: String) -> void:
 
 	placed_entity_chunk_by_uid.erase(uid)
 	erase_placed_entity_data(uid)
+	placed_entities_revision += 1
 
 func clear_placed_entities() -> void:
 	placed_entities_by_chunk.clear()
 	placed_entity_chunk_by_uid.clear()
+	placed_entities_revision += 1
 
 func get_placed_entities_in_chunk(cx: int, cy: int) -> Array[Dictionary]:
 	var ckey := chunk_key(cx, cy)

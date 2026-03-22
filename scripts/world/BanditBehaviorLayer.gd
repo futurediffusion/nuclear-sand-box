@@ -349,6 +349,7 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------------------
 
 func _tick_behaviors() -> void:
+	var drop_nodes_snapshot: Array = _get_all_drop_nodes()
 	var leader_pos_by_group: Dictionary = {}
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
@@ -364,7 +365,7 @@ func _tick_behaviors() -> void:
 		if node == null or not node.has_method("is_world_behavior_eligible") \
 				or not node.is_world_behavior_eligible():
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node, _get_all_drop_nodes())
+				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
 			continue
 
 		var node_pos: Vector2 = node.global_position
@@ -390,7 +391,7 @@ func _tick_behaviors() -> void:
 			save_state_ref["world_behavior"] = beh.export_state()
 
 		if _work_coordinator != null:
-			_work_coordinator.process_post_behavior(beh, node, _get_all_drop_nodes())
+			_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
 
 
 # ---------------------------------------------------------------------------
