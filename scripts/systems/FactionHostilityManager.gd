@@ -276,7 +276,16 @@ func get_behavior_profile(faction_id: String) -> FactionBehaviorProfile:
 	var data: FactionHostilityData = _get_or_create(faction_id)
 	var level: int                 = _points_to_level(data.hostility_points)
 	var heat_mod: float            = clampf(data.recent_heat / HEAT_MODIFIER_MAX, 0.0, 1.0)
-	return FactionBehaviorProfile.from_level(level, data.hostility_points, heat_mod)
+	var extortion_pressure: float  = clampf(
+		data.compliance_score * 0.55
+		+ minf(float(data.times_paid + data.times_refused + data.times_insulted) / 8.0, 0.45),
+		0.0, 1.0)
+	var raid_pressure: float = clampf(
+		minf(float(data.times_raid_executed) / 5.0, 0.65)
+		+ minf(float(data.times_base_detected) / 10.0, 0.20)
+		+ minf(float(data.times_workbench_hit + data.times_storage_hit + data.times_wall_hit) / 12.0, 0.15),
+		0.0, 1.0)
+	return FactionBehaviorProfile.from_level(level, data.hostility_points, heat_mod, extortion_pressure, raid_pressure)
 
 
 func points_to_level(points: float) -> int:
@@ -581,7 +590,9 @@ func _increment_counter(data: FactionHostilityData, reason: String) -> void:
 		"workbench_damaged":  data.times_workbench_hit    += 1
 		"storage_damaged":    data.times_storage_hit      += 1
 		"wall_damaged":       data.times_wall_hit         += 1
-		"can_raid_base":      data.times_raided           += 1
+		"raid_executed":
+			data.times_raided        += 1
+			data.times_raid_executed += 1
 		"base_detected":      data.times_base_detected    += 1
 		"workbench_near":     data.times_workbench_near   += 1
 		"resource_extracted": data.times_resource_ext     += 1

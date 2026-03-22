@@ -167,6 +167,7 @@ func on_choice_resolved(option: int, gid: String) -> void:
 					{"group_id": gid, "amount": pay_amount})
 				Debug.log("extortion", "[EXTORT] paid %d gold group=%s" % [pay_amount, gid])
 				_show_reaction_bubble(job, PAY_ACK_PHRASES)
+				BanditGroupMemory.push_social_cooldown(gid, 10.0)
 				_resolve_extortion_idle(job)
 			else:
 				# El jugador quiso pagar pero no tiene oro: misma gravedad que negarse
@@ -174,16 +175,19 @@ func on_choice_resolved(option: int, gid: String) -> void:
 					{"group_id": gid, "reason": "cant_pay"})
 				Debug.log("extortion", "[EXTORT] can't pay, forced refuse group=%s" % gid)
 				_show_poverty_taunts(job)
+				BanditGroupMemory.push_social_cooldown(gid, 6.0)
 				_resolve_extortion_warn(job)
 		2:
 			FactionHostilityManager.add_hostility(faction, 0.0, "extortion_refused",
 				{"group_id": gid})
 			_show_reaction_bubble(job, REFUSE_REACTION_PHRASES)
+			BanditGroupMemory.push_social_cooldown(gid, 6.0)
 			_resolve_extortion_warn(job)
 		3:
 			FactionHostilityManager.add_hostility(faction, 0.0, "extortion_insulted",
 				{"group_id": gid})
 			_show_reaction_bubble(job, INSULT_REACTION_PHRASES)
+			BanditGroupMemory.push_social_cooldown(gid, 12.0)
 			_resolve_extortion_aggro(job)
 
 

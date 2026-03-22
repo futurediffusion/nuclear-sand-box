@@ -35,6 +35,7 @@ var times_raided:         int = 0
 var times_base_detected:  int = 0   # veces que detectaron tu base
 var times_workbench_near: int = 0   # veces que detectaron tu taller
 var times_resource_ext:   int = 0   # veces que detectaron extracción de recursos
+var times_raid_executed:  int = 0   # raids realmente lanzados/ejecutados
 
 # ── Memoria de pagos ──────────────────────────────────────────────────────
 # Registra el historial de pagos de extorsión del jugador a esta facción.
@@ -80,6 +81,7 @@ func to_dict() -> Dictionary:
 		"times_base_detected":  times_base_detected,
 		"times_workbench_near": times_workbench_near,
 		"times_resource_ext":   times_resource_ext,
+		"times_raid_executed": times_raid_executed,
 		"last_paid_day":       last_paid_day,
 		"last_paid_amount":    last_paid_amount,
 		"total_paid_gold":     total_paid_gold,
@@ -109,6 +111,7 @@ func from_dict(d: Dictionary) -> void:
 	times_base_detected   = int(d.get("times_base_detected",    0))
 	times_workbench_near  = int(d.get("times_workbench_near",   0))
 	times_resource_ext    = int(d.get("times_resource_ext",     0))
+	times_raid_executed  = int(d.get("times_raid_executed",    0))
 	last_paid_day        = int(d.get("last_paid_day",           -1))
 	last_paid_amount     = int(d.get("last_paid_amount",        0))
 	total_paid_gold      = int(d.get("total_paid_gold",         0))

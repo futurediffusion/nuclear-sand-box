@@ -77,6 +77,7 @@ func update_intent(group_id: String, intent: String) -> void:
 	var prev: String = String(g["current_group_intent"])
 	if prev != intent:
 		g["current_group_intent"] = intent
+		g["current_intent_since"] = RunClock.now()
 		Debug.log("bandit_group", "[BGM] intent changed group=%s %s→%s" % [group_id, prev, intent])
 
 
@@ -107,6 +108,31 @@ func get_groups_for_faction(faction_id: String) -> Array:
 		if String(_groups[gid].get("faction_id", "")) == faction_id:
 			result.append(_groups[gid])
 	return result
+
+
+
+func get_intent_time(group_id: String) -> float:
+	var g: Dictionary = _groups.get(group_id, {})
+	if g.is_empty():
+		return 0.0
+	var since: float = float(g.get("current_intent_since", RunClock.now()))
+	return maxf(0.0, RunClock.now() - since)
+
+
+func push_social_cooldown(group_id: String, duration: float) -> void:
+	if not _groups.has(group_id):
+		return
+	var g: Dictionary = _groups[group_id]
+	var now: float = RunClock.now()
+	var until: float = maxf(float(g.get("internal_social_cooldown_until", 0.0)), now)
+	g["internal_social_cooldown_until"] = until + maxf(duration, 0.0)
+
+
+func get_internal_social_cooldown_remaining(group_id: String) -> float:
+	var g: Dictionary = _groups.get(group_id, {})
+	if g.is_empty():
+		return 0.0
+	return maxf(0.0, float(g.get("internal_social_cooldown_until", 0.0)) - RunClock.now())
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +240,8 @@ func _make_group(group_id: String, faction_id: String, home_world_pos: Vector2) 
 		"member_ids":                 [],
 		"home_world_pos":             home_world_pos,
 		"current_group_intent":       "idle",
+		"current_intent_since":       RunClock.now(),
+		"internal_social_cooldown_until": 0.0,
 		"last_interest_pos":          Vector2.ZERO,
 		"last_interest_kind":         "",
 		"scout_npc_id":               "",
@@ -247,6 +275,10 @@ func deserialize(data: Dictionary) -> void:
 	_groups.clear()
 	for gid: String in data:
 		var g: Dictionary = (data[gid] as Dictionary).duplicate(true)
+		if not g.has("current_intent_since"):
+			g["current_intent_since"] = RunClock.now()
+		if not g.has("internal_social_cooldown_until"):
+			g["internal_social_cooldown_until"] = 0.0
 		# Restore Vector2
 		var hwp = g.get("home_world_pos", {"x": 0.0, "y": 0.0})
 		if hwp is Dictionary:

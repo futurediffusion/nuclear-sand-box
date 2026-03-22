@@ -89,7 +89,9 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var h_level: int = profile.hostility_level
 	var w_tier: int = FactionHostilityManager.get_wealth_tier(faction_id)
 	var current_intent: String = String(g.get("current_group_intent", "idle"))
-	var policy: Dictionary = _intent_policy.evaluate(score, profile, w_tier, current_intent)
+	var intent_time: float = BanditGroupMemory.get_intent_time(group_id)
+	var internal_cd: float = BanditGroupMemory.get_internal_social_cooldown_remaining(group_id)
+	var policy: Dictionary = _intent_policy.evaluate(score, profile, w_tier, current_intent, intent_time, internal_cd)
 	var effective_score: float = float(policy.get("effective_score", score))
 	var effective_t_alerted: float = float(policy.get("effective_alerted_threshold", BanditTuning.alerted_threshold()))
 	var effective_t_hunting: float = float(policy.get("effective_hunting_threshold", BanditTuning.hunting_threshold()))
@@ -105,8 +107,8 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var interest = _pick_best_interest(markers, bases)
 	if interest != null:
 		BanditGroupMemory.record_interest(group_id, interest.pos, interest.kind)
-		Debug.log("bandit_intel", "[BGI] group=%s score=%.1f eff=%.1f intent=%s lv%d a=%.1f h=%.1f" % [
-			group_id, score, effective_score, new_intent, h_level, effective_t_alerted, effective_t_hunting])
+		Debug.log("bandit_intel", "[BGI] group=%s score=%.1f eff=%.1f intent=%s lv%d a=%.1f h=%.1f t=%.1f cd=%.1f" % [
+			group_id, score, effective_score, new_intent, h_level, effective_t_alerted, effective_t_hunting, intent_time, internal_cd])
 
 	# For "alerted": designate exactly one scout
 	if new_intent == "alerted":
@@ -264,6 +266,7 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 		"severity":      clampf(severity, 0.0, 1.0),
 		"extort_reason": extort_reason,
 	})
+	BanditGroupMemory.push_social_cooldown(group_id, maxf(4.0, effective_cooldown * 0.15))
 	BanditGroupMemory.update_intent(group_id, "extorting")
 	Debug.log("bandit_intel",
 		"[BGI] extortion enqueued group=%s leader=%s kind=%s sev=%.2f compliance=%.2f wealth=%.0f(t%d)" % [
@@ -386,6 +389,7 @@ func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
 	var base_id: String      = String(base.get("id", ""))
 
 	RaidQueue.enqueue_light_raid(faction_id, group_id, leader_id, base_center, base_id)
+	BanditGroupMemory.push_social_cooldown(group_id, maxf(8.0, BanditTuning.raid_cooldown_base() * 0.12))
 	BanditGroupMemory.update_intent(group_id, "raiding")
 	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
 	Debug.log("bandit_intel", "[BGI] light raid enqueued group=%s leader=%s base=%s" % [
@@ -418,6 +422,7 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 	var base_id: String    = String(base.get("id", ""))
 
 	RaidQueue.enqueue_raid(faction_id, group_id, leader_id, base_center, base_id)
+	BanditGroupMemory.push_social_cooldown(group_id, maxf(12.0, effective_raid_cd * 0.15))
 	BanditGroupMemory.update_intent(group_id, "raiding")
 	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
 	Debug.log("bandit_intel", "[BGI] raid enqueued group=%s leader=%s base=%s" % [
