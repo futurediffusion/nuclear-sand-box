@@ -93,7 +93,6 @@ var _tile_painter := TilePainter.new()
 @export var cliff_collision_band: float = 0.3
 @export_group("")
 
-var _autosave_timer: float = 0.0
 var _biome_seed: int = 0
 var cliff_generator: CliffGenerator
 var _cliff_seed: int = 0
@@ -107,7 +106,6 @@ var current_player_chunk := Vector2i(-999, -999)
 
 var spawn_tile: Vector2i
 var tavern_chunk: Vector2i
-var _chunk_timer: float = 0.0
 var npc_simulator: NpcSimulator
 var entity_coordinator: EntitySpawnCoordinator
 var pipeline: ChunkPipeline
@@ -191,10 +189,17 @@ const BIOME_ID_DENSE_GRASS: int = 2
 func _ready() -> void:
 	_wall_refresh_queue = WallRefreshQueueScript.new()
 	_cadence = WorldCadenceCoordinatorScript.new()
+	# WorldCadenceCoordinator governs shared world pulses only: cross-system
+	# maintenance, chunk/autosave work, and directors that coordinate multiple
+	# systems. Specialized inner loops can still keep local clocks when their
+	# timing is inherently private/incremental.
 	_cadence.configure_lane(&"short_pulse", 0.12, 0.15)
 	_cadence.configure_lane(&"medium_pulse", 0.50, 0.42)
+	_cadence.configure_lane(&"director_pulse", 0.12, 0.67)
 	_cadence.configure_lane(&"chunk_pulse", chunk_check_interval, 0.68)
 	_cadence.configure_lane(&"autosave", autosave_interval, 0.31, 1)
+	_cadence.configure_lane(&"settlement_base_scan", SettlementIntel.BASE_RESCAN_INTERVAL, SettlementIntel.BASE_SCAN_PHASE_RATIO, 1)
+	_cadence.configure_lane(&"settlement_workbench_scan", SettlementIntel.WORKBENCH_RESCAN_INTERVAL, SettlementIntel.WORKBENCH_SCAN_PHASE_RATIO, 1)
 	_chunk_wall_collider_cache = ChunkWallColliderCacheScript.new()
 	_chunk_wall_collider_cache.setup({
 		"walls_tilemap": walls_tilemap,
@@ -469,6 +474,7 @@ func _ready() -> void:
 	_bandit_behavior_layer.name = "BanditBehaviorLayer"
 	add_child(_bandit_behavior_layer)
 	_bandit_behavior_layer.setup({
+		"cadence":               _cadence,
 		"npc_simulator":         npc_simulator,
 		"player":                player,
 		"speech_bubble_manager": _speech_bubble_manager,
