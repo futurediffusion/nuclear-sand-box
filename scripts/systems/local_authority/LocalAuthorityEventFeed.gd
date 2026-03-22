@@ -110,12 +110,21 @@ static func _compute_response(inc: LocalCivilIncident) -> String:
 	# Assault/arrest_or_subdue: ya son respuestas serias — la escalada no añade nada.
 	match base:
 		R.RECORD_ONLY:
-			# Hay un ofensor conocido o witnesses — algo se puede hacer.
+			# Hay ofensor conocido o testigos — algo se puede hacer mínimamente.
 			return R.WARN
 		R.WARN:
-			# Baja severity + autoridad afectada → consecuencia económica, no física.
-			# Moderate+ severity + autoridad → expulsión directa.
+			# Baja severity + autoridad afectada: depende de la naturaleza del incidente.
+			#
+			# Ofensas de PRESENCIA FÍSICA (trespass, refusal_to_leave): deny_service es
+			# incoherente — no había interacción comercial. La respuesta correcta es eject.
+			# Ejemplo: alguien entra sin permiso al interior y la afectada es la encargada.
+			#          "No te vendemos nada" no tiene sentido; "sal de aquí" sí.
+			#
+			# Ofensas con DIMENSIÓN COMERCIAL O SOCIAL (theft, disturbance, vandalism):
+			# deny_service es apropiado para baja severity — consecuencia sin intervención física.
 			if sv < C.SEVERITY_MODERATE:
+				if _is_presence_offense(inc.offense_type):
+					return R.EJECT
 				return R.DENY_SERVICE
 			return R.EJECT
 		R.DENY_SERVICE:
@@ -198,6 +207,13 @@ static func _base_response(inc: LocalCivilIncident) -> String:
 
 # ── Flags auxiliares ──────────────────────────────────────────────────────────
 
+## Ofensas cuyo núcleo es la presencia física del actor, no un intercambio comercial.
+## Para estas, deny_service como escalada de AUTHORITY_MEMBER es narrativamente incoherente.
+static func _is_presence_offense(offense: String) -> bool:
+	var C := LocalCivilAuthorityConstants
+	return offense in [C.Offense.TRESPASS, C.Offense.REFUSAL_TO_LEAVE]
+
+
 static func _should_record(inc: LocalCivilIncident, response: String) -> bool:
 	var R := LocalAuthorityResponse.Response
 	# WARN de baja severidad sin testigos: no merece entrar en el historial.
@@ -252,10 +268,27 @@ static func _make_directive(
 
 
 static func _build_notes(inc: LocalCivilIncident, response: String) -> String:
-	var C  := LocalCivilAuthorityConstants
-	var sv := LocalAuthorityResponse.SeverityBand.name_of(
+	var C   := LocalCivilAuthorityConstants
+	var R   := LocalAuthorityResponse.Response
+	var sv  := LocalAuthorityResponse.SeverityBand.name_of(
 		LocalAuthorityResponse.SeverityBand.from_float(inc.severity)
 	)
+
+	# RECORD_ONLY merece una nota específica que explique POR QUÉ no se actúa.
+	# Sin esto, el pipeline absorbe casos ambiguos sin trazabilidad.
+	if response == R.RECORD_ONLY:
+		if not C.Offense.is_known(inc.offense_type):
+			return "RECORD_ONLY: offense_type '%s' fuera del vocabulario — sin mapping" \
+				% inc.offense_type
+		var reason: PackedStringArray = PackedStringArray()
+		if inc.offender_actor_id.is_empty():
+			reason.append("ofensor desconocido")
+		if inc.witnesses.is_empty():
+			reason.append("sin testigos")
+		if inc.severity < C.SEVERITY_MODERATE:
+			reason.append("sv:%s" % sv)
+		return "RECORD_ONLY: sin contexto accionable (%s)" % ", ".join(reason)
+
 	var victim_note: String = ""
 	if inc.victim_kind == C.VictimKind.AUTHORITY_MEMBER:
 		victim_note = " [AUTHORITY_MEMBER escalation]"
