@@ -142,10 +142,11 @@ var _npc_simulator:  NpcSimulator             = null
 var _group_intel:    BanditGroupIntel         = null
 var _player:         Node2D                   = null
 var _bubble_manager: WorldSpeechBubbleManager = null
+var _cadence:        WorldCadenceCoordinator  = null
 
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _tick_timer: float     = BanditTuningScript.behavior_tick_interval() * 0.35
-var _director_timer: float = 0.08
+var _director_fallback_timer: float = 0.08
 
 var _extortion_director: BanditExtortionDirector = null
 var _raid_director:      BanditRaidDirector      = null
@@ -166,9 +167,14 @@ var _all_resources_cache: Array = []
 # ---------------------------------------------------------------------------
 
 func setup(ctx: Dictionary) -> void:
+	_cadence        = ctx.get("cadence") as WorldCadenceCoordinator
 	_npc_simulator  = ctx.get("npc_simulator")
 	_player         = ctx.get("player")
 	_bubble_manager = ctx.get("speech_bubble_manager")
+	# Temporal governance boundary:
+	# world cadence drives cross-system directors so extortion/raid orchestration
+	# shares the same world pulse grid as chunk/autosave maintenance. This layer
+	# keeps only a tiny fallback timer for scenes/tests that do not inject cadence.
 
 	# Extortion director
 	if _extortion_director != null and is_instance_valid(_extortion_director):
@@ -318,9 +324,13 @@ func _process(delta: float) -> void:
 		return
 	if _group_intel != null:
 		_group_intel.tick(delta)
-	_director_timer += delta
-	if _director_timer >= 0.12:
-		_director_timer -= 0.12
+	var director_pulses: int = _cadence.consume_lane(&"director_pulse") if _cadence != null else 0
+	if _cadence == null:
+		_director_fallback_timer += delta
+		if _director_fallback_timer >= 0.12:
+			_director_fallback_timer -= 0.12
+			director_pulses = 1
+	for _pulse in director_pulses:
 		if _extortion_director != null:
 			_extortion_director.process_extortion(0.12)
 		if _raid_director != null:

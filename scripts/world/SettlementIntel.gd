@@ -34,18 +34,17 @@ var _markers: Array[Dictionary] = []
 var _elapsed: float = 0.0
 var _rescan_timer: float = 0.0
 var _dirty: bool = false
-var _workbench_scan_due_in: float = WORKBENCH_RESCAN_INTERVAL * WORKBENCH_SCAN_PHASE_RATIO
 
 # --- Base detection state ---
 var _bases: Array[Dictionary] = []
 var _base_scan_dirty: bool = false
 var _base_rescan_timer: float = 0.0
-var _base_scan_due_in: float = BASE_RESCAN_INTERVAL * BASE_SCAN_PHASE_RATIO
 var _pending_base_scan: Dictionary = {}
 
 var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
 var _player_pos_getter: Callable
+var _cadence: WorldCadenceCoordinator
 
 
 # ---------------------------------------------------------------------------
@@ -56,10 +55,12 @@ func setup(ctx: Dictionary) -> void:
 	_world_to_tile_cb  = ctx.get("world_to_tile",    Callable())
 	_tile_to_world_cb  = ctx.get("tile_to_world",    Callable())
 	_player_pos_getter = ctx.get("player_pos_getter", Callable())
-	if ctx.has("cadence"):
-		# The world cadence exists mainly to phase global maintenance.
-		# SettlementIntel keeps its own timers, but begins with non-zero offsets so it does not align with chunk checks or other maintenance lanes.
-		pass
+	_cadence = ctx.get("cadence") as WorldCadenceCoordinator
+	# Temporal governance boundary:
+	# SettlementIntel now consumes cadence-defined world maintenance lanes for its
+	# expensive rescans. It remains locally autonomous only for dirty/forced work
+	# (immediate reactions and incremental door-scan budgeting).
+	# If the cadence is unavailable, it falls back to its legacy local timers.
 
 	if PlacementSystem != null \
 			and not PlacementSystem.placement_completed.is_connected(_on_placement_completed):
@@ -79,10 +80,10 @@ func setup(ctx: Dictionary) -> void:
 
 func process(delta: float) -> void:
 	_elapsed += delta
-	_rescan_timer += delta
-	_base_rescan_timer += delta
-	_workbench_scan_due_in -= delta
-	_base_scan_due_in -= delta
+	var use_world_cadence: bool = _cadence != null
+	if not use_world_cadence:
+		_rescan_timer += delta
+		_base_rescan_timer += delta
 
 	# --- TTL expiry ---
 	var i := _markers.size() - 1
@@ -95,15 +96,15 @@ func process(delta: float) -> void:
 				_markers.remove_at(i)
 		i -= 1
 
-	if _dirty or _workbench_scan_due_in <= 0.0 or _rescan_timer >= WORKBENCH_RESCAN_INTERVAL:
+	var workbench_pulses: int = _cadence.consume_lane(&"settlement_workbench_scan") if use_world_cadence else 0
+	if _dirty or workbench_pulses > 0 or _rescan_timer >= WORKBENCH_RESCAN_INTERVAL:
 		_rescan_timer = 0.0
-		_workbench_scan_due_in = WORKBENCH_RESCAN_INTERVAL
 		_dirty = false
 		_scan_workbenches()
 
-	if _player_pos_getter.is_valid() and (_base_scan_dirty or _base_scan_due_in <= 0.0 or _base_rescan_timer >= BASE_RESCAN_INTERVAL):
+	var base_scan_pulses: int = _cadence.consume_lane(&"settlement_base_scan") if use_world_cadence else 0
+	if _player_pos_getter.is_valid() and (_base_scan_dirty or base_scan_pulses > 0 or _base_rescan_timer >= BASE_RESCAN_INTERVAL):
 		_base_rescan_timer = 0.0
-		_base_scan_due_in = BASE_RESCAN_INTERVAL
 		_base_scan_dirty = false
 		_ensure_base_scan_job(_player_pos_getter.call(), BASE_SCAN_RADIUS_DEFAULT)
 

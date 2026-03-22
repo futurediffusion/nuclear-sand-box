@@ -45,6 +45,10 @@ func setup(ctx: Dictionary) -> void:
 
 # ---------------------------------------------------------------------------
 # Tick — called from BanditBehaviorLayer._process()
+# This scan slice remains intentionally local: it is an internal fairness loop
+# over bandit groups, not a shared world-maintenance pulse. The coordinator
+# governs when the outer bandit layer/directors wake up; this class governs how
+# it amortizes its own per-group scan budget once awake.
 # ---------------------------------------------------------------------------
 
 func tick(delta: float) -> void:
