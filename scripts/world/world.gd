@@ -541,10 +541,12 @@ func _ready() -> void:
 	_player_territory_dirty = true
 	_tavern_memory   = TavernLocalMemory.new()
 	_tavern_policy   = TavernAuthorityPolicy.new()
+	_tavern_policy.setup({"memory": _tavern_memory})
 	_tavern_director = TavernSanctionDirector.new()
 	_tavern_director.setup({
-		"get_keeper":    Callable(self, "_get_tavern_keeper_node"),
-		"get_sentinels": func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
+		"get_keeper":          Callable(self, "_get_tavern_keeper_node"),
+		"get_sentinels":       func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
+		"memory_deny_service": Callable(_tavern_memory, "deny_service_for"),
 	})
 	_local_social_ports = LocalSocialAuthorityPortsScript.new()
 	_local_social_ports.setup({
@@ -1282,9 +1284,10 @@ func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> 
 		Debug.log("authority", "[TAVERN] incident_type='%s' sin mapping — ignorado" % incident_type)
 		return
 
-	_tavern_memory.record(incident)
-
+	# La policy evalúa ANTES de registrar — así ve solo el historial previo,
+	# no el incidente actual. El orden es relevante para escalaciones correctas.
 	var directive: LocalAuthorityDirective = _tavern_policy.evaluate(incident)
+	_tavern_memory.record(incident)
 	Debug.log("authority", "[TAVERN] %s" % directive.describe())
 
 	if directive.response_type == LocalAuthorityResponse.Response.RECORD_ONLY:
@@ -1377,12 +1380,13 @@ func _get_tavern_keeper_node() -> TavernKeeper:
 	return null
 
 
-## Registra el reporter de incidentes en el keeper activo.
+## Cablea el reporter de incidentes y el service_check de memoria en el keeper activo.
 func _wire_keeper_incident_reporter() -> void:
 	var keeper := _get_tavern_keeper_node()
 	if keeper == null:
 		return
 	keeper.set_incident_reporter(Callable(self, "report_tavern_incident"))
+	keeper.set_service_check(Callable(_tavern_memory, "is_service_denied"))
 
 
 ## Encuentra el jugador más cercano a una posición world. Devuelve null si no hay.

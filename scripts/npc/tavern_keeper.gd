@@ -73,9 +73,10 @@ const SLEEP_CHECK_INTERVAL: float = 0.5
 
 ## Reporter de incidentes civiles — se registra desde world.gd tras el spawn.
 var _incident_reporter: Callable = Callable()
-## Actores a los que el keeper se niega a atender (deny_service).
-## Clave: actor_id (node.name). Valor: true.
-var _denied_actors: Dictionary = {}
+## Callable que consulta TavernLocalMemory.is_service_denied(actor_id).
+## Fuente de verdad para deny_service — evita que keeper y memoria diverjan.
+## Firma: (actor_id: String) -> bool
+var _service_check: Callable = Callable()
 
 var _in_combat: bool = false
 var _weapon_pivot: Node2D = null
@@ -565,24 +566,36 @@ func _update_weapon_pivot(delta: float) -> void:
 # API PÚBLICA — llamada desde world.gd al instanciar
 # =============================================================================
 
-## Registra el callable que reporta incidentes civiles (world.report_tavern_incident).
+## Registra el callable para reportar incidentes civiles (world.report_tavern_incident).
 func set_incident_reporter(reporter: Callable) -> void:
 	_incident_reporter = reporter
 
 
-## Impide que el actor identificado por actor_id pueda abrir la tienda.
-## El efecto persiste durante la sesión (Fase 2 — sin expiración ni persistencia).
+## Registra el callable que consulta TavernLocalMemory.is_service_denied().
+## Llamar desde world.gd después del spawn del keeper.
+func set_service_check(checker: Callable) -> void:
+	_service_check = checker
+
+
+## Notificación inmediata del director cuando se emite un deny_service.
+## La fuente de verdad real es TavernLocalMemory (consultada via _service_check).
+## Aquí solo cerramos la UI si el actor está activo en la tienda.
 func deny_service(actor_id: String) -> void:
 	if actor_id.is_empty():
 		return
-	_denied_actors[actor_id] = true
-	Debug.log("authority", "[KEEPER] deny_service actor_id=%s" % actor_id)
+	Debug.log("authority", "[KEEPER] deny_service notificado actor_id=%s" % actor_id)
+	# Si el actor baneado tiene la tienda abierta, cerrarla inmediatamente.
+	if _keeper_menu_ui != null and _keeper_menu_ui.is_owner(self) \
+			and _player_ref != null and _player_ref.name == actor_id:
+		_keeper_menu_ui.close_shop()
 
 
 func _is_actor_denied(node: Node) -> bool:
 	if node == null:
 		return false
-	return _denied_actors.has(node.name)
+	if _service_check.is_valid():
+		return _service_check.call(node.name)
+	return false
 
 
 func setup(tilemap: TileMap, inner_min: Vector2i, inner_max: Vector2i, the_counter_tile: Vector2i) -> void:

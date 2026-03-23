@@ -1,46 +1,142 @@
 extends RefCounted
 class_name TavernLocalMemory
 
-## Historial de incidentes civiles de la taberna para la sesión actual.
+## Memoria institucional de la taberna.
 ##
-## Fase 2: almacenamiento en memoria RAM, sin persistencia entre sesiones.
-## Fase 3: serializar a WorldSave para persistencia entre sesiones.
+## Mantiene un OffenderRecord por actor_id con métricas finas:
+##   - tipo de ofensas vistas, violencia, daño a autoridad, daño a propiedad
+##   - gravedad máxima, reincidencia, última ofensa (día + tiempo de sesión)
+##   - estado de deny_service (fuente de verdad para el keeper)
 ##
-## USO:
-##   _tavern_memory.record(incident)
-##   var count := _tavern_memory.get_offender_count("Player")
-##   var snap  := _tavern_memory.get_snapshot("tavern_main")
+## La policy DEBE consultar esta memoria ANTES de que se registre el incidente
+## actual (para ver solo el historial previo).
+##
+## Fase 2: sesión únicamente. Fase 3: serializar en WorldSave.
 
 const MAX_ENTRIES: int = 128
 
-## Registro cronológico de incidentes (como Dictionary via to_dict()).
+
+## Perfil institucional acumulado por actor.
+class OffenderRecord extends RefCounted:
+	var actor_id: String = ""
+
+	## Número total de incidentes registrados.
+	var incident_count: int = 0
+	## Incidentes violentos (ASSAULT, MURDER).
+	var violence_count: int = 0
+	## Incidentes cuya víctima era miembro de la autoridad (keeper, sentinel).
+	var authority_assault_count: int = 0
+	## Incidentes de daño a propiedad (VANDALISM, TRESPASS).
+	var property_damage_count: int = 0
+	## Gravedad máxima registrada (0.0–1.0).
+	var max_severity_seen: float = 0.0
+	## Gravedad del incidente más reciente.
+	var last_severity: float = 0.0
+	## Día de juego de la última ofensa.
+	var last_offense_day: int = 0
+	## Tiempo de sesión (RunClock) de la última ofensa.
+	var last_offense_run_time: float = 0.0
+	## Tipos de ofensa observados (sin duplicados).
+	var offense_types_seen: PackedStringArray = PackedStringArray()
+	## true si el actor ha sido baneado del servicio.
+	var service_denied: bool = false
+
+	func to_dict() -> Dictionary:
+		return {
+			"actor_id":                actor_id,
+			"incident_count":          incident_count,
+			"violence_count":          violence_count,
+			"authority_assault_count": authority_assault_count,
+			"property_damage_count":   property_damage_count,
+			"max_severity_seen":       max_severity_seen,
+			"last_severity":           last_severity,
+			"last_offense_day":        last_offense_day,
+			"last_offense_run_time":   last_offense_run_time,
+			"offense_types_seen":      Array(offense_types_seen),
+			"service_denied":          service_denied,
+		}
+
+
+## Registro cronológico (como dicts, para serialización futura).
 var _entries: Array[Dictionary] = []
-
-## Conteo acumulado de incidentes por actor_id.
-## Clave: offender_actor_id (String). Valor: int.
-var _offender_counts: Dictionary = {}
+## Perfiles por actor_id.
+var _offender_records: Dictionary = {}  # String → OffenderRecord
 
 
-## Registra un incidente. Si se supera MAX_ENTRIES, descarta el más antiguo.
+## Registra el incidente y actualiza el perfil del ofensor.
+## Llamar DESPUÉS de que TavernAuthorityPolicy haya evaluado (para que policy
+## vea solo el historial previo y no el incidente actual).
 func record(incident: LocalCivilIncident) -> void:
 	_entries.append(incident.to_dict())
 	if _entries.size() > MAX_ENTRIES:
 		_entries.pop_front()
-	if not incident.offender_actor_id.is_empty():
-		var prev: int = _offender_counts.get(incident.offender_actor_id, 0)
-		_offender_counts[incident.offender_actor_id] = prev + 1
+
+	if incident.offender_actor_id.is_empty():
+		return
+
+	var C   := LocalCivilAuthorityConstants
+	var rec := _get_or_create(incident.offender_actor_id)
+
+	rec.incident_count   += 1
+	rec.last_severity     = incident.severity
+	rec.max_severity_seen = maxf(rec.max_severity_seen, incident.severity)
+	rec.last_offense_day      = incident.day
+	rec.last_offense_run_time = incident.created_at_run_time
+
+	if not rec.offense_types_seen.has(incident.offense_type):
+		rec.offense_types_seen.append(incident.offense_type)
+
+	if incident.offense_type in [C.Offense.ASSAULT, C.Offense.MURDER]:
+		rec.violence_count += 1
+
+	if incident.victim_kind == C.VictimKind.AUTHORITY_MEMBER:
+		rec.authority_assault_count += 1
+
+	if incident.offense_type in [C.Offense.VANDALISM, C.Offense.TRESPASS]:
+		rec.property_damage_count += 1
 
 
-## Número de incidentes registrados para un actor_id concreto.
+## Devuelve el perfil previo al actor (null si es primera vez).
+func get_offender_record(actor_id: String) -> OffenderRecord:
+	return _offender_records.get(actor_id, null) as OffenderRecord
+
+
+## Número de incidentes registrados para un actor.
 func get_offender_count(actor_id: String) -> int:
-	return int(_offender_counts.get(actor_id, 0))
+	var rec: OffenderRecord = _offender_records.get(actor_id, null)
+	return rec.incident_count if rec != null else 0
 
 
-## Snapshot de estado para el port callable de LocalSocialAuthorityPorts.
-## scope_id: el local_authority_id que se quiere consultar (p.ej. "tavern_main").
+## Marca al actor como baneado del servicio.
+## Fuente de verdad — el keeper consulta aquí en lugar de mantener su propio set.
+func deny_service_for(actor_id: String) -> void:
+	if actor_id.is_empty():
+		return
+	_get_or_create(actor_id).service_denied = true
+	Debug.log("authority", "[MEMORY] deny_service registrado actor_id=%s" % actor_id)
+
+
+## true si el actor fue baneado del servicio en esta sesión.
+func is_service_denied(actor_id: String) -> bool:
+	var rec: OffenderRecord = _offender_records.get(actor_id, null)
+	return rec != null and rec.service_denied
+
+
+## Snapshot estructurado para el port callable de LocalSocialAuthorityPorts.
 func get_snapshot(scope_id: String, _payload: Dictionary = {}) -> Dictionary:
+	var offender_dicts: Dictionary = {}
+	for actor_id: String in _offender_records:
+		offender_dicts[actor_id] = (_offender_records[actor_id] as OffenderRecord).to_dict()
 	return {
-		"scope_id":        scope_id,
-		"entry_count":     _entries.size(),
-		"offender_counts": _offender_counts.duplicate(),
+		"scope_id":      scope_id,
+		"entry_count":   _entries.size(),
+		"offenders":     offender_dicts,
 	}
+
+
+func _get_or_create(actor_id: String) -> OffenderRecord:
+	if not _offender_records.has(actor_id):
+		var rec := OffenderRecord.new()
+		rec.actor_id = actor_id
+		_offender_records[actor_id] = rec
+	return _offender_records[actor_id] as OffenderRecord
