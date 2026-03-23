@@ -62,7 +62,9 @@
       "Bash(godot --path . --check-only --script scripts/world/BanditTerritoryQuery.gd)",
       "Bash(godot --path . --check-only --script scripts/world/world.gd)",
       "Bash(godot --path . --check-only --script scripts/npc/sentinel.gd)",
-      "Bash(godot --path . --check-only scripts/npc/sentinel.gd)"
+      "Bash(godot --path . --check-only scripts/npc/sentinel.gd)",
+      "Bash(godot --path \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box\" --check-only scripts/world/world.gd)",
+      "Bash(godot --path \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box\" --check-only scripts/npc/sentinel.gd)"
     ]
   }
 }

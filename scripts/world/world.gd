@@ -136,6 +136,7 @@ var _cadence: WorldCadenceCoordinator
 var _world_sim_telemetry: WorldSimTelemetry
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
+var _tavern_sentinels_spawned: bool = false
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -583,10 +584,13 @@ func _ready() -> void:
 
 
 func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
-	if stage != "tiles":
-		return
-	if _player_wall_system != null:
-		_player_wall_system.apply_saved_walls_for_chunk(chunk_pos)
+	if stage == "tiles":
+		if _player_wall_system != null:
+			_player_wall_system.apply_saved_walls_for_chunk(chunk_pos)
+	elif stage == "entities" and chunk_pos == tavern_chunk:
+		# El keeper acaba de quedar en el árbol de escena.
+		# Es el momento correcto para spawnear sentinels con posición exacta.
+		ensure_tavern_sentinels_spawned()
 
 func _clear_chunk_wall_runtime_cache() -> void:
 	if _chunk_wall_collider_cache != null:
@@ -1149,34 +1153,112 @@ func get_tavern_inner_bounds_world() -> Rect2:
 	return Rect2(min_world, max_world - min_world)
 
 
-## Spawnea un sentinel cerca de la taberna y lo parenta bajo _entity_root.
-## Llama esto desde main.gd o después de que la taberna esté generada.
+## ── Tavern Sentinel Deployment (Paso 1) ──────────────────────────────────────
 ##
-## Uso:
-##   var s := world.spawn_sentinel_near_tavern()
-##   if s == null: print("sentinel_scene no asignada en Inspector")
+## Presencia institucional permanente de la taberna: 2 sentinels fijos.
+## Llamar UNA sola vez, automáticamente desde _on_chunk_stage_completed cuando
+## el chunk de la taberna completa su stage "entities" (keeper ya en árbol).
 ##
-## El sentinel queda a 3 tiles (96 px) a la derecha del centro de la taberna.
-## home_pos se inicializa en esa posición para que regrese ahí tras una orden.
-func spawn_sentinel_near_tavern() -> Sentinel:
+## Roles desplegados:
+##   interior_guard  — cerca del keeper; presencia visible del espacio interior
+##   door_guard      — en el borde exterior de la puerta; control de acceso
+##
+## Anti-doble-spawn: _tavern_sentinels_spawned guard + comprobación de grupo.
+## Para debug manual sigue existiendo /summon sentinel en CommandSystem.
+##
+## ── Activadores futuros (NO implementados — stub de integración) ──────────────
+## Cuando TavernLocalMemory + TavernAuthorityPolicy + TavernSanctionDirector
+## estén implementados, los siguientes eventos dispararán la cadena completa:
+##
+##   report_tavern_incident("barrel_opened",   {offender: node, pos: pos})
+##   report_tavern_incident("barrel_destroyed", {offender: node, pos: pos})
+##   report_tavern_incident("wall_damaged",     {offender: node, pos: pos})
+##   report_tavern_incident("assault_keeper",   {offender: node, pos: pos})
+##   report_tavern_incident("assault_sentinel", {offender: node, victim: sentinel})
+##   report_tavern_incident("murder_in_tavern", {offender: node, pos: pos})
+##   report_tavern_incident("armed_intruder",   {offender: node, faction: "bandit"})
+##   report_tavern_incident("trespass",         {offender: node, duration: secs})
+##   report_tavern_incident("bandit_attack",    {offender: node, target: node})
+##
+## Offenders pueden ser: player, bandit/enemy, cualquier agente con Node2D.
+## Victims: keeper, sentinel, propiedad de taberna, futuros civiles.
+## El director futuro consultará sentinel_role para elegir qué sentinel responde.
+
+
+func ensure_tavern_sentinels_spawned() -> void:
+	if _tavern_sentinels_spawned:
+		return
+	# Segunda guarda: si por alguna razón ya hay sentinels de taberna en escena
+	if not get_tree().get_nodes_in_group("tavern_sentinel").is_empty():
+		_tavern_sentinels_spawned = true
+		return
 	if sentinel_scene == null:
-		Debug.log("world", "spawn_sentinel_near_tavern: sentinel_scene no asignada en el Inspector")
-		return null
+		Debug.log("world", "ensure_tavern_sentinels_spawned: sentinel_scene no asignada en Inspector")
+		return
 	if _entity_root == null:
-		Debug.log("world", "spawn_sentinel_near_tavern: _entity_root no disponible — llamar después de _ready")
-		return null
-	var center_tile := get_tavern_center_tile(tavern_chunk)
-	var world_pos   := _tile_to_world(center_tile)
-	# 3 tiles a la derecha de la entrada (3 × 32 px = 96 px)
-	var spawn_pos   := world_pos + Vector2(96.0, 0.0)
-	var sentinel    := sentinel_scene.instantiate() as Sentinel
-	_entity_root.add_child(sentinel)
-	sentinel.global_position = spawn_pos
-	sentinel.home_pos        = spawn_pos
-	Debug.log("world", "Sentinel spawneado en %s (tavern_chunk=%s)" % [
-		str(spawn_pos), str(tavern_chunk)
+		Debug.log("world", "ensure_tavern_sentinels_spawned: _entity_root no disponible")
+		return
+
+	_tavern_sentinels_spawned = true
+
+	# Resolver posiciones
+	var keeper_pos  : Vector2 = _get_tavern_keeper_pos()
+	var exit_pos    : Vector2 = get_tavern_exit_world_pos()
+
+	# interior_guard — flanco derecho del keeper, mirando hacia la entrada
+	var interior_pos := keeper_pos + Vector2(28.0, 16.0)
+	# door_guard — 1 tile al sur de la salida (fuera de la taberna, en la puerta)
+	var door_pos := exit_pos + Vector2(0.0, 32.0)
+
+	_spawn_single_tavern_sentinel("interior_guard", interior_pos)
+	_spawn_single_tavern_sentinel("door_guard",     door_pos)
+
+	Debug.log("world", "[TavernSentinels] interior=%s  door=%s" % [
+		str(interior_pos), str(door_pos)
 	])
-	return sentinel
+
+
+func _spawn_single_tavern_sentinel(role: String, pos: Vector2) -> Sentinel:
+	var s := sentinel_scene.instantiate() as Sentinel
+	_entity_root.add_child(s)
+	s.global_position  = pos
+	s.home_pos         = pos
+	s.sentinel_role    = role
+	s.tavern_site_id   = "tavern_main"
+	s.add_to_group("tavern_sentinel")
+	return s
+
+
+## Resolver la posición world del TavernKeeper en runtime.
+## Si el keeper todavía no está en escena, usa geometría fija del chunk.
+func _get_tavern_keeper_pos() -> Vector2:
+	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
+	if not keepers.is_empty():
+		return (keepers[0] as Node2D).global_position
+	# Fallback: tile del counter desde geometría del chunk
+	var x0 := tavern_chunk.x * chunk_size + 4
+	var y0 := tavern_chunk.y * chunk_size + 3
+	return _tile_to_world(Vector2i(x0 + 6, y0 + 2))
+
+
+## ── Hook único de entrada para incidentes civiles de taberna ─────────────────
+## Punto de integración para todos los activadores de autoridad local.
+## En Paso 1: loguea + reenvía al puerto (sin director detrás todavía).
+## En Paso 2: TavernSanctionDirector se conecta vía _local_social_ports.
+##
+## Llamar desde: hurtbox del keeper, barrel interaction, wall damage callbacks,
+##   BanditBehaviorLayer, futuros civiles, etc.
+func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> void:
+	Debug.log("authority", "[TAVERN] incident=%s  payload=%s" % [incident_type, str(payload)])
+	_local_social_ports.direct_local_sanction(incident_type, payload)
+
+
+## Compatibilidad con llamadas debug existentes (redirige a ensure_*).
+## El comando /summon sentinel en CommandSystem sigue siendo independiente.
+func spawn_sentinel_near_tavern() -> Sentinel:
+	ensure_tavern_sentinels_spawned()
+	var sentinels := get_tree().get_nodes_in_group("tavern_sentinel")
+	return sentinels[0] as Sentinel if not sentinels.is_empty() else null
 
 
 func _on_wall_hit_activity(tile_pos: Vector2i) -> void:

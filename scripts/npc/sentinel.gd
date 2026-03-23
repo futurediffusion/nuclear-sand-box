@@ -90,6 +90,15 @@ enum OrderType {
 @export var grab_duration: float      = 0.7     ## s: duración del mini-grab en EJECT (arrastre continuo hacia la puerta)
 @export var grab_drag_force: float    = 130.0   ## fuerza continua de arrastre durante el grab (por frame × delta)
 
+@export_group("Institutional Identity")
+## Rol dentro del despliegue de taberna. Seteado por world.gd al spawnear.
+## Valores: "interior_guard" | "door_guard" | "" (debug/manual)
+## Usado por TavernSanctionDirector (futuro) para elegir qué sentinel responde.
+@export var sentinel_role: String = ""
+## Site al que pertenece este sentinel. "tavern_main" para sentinels de taberna.
+## Permite que el director gestione sentinels de múltiples locaciones si escala.
+@export var tavern_site_id: String = ""
+
 @export_group("References")
 @export var slash_scene: PackedScene   ## asignar en Inspector — misma slash.tscn del enemy
 
