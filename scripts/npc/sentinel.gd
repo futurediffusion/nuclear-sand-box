@@ -13,28 +13,31 @@ extends "res://scripts/CharacterBase.gd"
 #   El sentinel es autoridad civil: responde a órdenes institucionales, no a
 #   proximidad del jugador. Su escalada es advertencia → empujón → KO, no "matar".
 #
-# POR QUÉ NO USA AIComponent PARA MOVIMIENTO (todavía):
-#   AIComponent está diseñado para enemy combat con LOD, duel system, bow/melee
-#   style switching, etc. Para el sentinel es overkill ahora. Se construye solo
-#   para SUBDUE (combat) como hace TavernKeeper, no para navegación general.
-#   EXTENSIÓN FUTURA: pasar movimiento a AIComponent si la riqueza de combate
-#   del sentinel justifica la complejidad añadida.
+# MOVIMIENTO: usa NpcPathService (tile A*) vía _pathfind_toward(). El estado
+#   SUBDUE instancia WeaponComponent + AIWeaponController igual que TavernKeeper.
+#   AIComponent completo no se usa: su LOD/bow/duel es overkill para rol civil.
 #
 # ESTADOS:
-#   GUARD       — en el post, mínimo movimiento
-#   INTERCEPT   — moviéndose al target de la orden
-#   WARN        — advertencia verbal/física cerca del target
-#   SHOVE       — empujón sin daño (CombatPhysicsHelper)
+#   GUARD       — en el post; escanea periódicamente cuerpos KO en la taberna
+#   INTERCEPT   — moviéndose hacia el target o posición de la orden
+#   WARN        — advertencia: proximidad + espera antes de escalar
+#   SHOVE       — empujón direccional (CombatPhysicsHelper) + mini-grab
 #   CHASE_SHORT — persecución dentro de jurisdicción
-#   SUBDUE      — combate para dejar KO (usa WeaponComponent + AIWeaponController)
-#   RETURN      — volviendo al home_pos
+#   SUBDUE      — combate para dejar KO (WeaponComponent + AIWeaponController)
+#   RETURN      — volviendo a home_pos
+#   HAUL        — transporta cuerpos KO (player/npc/enemy) fuera de la taberna
+#                 via soft-carry (sin reparenteo; mueve global_position cada frame)
 #
 # QUÉ NO RESUELVE TODAVÍA:
 #   - Animación de advertencia visual / speech bubble
 #   - Cooldowns sociales persistentes por actor
 #   - Coordinación entre múltiples sentinels
-#   - Pathfinding sofisticado (usa movimiento directo como TavernKeeper)
 #   - Integración completa con TavernSanctionDirector
+#
+# LÍMITE DE RESPONSABILIDAD (fase 1):
+#   El sentinel ya gestiona órdenes, jurisdicción, shove, subdue, haul,
+#   geometría de taberna, passthrough y pathing. Para fase 2+ extraer
+#   haul y passthrough a helpers/directors antes de añadir más lógica.
 
 const InventoryComponentScript = preload("res://scripts/components/InventoryComponent.gd")
 const WeaponComponentScript    = preload("res://scripts/components/WeaponComponent.gd")
@@ -356,7 +359,7 @@ func _tick_chase_short(delta: float) -> void:
 	if dist > 8.0:
 		_pathfind_toward(target_pos, chase_speed, {"repath_interval": 0.5})
 	else:
-		velocity = velocity.move_toward(Vector2.ZERO, friction * _state_timer)
+		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
 
 func _tick_subdue(delta: float) -> void:
