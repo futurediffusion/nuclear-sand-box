@@ -116,6 +116,10 @@ var home_pos: Vector2 = Vector2.ZERO
 
 ## Reporter de incidentes civiles — registrado por world.gd al spawnear.
 var _incident_reporter: Callable = Callable()
+## Cooldown por instancia de enemy para evitar spam de armed_intruder.
+## Clave: instance_id. Valor: tiempo de sesión hasta que se puede volver a reportar.
+var _armed_intruder_reported: Dictionary = {}
+const _ARMED_INTRUDER_COOLDOWN_SEC: float = 15.0
 
 
 # ── Estado interno ────────────────────────────────────────────────────────────
@@ -196,6 +200,11 @@ func _ready() -> void:
 	_resolve_eject_context.call_deferred()
 
 	if detection_area != null:
+		# Activar detección de enemigos (layer 3) en la DetectionArea.
+		# Por defecto la máscara es 0 — solo la seteamos si este sentinel tiene site_id,
+		# es decir, es un sentinel institucional (no de debug).
+		if not tavern_site_id.is_empty():
+			detection_area.collision_mask = CollisionLayers.ENEMY_LAYER_MASK
 		if not detection_area.body_entered.is_connected(_on_detection_entered):
 			detection_area.body_entered.connect(_on_detection_entered)
 		if not detection_area.body_exited.is_connected(_on_detection_exited):
@@ -774,12 +783,30 @@ func _on_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
 
 # ── Detection area (reserved for future use) ──────────────────────────────────
 
-func _on_detection_entered(_body: Node) -> void:
-	pass   # Reservado: detección de ingreso sin orden activa (p.ej. zona restringida)
+func _on_detection_entered(body: Node) -> void:
+	# Solo actuar si el sentinel está en GUARD (en post) y tiene reporter institucional.
+	if _state != State.GUARD:
+		return
+	if not _incident_reporter.is_valid() or tavern_site_id.is_empty():
+		return
+	if body == null or not is_instance_valid(body):
+		return
+	if not body.is_in_group("enemy"):
+		return
+
+	# Cooldown por individuo: no re-reportar el mismo enemy en menos de N segundos.
+	var iid: int = body.get_instance_id()
+	var now: float = Time.get_ticks_msec() / 1000.0
+	if _armed_intruder_reported.get(iid, 0.0) > now:
+		return
+	_armed_intruder_reported[iid] = now + _ARMED_INTRUDER_COOLDOWN_SEC
+
+	_incident_reporter.call("armed_intruder",
+		{"offender": body, "pos": (body as Node2D).global_position})
 
 
 func _on_detection_exited(_body: Node) -> void:
-	pass   # Reservado
+	pass
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -53,13 +53,17 @@ func dispatch(directive: LocalAuthorityDirective, offender_node: CharacterBody2D
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 func _dispatch_warn(directive: LocalAuthorityDirective, offender: CharacterBody2D) -> void:
-	# interior_guard: dentro del espacio, contacto verbal inmediato.
-	var sentinel := _pick_by_role_or_nearest("interior_guard", offender)
+	# Advertencia verbal: el guardian más adecuado según zona del incidente.
+	# Interior → interior_guard (ya está dentro del espacio).
+	# Grounds/perimeter o desconocida → door_guard (más cercano a la entrada).
+	var preferred_role := _role_for_zone(directive.zone_id, "warn")
+	var sentinel := _pick_by_role_then_zone(preferred_role, directive.zone_id, offender)
 	if sentinel != null:
 		sentinel.execute_directive(directive, offender)
 
 
 func _dispatch_deny_service(directive: LocalAuthorityDirective, _offender: CharacterBody2D) -> void:
+	# Sanción económica: solo keeper. No movilizar sentinel físicamente.
 	# 1. Registrar en memoria (fuente de verdad — el keeper la consulta).
 	if _memory_deny_service.is_valid():
 		_memory_deny_service.call(directive.offender_actor_id)
@@ -70,18 +74,25 @@ func _dispatch_deny_service(directive: LocalAuthorityDirective, _offender: Chara
 
 
 func _dispatch_eject(directive: LocalAuthorityDirective, offender: CharacterBody2D) -> void:
-	# door_guard: su posición natural es la salida — mejor escort.
-	var sentinel := _pick_by_role_or_nearest("door_guard", offender)
+	# Expulsión física: door_guard preferido — conoce la salida y está posicionado ahí.
+	# Si no hay door_guard, cualquier sentinel disponible.
+	var sentinel := _pick_by_role_then_zone("door_guard", directive.zone_id, offender)
 	if sentinel != null:
 		sentinel.execute_directive(directive, offender)
 
 
 func _dispatch_call_backup(directive: LocalAuthorityDirective, offender: CharacterBody2D) -> void:
-	for s: Sentinel in _get_sentinel_nodes():
+	# Respaldo: movilizar todos — interior_guard primero (más cerca de la acción).
+	var sentinels := _get_sentinel_nodes()
+	sentinels.sort_custom(func(a: Sentinel, b: Sentinel) -> bool:
+		return a.sentinel_role == "interior_guard" and b.sentinel_role != "interior_guard"
+	)
+	for s: Sentinel in sentinels:
 		s.execute_directive(directive, offender)
 
 
 func _dispatch_arrest(directive: LocalAuthorityDirective, offender: CharacterBody2D) -> void:
+	# Detención: todos los sentinels, sin orden de preferencia.
 	for s: Sentinel in _get_sentinel_nodes():
 		s.execute_directive(directive, offender)
 	if directive.suggests_zone_lockdown:
@@ -109,16 +120,39 @@ func _get_sentinel_nodes() -> Array[Sentinel]:
 	return result
 
 
-## Elige el sentinel con el rol preferido (mismo site). Fallback: el más cercano.
-func _pick_by_role_or_nearest(preferred_role: String, offender: CharacterBody2D) -> Sentinel:
+## Qué rol es más apropiado para un incidente según zona y tipo de respuesta.
+##   interior → interior_guard (ya está dentro, contacto inmediato)
+##   grounds/perimeter/desconocido → door_guard (controla el acceso)
+func _role_for_zone(zone_id: String, _response_hint: String = "") -> String:
+	var C := LocalCivilAuthorityConstants
+	if zone_id == C.ZONE_TAVERN_INTERIOR:
+		return "interior_guard"
+	return "door_guard"
+
+
+## Elige sentinel por rol, con fallback a zona (más cercano al incidente) y luego al ofensor.
+func _pick_by_role_then_zone(
+		preferred_role: String,
+		zone_id: String,
+		offender: CharacterBody2D,
+) -> Sentinel:
 	var sentinels := _get_sentinel_nodes()
 	if sentinels.is_empty():
 		return null
-	# Preferencia: rol correcto para el tipo de respuesta.
+
+	# 1. Rol exacto dentro del mismo site
 	for s: Sentinel in sentinels:
 		if s.sentinel_role == preferred_role:
 			return s
-	# Fallback: más cercano al ofensor.
+
+	# 2. Si el rol preferido no existe, intentar el rol complementario.
+	# Ej: si no hay door_guard, el interior_guard es mejor que nada.
+	var fallback_role := "interior_guard" if preferred_role == "door_guard" else "door_guard"
+	for s: Sentinel in sentinels:
+		if s.sentinel_role == fallback_role:
+			return s
+
+	# 3. Ultimo recurso: más cercano al ofensor (no hay roles configurados).
 	return _pick_nearest(sentinels, offender)
 
 
@@ -127,7 +161,7 @@ func _pick_nearest(sentinels: Array[Sentinel], to_node: CharacterBody2D) -> Sent
 		return null
 	if to_node == null or not is_instance_valid(to_node):
 		return sentinels[0]
-	var nearest: Sentinel  = null
+	var nearest: Sentinel   = null
 	var nearest_dist: float = INF
 	for s: Sentinel in sentinels:
 		var d: float = (s as Node2D).global_position.distance_to(to_node.global_position)

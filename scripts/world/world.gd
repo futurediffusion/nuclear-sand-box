@@ -1295,9 +1295,12 @@ func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> 
 
 	var offender_node: CharacterBody2D = payload.get("offender", null) as CharacterBody2D
 	if offender_node == null or not is_instance_valid(offender_node):
-		# Fallback: buscar el jugador más cercano a la posición del incidente.
-		var incident_pos: Vector2 = payload.get("pos", Vector2.ZERO)
-		offender_node = _find_nearest_player(incident_pos)
+		# Fallback solo cuando el ofensor era desconocido desde el principio (no enemy explícito).
+		# Para incidentes de bandit/enemy el nodo ya viene en payload — si no llegó, no forzar player.
+		var is_enemy_incident := incident_type in ["armed_intruder", "bandit_attack", "murder_in_tavern"]
+		if not is_enemy_incident:
+			var incident_pos: Vector2 = payload.get("pos", Vector2.ZERO)
+			offender_node = _find_nearest_player(incident_pos)
 
 	_tavern_director.dispatch(directive, offender_node)
 
@@ -1346,6 +1349,12 @@ func _build_tavern_incident(incident_type: String, payload: Dictionary) -> Local
 		"bandit_attack":
 			offense     = C.Offense.ASSAULT
 			severity    = C.SEVERITY_SERIOUS
+		"disturbance":
+			# TODO(Paso 4): conectar cuando exista sensor de zona o comportamiento conflictivo.
+			# Por ahora solo llega si alguien lo dispara explícitamente.
+			offense     = C.Offense.DISTURBANCE
+			severity    = C.SEVERITY_MINOR
+			zone        = C.ZONE_TAVERN_INTERIOR
 		_:
 			return null
 
@@ -1381,12 +1390,37 @@ func _get_tavern_keeper_node() -> TavernKeeper:
 
 
 ## Cablea el reporter de incidentes y el service_check de memoria en el keeper activo.
+## También registra contenedores en zona de taberna para activadores barrel_*.
 func _wire_keeper_incident_reporter() -> void:
 	var keeper := _get_tavern_keeper_node()
-	if keeper == null:
+	if keeper != null:
+		keeper.set_incident_reporter(Callable(self, "report_tavern_incident"))
+		keeper.set_service_check(Callable(_tavern_memory, "is_service_denied"))
+	_register_tavern_containers()
+
+
+## Encuentra contenedores (barriles, cofres) dentro de los bounds de la taberna
+## y les registra el reporter de incidentes civiles.
+## Solo registra los que existan en este momento (post-spawn del chunk de taberna).
+## TODO(Paso 4): registrar también contenedores colocados por el player después del spawn.
+func _register_tavern_containers() -> void:
+	var bounds: Rect2 = get_tavern_inner_bounds_world()
+	if bounds.size == Vector2.ZERO:
 		return
-	keeper.set_incident_reporter(Callable(self, "report_tavern_incident"))
-	keeper.set_service_check(Callable(_tavern_memory, "is_service_denied"))
+	var search_bounds := bounds.grow(32.0)
+	var reporter := Callable(self, "report_tavern_incident")
+	var registered: int = 0
+	for group_name in ["chest", "interactable"]:
+		for node in get_tree().get_nodes_in_group(group_name):
+			if not is_instance_valid(node) or not (node is Node2D):
+				continue
+			if not (node as Node2D).global_position.is_zero_approx() \
+					and not search_bounds.has_point((node as Node2D).global_position):
+				continue
+			if node.has_method("set_civil_incident_reporter"):
+				node.call("set_civil_incident_reporter", reporter)
+				registered += 1
+	Debug.log("authority", "[TAVERN] containers registrados con reporter: %d" % registered)
 
 
 ## Encuentra el jugador más cercano a una posición world. Devuelve null si no hay.
@@ -1430,11 +1464,14 @@ func _on_wall_drop_for_intel(tile_pos: Vector2i, _item_id: String, _amount: int)
 	_player_territory_dirty = true
 
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
-	if kind != "enemy":
-		return
-	if uid == "":
-		return
-	npc_simulator.on_entity_died(uid)
+	if kind == "enemy" and uid != "":
+		npc_simulator.on_entity_died(uid)
+	# Incidente institucional: muerte dentro de la taberna.
+	# Aplica sea quien sea el muerto (player, keeper, NPC, enemy) y el killer (player, bandit, null).
+	var tavern_bounds: Rect2 = get_tavern_inner_bounds_world()
+	if tavern_bounds.size != Vector2.ZERO and tavern_bounds.grow(16.0).has_point(_pos):
+		var killer_node: CharacterBody2D = _killer as CharacterBody2D
+		report_tavern_incident("murder_in_tavern", {"offender": killer_node, "pos": _pos})
 
 
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.

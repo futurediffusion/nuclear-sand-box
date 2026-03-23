@@ -44,6 +44,10 @@ var _base_sprite_pos: Vector2
 ## UID asignado cuando se coloca via PlacementSystem (para WorldSave).
 var placed_uid: String = ""
 
+## Reporter de incidentes civiles. Si válido, este contenedor está bajo jurisdicción
+## de la taberna y sus eventos son property incidents. Registrado por world.gd.
+var _civil_incident_reporter: Callable = Callable()
+
 ## Hooks de persistencia por UID (contenido interno serializable).
 var stored_slots: Array = []
 var _world_spatial_index: WorldSpatialIndex = null
@@ -149,6 +153,9 @@ func _destroy() -> void:
 	if faction_owner_id != "":
 		FactionHostilityManager.add_hostility(faction_owner_id, 0.0, "barrel_sacked",
 			{"asset_type": String(container_group), "position": global_position})
+	# Incidente civil: destrucción de propiedad de la taberna
+	if _civil_incident_reporter.is_valid():
+		_civil_incident_reporter.call("barrel_destroyed", {"pos": global_position})
 	_play_break_sfx()
 
 	var world_node := get_parent()
@@ -226,6 +233,11 @@ func _open_ui() -> void:
 	# Si el contenedor pertenece a una facción, alertar a sus enemies cercanos
 	if faction_owner_id != "":
 		_alert_nearby_faction_enemies()
+	# Incidente civil: el player abrió propiedad de la taberna
+	if _civil_incident_reporter.is_valid():
+		var player_body := _get_interacting_player()
+		_civil_incident_reporter.call("barrel_opened",
+			{"offender": player_body, "pos": global_position})
 
 
 func _close_ui() -> void:
@@ -283,6 +295,24 @@ func _alert_nearby_faction_enemies() -> void:
 		alerted += 1
 	Debug.log("faction_hostility", "[Container] barrel alert — faction=%s alerted=%d" % [
 		faction_owner_id, alerted])
+
+
+## Registra el reporter de incidentes civiles (world.report_tavern_incident).
+## Llamar desde world.gd cuando el contenedor está dentro de la zona de taberna.
+func set_civil_incident_reporter(reporter: Callable) -> void:
+	_civil_incident_reporter = reporter
+
+
+## Devuelve el nodo del jugador que está actualmente dentro del área de interacción.
+## nil si no hay jugador o si no se puede resolver.
+func _get_interacting_player() -> Node2D:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	for body in get_tree().get_nodes_in_group("player"):
+		if body is Node2D and global_position.distance_to((body as Node2D).global_position) < 80.0:
+			return body as Node2D
+	return null
 
 
 func _get_container_ui() -> CanvasLayer:
