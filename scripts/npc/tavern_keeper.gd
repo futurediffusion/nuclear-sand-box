@@ -71,6 +71,12 @@ const ACTIVE_RADIUS_PX: float = 900.0
 const WAKE_HYSTERESIS_PX: float = 200.0
 const SLEEP_CHECK_INTERVAL: float = 0.5
 
+## Reporter de incidentes civiles — se registra desde world.gd tras el spawn.
+var _incident_reporter: Callable = Callable()
+## Actores a los que el keeper se niega a atender (deny_service).
+## Clave: actor_id (node.name). Valor: true.
+var _denied_actors: Dictionary = {}
+
 var _in_combat: bool = false
 var _weapon_pivot: Node2D = null
 var _ai_component_node: AIComponent = null
@@ -128,6 +134,8 @@ func _connect_hurtbox() -> void:
 
 func _on_character_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
 	take_damage(dmg, from_pos)
+	if _incident_reporter.is_valid():
+		_incident_reporter.call("assault_keeper", {"pos": from_pos})
 	if not _in_combat:
 		_enter_combat_mode()
 
@@ -258,8 +266,8 @@ func _update_interact_prompt() -> void:
 	if UiManager.is_interact_prompt_suppressed():
 		interact_icon.visible = false
 		return
-	# ✅ Mostrar icono SOLO si el player está dentro del área
-	interact_icon.visible = _player_nearby and (not dying)
+	# ✅ Mostrar icono SOLO si el player está dentro del área y no está baneado
+	interact_icon.visible = _player_nearby and (not dying) and (not _is_actor_denied(_player_ref))
 
 	# Girar sprite hacia el player cuando está cerca
 	if _player_nearby and _player_ref != null:
@@ -285,6 +293,8 @@ func _open_shop() -> void:
 	if UiManager.is_interact_blocked():
 		return
 	if UiManager.is_interact_prompt_suppressed():
+		return
+	if _is_actor_denied(_player_ref):
 		return
 
 	if _keeper_menu_ui.is_shop_open() and not _keeper_menu_ui.is_owner(self):
@@ -554,6 +564,27 @@ func _update_weapon_pivot(delta: float) -> void:
 # =============================================================================
 # API PÚBLICA — llamada desde world.gd al instanciar
 # =============================================================================
+
+## Registra el callable que reporta incidentes civiles (world.report_tavern_incident).
+func set_incident_reporter(reporter: Callable) -> void:
+	_incident_reporter = reporter
+
+
+## Impide que el actor identificado por actor_id pueda abrir la tienda.
+## El efecto persiste durante la sesión (Fase 2 — sin expiración ni persistencia).
+func deny_service(actor_id: String) -> void:
+	if actor_id.is_empty():
+		return
+	_denied_actors[actor_id] = true
+	Debug.log("authority", "[KEEPER] deny_service actor_id=%s" % actor_id)
+
+
+func _is_actor_denied(node: Node) -> bool:
+	if node == null:
+		return false
+	return _denied_actors.has(node.name)
+
+
 func setup(tilemap: TileMap, inner_min: Vector2i, inner_max: Vector2i, the_counter_tile: Vector2i) -> void:
 	_tilemap        = tilemap
 	tavern_inner_min = inner_min

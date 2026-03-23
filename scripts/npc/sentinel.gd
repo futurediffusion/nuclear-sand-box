@@ -114,6 +114,9 @@ enum OrderType {
 ## Posición del post de guardia. Se asigna en _ready() o via spawn_near_tavern().
 var home_pos: Vector2 = Vector2.ZERO
 
+## Reporter de incidentes civiles — registrado por world.gd al spawnear.
+var _incident_reporter: Callable = Callable()
+
 
 # ── Estado interno ────────────────────────────────────────────────────────────
 
@@ -765,7 +768,8 @@ func _on_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
 	take_damage(dmg, from_pos)
 	# El sentinel no contra-agrede automáticamente al recibir daño.
 	# Mantiene su orden activa (institucional, no instintiva).
-	# TODO: si está en GUARD y la amenaza es inminente, considerar auto-defensa limitada.
+	if _incident_reporter.is_valid() and not tavern_site_id.is_empty():
+		_incident_reporter.call("assault_sentinel", {"pos": from_pos, "victim": self})
 
 
 # ── Detection area (reserved for future use) ──────────────────────────────────
@@ -959,6 +963,11 @@ func issue_order(order: OrderType, target: CharacterBody2D = null,
 		set_collision_layer_value(3, false)
 	if order != OrderType.NONE:
 		_enter_intercept()
+
+
+## Registra el callable para reportar incidentes civiles (world.report_tavern_incident).
+func set_incident_reporter(reporter: Callable) -> void:
+	_incident_reporter = reporter
 
 
 ## Interfaz con el pipeline institutional local.

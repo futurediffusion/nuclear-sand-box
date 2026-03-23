@@ -124,6 +124,9 @@ var _bandit_behavior_layer: BanditBehaviorLayer
 var _world_spatial_index: WorldSpatialIndex
 var _world_territory_policy: WorldTerritoryPolicy
 var _local_social_ports: LocalSocialAuthorityPorts
+var _tavern_memory:   TavernLocalMemory
+var _tavern_policy:   TavernAuthorityPolicy
+var _tavern_director: TavernSanctionDirector
 var _resource_repopulator: ResourceRepopulator
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
@@ -536,8 +539,19 @@ func _ready() -> void:
 	})
 	_player_territory = PlayerTerritoryMap.new()
 	_player_territory_dirty = true
+	_tavern_memory   = TavernLocalMemory.new()
+	_tavern_policy   = TavernAuthorityPolicy.new()
+	_tavern_director = TavernSanctionDirector.new()
+	_tavern_director.setup({
+		"get_keeper":    Callable(self, "_get_tavern_keeper_node"),
+		"get_sentinels": func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
+	})
 	_local_social_ports = LocalSocialAuthorityPortsScript.new()
-	_local_social_ports.setup({})
+	_local_social_ports.setup({
+		"local_authority_policy":  Callable(_tavern_policy,  "evaluate"),
+		"local_memory_source":     Callable(_tavern_memory,  "get_snapshot"),
+		"local_sanction_director": Callable(_tavern_director, "dispatch"),
+	})
 	_world_territory_policy = WorldTerritoryPolicy.new()
 	_world_territory_policy.setup({
 		"tile_to_world": Callable(self, "_tile_to_world"),
@@ -591,6 +605,7 @@ func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
 		# El keeper acaba de quedar en el árbol de escena.
 		# Es el momento correcto para spawnear sentinels con posición exacta.
 		ensure_tavern_sentinels_spawned()
+		_wire_keeper_incident_reporter()
 
 func _clear_chunk_wall_runtime_cache() -> void:
 	if _chunk_wall_collider_cache != null:
@@ -1232,6 +1247,7 @@ func _spawn_single_tavern_sentinel(role: String, pos: Vector2) -> Sentinel:
 	s.sentinel_role    = role
 	s.tavern_site_id   = "tavern_main"
 	s.add_to_group("tavern_sentinel")
+	s.set_incident_reporter(Callable(self, "report_tavern_incident"))
 	return s
 
 
@@ -1261,16 +1277,143 @@ func _get_tavern_keeper_pos() -> Vector2:
 ##   BanditBehaviorLayer, futuros civiles, etc.
 ## Offenders: player, bandit/enemy, cualquier Node2D agente.
 func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> void:
-	# Paso 1: solo observabilidad — el incidente queda registrado en el log.
-	# Paso 2: pasar por _local_social_ports cuando memory+policy+director existan.
-	#   Orden correcto: memory.record() → policy.evaluate() → director.dispatch()
-	Debug.log("authority", "[TAVERN] incident=%s  payload=%s" % [incident_type, str(payload)])
+	var incident := _build_tavern_incident(incident_type, payload)
+	if incident == null:
+		Debug.log("authority", "[TAVERN] incident_type='%s' sin mapping — ignorado" % incident_type)
+		return
+
+	_tavern_memory.record(incident)
+
+	var directive: LocalAuthorityDirective = _tavern_policy.evaluate(incident)
+	Debug.log("authority", "[TAVERN] %s" % directive.describe())
+
+	if directive.response_type == LocalAuthorityResponse.Response.RECORD_ONLY:
+		return
+
+	var offender_node: CharacterBody2D = payload.get("offender", null) as CharacterBody2D
+	if offender_node == null or not is_instance_valid(offender_node):
+		# Fallback: buscar el jugador más cercano a la posición del incidente.
+		var incident_pos: Vector2 = payload.get("pos", Vector2.ZERO)
+		offender_node = _find_nearest_player(incident_pos)
+
+	_tavern_director.dispatch(directive, offender_node)
+
+
+## Construye un LocalCivilIncident a partir del tipo de incidente semántico
+## y el payload del activador. Devuelve null si el tipo no tiene mapping.
+func _build_tavern_incident(incident_type: String, payload: Dictionary) -> LocalCivilIncident:
+	var C  := LocalCivilAuthorityConstants
+	var offense: String   = ""
+	var severity: float   = 0.0
+	var victim_kind: String = C.VictimKind.CIVILIAN
+	var zone: String      = C.ZONE_TAVERN_INTERIOR
+
+	match incident_type:
+		"assault_keeper":
+			offense     = C.Offense.ASSAULT
+			severity    = C.SEVERITY_SERIOUS
+			victim_kind = C.VictimKind.AUTHORITY_MEMBER
+		"assault_sentinel":
+			offense     = C.Offense.ASSAULT
+			severity    = C.SEVERITY_SERIOUS
+			victim_kind = C.VictimKind.AUTHORITY_MEMBER
+		"murder_in_tavern":
+			offense     = C.Offense.MURDER
+			severity    = C.SEVERITY_CRITICAL
+		"wall_damaged":
+			offense     = C.Offense.VANDALISM
+			severity    = C.SEVERITY_MODERATE
+			victim_kind = C.VictimKind.TAVERN_PROPERTY
+		"barrel_opened":
+			offense     = C.Offense.TRESPASS
+			severity    = C.SEVERITY_MINOR
+			victim_kind = C.VictimKind.TAVERN_PROPERTY
+		"barrel_destroyed":
+			offense     = C.Offense.VANDALISM
+			severity    = C.SEVERITY_MODERATE
+			victim_kind = C.VictimKind.TAVERN_PROPERTY
+		"armed_intruder":
+			offense     = C.Offense.WEAPON_THREAT
+			severity    = C.SEVERITY_SERIOUS
+		"trespass":
+			offense     = C.Offense.TRESPASS
+			severity    = C.SEVERITY_MINOR
+			victim_kind = C.VictimKind.TAVERN_PROPERTY
+			zone        = C.ZONE_TAVERN_GROUNDS
+		"bandit_attack":
+			offense     = C.Offense.ASSAULT
+			severity    = C.SEVERITY_SERIOUS
+		_:
+			return null
+
+	var offender_node: Node2D = payload.get("offender", null) as Node2D
+	var offender_id: String   = ""
+	var offender_pos: Vector2 = payload.get("pos", Vector2.ZERO)
+
+	if offender_node != null and is_instance_valid(offender_node):
+		offender_id = offender_node.name
+		if offender_pos == Vector2.ZERO:
+			offender_pos = offender_node.global_position
+
+	return LocalCivilIncidentFactory.create(
+		"tavern_main",
+		offense,
+		severity,
+		offender_pos,
+		offender_id,
+		victim_kind,
+		zone,
+		[],            # witnesses — Fase 3
+		incident_type, # source_tag
+		{}
+	)
+
+
+## Devuelve el nodo TavernKeeper activo, o null si no está en escena.
+func _get_tavern_keeper_node() -> TavernKeeper:
+	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
+	if not keepers.is_empty() and keepers[0] is TavernKeeper:
+		return keepers[0] as TavernKeeper
+	return null
+
+
+## Registra el reporter de incidentes en el keeper activo.
+func _wire_keeper_incident_reporter() -> void:
+	var keeper := _get_tavern_keeper_node()
+	if keeper == null:
+		return
+	keeper.set_incident_reporter(Callable(self, "report_tavern_incident"))
+
+
+## Encuentra el jugador más cercano a una posición world. Devuelve null si no hay.
+func _find_nearest_player(world_pos: Vector2) -> CharacterBody2D:
+	var players := get_tree().get_nodes_in_group("player")
+	if players.is_empty():
+		return null
+	if world_pos == Vector2.ZERO or players.size() == 1:
+		return players[0] as CharacterBody2D
+	var nearest: CharacterBody2D = null
+	var nearest_dist: float = INF
+	for p in players:
+		if p == null or not (p is Node2D):
+			continue
+		var d: float = (p as Node2D).global_position.distance_to(world_pos)
+		if d < nearest_dist:
+			nearest_dist = d
+			nearest = p as CharacterBody2D
+	return nearest
 
 
 func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
 	if _wall_refresh_queue != null:
 		var cpos: Vector2i = _tile_to_chunk(tile_pos)
 		_wall_refresh_queue.record_activity(cpos)
+	# Activador wall_damaged: paredes dentro de la taberna son propiedad del establecimiento.
+	var tavern_bounds: Rect2 = get_tavern_inner_bounds_world()
+	if tavern_bounds.size != Vector2.ZERO:
+		var world_pos: Vector2 = _tile_to_world(tile_pos)
+		if tavern_bounds.grow(16.0).has_point(world_pos):
+			report_tavern_incident("wall_damaged", {"pos": world_pos})
 
 func _get_player_world_pos() -> Vector2:
 	if player == null:
