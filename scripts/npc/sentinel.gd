@@ -114,6 +114,17 @@ enum OrderType {
 ## Posición del post de guardia. Se asigna en _ready() o via spawn_near_tavern().
 var home_pos: Vector2 = Vector2.ZERO
 
+## Puntos de patrulla corta en GUARD state. Vacío = sentinel estático en home_pos.
+## Solo el door_guard recibe puntos (asignados por world.gd al spawnear).
+## El interior_guard se queda en su post.
+@export var patrol_points: PackedVector2Array = PackedVector2Array()
+
+const _PATROL_SPEED:    float = 35.0  # más lento que max_speed — patrulla tranquila
+const _PATROL_WAIT_SEC: float = 2.5   # segundos de espera en cada punto
+
+var _patrol_idx:  int   = 0
+var _patrol_wait: float = 0.0
+
 ## Reporter de incidentes civiles — registrado por world.gd al spawnear.
 var _incident_reporter: Callable = Callable()
 ## Cooldown por instancia de enemy para evitar spam de armed_intruder.
@@ -263,8 +274,29 @@ func _tick_state(delta: float) -> void:
 
 
 func _tick_guard(delta: float) -> void:
-	velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 	_tick_haul_scan(delta)
+	if not _tick_patrol(delta):
+		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
+
+
+## Patrulla corta idle: recorre patrol_points a baja velocidad mientras GUARD.
+## Devuelve true si el sentinel se está moviendo hacia un punto (no aplicar fricción).
+func _tick_patrol(delta: float) -> bool:
+	if patrol_points.is_empty():
+		return false
+	var target: Vector2 = patrol_points[_patrol_idx % patrol_points.size()]
+	var dist: float     = global_position.distance_to(target)
+	if dist < 8.0:
+		# Llegó al punto — esperar antes del siguiente
+		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
+		_patrol_wait += delta
+		if _patrol_wait >= _PATROL_WAIT_SEC:
+			_patrol_wait = 0.0
+			_patrol_idx  = (_patrol_idx + 1) % patrol_points.size()
+		return false
+	_patrol_wait = 0.0
+	_pathfind_toward(target, _PATROL_SPEED)
+	return true
 
 
 func _tick_intercept(delta: float) -> void:

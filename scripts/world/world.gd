@@ -124,9 +124,10 @@ var _bandit_behavior_layer: BanditBehaviorLayer
 var _world_spatial_index: WorldSpatialIndex
 var _world_territory_policy: WorldTerritoryPolicy
 var _local_social_ports: LocalSocialAuthorityPorts
-var _tavern_memory:   TavernLocalMemory
-var _tavern_policy:   TavernAuthorityPolicy
-var _tavern_director: TavernSanctionDirector
+var _tavern_memory:           TavernLocalMemory
+var _tavern_policy:           TavernAuthorityPolicy
+var _tavern_director:         TavernSanctionDirector
+var _tavern_presence_monitor: TavernPresenceMonitor
 var _resource_repopulator: ResourceRepopulator
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
@@ -549,6 +550,16 @@ func _ready() -> void:
 		"memory_deny_service": Callable(_tavern_memory, "deny_service_for"),
 		"tavern_site_id":      "tavern_main",
 	})
+	_tavern_presence_monitor = TavernPresenceMonitor.new()
+	_tavern_presence_monitor.setup({
+		"incident_reporter": Callable(self, "report_tavern_incident"),
+		"get_candidates": func() -> Array:
+			var r: Array = []
+			r.append_array(get_tree().get_nodes_in_group("player"))
+			r.append_array(get_tree().get_nodes_in_group("enemy"))
+			return r,
+		"interior_bounds": Callable(self, "get_tavern_inner_bounds_world"),
+	})
 	_local_social_ports = LocalSocialAuthorityPortsScript.new()
 	_local_social_ports.setup({
 		"local_authority_policy":  Callable(_tavern_policy,  "evaluate"),
@@ -664,6 +675,8 @@ func _process(delta: float) -> void:
 		_cadence.advance(delta)
 	if _settlement_intel != null:
 		_settlement_intel.process(delta)
+	if _tavern_presence_monitor != null:
+		_tavern_presence_monitor.tick(delta)
 	var medium_pulses: int = _cadence.consume_lane(&"medium_pulse") if _cadence != null else 1
 	for _pulse in medium_pulses:
 		_tick_player_territory()
@@ -1251,6 +1264,15 @@ func _spawn_single_tavern_sentinel(role: String, pos: Vector2) -> Sentinel:
 	s.tavern_site_id   = "tavern_main"
 	s.add_to_group("tavern_sentinel")
 	s.set_incident_reporter(Callable(self, "report_tavern_incident"))
+	# door_guard hace una ronda corta alrededor de la entrada.
+	# interior_guard permanece estático en su post (cubre al keeper).
+	if role == "door_guard":
+		var exit_p: Vector2 = get_tavern_exit_world_pos()
+		s.patrol_points = PackedVector2Array([
+			exit_p + Vector2(-40.0,  8.0),  # flanco izquierdo
+			exit_p + Vector2(  0.0, 20.0),  # frente a la puerta
+			exit_p + Vector2( 40.0,  8.0),  # flanco derecho
+		])
 	return s
 
 
@@ -1351,11 +1373,22 @@ func _build_tavern_incident(incident_type: String, payload: Dictionary) -> Local
 			offense     = C.Offense.ASSAULT
 			severity    = C.SEVERITY_SERIOUS
 		"disturbance":
-			# TODO(Paso 4): conectar cuando exista sensor de zona o comportamiento conflictivo.
-			# Por ahora solo llega si alguien lo dispara explícitamente.
 			offense     = C.Offense.DISTURBANCE
 			severity    = C.SEVERITY_MINOR
 			zone        = C.ZONE_TAVERN_INTERIOR
+		"suspicious_presence":
+			# Bandit/enemy en el perímetro exterior por tiempo prolongado.
+			# Emitido por TavernPresenceMonitor. Respuesta base: WARN.
+			# Policy escala si el actor tiene historial previo en la taberna.
+			offense     = C.Offense.DISTURBANCE
+			severity    = C.SEVERITY_MINOR
+			zone        = C.ZONE_TAVERN_PERIMETER
+		"loitering":
+			# Actor rondando la zona de puerta/acceso más de lo aceptable.
+			# Emitido por TavernPresenceMonitor. Respuesta base: WARN.
+			offense     = C.Offense.TRESPASS
+			severity    = C.SEVERITY_MINOR
+			zone        = C.ZONE_TAVERN_GROUNDS
 		_:
 			return null
 
