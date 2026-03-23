@@ -128,7 +128,7 @@ var _tavern_memory:            TavernLocalMemory
 var _tavern_policy:            TavernAuthorityPolicy
 var _tavern_director:          TavernSanctionDirector
 var _tavern_presence_monitor:  TavernPresenceMonitor
-var _tavern_shift_coordinator: TavernShiftCoordinator
+var _tavern_garrison_monitor: TavernGarrisonMonitor
 
 ## Postura defensiva del recinto. Evaluada cada _POSTURE_EVAL_INTERVAL segundos.
 const _POSTURE_EVAL_INTERVAL: float = 10.0
@@ -572,10 +572,10 @@ func _ready() -> void:
 			return r,
 		"interior_bounds": Callable(self, "get_tavern_inner_bounds_world"),
 	})
-	_tavern_shift_coordinator = TavernShiftCoordinator.new()
-	_tavern_shift_coordinator.setup({
-		"get_sentinels":          func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
-		"get_door_patrol_points": Callable(self, "_get_door_patrol_points"),
+	_tavern_garrison_monitor = TavernGarrisonMonitor.new()
+	_tavern_garrison_monitor.setup({
+		"get_sentinels":  func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
+		"tavern_site_id": "tavern_main",
 	})
 	_local_social_ports = LocalSocialAuthorityPortsScript.new()
 	_local_social_ports.setup({
@@ -701,8 +701,8 @@ func _process(delta: float) -> void:
 		_settlement_intel.process(delta)
 	if _tavern_presence_monitor != null:
 		_tavern_presence_monitor.tick(delta)
-	if _tavern_shift_coordinator != null:
-		_tavern_shift_coordinator.tick(delta)
+	if _tavern_garrison_monitor != null:
+		_tavern_garrison_monitor.tick(delta)
 	_tick_defense_posture(delta)
 	var medium_pulses: int = _cadence.consume_lane(&"medium_pulse") if _cadence != null else 1
 	for _pulse in medium_pulses:
@@ -1304,7 +1304,6 @@ func _spawn_single_tavern_sentinel(role: String, pos: Vector2, side: String = ""
 
 
 ## Patrol points para el door_guard — triángulo corto alrededor de la entrada.
-## Usado también por TavernShiftCoordinator al asignar el rol de puerta tras un swap.
 func _get_door_patrol_points() -> PackedVector2Array:
 	var exit_p: Vector2 = get_tavern_exit_world_pos()
 	return PackedVector2Array([
