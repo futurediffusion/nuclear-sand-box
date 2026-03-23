@@ -122,6 +122,36 @@ func is_service_denied(actor_id: String) -> bool:
 	return rec != null and rec.service_denied
 
 
+## Nivel de tensión institucional basado en incidentes recientes.
+##
+## Devuelve un float 0.0 – 3.0:
+##   0.0 – 1.0  calma    (pocos o ningún incidente reciente)
+##   1.0 – 2.0  tensa    (presencia sospechosa/loitering acumulado)
+##   2.0 – 3.0  caliente (violencia o daño reciente)
+##   > 2.5      crítica  (murder, agresión a autoridad, acumulación violenta)
+##
+## window_sec: ventana temporal de evaluación (default 180s = 3 min de juego).
+## now:        RunClock.now() — tiempo de sesión actual en segundos.
+func get_tension_level(now: float, window_sec: float = 180.0) -> float:
+	var C := LocalCivilAuthorityConstants
+	var score: float = 0.0
+	var cutoff: float = now - window_sec
+	for entry: Dictionary in _entries:
+		var t: float = float(entry.get("created_at_run_time", -INF))
+		if t < cutoff:
+			continue
+		var offense: String = String(entry.get("offense_type", ""))
+		var sev:     float  = float(entry.get("severity", 0.0))
+		match offense:
+			C.Offense.MURDER:        score += 3.0
+			C.Offense.ASSAULT:       score += 1.5 * sev
+			C.Offense.WEAPON_THREAT: score += 2.0 * sev
+			C.Offense.VANDALISM:     score += 1.0 * sev
+			C.Offense.TRESPASS:      score += 0.3
+			C.Offense.DISTURBANCE:   score += 0.2
+	return clampf(score, 0.0, 3.0)
+
+
 ## Snapshot estructurado para el port callable de LocalSocialAuthorityPorts.
 func get_snapshot(scope_id: String, _payload: Dictionary = {}) -> Dictionary:
 	var offender_dicts: Dictionary = {}

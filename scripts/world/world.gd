@@ -124,10 +124,11 @@ var _bandit_behavior_layer: BanditBehaviorLayer
 var _world_spatial_index: WorldSpatialIndex
 var _world_territory_policy: WorldTerritoryPolicy
 var _local_social_ports: LocalSocialAuthorityPorts
-var _tavern_memory:           TavernLocalMemory
-var _tavern_policy:           TavernAuthorityPolicy
-var _tavern_director:         TavernSanctionDirector
-var _tavern_presence_monitor: TavernPresenceMonitor
+var _tavern_memory:            TavernLocalMemory
+var _tavern_policy:            TavernAuthorityPolicy
+var _tavern_director:          TavernSanctionDirector
+var _tavern_presence_monitor:  TavernPresenceMonitor
+var _tavern_shift_coordinator: TavernShiftCoordinator
 var _resource_repopulator: ResourceRepopulator
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
@@ -396,6 +397,7 @@ func _ready() -> void:
 	})
 	entity_coordinator.current_player_chunk = current_player_chunk
 	_spawn_queue = entity_coordinator.get_spawn_queue()
+	_spawn_queue.job_spawned.connect(_on_spawn_job_completed)
 
 	_cliff_seed = absi(hash(Seed.run_seed ^ 0x9C0D1E2F))
 	cliff_generator = CliffGenerator.new()
@@ -557,8 +559,14 @@ func _ready() -> void:
 			var r: Array = []
 			r.append_array(get_tree().get_nodes_in_group("player"))
 			r.append_array(get_tree().get_nodes_in_group("enemy"))
+			r.append_array(get_tree().get_nodes_in_group("npc"))
 			return r,
 		"interior_bounds": Callable(self, "get_tavern_inner_bounds_world"),
+	})
+	_tavern_shift_coordinator = TavernShiftCoordinator.new()
+	_tavern_shift_coordinator.setup({
+		"get_sentinels":          func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
+		"get_door_patrol_points": Callable(self, "_get_door_patrol_points"),
 	})
 	_local_social_ports = LocalSocialAuthorityPortsScript.new()
 	_local_social_ports.setup({
@@ -615,11 +623,18 @@ func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
 	if stage == "tiles":
 		if _player_wall_system != null:
 			_player_wall_system.apply_saved_walls_for_chunk(chunk_pos)
-	elif stage == "entities" and chunk_pos == tavern_chunk:
-		# El keeper acaba de quedar en el árbol de escena.
-		# Es el momento correcto para spawnear sentinels con posición exacta.
+	elif stage == "entities_enqueued" and chunk_pos == tavern_chunk:
+		# Los jobs de entidades ya están en cola — spawnear sentinels.
+		# El keeper aún puede no estar en árbol; usamos fallback por tile geometry.
+		# El cableado del keeper ocurre en _on_spawn_job_completed cuando llega "npc_keeper".
 		ensure_tavern_sentinels_spawned()
-		_wire_keeper_incident_reporter()
+
+
+## Engancha el keeper al sistema institucional en cuanto su job es completado.
+## El keeper se instancia después de entities_enqueued, así que no puede cablearse antes.
+func _on_spawn_job_completed(job: Dictionary, node: Node) -> void:
+	if String(job.get("kind", "")) == "npc_keeper":
+		_wire_keeper_incident_reporter()  # incluye _register_tavern_containers()
 
 func _clear_chunk_wall_runtime_cache() -> void:
 	if _chunk_wall_collider_cache != null:
@@ -677,6 +692,8 @@ func _process(delta: float) -> void:
 		_settlement_intel.process(delta)
 	if _tavern_presence_monitor != null:
 		_tavern_presence_monitor.tick(delta)
+	if _tavern_shift_coordinator != null:
+		_tavern_shift_coordinator.tick(delta)
 	var medium_pulses: int = _cadence.consume_lane(&"medium_pulse") if _cadence != null else 1
 	for _pulse in medium_pulses:
 		_tick_player_territory()
@@ -1267,13 +1284,19 @@ func _spawn_single_tavern_sentinel(role: String, pos: Vector2) -> Sentinel:
 	# door_guard hace una ronda corta alrededor de la entrada.
 	# interior_guard permanece estático en su post (cubre al keeper).
 	if role == "door_guard":
-		var exit_p: Vector2 = get_tavern_exit_world_pos()
-		s.patrol_points = PackedVector2Array([
-			exit_p + Vector2(-40.0,  8.0),  # flanco izquierdo
-			exit_p + Vector2(  0.0, 20.0),  # frente a la puerta
-			exit_p + Vector2( 40.0,  8.0),  # flanco derecho
-		])
+		s.patrol_points = _get_door_patrol_points()
 	return s
+
+
+## Patrol points para el door_guard — triángulo corto alrededor de la entrada.
+## Usado también por TavernShiftCoordinator al asignar el rol de puerta tras un swap.
+func _get_door_patrol_points() -> PackedVector2Array:
+	var exit_p: Vector2 = get_tavern_exit_world_pos()
+	return PackedVector2Array([
+		exit_p + Vector2(-40.0,  8.0),  # flanco izquierdo
+		exit_p + Vector2(  0.0, 20.0),  # frente a la puerta
+		exit_p + Vector2( 40.0,  8.0),  # flanco derecho
+	])
 
 
 ## Resolver la posición world del TavernKeeper en runtime.

@@ -164,9 +164,15 @@ func _pick_by_role_then_zone(
 	for s: Sentinel in sentinels:
 		var idle := s.is_available()
 		if s.sentinel_role == preferred_role:
-			if idle: exact_idle.append(s) else: exact_busy.append(s)
+			if idle:
+				exact_idle.append(s)
+			else:
+				exact_busy.append(s)
 		elif s.sentinel_role == fallback_role:
-			if idle: fallbk_idle.append(s) else: fallbk_busy.append(s)
+			if idle:
+				fallbk_idle.append(s)
+			else:
+				fallbk_busy.append(s)
 
 	# Elegir el más cercano del grupo de mayor prioridad que no esté vacío
 	for bucket: Array[Sentinel] in [exact_idle, exact_busy, fallbk_idle, fallbk_busy]:
