@@ -92,8 +92,8 @@ enum OrderType {
 
 @export_group("Institutional Identity")
 ## Rol dentro del despliegue de taberna. Seteado por world.gd al spawnear.
-## Valores: "interior_guard" | "door_guard" | "" (debug/manual)
-## Usado por TavernSanctionDirector (futuro) para elegir qué sentinel responde.
+## Valores: "interior_guard" | "door_guard" | "perimeter_guard" | "" (debug/manual)
+## TavernSanctionDirector usa este rol para elegir qué sentinel responde al incidente.
 @export var sentinel_role: String = ""
 ## Site al que pertenece este sentinel. "tavern_main" para sentinels de taberna.
 ## Permite que el director gestione sentinels de múltiples locaciones si escala.

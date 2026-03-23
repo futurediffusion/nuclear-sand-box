@@ -27,11 +27,17 @@ class_name TavernAuthorityPolicy
 ## IMPORTANTE: la policy evalúa el historial ANTES de que el incidente actual
 ## sea registrado en memoria (responsabilidad del coordinador — world.gd).
 
-var _memory: TavernLocalMemory = null
+var _memory:          TavernLocalMemory = null
+var _defense_posture: int               = TavernDefensePosture.NORMAL
 
 
 func setup(ctx: Dictionary) -> void:
 	_memory = ctx.get("memory", null)
+
+
+## Propagado desde world.gd cada ~10s al cambiar la postura del recinto.
+func set_defense_posture(posture: int) -> void:
+	_defense_posture = posture
 
 
 ## Evalúa el incidente con contexto histórico y tensión. Nunca devuelve null.
@@ -110,16 +116,22 @@ func _apply_memory_escalation(
 
 # ── Regla 4: Tensión institucional ────────────────────────────────────────────
 
-## Modifica la respuesta según el clima institucional reciente.
+## Modifica la respuesta según el clima institucional reciente y la postura defensiva.
 ##
 ## PAZ TENSA FAVORABLE (tension < 1.0):
 ##   Un actor sin historial violento que hace un incidente menor de presencia
 ##   (trespass/disturbance) en un momento de calma → solo registrar, no actuar.
 ##   La taberna tolera la presencia incierta cuando no hay tensión acumulada.
+##   EXCEPCIÓN: si la postura es FORTIFIED, incluso la calma exterior no aplica.
 ##
 ## CLIMA CALIENTE (tension ≥ 2.0):
 ##   Actor con historial hostil (violencia o weapon_threat previos) → escalar un nivel.
 ##   La institución ya no da margen cuando el ambiente está deteriorado.
+##
+## REGLA 5 — POSTURA FORTIFIED:
+##   Presencia exterior (perímetro/puerta) no se tolera aunque sea el primer incidente.
+##   Un WARN por presencia en zona exterior se convierte en EJECT directamente.
+##   El recinto en estado de sitio no emite advertencias — actúa.
 func _apply_tension_modifier(
 		current: String,
 		incident: LocalCivilIncident,
@@ -129,7 +141,19 @@ func _apply_tension_modifier(
 	var R := LocalAuthorityResponse.Response
 	var C := LocalCivilAuthorityConstants
 
-	# Calma institucional: primer incidente de presencia no violento → reducir a RECORD_ONLY
+	# Regla 5 — Postura FORTIFIED: presencia exterior escalada sin esperar historial.
+	# Se evalúa ANTES que la calma institucional para que FORTIFIED siempre pese más.
+	if _defense_posture >= TavernDefensePosture.FORTIFIED and current == R.WARN:
+		var is_exterior_zone: bool = incident.zone_id in [
+			C.ZONE_TAVERN_PERIMETER, C.ZONE_TAVERN_GROUNDS
+		]
+		var is_presence_offense: bool = incident.offense_type in [
+			C.Offense.DISTURBANCE, C.Offense.TRESPASS
+		]
+		if is_exterior_zone and is_presence_offense:
+			return R.EJECT
+
+	# Calma institucional: primer incidente de presencia no violento → RECORD_ONLY
 	if tension < 1.0 and current == R.WARN:
 		var is_presence_incident: bool = incident.offense_type in [
 			C.Offense.DISTURBANCE, C.Offense.TRESPASS

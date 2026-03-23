@@ -64,7 +64,11 @@
       "Bash(godot --path . --check-only --script scripts/npc/sentinel.gd)",
       "Bash(godot --path . --check-only scripts/npc/sentinel.gd)",
       "Bash(godot --path \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box\" --check-only scripts/world/world.gd)",
-      "Bash(godot --path \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box\" --check-only scripts/npc/sentinel.gd)"
+      "Bash(godot --path \"C:/Users/walva/OneDrive/Documentos/nuclear-sand-box\" --check-only scripts/npc/sentinel.gd)",
+      "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernShiftCoordinator.gd)",
+      "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernSanctionDirector.gd)",
+      "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernDefensePosture.gd)",
+      "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernAuthorityPolicy.gd)"
     ]
   }
 }

@@ -129,6 +129,15 @@ var _tavern_policy:            TavernAuthorityPolicy
 var _tavern_director:          TavernSanctionDirector
 var _tavern_presence_monitor:  TavernPresenceMonitor
 var _tavern_shift_coordinator: TavernShiftCoordinator
+
+## Postura defensiva del recinto. Evaluada cada _POSTURE_EVAL_INTERVAL segundos.
+const _POSTURE_EVAL_INTERVAL: float = 10.0
+var _posture_eval_accum: float       = 0.0
+var _current_posture:    int         = TavernDefensePosture.NORMAL
+## patrol_points originales de perimeter guards, cacheados en spawn.
+## Clave: Sentinel node (object reference). Valor: PackedVector2Array.
+## Permite restaurar patrullas al salir de FORTIFIED.
+var _perimeter_patrol_cache: Dictionary = {}
 var _resource_repopulator: ResourceRepopulator
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
@@ -694,6 +703,7 @@ func _process(delta: float) -> void:
 		_tavern_presence_monitor.tick(delta)
 	if _tavern_shift_coordinator != null:
 		_tavern_shift_coordinator.tick(delta)
+	_tick_defense_posture(delta)
 	var medium_pulses: int = _cadence.consume_lane(&"medium_pulse") if _cadence != null else 1
 	for _pulse in medium_pulses:
 		_tick_player_territory()
@@ -1201,38 +1211,21 @@ func get_tavern_inner_bounds_world() -> Rect2:
 	return Rect2(min_world, max_world - min_world)
 
 
-## ── Tavern Sentinel Deployment (Paso 1) ──────────────────────────────────────
+## ── Tavern Sentinel Garrison (Fase 6) ────────────────────────────────────────
 ##
-## Presencia institucional permanente de la taberna: 2 sentinels fijos.
-## Llamar UNA sola vez, automáticamente desde _on_chunk_stage_completed cuando
-## el chunk de la taberna completa su stage "entities" (keeper ya en árbol).
+## Guarnición completa de 7 sentinels:
+##   interior_guard (×2) — flanquean al keeper; presencia visible del espacio interior
+##   door_guard     (×1) — borde exterior de la puerta; control de acceso; ronda corta
+##   perimeter_guard(×4) — norte/sur/este/oeste; cada uno patrulla su lateral
 ##
-## Roles desplegados:
-##   interior_guard  — cerca del keeper; presencia visible del espacio interior
-##   door_guard      — en el borde exterior de la puerta; control de acceso
+## Anti-doble-spawn: _tavern_sentinels_spawned + comprobación de grupo.
+## TODO(multi-taberna): filtrar por tavern_site_id cuando haya más de una taberna.
 ##
-## Anti-doble-spawn: _tavern_sentinels_spawned guard + comprobación de grupo.
-## Para debug manual sigue existiendo /summon sentinel en CommandSystem.
-## TODO(multi-taberna): la guarda de grupo es global; si hay más de una taberna
-##   hay que filtrar por tavern_site_id, no por grupo "tavern_sentinel" a secas.
-##
-## ── Activadores futuros (NO implementados — stub de integración) ──────────────
-## Cuando TavernLocalMemory + TavernAuthorityPolicy + TavernSanctionDirector
-## estén implementados, los siguientes eventos dispararán la cadena completa:
-##
-##   report_tavern_incident("barrel_opened",   {offender: node, pos: pos})
-##   report_tavern_incident("barrel_destroyed", {offender: node, pos: pos})
-##   report_tavern_incident("wall_damaged",     {offender: node, pos: pos})
-##   report_tavern_incident("assault_keeper",   {offender: node, pos: pos})
-##   report_tavern_incident("assault_sentinel", {offender: node, victim: sentinel})
-##   report_tavern_incident("murder_in_tavern", {offender: node, pos: pos})
-##   report_tavern_incident("armed_intruder",   {offender: node, faction: "bandit"})
-##   report_tavern_incident("trespass",         {offender: node, duration: secs})
-##   report_tavern_incident("bandit_attack",    {offender: node, target: node})
-##
-## Offenders pueden ser: player, bandit/enemy, cualquier agente con Node2D.
-## Victims: keeper, sentinel, propiedad de taberna, futuros civiles.
-## El director futuro consultará sentinel_role para elegir qué sentinel responde.
+## Activadores de incidente configurados:
+##   wall_damaged          → VANDALISM MODERATE en interior+walls (ZONE_INTERIOR)
+##   wall_damaged_exterior → VANDALISM SERIOUS en perímetro (ZONE_PERIMETER) → perimeter_guard responde
+##   barrel_opened/barrel_destroyed, assault_keeper/sentinel, murder_in_tavern,
+##   armed_intruder, trespass, bandit_attack, disturbance, suspicious_presence, loitering
 
 
 func ensure_tavern_sentinels_spawned() -> void:
@@ -1251,29 +1244,45 @@ func ensure_tavern_sentinels_spawned() -> void:
 
 	_tavern_sentinels_spawned = true
 
-	# Resolver posiciones
-	var keeper_pos  : Vector2 = _get_tavern_keeper_pos()
-	var exit_pos    : Vector2 = get_tavern_exit_world_pos()
+	var keeper_pos: Vector2 = _get_tavern_keeper_pos()
+	var exit_pos:   Vector2 = get_tavern_exit_world_pos()
+	var bounds:     Rect2   = get_tavern_inner_bounds_world()
+	var cx: float = bounds.position.x + bounds.size.x * 0.5
+	var cy: float = bounds.position.y + bounds.size.y * 0.5
 
-	# TODO(slots): estas posiciones son offsets visuales buenos-enough para Paso 1.
-	# En Paso 2+ reemplazar por un sistema de guard slots derivado de la geometría
-	# real de la taberna (TavernSlotLayout o similar), para que sean robustos
-	# si la taberna cambia de tamaño o se generan múltiples tabernas.
-	# interior_guard — flanco derecho del keeper, mirando hacia la entrada
-	var interior_pos := keeper_pos + Vector2(28.0, 16.0)
-	# door_guard — 1 tile al sur de la salida (fuera de la taberna, en la puerta)
-	var door_pos := exit_pos + Vector2(0.0, 32.0)
+	# Interior guards — flanquean al keeper (izquierda / derecha)
+	_spawn_single_tavern_sentinel("interior_guard", keeper_pos + Vector2(-28.0, 16.0))
+	_spawn_single_tavern_sentinel("interior_guard", keeper_pos + Vector2( 28.0, 16.0))
 
-	_spawn_single_tavern_sentinel("interior_guard", interior_pos)
-	_spawn_single_tavern_sentinel("door_guard",     door_pos)
+	# Door guard — 2 tiles al sur de la salida; ronda corta alrededor de la entrada
+	_spawn_single_tavern_sentinel("door_guard", exit_pos + Vector2(0.0, 32.0))
 
-	Debug.log("world", "[TavernSentinels] interior=%s  door=%s" % [
-		str(interior_pos), str(door_pos)
+	# Perimeter guards — ~80-96px fuera de cada pared; patrulla lateral corta
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(cx, bounds.position.y - 80.0), "north")
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(cx, bounds.position.y + bounds.size.y + 96.0), "south")
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(bounds.position.x + bounds.size.x + 80.0, cy), "east")
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(bounds.position.x - 80.0, cy), "west")
+
+	Debug.log("world", "[TavernSentinels] 7 desplegados — keeper=%s exit=%s bounds=%s" % [
+		str(keeper_pos), str(exit_pos), str(bounds)
 	])
 
 
-func _spawn_single_tavern_sentinel(role: String, pos: Vector2) -> Sentinel:
+## side — solo para perimeter_guard: "north" | "south" | "east" | "west"
+func _spawn_single_tavern_sentinel(role: String, pos: Vector2, side: String = "") -> Sentinel:
 	var s := sentinel_scene.instantiate() as Sentinel
+	# Nombre descriptivo antes de add_child para que sea estable en logs y árbol.
+	match role:
+		"door_guard":
+			s.name = "door_guard"
+		"perimeter_guard":
+			s.name = "perimeter_guard_" + side if not side.is_empty() else "perimeter_guard"
+		"interior_guard":
+			s.name = "interior_guard"  # auto-renombrado a interior_guard2 si ya existe
 	_entity_root.add_child(s)
 	s.global_position  = pos
 	s.home_pos         = pos
@@ -1281,10 +1290,16 @@ func _spawn_single_tavern_sentinel(role: String, pos: Vector2) -> Sentinel:
 	s.tavern_site_id   = "tavern_main"
 	s.add_to_group("tavern_sentinel")
 	s.set_incident_reporter(Callable(self, "report_tavern_incident"))
-	# door_guard hace una ronda corta alrededor de la entrada.
-	# interior_guard permanece estático en su post (cubre al keeper).
-	if role == "door_guard":
-		s.patrol_points = _get_door_patrol_points()
+	match role:
+		"door_guard":
+			s.patrol_points = _get_door_patrol_points()
+		"perimeter_guard":
+			if not side.is_empty():
+				var pts := _get_perimeter_patrol_points(side, pos)
+				s.patrol_points = pts
+				# Cache para poder restaurar patrullas al salir de postura FORTIFIED.
+				_perimeter_patrol_cache[s] = pts.duplicate()
+		# interior_guard: estático en su post — patrol_points vacío por defecto
 	return s
 
 
@@ -1297,6 +1312,98 @@ func _get_door_patrol_points() -> PackedVector2Array:
 		exit_p + Vector2(  0.0, 20.0),  # frente a la puerta
 		exit_p + Vector2( 40.0,  8.0),  # flanco derecho
 	])
+
+
+## Patrol points para perimeter guards — barrido lateral corto (±48px).
+## Norte/sur barren horizontalmente; este/oeste barren verticalmente.
+## El guardia ronda su lateral sin alejarse del lado asignado.
+func _get_perimeter_patrol_points(side: String, home: Vector2) -> PackedVector2Array:
+	match side:
+		"north", "south":
+			return PackedVector2Array([
+				home + Vector2(-48.0, 0.0),
+				home,
+				home + Vector2( 48.0, 0.0),
+			])
+		"east", "west":
+			return PackedVector2Array([
+				home + Vector2(0.0, -48.0),
+				home,
+				home + Vector2(0.0,  48.0),
+			])
+	return PackedVector2Array()
+
+
+## ── Postura defensiva del recinto ────────────────────────────────────────────
+##
+## Evaluada cada _POSTURE_EVAL_INTERVAL segundos. Cuando la postura cambia,
+## se propaga a tres subsistemas:
+##   TavernPresenceMonitor — ajusta multiplier de thresholds
+##   TavernAuthorityPolicy — activa/desactiva Regla 5 (exterior escalada)
+##   Perimeter sentinels   — FORTIFIED: post fijo; NORMAL/GUARDED: patrulla corta
+##
+## La evaluación usa TavernDefensePosture.compute() que es puro y determinista.
+
+func _tick_defense_posture(delta: float) -> void:
+	if _tavern_memory == null:
+		return
+	_posture_eval_accum += delta
+	if _posture_eval_accum < _POSTURE_EVAL_INTERVAL:
+		return
+	_posture_eval_accum = 0.0
+
+	var bounds: Rect2 = get_tavern_inner_bounds_world()
+	var tavern_center: Vector2 = bounds.get_center() if bounds.size != Vector2.ZERO else Vector2.ZERO
+	var new_posture: int = TavernDefensePosture.compute(_tavern_memory, tavern_center, RunClock.now())
+
+	if new_posture == _current_posture:
+		return
+
+	var old_posture: int = _current_posture
+	_current_posture = new_posture
+	_apply_defense_posture(new_posture, old_posture)
+	Debug.log("authority", "[POSTURE] %s → %s" % [
+		TavernDefensePosture.name_of(old_posture),
+		TavernDefensePosture.name_of(new_posture),
+	])
+
+
+func _apply_defense_posture(posture: int, old_posture: int) -> void:
+	# Propagar a monitor de presencia (thresholds dinámicos)
+	if _tavern_presence_monitor != null:
+		_tavern_presence_monitor.set_defense_posture(posture)
+	# Propagar a policy (Regla 5 — exterior escalada en FORTIFIED)
+	if _tavern_policy != null:
+		_tavern_policy.set_defense_posture(posture)
+	# Adaptar patrullas de perimeter guards
+	_adapt_perimeter_patrols(posture, old_posture)
+
+
+## Ajusta las patrullas de perimeter guards según postura.
+##
+## FORTIFIED → post fijo (patrol_points vacío) — máxima vigilancia, sin ronda.
+##             El guardia mantiene posición cerca de la pared y no se distrae.
+## NORMAL/GUARDED → restaura las patrullas originales cacheadas en spawn.
+##
+## Los interior_guard y door_guard no se tocan — solo perimeter.
+func _adapt_perimeter_patrols(posture: int, old_posture: int) -> void:
+	var sentinels: Array = get_tree().get_nodes_in_group("tavern_sentinel")
+	for node: Variant in sentinels:
+		if not (node is Sentinel and is_instance_valid(node)):
+			continue
+		var s := node as Sentinel
+		if s.sentinel_role != "perimeter_guard":
+			continue
+
+		if posture == TavernDefensePosture.FORTIFIED:
+			# Asegurar cache antes de limpiar (puede ser la primera vez que llega a FORTIFIED).
+			if not _perimeter_patrol_cache.has(s) and not s.patrol_points.is_empty():
+				_perimeter_patrol_cache[s] = s.patrol_points.duplicate()
+			s.patrol_points = PackedVector2Array()
+		elif old_posture == TavernDefensePosture.FORTIFIED:
+			# Restaurar al salir de FORTIFIED.
+			if _perimeter_patrol_cache.has(s):
+				s.patrol_points = _perimeter_patrol_cache[s] as PackedVector2Array
 
 
 ## Resolver la posición world del TavernKeeper en runtime.
@@ -1376,6 +1483,14 @@ func _build_tavern_incident(incident_type: String, payload: Dictionary) -> Local
 			offense     = C.Offense.VANDALISM
 			severity    = C.SEVERITY_MODERATE
 			victim_kind = C.VictimKind.TAVERN_PROPERTY
+		"wall_damaged_exterior":
+			# Daño estructural desde el perímetro — ataque externo a la taberna.
+			# Más grave que interior (agresión directa desde fuera).
+			# zone=PERIMETER → director asigna perimeter_guard. Policy puede escalar a CALL_BACKUP.
+			offense     = C.Offense.VANDALISM
+			severity    = C.SEVERITY_SERIOUS
+			victim_kind = C.VictimKind.TAVERN_PROPERTY
+			zone        = C.ZONE_TAVERN_PERIMETER
 		"barrel_opened":
 			offense     = C.Offense.TRESPASS
 			severity    = C.SEVERITY_MINOR
@@ -1503,12 +1618,17 @@ func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
 	if _wall_refresh_queue != null:
 		var cpos: Vector2i = _tile_to_chunk(tile_pos)
 		_wall_refresh_queue.record_activity(cpos)
-	# Activador wall_damaged: paredes dentro de la taberna son propiedad del establecimiento.
 	var tavern_bounds: Rect2 = get_tavern_inner_bounds_world()
-	if tavern_bounds.size != Vector2.ZERO:
-		var world_pos: Vector2 = _tile_to_world(tile_pos)
-		if tavern_bounds.grow(16.0).has_point(world_pos):
-			report_tavern_incident("wall_damaged", {"pos": world_pos})
+	if tavern_bounds.size == Vector2.ZERO:
+		return
+	var world_pos: Vector2 = _tile_to_world(tile_pos)
+	if tavern_bounds.grow(16.0).has_point(world_pos):
+		# Pared interior o del muro — daño dentro del establecimiento.
+		report_tavern_incident("wall_damaged", {"pos": world_pos})
+	elif tavern_bounds.grow(TavernPresenceMonitor.PERIM_GROW_PX).has_point(world_pos):
+		# Pared exterior dentro del perímetro — ataque desde afuera a la estructura.
+		# Responde el perimeter_guard más cercano (ver TavernSanctionDirector._role_for_zone).
+		report_tavern_incident("wall_damaged_exterior", {"pos": world_pos})
 
 func _get_player_world_pos() -> Vector2:
 	if player == null:

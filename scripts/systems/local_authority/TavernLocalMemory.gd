@@ -152,6 +152,29 @@ func get_tension_level(now: float, window_sec: float = 180.0) -> float:
 	return clampf(score, 0.0, 3.0)
 
 
+## Cuenta incidentes recientes cuyo source_tag esté en la lista dada.
+## Usado por TavernDefensePosture para medir presión exterior física.
+##
+## tags      — conjunto de source_tags a buscar (e.g. ["wall_damaged_exterior", "bandit_attack"])
+## now       — RunClock.now()
+## window_sec — ventana temporal hacia atrás desde now
+func count_recent_by_source_tags(
+		tags: PackedStringArray,
+		now: float,
+		window_sec: float,
+) -> int:
+	var count: int = 0
+	var cutoff: float = now - window_sec
+	for entry: Dictionary in _entries:
+		var t: float = float(entry.get("created_at_run_time", -INF))
+		if t < cutoff:
+			continue
+		var tag: String = String(entry.get("source_tag", ""))
+		if tags.has(tag):
+			count += 1
+	return count
+
+
 ## Snapshot estructurado para el port callable de LocalSocialAuthorityPorts.
 func get_snapshot(scope_id: String, _payload: Dictionary = {}) -> Dictionary:
 	var offender_dicts: Dictionary = {}

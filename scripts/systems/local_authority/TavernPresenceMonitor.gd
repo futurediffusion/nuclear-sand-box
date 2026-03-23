@@ -55,10 +55,14 @@ const DOOR_GROW_PX:   float = 48.0
 ## Expansión adicional para el perímetro exterior corto
 const PERIM_GROW_PX:  float = 128.0
 
-## Factor de presión aplicado a thresholds cuando hay campamento bandit cercano.
-## 0.65 = thresholds un 35% más estrictos (respuesta 35% más rápida).
-const PRESSURE_MULT_HIGH: float = 0.65
-const PRESSURE_MULT_NORM: float = 1.0
+## Factor de presión aplicado a thresholds según postura defensiva / presencia bandit.
+##
+## NORM     (1.00) — sin presión; thresholds base
+## HIGH     (0.65) — campamento cercano o postura GUARDED; 35% más estrictos
+## FORTIFIED(0.45) — postura FORTIFIED; 55% más estrictos; respuesta muy rápida
+const PRESSURE_MULT_FORTIFIED: float = 0.45
+const PRESSURE_MULT_HIGH:      float = 0.65
+const PRESSURE_MULT_NORM:      float = 1.0
 
 
 # ── Cadencia ──────────────────────────────────────────────────────────────────
@@ -94,6 +98,10 @@ var _tracked: Dictionary = {}
 ## Actualizado cada ciclo de evaluación via BanditTerritoryQuery.
 var _pressure_mult: float = PRESSURE_MULT_NORM
 
+## Postura defensiva actual del recinto. Propagada por world.gd cada ~10s.
+## Sobreescribe el efecto de BanditTerritoryQuery cuando está en GUARDED/FORTIFIED.
+var _defense_posture: int = TavernDefensePosture.NORMAL
+
 
 # ── Pública ───────────────────────────────────────────────────────────────────
 
@@ -101,6 +109,11 @@ func setup(ctx: Dictionary) -> void:
 	_incident_reporter = ctx.get("incident_reporter", Callable())
 	_get_candidates    = ctx.get("get_candidates",    Callable())
 	_interior_bounds   = ctx.get("interior_bounds",   Callable())
+
+
+## Propagado desde world.gd cada ~10s al cambiar la postura del recinto.
+func set_defense_posture(posture: int) -> void:
+	_defense_posture = posture
 
 
 ## Llamar desde world._process(delta). Evalúa a cadencia reducida.
@@ -185,17 +198,25 @@ func _classify_actor_kind(actor: Node) -> String:
 	return "unknown"
 
 
-## Actualiza _pressure_mult según si hay campamento bandit dentro del territorio
-## que incluye la posición de la taberna.
-## Sin campamento cercano → PRESSURE_MULT_NORM (thresholds normales).
-## Con campamento → PRESSURE_MULT_HIGH (thresholds más estrictos → respuesta antes).
+## Actualiza _pressure_mult según postura defensiva y presencia territorial bandit.
+##
+## La postura (propagada por world.gd) tiene prioridad sobre BanditTerritoryQuery:
+##   FORTIFIED → mult mínimo (0.45) — recinto bajo ataque sostenido
+##   GUARDED   → mult alto (0.65) — presencia hostil detectada
+##   NORMAL    → depende de BanditTerritoryQuery (0.65 si hay camp, 1.0 si no)
 func _update_pressure(interior: Rect2) -> void:
 	if interior.size == Vector2.ZERO:
 		_pressure_mult = PRESSURE_MULT_NORM
 		return
-	var tavern_center: Vector2 = interior.get_center()
-	var has_nearby_camp: bool = BanditTerritoryQuery.is_in_territory(tavern_center)
-	_pressure_mult = PRESSURE_MULT_HIGH if has_nearby_camp else PRESSURE_MULT_NORM
+	match _defense_posture:
+		TavernDefensePosture.FORTIFIED:
+			_pressure_mult = PRESSURE_MULT_FORTIFIED
+		TavernDefensePosture.GUARDED:
+			_pressure_mult = PRESSURE_MULT_HIGH
+		_:  # NORMAL — usar BanditTerritoryQuery como antes
+			var tavern_center: Vector2 = interior.get_center()
+			var has_nearby_camp: bool = BanditTerritoryQuery.is_in_territory(tavern_center)
+			_pressure_mult = PRESSURE_MULT_HIGH if has_nearby_camp else PRESSURE_MULT_NORM
 
 
 ## Clasifica la posición en la zona más interior que la contenga.
