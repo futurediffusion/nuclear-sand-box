@@ -547,6 +547,7 @@ func _ready() -> void:
 		"get_keeper":          Callable(self, "_get_tavern_keeper_node"),
 		"get_sentinels":       func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
 		"memory_deny_service": Callable(_tavern_memory, "deny_service_for"),
+		"tavern_site_id":      "tavern_main",
 	})
 	_local_social_ports = LocalSocialAuthorityPortsScript.new()
 	_local_social_ports.setup({

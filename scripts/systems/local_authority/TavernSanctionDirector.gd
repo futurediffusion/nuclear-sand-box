@@ -16,12 +16,14 @@ class_name TavernSanctionDirector
 var _get_keeper:          Callable = Callable()
 var _get_sentinels:       Callable = Callable()
 var _memory_deny_service: Callable = Callable()  # TavernLocalMemory.deny_service_for
+var _tavern_site_id:      String   = ""           # filtra sentinels por site (multi-taberna safe)
 
 
 func setup(ctx: Dictionary) -> void:
 	_get_keeper          = ctx.get("get_keeper",          Callable())
 	_get_sentinels       = ctx.get("get_sentinels",       Callable())
 	_memory_deny_service = ctx.get("memory_deny_service", Callable())
+	_tavern_site_id      = ctx.get("tavern_site_id",      "")
 
 
 ## Despacha la sanción. offender_node puede ser null si no se pudo resolver.
@@ -107,6 +109,7 @@ func _get_keeper_node() -> Node:
 
 
 ## Devuelve solo los nodos Sentinel válidos del site.
+## Filtra por tavern_site_id cuando está configurado — correcto para escenarios multi-taberna.
 func _get_sentinel_nodes() -> Array[Sentinel]:
 	var result: Array[Sentinel] = []
 	if not _get_sentinels.is_valid():
@@ -115,8 +118,12 @@ func _get_sentinel_nodes() -> Array[Sentinel]:
 	if not raw is Array:
 		return result
 	for node: Variant in raw:
-		if node is Sentinel and is_instance_valid(node):
-			result.append(node as Sentinel)
+		if not (node is Sentinel and is_instance_valid(node)):
+			continue
+		var s := node as Sentinel
+		if not _tavern_site_id.is_empty() and s.tavern_site_id != _tavern_site_id:
+			continue
+		result.append(s)
 	return result
 
 
@@ -130,29 +137,43 @@ func _role_for_zone(zone_id: String, _response_hint: String = "") -> String:
 	return "door_guard"
 
 
-## Elige sentinel por rol, con fallback a zona (más cercano al incidente) y luego al ofensor.
+## Elige sentinel por rol + disponibilidad + distancia al ofensor.
+##
+## Prioridad:
+##   1. Rol exacto, idle (GUARD)  — el más cercano al ofensor
+##   2. Rol exacto, ocupado       — el más cercano (ya tiene orden pero puede redirigirse)
+##   3. Rol complementario, idle  — fallback si no existe el rol preferido
+##   4. Rol complementario, ocupado
+##   5. Cualquier sentinel        — último recurso
 func _pick_by_role_then_zone(
 		preferred_role: String,
-		zone_id: String,
+		_zone_id: String,
 		offender: CharacterBody2D,
 ) -> Sentinel:
 	var sentinels := _get_sentinel_nodes()
 	if sentinels.is_empty():
 		return null
 
-	# 1. Rol exacto dentro del mismo site
-	for s: Sentinel in sentinels:
-		if s.sentinel_role == preferred_role:
-			return s
-
-	# 2. Si el rol preferido no existe, intentar el rol complementario.
-	# Ej: si no hay door_guard, el interior_guard es mejor que nada.
 	var fallback_role := "interior_guard" if preferred_role == "door_guard" else "door_guard"
-	for s: Sentinel in sentinels:
-		if s.sentinel_role == fallback_role:
-			return s
 
-	# 3. Ultimo recurso: más cercano al ofensor (no hay roles configurados).
+	var exact_idle:    Array[Sentinel] = []
+	var exact_busy:    Array[Sentinel] = []
+	var fallbk_idle:   Array[Sentinel] = []
+	var fallbk_busy:   Array[Sentinel] = []
+
+	for s: Sentinel in sentinels:
+		var idle := s.is_available()
+		if s.sentinel_role == preferred_role:
+			if idle: exact_idle.append(s) else: exact_busy.append(s)
+		elif s.sentinel_role == fallback_role:
+			if idle: fallbk_idle.append(s) else: fallbk_busy.append(s)
+
+	# Elegir el más cercano del grupo de mayor prioridad que no esté vacío
+	for bucket: Array[Sentinel] in [exact_idle, exact_busy, fallbk_idle, fallbk_busy]:
+		if not bucket.is_empty():
+			return _pick_nearest(bucket, offender)
+
+	# Último recurso: cualquier sentinel del site
 	return _pick_nearest(sentinels, offender)
 
 

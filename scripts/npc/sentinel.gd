@@ -801,8 +801,16 @@ func _on_detection_entered(body: Node) -> void:
 		return
 	_armed_intruder_reported[iid] = now + _ARMED_INTRUDER_COOLDOWN_SEC
 
-	_incident_reporter.call("armed_intruder",
-		{"offender": body, "pos": (body as Node2D).global_position})
+	# Nuance: distinguir entre presencia hostil pasiva y amenaza activa.
+	# Un enemy que entra pero no está atacando = trespass (presencia tensa sin agresión).
+	# Un enemy que ya está atacando al entrar = armed_intruder (amenaza inmediata).
+	# Esto evita que bandits merodeando desencadenen siempre la respuesta máxima.
+	var body_pos: Vector2 = (body as Node2D).global_position
+	var is_attacking: bool = body.has_method("is_attacking") and bool(body.call("is_attacking"))
+	if is_attacking:
+		_incident_reporter.call("armed_intruder", {"offender": body, "pos": body_pos})
+	else:
+		_incident_reporter.call("trespass", {"offender": body, "pos": body_pos})
 
 
 func _on_detection_exited(_body: Node) -> void:
@@ -990,6 +998,12 @@ func issue_order(order: OrderType, target: CharacterBody2D = null,
 		set_collision_layer_value(3, false)
 	if order != OrderType.NONE:
 		_enter_intercept()
+
+
+## True cuando el sentinel está en su post (GUARD) y puede aceptar una nueva directiva.
+## El director lo usa para preferir sentinels libres sobre los que ya tienen una orden activa.
+func is_available() -> bool:
+	return _state == State.GUARD
 
 
 ## Registra el callable para reportar incidentes civiles (world.report_tavern_incident).
