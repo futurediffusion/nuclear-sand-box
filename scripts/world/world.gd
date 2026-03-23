@@ -1165,6 +1165,8 @@ func get_tavern_inner_bounds_world() -> Rect2:
 ##
 ## Anti-doble-spawn: _tavern_sentinels_spawned guard + comprobación de grupo.
 ## Para debug manual sigue existiendo /summon sentinel en CommandSystem.
+## TODO(multi-taberna): la guarda de grupo es global; si hay más de una taberna
+##   hay que filtrar por tavern_site_id, no por grupo "tavern_sentinel" a secas.
 ##
 ## ── Activadores futuros (NO implementados — stub de integración) ──────────────
 ## Cuando TavernLocalMemory + TavernAuthorityPolicy + TavernSanctionDirector
@@ -1205,6 +1207,10 @@ func ensure_tavern_sentinels_spawned() -> void:
 	var keeper_pos  : Vector2 = _get_tavern_keeper_pos()
 	var exit_pos    : Vector2 = get_tavern_exit_world_pos()
 
+	# TODO(slots): estas posiciones son offsets visuales buenos-enough para Paso 1.
+	# En Paso 2+ reemplazar por un sistema de guard slots derivado de la geometría
+	# real de la taberna (TavernSlotLayout o similar), para que sean robustos
+	# si la taberna cambia de tamaño o se generan múltiples tabernas.
 	# interior_guard — flanco derecho del keeper, mirando hacia la entrada
 	var interior_pos := keeper_pos + Vector2(28.0, 16.0)
 	# door_guard — 1 tile al sur de la salida (fuera de la taberna, en la puerta)
@@ -1241,24 +1247,24 @@ func _get_tavern_keeper_pos() -> Vector2:
 	return _tile_to_world(Vector2i(x0 + 6, y0 + 2))
 
 
-## ── Hook único de entrada para incidentes civiles de taberna ─────────────────
-## Punto de integración para todos los activadores de autoridad local.
-## En Paso 1: loguea + reenvía al puerto (sin director detrás todavía).
-## En Paso 2: TavernSanctionDirector se conecta vía _local_social_ports.
+## ── Entry point institucional para incidentes civiles de taberna ─────────────
+## Este método es el punto de entrada del INCIDENTE, no del sanction.
+## La ruta conceptual correcta es: incident → memory → policy → sanction.
+## Hoy no hay director, así que el incidente se loguea y queda registrado
+## para observabilidad. NO se llama direct_local_sanction() porque semánticamente
+## eso salta memory y policy, que todavía no existen.
+##
+## En Paso 2: conectar TavernLocalMemory aquí primero, luego policy, luego director.
+## _local_social_ports tiene los puertos listos para cuando lleguen esas piezas.
 ##
 ## Llamar desde: hurtbox del keeper, barrel interaction, wall damage callbacks,
 ##   BanditBehaviorLayer, futuros civiles, etc.
+## Offenders: player, bandit/enemy, cualquier Node2D agente.
 func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> void:
+	# Paso 1: solo observabilidad — el incidente queda registrado en el log.
+	# Paso 2: pasar por _local_social_ports cuando memory+policy+director existan.
+	#   Orden correcto: memory.record() → policy.evaluate() → director.dispatch()
 	Debug.log("authority", "[TAVERN] incident=%s  payload=%s" % [incident_type, str(payload)])
-	_local_social_ports.direct_local_sanction(incident_type, payload)
-
-
-## Compatibilidad con llamadas debug existentes (redirige a ensure_*).
-## El comando /summon sentinel en CommandSystem sigue siendo independiente.
-func spawn_sentinel_near_tavern() -> Sentinel:
-	ensure_tavern_sentinels_spawned()
-	var sentinels := get_tree().get_nodes_in_group("tavern_sentinel")
-	return sentinels[0] as Sentinel if not sentinels.is_empty() else null
 
 
 func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
