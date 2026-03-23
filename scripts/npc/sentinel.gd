@@ -119,11 +119,13 @@ var home_pos: Vector2 = Vector2.ZERO
 ## El interior_guard se queda en su post.
 @export var patrol_points: PackedVector2Array = PackedVector2Array()
 
-const _PATROL_SPEED:    float = 35.0  # más lento que max_speed — patrulla tranquila
-const _PATROL_WAIT_SEC: float = 2.5   # segundos de espera en cada punto
+const _PATROL_SPEED:     float = 35.0  # más lento que max_speed — patrulla tranquila
+const _PATROL_WAIT_MIN:  float = 1.5   # espera mínima en cada punto
+const _PATROL_WAIT_MAX:  float = 5.0   # espera máxima en cada punto
 
-var _patrol_idx:  int   = 0
-var _patrol_wait: float = 0.0
+var _patrol_idx:        int   = 0
+var _patrol_wait:       float = 0.0
+var _patrol_wait_target: float = 2.5   # se randomiza en cada llegada
 
 ## Reporter de incidentes civiles — registrado por world.gd al spawnear.
 var _incident_reporter: Callable = Callable()
@@ -246,8 +248,7 @@ func _physics_process(delta: float) -> void:
 	#   - Post-shove (otras órdenes): evita el "arrastre" por solapamiento.
 	if _passthrough_t > 0.0:
 		_passthrough_t -= delta
-		# Solo restaurar al expirar si NO estamos en EJECT (EJECT lo gestiona manualmente).
-		if _passthrough_t <= 0.0 and _current_order != OrderType.EJECT:
+		if _passthrough_t <= 0.0:
 			_restore_collision()
 
 	_tick_state(delta)
@@ -279,24 +280,38 @@ func _tick_guard(delta: float) -> void:
 		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 
 
-## Patrulla corta idle: recorre patrol_points a baja velocidad mientras GUARD.
-## Devuelve true si el sentinel se está moviendo hacia un punto (no aplicar fricción).
+## Patrulla idle: recorre patrol_points a baja velocidad mientras GUARD.
+## Espera aleatoria en cada punto y elige el siguiente punto al azar (no secuencial).
+## Devuelve true si el sentinel se está moviendo (no aplicar fricción externa).
 func _tick_patrol(delta: float) -> bool:
 	if patrol_points.is_empty():
 		return false
 	var target: Vector2 = patrol_points[_patrol_idx % patrol_points.size()]
 	var dist: float     = global_position.distance_to(target)
 	if dist < 8.0:
-		# Llegó al punto — esperar antes del siguiente
+		# Llegó al punto — esperar un tiempo aleatorio antes de continuar
 		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 		_patrol_wait += delta
-		if _patrol_wait >= _PATROL_WAIT_SEC:
-			_patrol_wait = 0.0
-			_patrol_idx  = (_patrol_idx + 1) % patrol_points.size()
+		if _patrol_wait >= _patrol_wait_target:
+			_patrol_wait        = 0.0
+			_patrol_wait_target = randf_range(_PATROL_WAIT_MIN, _PATROL_WAIT_MAX)
+			_patrol_idx         = _pick_next_patrol_idx()
 		return false
 	_patrol_wait = 0.0
 	_pathfind_toward(target, _PATROL_SPEED)
 	return true
+
+
+## Elige el siguiente punto de patrulla al azar, distinto del actual.
+func _pick_next_patrol_idx() -> int:
+	var n: int = patrol_points.size()
+	if n <= 1:
+		return 0
+	var current: int = _patrol_idx % n
+	var next: int    = randi() % (n - 1)
+	if next >= current:
+		next += 1
+	return next
 
 
 func _tick_intercept(delta: float) -> void:
@@ -315,7 +330,22 @@ func _tick_intercept(delta: float) -> void:
 				_enter_return()
 				return
 
+	# Perimeter guards no entran al interior: si el target (o el propio sentinel)
+	# ya está dentro del inner bounds, regresar al post.
+	if sentinel_role == "perimeter_guard" and _tavern_inner_bounds.size != Vector2.ZERO:
+		if _tavern_inner_bounds.has_point(global_position):
+			_enter_return()
+			return
+
 	if dist < warn_approach_dist:
+		# Si el target ya está KO al acercarnos, no continuar hacia warn/chase.
+		var target_cb := _order_target as CharacterBase
+		if target_cb != null and target_cb.is_downed:
+			if _can_haul_target(target_cb):
+				_enter_haul(target_cb)
+			else:
+				_enter_return()
+			return
 		match _current_order:
 			OrderType.SUBDUE:
 				_enter_chase_short()   # subdue salta advertencia
@@ -338,6 +368,10 @@ func _tick_warn(delta: float) -> void:
 		if _player_is_outside_tavern():
 			_enter_return()
 			return
+		# Si el player huyó demasiado lejos del post del sentinel, abortar.
+		if target_pos.distance_to(home_pos) > chase_abandon_radius:
+			_enter_return()
+			return
 	else:
 		if not _is_in_jurisdiction(target_pos):
 			_enter_return()
@@ -346,6 +380,14 @@ func _tick_warn(delta: float) -> void:
 	# Acercarse al player. Para EJECT la dirección del empujón viene de shove_directional
 	# (hacia el exit), así que no hace falta posicionarse en un lado específico.
 	if global_position.distance_to(target_pos) <= shove_trigger_dist:
+		# Nunca empujar un target KO — pasar a haul o retornar.
+		var target_cb := _order_target as CharacterBase
+		if target_cb != null and target_cb.is_downed:
+			if _can_haul_target(target_cb):
+				_enter_haul(target_cb)
+			else:
+				_enter_return()
+			return
 		_enter_shove()
 		return
 
@@ -361,7 +403,7 @@ func _tick_shove(delta: float) -> void:
 			_pathfind_toward(_tavern_exit_pos, max_speed * 0.45)
 			if _order_target != null and is_instance_valid(_order_target):
 				var target_base := _order_target as CharacterBase
-				if target_base != null and not target_base.dying:
+				if target_base != null and not target_base.dying and not target_base.is_downed:
 					var player_to_exit := (_tavern_exit_pos - (_order_target as Node2D).global_position).normalized()
 					target_base.apply_knockback(player_to_exit * grab_drag_force * delta)
 		return   # seguir en SHOVE hasta que expire grab_duration
@@ -371,9 +413,23 @@ func _tick_shove(delta: float) -> void:
 	var wait_t := grab_duration if _current_order == OrderType.EJECT else 0.4
 	if _state_timer >= wait_t:
 		_shove_count += 1
+		# Si el target quedó KO durante el shove/grab, pasar a haul en vez de
+		# volver a WARN (lo que causaría el loop infinito de empujón sobre cuerpo KO).
+		var target_cb := _order_target as CharacterBase
+		if target_cb != null and target_cb.is_downed:
+			if _can_haul_target(target_cb):
+				_enter_haul(target_cb)
+			else:
+				_enter_return()
+			return
 		if _current_order == OrderType.EJECT:
 			if _player_is_outside_tavern():
 				_enter_return()
+			elif _shove_count >= max_shoves_before_subdue:
+				# El player no sale después de varios empujones — escalar a SUBDUE
+				# en vez de seguir en el loop EJECT. Evita que el sentinel quede
+				# atascado empujando mobiliario o el aire indefinidamente.
+				_enter_subdue()
 			else:
 				_enter_warn()
 		elif _current_order == OrderType.SUBDUE or _shove_count >= max_shoves_before_subdue:
@@ -390,6 +446,13 @@ func _tick_chase_short(delta: float) -> void:
 	if _order_target != null and is_instance_valid(_order_target):
 		var dist_from_home := (_order_target as Node2D).global_position.distance_to(home_pos)
 		if dist_from_home > chase_abandon_radius:
+			_enter_return()
+			return
+
+	# Perimeter guards no entran al interior de la taberna.
+	# Si el target cruzó al interior, abandonar y volver al post.
+	if sentinel_role == "perimeter_guard" and _tavern_inner_bounds.size != Vector2.ZERO:
+		if _tavern_inner_bounds.has_point(global_position):
 			_enter_return()
 			return
 
@@ -430,6 +493,12 @@ func _tick_subdue(delta: float) -> void:
 		_enter_return()
 		return
 
+	# Perimeter guards no entran al interior de la taberna.
+	if sentinel_role == "perimeter_guard" and _tavern_inner_bounds.size != Vector2.ZERO:
+		if _tavern_inner_bounds.has_point(global_position):
+			_enter_return()
+			return
+
 	# Target neutralizado — intentar HAUL inmediato si quedó KO en la taberna
 	if _target_is_neutralized():
 		var target_base := _order_target as CharacterBase
@@ -460,9 +529,25 @@ func _tick_return(delta: float) -> void:
 
 
 func _tick_haul(delta: float) -> void:
-	# Cancelar si el cuerpo desapareció o se recuperó
-	if _haul_body == null or not is_instance_valid(_haul_body) or not _haul_body.is_downed:
-		_haul_release()
+	# Cancelar si el cuerpo desapareció o se recuperó (revivió).
+	# Si está dying (murió mientras lo cargaban) seguimos llevándolo al exit —
+	# así el respawn ocurre fuera de la taberna, no en medio de ella.
+	var _body_gone := _haul_body == null or not is_instance_valid(_haul_body)
+	var _body_recovered := not _body_gone \
+		and not _haul_body.is_downed \
+		and not _haul_body.dying
+	if _body_gone:
+		# Body inválido — limpiar sin restaurar (el nodo ya no existe).
+		_haul_is_carrying = false
+		_haul_body = null
+		_enter_return()
+		return
+	if _body_recovered:
+		# Solo restaurar colisión si aún estamos cargando activamente.
+		# Si ya soltamos en el exit (fase 2, _haul_is_carrying=false), no restaurar
+		# desde valores potencialmente stale — la restauración ya ocurrió al soltar.
+		if _haul_is_carrying:
+			_haul_release()
 		_haul_body = null
 		_enter_return()
 		return
@@ -533,6 +618,7 @@ func _haul_release() -> void:
 		_haul_body.collision_mask  = _haul_saved_collision_mask
 		_haul_body.set_physics_process(true)
 		_haul_body.set_process(true)
+		_haul_body.remove_from_group("sentinel_haul_claimed")
 	_haul_is_carrying = false
 
 
@@ -546,12 +632,13 @@ func _tick_haul_scan(delta: float) -> void:
 	if _tavern_inner_bounds.size == Vector2.ZERO:
 		return   # geometría de taberna no resuelta aún
 	var body := _find_downed_body_in_tavern()
-	if body != null:
+	if body != null and _can_haul_target(body):
 		_enter_haul(body)
 
 
 ## Busca un cuerpo KO dentro de la taberna que sea transportable.
-## Excluye: tavern_keeper, otros sentinels, cuerpos ya siendo cargados.
+## Excluye: tavern_keeper, otros sentinels, cuerpos ya siendo cargados o
+## ya reclamados por otro sentinel (grupo "sentinel_haul_claimed").
 func _find_downed_body_in_tavern() -> CharacterBase:
 	var search_bounds := _tavern_inner_bounds.grow(32.0)
 	for group in ["npc", "player", "enemy"]:
@@ -560,6 +647,8 @@ func _find_downed_body_in_tavern() -> CharacterBase:
 			if cb == null or not cb.is_downed:
 				continue
 			if cb.is_in_group("tavern_keeper") or cb.is_in_group("sentinel"):
+				continue
+			if cb.is_in_group("sentinel_haul_claimed"):
 				continue
 			if _tavern_inner_bounds.size != Vector2.ZERO \
 					and not search_bounds.has_point(cb.global_position):
@@ -602,19 +691,19 @@ func _enter_shove() -> void:
 	_shove_cooldown_t = shove_cooldown
 
 	# Desactivar colisión física sentinel↔player durante el ventana de shove + re-approach.
-	# Esto soluciona dos bugs:
-	#   1. El "arrastre" al acercarse de nuevo (solapamiento de CharacterBody2D).
-	#   2. El propio cuerpo del sentinel bloqueando el empujón en EJECT.
+	# mask(1): evita que el player bloquee el movimiento del sentinel.
+	# mask(1): el sentinel ignora al player temporalmente para poder empujar sin
+	#          quedar enredado en su collider. layer(3) permanece activo siempre
+	#          para que los sentinels no se solapen entre sí.
 	_passthrough_t = shove_cooldown + 0.4   # cubre la espera de SHOVE (0.4s) + el re-approach
-	set_collision_mask_value(1, false)       # no detectar al player como obstáculo
-	set_collision_layer_value(3, false)      # salir de la capa EnemyNCP: el player pasa a través
+	set_collision_mask_value(1, false)
 
 	# Aplicar empujón en la entrada del estado.
-	# EJECT: empujón direccional hacia la salida (puerta de la taberna).
-	# Otros: empujón radial alejándose del sentinel.
+	# Nunca empujar un target KO — si llegamos aquí con un target downed es un bug
+	# de la llamada, pero nos protegemos igualmente.
 	if _order_target != null and is_instance_valid(_order_target):
 		var target_base := _order_target as CharacterBase
-		if target_base != null:
+		if target_base != null and not target_base.is_downed:
 			if _current_order == OrderType.EJECT and _tavern_exit_pos != Vector2.ZERO:
 				var shove_dir := (_tavern_exit_pos - (_order_target as Node2D).global_position).normalized()
 				CombatPhysicsHelper.shove_directional(target_base, shove_dir, shove_force)
@@ -648,6 +737,11 @@ func _can_haul_target(cb: CharacterBase) -> bool:
 		return false
 	if cb.is_in_group("tavern_keeper") or cb.is_in_group("sentinel"):
 		return false
+	# Evitar cargar un cuerpo que ya está siendo gestionado por otro sentinel.
+	# Sin esta comprobación, un segundo sentinel puede guardar collision_mask=0
+	# (ya anulado por el primero) y restaurarlo a 0 al soltar → pass-through de paredes.
+	if cb.is_in_group("sentinel_haul_claimed"):
+		return false
 	# Verificar que tiene CarryableComponent y puede cargarse
 	var carryable := cb.get_node_or_null("CarryableComponent") as CarryableComponent
 	if carryable == null:
@@ -670,6 +764,7 @@ func _enter_haul(body: CharacterBase) -> void:
 	_state_timer = 0.0
 	_current_order = OrderType.NONE
 	_order_target  = null
+	body.add_to_group("sentinel_haul_claimed")
 	Debug.log("sentinel", "[%s] → HAUL cuerpo=%s downed=%s" % [name, body.name, str(body.is_downed)])
 
 
@@ -859,13 +954,17 @@ func _get_path_id() -> String:
 
 
 ## Mueve el sentinel hacia `goal` a `speed` usando NpcPathService cuando esté listo.
-## Fallback a dirección directa si el servicio no está disponible.
+## Fallback a dirección directa si el servicio no está disponible o el path falla.
 func _pathfind_toward(goal: Vector2, speed: float, opts: Dictionary = {}) -> void:
 	var my_pos := global_position
 	var d: Vector2
 	if NpcPathService.is_ready():
 		var wp := NpcPathService.get_next_waypoint(_get_path_id(), my_pos, goal, opts)
 		d = wp - my_pos
+		# Si el waypoint es la posición actual el path falló (sin ruta en el nav mesh).
+		# Fallback a movimiento directo para que el sentinel no se quede inmóvil.
+		if d.length_squared() < 4.0:
+			d = goal - my_pos
 	else:
 		d = goal - my_pos
 	var dsq := d.length_squared()
@@ -951,10 +1050,13 @@ func _target_is_neutralized() -> bool:
 func _update_animation() -> void:
 	if not is_instance_valid(sprite):
 		return
-	# Prioridad: death > hurt > estado de movimiento
+	# Prioridad: death > downed > hurt > estado de movimiento
 	if dying:
 		if sprite.animation != &"death":
 			sprite.play("death")
+		return
+	if is_downed:
+		# _on_entered_downed() ya lanzó "death"; no sobreescribir con idle.
 		return
 	if hurt_t > 0.0:
 		if sprite.animation != &"hurt":
@@ -963,7 +1065,11 @@ func _update_animation() -> void:
 	# Estados en movimiento: walk cuando se mueve, idle cuando para
 	match _state:
 		State.GUARD:
-			sprite.play("idle")
+			if velocity.length() > 5.0:
+				sprite.play("walk")
+				sprite.flip_h = velocity.x < 0.0
+			else:
+				sprite.play("idle")
 		State.WARN, State.SHOVE:
 			if velocity.length() > 5.0:
 				sprite.play("walk")
@@ -1015,6 +1121,16 @@ func _on_after_die() -> void:
 ## pos:    posición de fallback si target no tiene node válido
 func issue_order(order: OrderType, target: CharacterBody2D = null,
 		pos: Vector2 = Vector2.ZERO) -> void:
+	# Nunca emitir una orden contra otro sentinel — evita que sentinels se saquen
+	# entre sí (loop de empujones / cross-ejection).
+	if target != null and target.is_in_group("tavern_sentinel"):
+		return
+	# Si estábamos cargando un cuerpo, soltarlo antes de aceptar la nueva orden.
+	# Sin este release, el body queda con collision_layer=0 y process desactivado.
+	if _haul_is_carrying:
+		_haul_release()
+		_haul_body  = null
+		_haul_phase = 0
 	_current_order = order
 	_order_target  = target
 	_order_pos     = pos if target == null \
@@ -1024,10 +1140,10 @@ func issue_order(order: OrderType, target: CharacterBody2D = null,
 		NpcPathService.invalidate_path(_path_id)
 	if order == OrderType.EJECT:
 		_resolve_eject_context()
-		# El sentinel fantasmea durante toda la orden EJECT para poder alcanzar
-		# al player desde cualquier ángulo (esquinas, pared norte, etc.).
+		# Desactivar mask(1) para que el sentinel pueda alcanzar al player sin
+		# quedar atrapado en su collider. NO desactivar layer(3) — los sentinels
+		# deben seguir siendo sólidos entre sí para no solaparse.
 		set_collision_mask_value(1, false)
-		set_collision_layer_value(3, false)
 	if order != OrderType.NONE:
 		_enter_intercept()
 

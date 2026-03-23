@@ -75,3 +75,12 @@ func shake_impulse(duration: float, magnitude: float) -> void:
 	impulse_duration = max(duration, 0.01)
 	impulse_time_left = impulse_duration
 	impulse_magnitude = max(impulse_magnitude, magnitude)
+
+## Resetea el estado de la cámara instantáneamente (para respawn / teleport).
+## Snap del smoothing al nodo actual, limpiar offset y shakes.
+func reset_for_respawn() -> void:
+	offset          = Vector2.ZERO
+	shake_strength  = 0.0
+	impulse_time_left = 0.0
+	impulse_magnitude = 0.0
+	reset_smoothing()

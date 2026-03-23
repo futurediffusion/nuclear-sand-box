@@ -1254,18 +1254,30 @@ func ensure_tavern_sentinels_spawned() -> void:
 	_spawn_single_tavern_sentinel("interior_guard", keeper_pos + Vector2(-28.0, 16.0))
 	_spawn_single_tavern_sentinel("interior_guard", keeper_pos + Vector2( 28.0, 16.0))
 
-	# Door guard — 2 tiles al sur de la salida; ronda corta alrededor de la entrada
-	_spawn_single_tavern_sentinel("door_guard", exit_pos + Vector2(0.0, 32.0))
+	# Door guard — 2 tiles al sur de la salida; patrulla suelta alrededor de la entrada
+	var dg := _spawn_single_tavern_sentinel("door_guard", exit_pos + Vector2(0.0, 32.0))
+	if dg != null:
+		# 5 puntos irregulares frente a la puerta (no cuadrados, asimétricos)
+		dg.patrol_points = PackedVector2Array([
+			exit_pos + Vector2(-52.0,  28.0),
+			exit_pos + Vector2(  0.0,  20.0),
+			exit_pos + Vector2( 44.0,  36.0),
+			exit_pos + Vector2( 16.0,  52.0),
+			exit_pos + Vector2(-32.0,  44.0),
+		])
 
-	# Perimeter guards — ~80-96px fuera de cada pared; patrulla lateral corta
+	# Perimeter guards — 128px fuera del inner bounds (4 tiles; clearance segura
+	# para paredes de hasta 3 tiles/96px de espesor). Valor reducido desde 192px
+	# porque a mayor distancia el nav mesh puede no tener cobertura y el pathfinding falla.
+	const _PM: float = 128.0
 	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(cx, bounds.position.y - 80.0), "north")
+		Vector2(cx, bounds.position.y - _PM), "north")
 	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(cx, bounds.position.y + bounds.size.y + 96.0), "south")
+		Vector2(cx, bounds.position.y + bounds.size.y + _PM), "south")
 	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(bounds.position.x + bounds.size.x + 80.0, cy), "east")
+		Vector2(bounds.position.x + bounds.size.x + _PM, cy), "east")
 	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(bounds.position.x - 80.0, cy), "west")
+		Vector2(bounds.position.x - _PM, cy), "west")
 
 	Debug.log("world", "[TavernSentinels] 7 desplegados — keeper=%s exit=%s bounds=%s" % [
 		str(keeper_pos), str(exit_pos), str(bounds)
@@ -1292,43 +1304,52 @@ func _spawn_single_tavern_sentinel(role: String, pos: Vector2, side: String = ""
 	s.set_incident_reporter(Callable(self, "report_tavern_incident"))
 	match role:
 		"door_guard":
-			s.patrol_points = _get_door_patrol_points()
+			pass  # patrol_points asignados por el callsite después del spawn
+		"interior_guard":
+			s.patrol_points = _get_interior_patrol_points()
 		"perimeter_guard":
 			if not side.is_empty():
 				var pts := _get_perimeter_patrol_points(side, pos)
 				s.patrol_points = pts
 				# Cache para poder restaurar patrullas al salir de postura FORTIFIED.
 				_perimeter_patrol_cache[s] = pts.duplicate()
-		# interior_guard: estático en su post — patrol_points vacío por defecto
 	return s
 
 
-## Patrol points para el door_guard — triángulo corto alrededor de la entrada.
-func _get_door_patrol_points() -> PackedVector2Array:
-	var exit_p: Vector2 = get_tavern_exit_world_pos()
+## Patrol points para interior guards — rectángulo dentro del interior de la taberna.
+## Los guardias recorren los 4 vértices del interior (con margen interior de 32px).
+func _get_interior_patrol_points() -> PackedVector2Array:
+	var b: Rect2 = get_tavern_inner_bounds_world()
+	var inset: float = 32.0
+	# grow(-inset) encoge el rect hacia adentro
+	var bi: Rect2 = b.grow(-inset)
 	return PackedVector2Array([
-		exit_p + Vector2(-40.0,  8.0),  # flanco izquierdo
-		exit_p + Vector2(  0.0, 20.0),  # frente a la puerta
-		exit_p + Vector2( 40.0,  8.0),  # flanco derecho
+		bi.position,                                     # esquina NW
+		bi.position + Vector2(bi.size.x, 0.0),          # esquina NE
+		bi.position + bi.size,                           # esquina SE
+		bi.position + Vector2(0.0, bi.size.y),           # esquina SW
 	])
 
 
-## Patrol points para perimeter guards — barrido lateral corto (±48px).
-## Norte/sur barren horizontalmente; este/oeste barren verticalmente.
-## El guardia ronda su lateral sin alejarse del lado asignado.
+## Patrol points para perimeter guards — recorren todo su lateral del edificio de extremo
+## a extremo, usando el mismo margen de spawn (128px) para los extremos de la ruta.
 func _get_perimeter_patrol_points(side: String, home: Vector2) -> PackedVector2Array:
+	var b: Rect2 = get_tavern_inner_bounds_world()
+	const M: float = 128.0  # mismo margen que las posiciones de spawn
 	match side:
 		"north", "south":
+			# Patrulla horizontal: extremo oeste → centro → extremo este
 			return PackedVector2Array([
-				home + Vector2(-48.0, 0.0),
+				Vector2(b.position.x - M, home.y),
 				home,
-				home + Vector2( 48.0, 0.0),
+				Vector2(b.position.x + b.size.x + M, home.y),
 			])
 		"east", "west":
+			# Patrulla vertical: extremo norte → centro → extremo sur
 			return PackedVector2Array([
-				home + Vector2(0.0, -48.0),
+				Vector2(home.x, b.position.y - M),
 				home,
-				home + Vector2(0.0,  48.0),
+				Vector2(home.x, b.position.y + b.size.y + M),
 			])
 	return PackedVector2Array()
 
@@ -1617,17 +1638,34 @@ func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
 	if _wall_refresh_queue != null:
 		var cpos: Vector2i = _tile_to_chunk(tile_pos)
 		_wall_refresh_queue.record_activity(cpos)
-	var tavern_bounds: Rect2 = get_tavern_inner_bounds_world()
-	if tavern_bounds.size == Vector2.ZERO:
+	# Comparar en coordenadas de tile (enteras) para evitar ambigüedad de float.
+	# has_point en world-space fallaba en tiles exactamente en el borde del bounds
+	# (norte/este dependiendo del offset de map_to_local).
+	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
+	if keepers.is_empty():
 		return
+	var keeper := keepers[0]
+	var inner_min: Vector2i = keeper.get("tavern_inner_min")
+	var inner_max: Vector2i = keeper.get("tavern_inner_max")
 	var world_pos: Vector2 = _tile_to_world(tile_pos)
-	if tavern_bounds.grow(16.0).has_point(world_pos):
-		# Pared interior o del muro — daño dentro del establecimiento.
+	# Determinar si el golpe viene desde adentro o afuera usando la posición del
+	# player, NO el tile de la pared. Las paredes están exactamente en los bordes
+	# de inner_min/inner_max, así que clasificar por tile da resultados inconsistentes
+	# (el tile de la pared queda excluido por las condiciones estrictas).
+	var player_tile: Vector2i = _world_to_tile(_get_player_world_pos())
+	var player_inside: bool = player_tile.x >= inner_min.x and player_tile.x <= inner_max.x \
+						  and player_tile.y >= inner_min.y and player_tile.y <= inner_max.y
+	if player_inside:
 		report_tavern_incident("wall_damaged", {"pos": world_pos})
-	elif tavern_bounds.grow(TavernPresenceMonitor.PERIM_GROW_PX).has_point(world_pos):
-		# Pared exterior dentro del perímetro — ataque desde afuera a la estructura.
-		# Responde el perimeter_guard más cercano (ver TavernSanctionDirector._role_for_zone).
-		report_tavern_incident("wall_damaged_exterior", {"pos": world_pos})
+	else:
+		# Perímetro: 10 tiles (320px) de margen en todas las direcciones
+		const PERIM: int = 10
+		var in_perim: bool = tile_pos.x >= inner_min.x - PERIM \
+						 and tile_pos.x <= inner_max.x + PERIM \
+						 and tile_pos.y >= inner_min.y - PERIM \
+						 and tile_pos.y <= inner_max.y + PERIM
+		if in_perim:
+			report_tavern_incident("wall_damaged_exterior", {"pos": world_pos})
 
 func _get_player_world_pos() -> Vector2:
 	if player == null:

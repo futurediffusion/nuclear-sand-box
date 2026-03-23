@@ -217,7 +217,15 @@ func die_final() -> void:
 		var sprite: AnimatedSprite2D = get_node("AnimatedSprite2D")
 		if sprite.animation != "death" or not sprite.is_playing():
 			sprite.play("death")
-			await sprite.animation_finished
+			# animation_finished solo se emite en animaciones sin loop.
+			# Si la animación "death" tiene loop, esperar un ciclo completo
+			# (animation_looped) y luego detener manualmente.
+			if sprite.sprite_frames != null \
+					and sprite.sprite_frames.get_animation_loop("death"):
+				await sprite.animation_looped
+				sprite.stop()
+			else:
+				await sprite.animation_finished
 	_on_after_die()
 	death_finished.emit()
 

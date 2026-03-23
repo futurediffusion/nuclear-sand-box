@@ -65,7 +65,11 @@ func _fit() -> void:
 	# ── Frame 2: apply final width, re-enable wrap, measure height ────────────
 	_label.autowrap_mode = _autowrap
 	_apply_width(final_w)
+	if not is_inside_tree():
+		return
 	await get_tree().process_frame
+	if not is_inside_tree():
+		return
 
 	var lines        := _label.get_line_count()
 	var line_h       := float(_label.get_line_height())

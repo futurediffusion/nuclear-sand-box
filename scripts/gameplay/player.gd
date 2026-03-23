@@ -116,6 +116,9 @@ var _death_pos: Vector2 = Vector2.ZERO
 var _current_weapon_controller: WeaponController = null
 var _movement_control_mode: StringName = &"player"
 var _combat_control_mode: StringName = &"player"
+## Valores de colisión post-ready para restaurar en respawn/revive.
+var _baseline_collision_layer: int = 0
+var _baseline_collision_mask: int  = 0
 var _world_node_ref: WeakRef = null
 var _is_seated: bool = false
 var _seat_source_ref: WeakRef = null
@@ -200,6 +203,8 @@ func _ready() -> void:
 	
 	_setup_components()
 	_configure_collision_mode()
+	_baseline_collision_layer = collision_layer
+	_baseline_collision_mask  = collision_mask
 	_resolve_hearts_ui()
 	_setup_health_component()
 	_setup_stamina_component()
@@ -940,6 +945,16 @@ func _on_character_downed_entered() -> void:
 func _on_character_revived() -> void:
 	weapon_sprite.visible = true
 	_update_hearts_ui()
+	if _baseline_collision_layer != 0 or _baseline_collision_mask != 0:
+		collision_layer = _baseline_collision_layer
+		collision_mask  = _baseline_collision_mask
+	set_physics_process(true)
+	set_process(true)
+
+func _reset_camera() -> void:
+	var cam := get_node_or_null("Camera2D")
+	if cam != null and cam.has_method("reset_for_respawn"):
+		cam.call("reset_for_respawn")
 
 func _trigger_death_shake() -> void:
 	var cam := get_node_or_null("Camera2D")
@@ -995,6 +1010,13 @@ func respawn(pos: Vector2) -> void:
 	_leave_seat(false)
 	dying = false
 	is_downed = false
+	# Restaurar colisión y process por si algún sistema externo los anuló
+	# (haul de sentinel, CarryableComponent, etc.) y no restauró correctamente.
+	if _baseline_collision_layer != 0 or _baseline_collision_mask != 0:
+		collision_layer = _baseline_collision_layer
+		collision_mask  = _baseline_collision_mask
+	set_physics_process(true)
+	set_process(true)
 	if downed_component != null:
 		downed_component.reset()
 	hurt_t = 0.0
@@ -1015,6 +1037,7 @@ func respawn(pos: Vector2) -> void:
 	weapon_sprite.visible = true
 	sprite.play("idle")
 	global_position = pos
+	_reset_camera()
 	_update_hearts_ui()
 
 func _spawn_droplets(count: int, base_dir: Vector2) -> void:
