@@ -47,6 +47,7 @@ const BOOT_TRACE := true
 	"ground": false,
 	# --- telemetría de tuning: activo ---
 	"perf_telemetry": true,
+	"faction_eradication": true,
 }
 
 static func _get_singleton() -> DebugSystem:

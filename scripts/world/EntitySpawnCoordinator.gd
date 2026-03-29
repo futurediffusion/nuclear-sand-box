@@ -205,13 +205,16 @@ func enqueue_entities(chunk_pos: Vector2i) -> void:
 			})
 
 		# 1.5) CAMPS
-		for c in chunk_save[chunk_pos]["camps"]:
+		var _camps_list: Array = chunk_save[chunk_pos]["camps"]
+		for c_idx in range(_camps_list.size()):
+			var c: Dictionary = _camps_list[c_idx]
 			var ct: Vector2i = c["tile"]
+			var camp_gid: String = "camp:%s:%03d" % [chunk_key, c_idx]
 			jobs.append({
 				"chunk_key": chunk_key, "kind": "camp",
 				"scene": bandit_camp_scene, "tile": ct,
 				"global_position": _tile_to_world.call(ct),
-				"init_data": {"properties": {"bandit_scene": bandit_scene, "max_bandits_alive": 0}},
+				"init_data": {"properties": {"bandit_scene": bandit_scene, "max_bandits_alive": 0}, "group_id": camp_gid},
 				"priority": chunk_ring,
 				"uid": UID.make_uid("camp_bandit", "", ct),
 			})
@@ -499,6 +502,11 @@ func _on_job_spawned(job: Dictionary, node: Node) -> void:
 	# ── Registro en sistemas de mundo (1B) ────────────────────────────────
 	if kind == "camp" and uid != "":
 		SiteSystem.ensure_site(uid, "bandit_base", "bandit")
+		var camp_gid: String = String(job.get("init_data", {}).get("group_id", ""))
+		if camp_gid != "":
+			var campfire := node.get_node_or_null("CampfireWorld") as CampfireWorld
+			if campfire != null:
+				campfire.group_id = camp_gid
 	elif kind == "npc_keeper" and uid != "":
 		SiteSystem.ensure_site("tavern_main", "tavern", "tavern")
 		NpcProfileSystem.ensure_profile(uid, "tavern", "keeper", "tavern_main")

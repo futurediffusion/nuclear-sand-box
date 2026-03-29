@@ -371,6 +371,7 @@ func on_entity_died(uid: String) -> void:
 						if NpcProfileSystem.get_profile(mid_str).get("status", "") != "dead":
 							BanditGroupMemory.promote_leader(gid, mid_str)
 							break
+				FactionViabilitySystem.check_eradication(gid)
 	_remove_data_behavior(uid)
 	spawning_enemy_ids.erase(uid)
 	NpcProfileSystem.set_status(uid, "dead")

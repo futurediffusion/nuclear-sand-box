@@ -28,6 +28,12 @@ func get_site(site_id: String) -> Dictionary:
 	return _sites.get(site_id, {})
 
 
+func set_destruction_ratio(site_id: String, ratio: float) -> void:
+	if not _sites.has(site_id):
+		return
+	_sites[site_id]["destruction_ratio"] = clampf(ratio, 0.0, 1.0)
+
+
 func get_all_site_ids() -> Array:
 	return _sites.keys()
 

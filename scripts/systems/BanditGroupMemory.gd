@@ -248,6 +248,7 @@ func _make_group(group_id: String, faction_id: String, home_world_pos: Vector2) 
 		"reported_resources":         [],   # [{pos, reporter_id, res_key, time}]
 		"resource_claims":            {},   # {res_key -> member_id}
 		"wealth":                     0.0, # cumulative sell-price of stashed goods
+		"eradicated":                 false,
 	}
 
 

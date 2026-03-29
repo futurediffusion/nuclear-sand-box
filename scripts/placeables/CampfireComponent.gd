@@ -24,6 +24,8 @@ var _base_sprite_pos: Vector2
 
 ## UID asignado cuando se coloca via PlacementSystem (para WorldSave).
 var placed_uid: String = ""
+## group_id del campamento bandit dueño de esta hoguera (vacío = colocada por jugador).
+var group_id: String = ""
 
 
 func _ready() -> void:
@@ -86,6 +88,9 @@ func _destroy() -> void:
 	if placed_uid != "":
 		WorldSave.erase_placed_entity_data(placed_uid)
 		PlacementSystem.remove_placed_entity(placed_uid)
+
+	if group_id != "":
+		FactionViabilitySystem.notify_campfire_destroyed(group_id, get_parent())
 
 	queue_free()
 

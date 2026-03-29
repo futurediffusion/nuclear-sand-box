@@ -4,6 +4,7 @@ signal entity_died(uid: String, kind: String, pos: Vector2, killer: Node)
 signal loot_spawned(item_id: String, amount: int, pos: Vector2, source_uid: String)
 signal item_picked(item_id: String, amount: int, picker: Node)
 signal resource_harvested(kind: String, world_pos: Vector2)
+signal faction_eradicated(group_id: String)
 
 @export var debug_events := false
 
@@ -26,3 +27,7 @@ func emit_item_picked(item_id: String, amount: int, picker: Node) -> void:
 func emit_resource_harvested(kind: String, world_pos: Vector2) -> void:
 	Debug.log("events", "[EVT] resource_harvested kind=%s pos=%s" % [kind, world_pos])
 	emit_signal("resource_harvested", kind, world_pos)
+
+func emit_faction_eradicated(group_id: String) -> void:
+	Debug.log("events", "[EVT] faction_eradicated group_id=%s" % group_id)
+	emit_signal("faction_eradicated", group_id)
