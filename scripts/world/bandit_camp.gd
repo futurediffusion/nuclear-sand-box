@@ -15,9 +15,6 @@ func _ready() -> void:
 	_timer.wait_time = respawn_time
 	_timer.timeout.connect(_try_spawn)
 	_timer.start()
-	var fire := $AnimatedSprite2D as AnimatedSprite2D
-	if fire:
-		fire.play("default")
 
 	# spawn inicial
 	for i in range(max_bandits_alive):

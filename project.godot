@@ -17,6 +17,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+CameraFX="*res://scripts/systems/CameraFX.gd"
 AggroTrackerService="*res://scripts/systems/AggroTrackerService.gd"
 DownedEncounterCoordinator="*res://scripts/systems/DownedEncounterCoordinator.gd"
 ShopService="*res://scripts/systems/shop_service.gd"

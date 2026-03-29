@@ -1,5 +1,6 @@
-[gd_scene load_steps=27 format=3 uid="uid://7u81ce63dfdb"]
+[gd_scene load_steps=28 format=3 uid="uid://7u81ce63dfdb"]
 
+[ext_resource type="PackedScene" uid="uid://blxq40l48edsl" path="res://scenes/blood_burst.tscn" id="1_blood"]
 [ext_resource type="Script" uid="uid://dpwkob1rx2am5" path="res://scripts/npc/sentinel.gd" id="1_sentinel"]
 [ext_resource type="Texture2D" uid="uid://csi1e66pf1k75" path="res://art/sprites/GOBLIN1-death.png" id="2_brrmb"]
 [ext_resource type="PackedScene" uid="uid://bo7s8ewd7s0wy" path="res://scenes/slash.tscn" id="2_g0kl7"]
@@ -150,6 +151,9 @@ collision_layer = 4
 collision_mask = 21
 script = ExtResource("1_sentinel")
 slash_scene = ExtResource("2_g0kl7")
+blood_scene = ExtResource("1_blood")
+blood_hit_amount = 8
+blood_death_amount = 22
 
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 sprite_frames = SubResource("SpriteFrames_sentinel")

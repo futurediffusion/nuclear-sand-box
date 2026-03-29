@@ -23,6 +23,8 @@ var social_momentum:    float = 0.0
 ## Nivel 1+
 var can_intimidate:          bool = false   # acercarse, rodear, amagar
 var can_extort:              bool = false   # iniciar extorsión
+## Nivel 1+  (desaparece al activarse can_damage_workbenches en lv 7+)
+var can_probe_walls:         bool = false   # envía 1-2 bandidos a golpear una pared del jugador
 
 ## Nivel 2+
 var can_block_path:          bool = false   # cortar la ruta del jugador
@@ -70,6 +72,7 @@ static func from_level(level: int, points: float, heat: float, extortion_pressur
 
 	p.can_intimidate          = level >= 1
 	p.can_extort              = level >= 1
+	p.can_probe_walls         = level >= 1
 	p.can_block_path          = level >= 2
 	p.can_call_reinforcements = level >= 3
 	p.can_pursue_briefly      = level >= 3

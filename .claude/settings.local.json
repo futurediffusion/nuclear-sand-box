@@ -69,7 +69,9 @@
       "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernSanctionDirector.gd)",
       "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernDefensePosture.gd)",
       "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernAuthorityPolicy.gd)",
-      "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernGarrisonMonitor.gd)"
+      "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernGarrisonMonitor.gd)",
+      "Bash(node:*)",
+      "Bash(grep -r .hit\\\\\\(/c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts --include=*.gd)"
     ]
   }
 }

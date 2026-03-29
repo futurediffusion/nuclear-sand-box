@@ -277,6 +277,8 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 		_maybe_enqueue_raid(group_id, g, bases[0], faction_id)
 	elif not bases.is_empty() and bool(policy.get("can_light_raid_now", false)):
 		_maybe_enqueue_light_raid(group_id, g, bases[0], faction_id)
+	elif not bases.is_empty() and bool(policy.get("can_wall_probe_now", false)):
+		_maybe_enqueue_wall_probe(group_id, g, bases[0], faction_id, h_level)
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +516,48 @@ func _pick_extort_reason(markers: Array, bases: Array,
 		return "visible_wealth"
 	# "Te dejamos pasar una vez. Esta vez cobras peaje."
 	return "territorial"
+
+
+# ---------------------------------------------------------------------------
+# Wall probe enqueue — niveles 1-6, envía 1-2 bandidos a golpear una pared
+# ---------------------------------------------------------------------------
+
+## Encola un probe de pared para bandas de nivel 1-6 que detectaron una base.
+## Solo "de vez en cuando": gate triple de cooldown × probabilidad × pendiente.
+## squad_size y cooldown escalan con el nivel (ver BanditTuning.wall_probe_config).
+func _maybe_enqueue_wall_probe(group_id: String, g: Dictionary,
+		base: Dictionary, faction_id: String, h_level: int) -> void:
+	# Guard 1: ya raideando o con raid/probe pendiente
+	var current_intent: String = String(BanditGroupMemory.get_group(group_id).get("current_group_intent", ""))
+	if current_intent == "raiding":
+		return
+	if RaidQueue.has_pending_for_group(group_id):
+		return
+
+	# Guard 2: cooldown específico de probe (más largo que raids, varía por nivel)
+	var cfg: Dictionary   = BanditTuning.wall_probe_config(h_level)
+	var probe_cd: float   = float(cfg.get("cooldown", 300.0))
+	var last_probe: float = RaidQueue.get_last_wall_probe_time(group_id)
+	if RunClock.now() - last_probe < probe_cd:
+		return
+
+	# Guard 3: roll de probabilidad — "de vez en cuando", no sistemático
+	var chance: float = float(cfg.get("chance", 0.10))
+	if randf() >= chance:
+		return
+
+	var leader_id: String    = String(g.get("leader_id", ""))
+	var base_center: Vector2 = base.get("center_world_pos", Vector2.ZERO) as Vector2
+	var base_id: String      = String(base.get("id", ""))
+	var squad_size: int      = int(cfg.get("squad_size", 1))
+
+	RaidQueue.enqueue_wall_probe(faction_id, group_id, leader_id, base_center, base_id, squad_size)
+	BanditGroupMemory.push_social_cooldown(group_id, maxf(6.0, probe_cd * 0.10))
+	BanditGroupMemory.update_intent(group_id, "raiding")
+	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
+	Debug.log("bandit_intel",
+		"[BGI] wall probe enqueued group=%s leader=%s base=%s squad=%d lv%d chance=%.2f" % [
+		group_id, leader_id, base_id, squad_size, h_level, chance])
 
 
 # ---------------------------------------------------------------------------

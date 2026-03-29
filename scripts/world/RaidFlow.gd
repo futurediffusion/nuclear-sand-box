@@ -112,6 +112,8 @@ func _tick_jobs() -> void:
 			"attacking":
 				if raid_type == "light":
 					_tick_placeable_assault(job, gid)
+				elif raid_type == "wall_probe":
+					_tick_wall_probe_assault(job, gid)
 				else:
 					_tick_wall_assault(job, gid)
 				if _tick_attacking(job, gid):
@@ -153,48 +155,68 @@ func _tick_approaching(job: Dictionary, gid: String) -> bool:
 # Stage: ATTACKING — wall assault deliberado
 # ---------------------------------------------------------------------------
 
-## Cada WALL_ASSAULT_INTERVAL segundos, busca el muro más cercano al base_center
-## y redirige a TODOS los miembros del grupo hacia él via APPROACH_INTEREST.
-## La IA normal (slash.gd) inflige el daño al contacto con la geometría del muro.
+## Full raid (nivel 10): destrucción total — divide el grupo entre el muro más
+## cercano y el placeable más cercano simultáneamente. A medida que los objetivos
+## se destruyen, find_wall/find_storage/find_workbench retornan el siguiente,
+## garantizando que el raid barre toda la base antes de retirarse.
 func _tick_wall_assault(job: Dictionary, gid: String) -> void:
 	if not _find_wall.is_valid():
 		return
 	if RunClock.now() < float(job.get("wall_assault_next_at", 0.0)):
 		return
 
-	var base_center: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
-	var wall_pos: Vector2    = _find_wall.call(base_center, WALL_SEARCH_RADIUS) as Vector2
-
-	if wall_pos.x < 0.0:
-		# No hay muro en rango — nada que hacer
-		return
-
-	# Verificar que el grupo puede dañar muros (can_damage_walls = nivel 9+)
 	var faction_id: String = String(job.get("faction_id", ""))
 	if faction_id != "":
 		var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
 		if not profile.can_damage_walls:
 			return
 
-	# Redirigir a todos los miembros activos del grupo hacia el muro
-	var g: Dictionary = BanditGroupMemory.get_group(gid)
+	var base_center: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
+	var wall_pos: Vector2    = _find_wall.call(base_center, WALL_SEARCH_RADIUS) as Vector2
+
+	# Buscar también el placeable más cercano (storage > workbench)
+	var placeable_pos: Vector2 = Vector2(-1.0, -1.0)
+	if _find_storage.is_valid():
+		placeable_pos = _find_storage.call(base_center, PLACEABLE_SEARCH_RADIUS) as Vector2
+	if placeable_pos.x < 0.0 and _find_workbench.is_valid():
+		placeable_pos = _find_workbench.call(base_center, PLACEABLE_SEARCH_RADIUS) as Vector2
+
+	if wall_pos.x < 0.0 and placeable_pos.x < 0.0:
+		return
+
+	var g: Dictionary     = BanditGroupMemory.get_group(gid)
 	var member_ids: Array = g.get("member_ids", [])
-	var redirected: int = 0
-	for mid in member_ids:
-		var node = _npc_simulator.get_enemy_node(String(mid)) if _npc_simulator != null else null
-		if node == null:
-			continue
-		var bwb = node.get_node_or_null("WorldBehavior")
-		if bwb == null:
-			continue
-		if bwb.has_method("enter_wall_assault"):
-			bwb.call("enter_wall_assault", wall_pos)
+	var redirected: int   = 0
+
+	if wall_pos.x >= 0.0 and placeable_pos.x >= 0.0:
+		# Ambos disponibles: mitad superior del grupo a pared, mitad inferior a placeable
+		var half: int = maxi(1, member_ids.size() / 2)
+		for i in member_ids.size():
+			var node = _npc_simulator.get_enemy_node(String(member_ids[i])) if _npc_simulator != null else null
+			if node == null:
+				continue
+			var bwb = node.get_node_or_null("WorldBehavior")
+			if bwb == null or not bwb.has_method("enter_wall_assault"):
+				continue
+			bwb.call("enter_wall_assault", wall_pos if i < half else placeable_pos)
+			redirected += 1
+	else:
+		# Solo un tipo de objetivo — todos van ahí
+		var sole_target: Vector2 = wall_pos if wall_pos.x >= 0.0 else placeable_pos
+		for mid in member_ids:
+			var node = _npc_simulator.get_enemy_node(String(mid)) if _npc_simulator != null else null
+			if node == null:
+				continue
+			var bwb = node.get_node_or_null("WorldBehavior")
+			if bwb == null or not bwb.has_method("enter_wall_assault"):
+				continue
+			bwb.call("enter_wall_assault", sole_target)
 			redirected += 1
 
 	job["wall_assault_next_at"] = RunClock.now() + WALL_ASSAULT_INTERVAL
 	if redirected > 0:
-		Debug.log("raid", "[RF] wall assault — group=%s wall=%s redirected=%d" % [
-			gid, str(wall_pos), redirected])
+		Debug.log("raid", "[RF] full assault — group=%s wall=%s placeable=%s redirected=%d" % [
+			gid, str(wall_pos), str(placeable_pos), redirected])
 
 
 # ---------------------------------------------------------------------------
@@ -204,9 +226,18 @@ func _tick_wall_assault(job: Dictionary, gid: String) -> void:
 func _tick_attacking(job: Dictionary, gid: String) -> bool:
 	var attack_elapsed: float = RunClock.now() - float(job.get("attack_started_at", RunClock.now()))
 	var total_elapsed: float  = RunClock.now() - float(job.get("started_at", RunClock.now()))
-	var is_light: bool = String(job.get("raid_type", "full")) == "light"
-	var max_attack: float = LIGHT_ATTACK_DURATION if is_light else ATTACK_DURATION
-	var max_total: float  = LIGHT_MAX_DURATION    if is_light else MAX_RAID_DURATION
+	var max_attack: float
+	var max_total: float
+	match String(job.get("raid_type", "full")):
+		"light":
+			max_attack = LIGHT_ATTACK_DURATION
+			max_total  = LIGHT_MAX_DURATION
+		"wall_probe":
+			max_attack = BanditTuning.wall_probe_attack_duration()
+			max_total  = BanditTuning.wall_probe_max_duration()
+		_:
+			max_attack = ATTACK_DURATION
+			max_total  = MAX_RAID_DURATION
 	if attack_elapsed >= max_attack or total_elapsed >= max_total:
 		Debug.log("raid", "[RF] attack phase done — group=%s attack_t=%.0f total_t=%.0f type=%s" % [
 			gid, attack_elapsed, total_elapsed, job.get("raid_type", "full")])
@@ -214,8 +245,9 @@ func _tick_attacking(job: Dictionary, gid: String) -> bool:
 	return false
 
 
-## Raid leve (niveles 7-9): redirige a todos los miembros hacia el workbench o
-## storage más cercano al base_center. La IA normal (slash.gd) inflige el daño.
+## Raid leve (niveles 7-9): placeables del jugador + paredes con probabilidad
+## creciente por nivel. lv7=25% pared, lv8=45%, lv9=65%.
+## Todos los miembros se redirigen al objetivo elegido en cada tick.
 func _tick_placeable_assault(job: Dictionary, gid: String) -> void:
 	if RunClock.now() < float(job.get("wall_assault_next_at", 0.0)):
 		return
@@ -223,17 +255,24 @@ func _tick_placeable_assault(job: Dictionary, gid: String) -> void:
 	var base_center: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
 	var faction_id: String   = String(job.get("faction_id", ""))
 
-	# Verificar capacidades de la facción
 	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
 	if not profile.can_damage_workbenches:
 		return
 
-	# Priorizar storage sobre workbench si el nivel lo permite (can_damage_storage = nivel 8+)
+	# Probabilidad de atacar pared en lugar de placeable: escala con nivel
+	# lv7 → 25%, lv8 → 45%, lv9 → 65%
+	var wall_chance: float = clampf((profile.hostility_level - 6) * 0.20 + 0.05, 0.0, 1.0)
 	var target_pos: Vector2 = Vector2(-1.0, -1.0)
-	if profile.can_damage_storage and _find_storage.is_valid():
-		target_pos = _find_storage.call(base_center, PLACEABLE_SEARCH_RADIUS) as Vector2
-	if target_pos.x < 0.0 and _find_workbench.is_valid():
-		target_pos = _find_workbench.call(base_center, PLACEABLE_SEARCH_RADIUS) as Vector2
+
+	if _find_wall.is_valid() and randf() < wall_chance:
+		target_pos = _find_wall.call(base_center, WALL_SEARCH_RADIUS) as Vector2
+
+	# Si no tocó el roll de pared (o no hay muros), busca placeable
+	if target_pos.x < 0.0:
+		if profile.can_damage_storage and _find_storage.is_valid():
+			target_pos = _find_storage.call(base_center, PLACEABLE_SEARCH_RADIUS) as Vector2
+		if target_pos.x < 0.0 and _find_workbench.is_valid():
+			target_pos = _find_workbench.call(base_center, PLACEABLE_SEARCH_RADIUS) as Vector2
 
 	if target_pos.x < 0.0:
 		return
@@ -254,8 +293,48 @@ func _tick_placeable_assault(job: Dictionary, gid: String) -> void:
 
 	job["wall_assault_next_at"] = RunClock.now() + WALL_ASSAULT_INTERVAL
 	if redirected > 0:
-		Debug.log("raid", "[RF] placeable assault — group=%s target=%s redirected=%d" % [
-			gid, str(target_pos), redirected])
+		Debug.log("raid", "[RF] mixed assault lv%d — group=%s target=%s wall_chance=%.0f%% redirected=%d" % [
+			profile.hostility_level, gid, str(target_pos), wall_chance * 100.0, redirected])
+
+
+# ---------------------------------------------------------------------------
+# Stage: ATTACKING — wall probe (niveles 1-6)
+# ---------------------------------------------------------------------------
+
+## Probe de pared: redirige SOLO probe_squad_size miembros hacia el muro más
+## cercano al base_center. El resto del grupo no es enviado a golpear.
+## La IA normal (slash.gd) inflige el daño al contacto con la geometría.
+func _tick_wall_probe_assault(job: Dictionary, gid: String) -> void:
+	if not _find_wall.is_valid():
+		return
+	if RunClock.now() < float(job.get("wall_assault_next_at", 0.0)):
+		return
+
+	var base_center: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
+	var wall_pos: Vector2    = _find_wall.call(base_center, WALL_SEARCH_RADIUS) as Vector2
+	if wall_pos.x < 0.0:
+		return
+
+	var squad_size: int   = int(job.get("probe_squad_size", 1))
+	var g: Dictionary     = BanditGroupMemory.get_group(gid)
+	var member_ids: Array = g.get("member_ids", [])
+	var redirected: int   = 0
+	for mid in member_ids:
+		if redirected >= squad_size:
+			break
+		var node = _npc_simulator.get_enemy_node(String(mid)) if _npc_simulator != null else null
+		if node == null:
+			continue
+		var bwb = node.get_node_or_null("WorldBehavior")
+		if bwb == null or not bwb.has_method("enter_wall_assault"):
+			continue
+		bwb.call("enter_wall_assault", wall_pos)
+		redirected += 1
+
+	job["wall_assault_next_at"] = RunClock.now() + BanditTuning.wall_probe_wall_interval()
+	if redirected > 0:
+		Debug.log("raid", "[RF] wall probe assault — group=%s wall=%s redirected=%d/%d" % [
+			gid, str(wall_pos), redirected, squad_size])
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +372,13 @@ func _finish_raid(gid: String, reason: String) -> void:
 		return
 	var job: Dictionary = _active_jobs[gid] as Dictionary
 	_active_jobs.erase(gid)
-	BanditGroupMemory.push_social_cooldown(gid, 18.0 if String(job.get("raid_type", "full")) == "full" else 10.0)
+	var social_cd: float
+	match String(job.get("raid_type", "full")):
+		"full":       social_cd = 18.0
+		"light":      social_cd = 10.0
+		"wall_probe": social_cd = 6.0
+		_:            social_cd = 10.0
+	BanditGroupMemory.push_social_cooldown(gid, social_cd)
 	BanditGroupMemory.update_intent(gid, "idle")
 	var faction_id: String = String(job.get("faction_id", ""))
 	if faction_id != "":

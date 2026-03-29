@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="ItemData" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/items/ItemData.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://art/sprites/campfire.png" id="2_tex"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_icon"]
+atlas = ExtResource("2_tex")
+region = Rect2(0, 0, 32, 32)
+
+[resource]
+script = ExtResource("1_script")
+id = "campfire"
+display_name = "Campfire"
+icon = SubResource("AtlasTexture_icon")
+max_stack = 1
+tags = Array[String](["placeable"])
+placement_mode = "scene"
+placement_scene_path = "res://scenes/placeables/campfire_world.tscn"
+repeat_place = false
+drag_paintable = false
+can_share_tile_with = Array[String](["floorwood"])
+ignore_collision_groups_when_placing = Array[String]([])
+buy_price = 20
+sell_price = 8

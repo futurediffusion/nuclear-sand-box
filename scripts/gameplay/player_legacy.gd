@@ -68,8 +68,7 @@ func _legacy_is_hit_blocked(from_pos: Vector2) -> bool:
 	return ang <= half_cone
 
 func _legacy_play_attack_vfx() -> void:
-	if has_node("Camera2D"):
-		$Camera2D.shake(4.0)
+	CameraFX.shake(4.0)
 
 func _legacy_wall_toggle_update() -> void:
 	if wall_occlusion_component != null:

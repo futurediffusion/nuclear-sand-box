@@ -1,0 +1,61 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://scripts/placeables/CampfireComponent.gd" id="1_campfire_script"]
+[ext_resource type="Texture2D" path="res://art/sprites/campfire.png" id="2_campfire_tex"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_f1"]
+atlas = ExtResource("2_campfire_tex")
+region = Rect2(0, 0, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_f2"]
+atlas = ExtResource("2_campfire_tex")
+region = Rect2(32, 0, 32, 32)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_f3"]
+atlas = ExtResource("2_campfire_tex")
+region = Rect2(64, 0, 32, 32)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_campfire"]
+animations = [{
+"frames": [{
+"duration": 1.5,
+"texture": SubResource("AtlasTexture_f1")
+}, {
+"duration": 1.5,
+"texture": SubResource("AtlasTexture_f2")
+}, {
+"duration": 1.5,
+"texture": SubResource("AtlasTexture_f3")
+}],
+"loop": true,
+"name": &"default",
+"speed": 5.0
+}]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
+size = Vector2(20, 10)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_area"]
+size = Vector2(32, 32)
+
+[node name="CampfireWorld" type="StaticBody2D"]
+z_index = 12
+script = ExtResource("1_campfire_script")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(16, 27)
+shape = SubResource("RectangleShape2D_body")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+z_index = 3
+centered = false
+sprite_frames = SubResource("SpriteFrames_campfire")
+animation = &"default"
+autoplay = "default"
+
+[node name="Area2D" type="Area2D" parent="."]
+position = Vector2(16, 16)
+collision_layer = 8
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D"]
+shape = SubResource("RectangleShape2D_area")

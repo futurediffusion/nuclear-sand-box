@@ -196,6 +196,8 @@ func _ready() -> void:
 	super._ready()
 	_setup_health_component()
 	_connect_hurtbox()
+	downed_entered.connect(func() -> void: CameraFX.shake_impulse(0.22, 18.0))
+	dying_started.connect(func()  -> void: CameraFX.shake_impulse(0.32, 28.0))
 	add_to_group("npc")
 	add_to_group("sentinel")
 
@@ -902,10 +904,13 @@ func _connect_hurtbox() -> void:
 
 func _on_hurtbox_damaged(dmg: int, from_pos: Vector2) -> void:
 	take_damage(dmg, from_pos)
+	CameraFX.shake(6.5)
 	# El sentinel no contra-agrede automáticamente al recibir daño.
 	# Mantiene su orden activa (institucional, no instintiva).
 	if _incident_reporter.is_valid() and not tavern_site_id.is_empty():
 		_incident_reporter.call("assault_sentinel", {"pos": from_pos, "victim": self})
+
+
 
 
 # ── Detection area (reserved for future use) ──────────────────────────────────

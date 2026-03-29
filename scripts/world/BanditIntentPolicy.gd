@@ -55,6 +55,9 @@ static func evaluate(base_score: float,
 	var can_extort_now: bool = profile.can_extort and not profile.can_knockout and base_score >= extort_threshold and raid_ready
 	var can_full_raid_now: bool = profile.can_raid_base and raid_ready and (base_score >= effective_hunting_threshold or profile.raid_pressure >= 0.45)
 	var can_light_raid_now: bool = profile.can_damage_workbenches and not can_full_raid_now and raid_ready and (base_score >= extort_threshold or profile.raid_pressure >= 0.30)
+	# Wall probe: disponible en lv 1+ mientras los raids más pesados no estén activos.
+	# El roll de probabilidad se hace en BanditGroupIntel, no aquí.
+	var can_wall_probe_now: bool = profile.can_probe_walls and not can_light_raid_now and not can_full_raid_now and raid_ready and base_score > 0.0
 
 	return {
 		"effective_score": effective_score,
@@ -63,8 +66,9 @@ static func evaluate(base_score: float,
 		"effective_hunting_threshold": effective_hunting_threshold,
 		"can_extort_now": can_extort_now,
 		"extort_threshold": extort_threshold,
-		"can_light_raid_now": can_light_raid_now,
-		"can_full_raid_now": can_full_raid_now,
+		"can_light_raid_now":  can_light_raid_now,
+		"can_full_raid_now":   can_full_raid_now,
+		"can_wall_probe_now":  can_wall_probe_now,
 	}
 
 

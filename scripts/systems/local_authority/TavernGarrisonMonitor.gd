@@ -4,7 +4,7 @@ class_name TavernGarrisonMonitor
 ## Monitor de integridad de la guarnición de taberna.
 ##
 ## Reemplaza a TavernShiftCoordinator, que estaba diseñado para 2 sentinels
-## y era incompatible con la guarnición real de 7.
+## y era incompatible con la guarnición real de 11.
 ##
 ## Responsabilidades:
 ##   1. Verificar periódicamente que la cobertura mínima del recinto se mantiene.
@@ -14,7 +14,7 @@ class_name TavernGarrisonMonitor
 ## Estructura de guarnición esperada:
 ##   interior_guard  ×2  — flanquean al keeper
 ##   door_guard      ×1  — controla la entrada
-##   perimeter_guard ×4  — cubren cada lateral exterior
+##   perimeter_guard ×8  — dos por cada lateral exterior (offset ±56px)
 ##
 ## NO hace swaps de rol. El modelo real tiene roles fijos con posts fijos.
 ## La adaptación dinámica de comportamiento (patrullas, thresholds) la maneja
@@ -28,7 +28,7 @@ class_name TavernGarrisonMonitor
 
 const MIN_INTERIOR:  int = 2
 const MIN_DOOR:      int = 1
-const MIN_PERIMETER: int = 4
+const MIN_PERIMETER: int = 8
 
 
 # ── Cadencia ──────────────────────────────────────────────────────────────────

@@ -128,7 +128,8 @@ var _tavern_memory:            TavernLocalMemory
 var _tavern_policy:            TavernAuthorityPolicy
 var _tavern_director:          TavernSanctionDirector
 var _tavern_presence_monitor:  TavernPresenceMonitor
-var _tavern_garrison_monitor: TavernGarrisonMonitor
+var _tavern_garrison_monitor:  TavernGarrisonMonitor
+var _tavern_brawl:             TavernPerimeterBrawl
 
 ## Postura defensiva del recinto. Evaluada cada _POSTURE_EVAL_INTERVAL segundos.
 const _POSTURE_EVAL_INTERVAL: float = 10.0
@@ -577,6 +578,19 @@ func _ready() -> void:
 		"get_sentinels":  func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
 		"tavern_site_id": "tavern_main",
 	})
+	_tavern_brawl = TavernPerimeterBrawl.new()
+	_tavern_brawl.setup({
+		"get_sentinels":     func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
+		"get_nearby_enemies": func(pos: Vector2, radius: float) -> Array:
+			var result: Array = []
+			for e in get_tree().get_nodes_in_group("enemy"):
+				if is_instance_valid(e) and (e as Node2D).global_position.distance_to(pos) <= radius:
+					result.append(e)
+			return result,
+		"get_tavern_center": func() -> Vector2:
+			var b: Rect2 = get_tavern_inner_bounds_world()
+			return b.get_center() if b.size != Vector2.ZERO else Vector2.ZERO,
+	})
 	_local_social_ports = LocalSocialAuthorityPortsScript.new()
 	_local_social_ports.setup({
 		"local_authority_policy":  Callable(_tavern_policy,  "evaluate"),
@@ -703,6 +717,8 @@ func _process(delta: float) -> void:
 		_tavern_presence_monitor.tick(delta)
 	if _tavern_garrison_monitor != null:
 		_tavern_garrison_monitor.tick(delta)
+	if _tavern_brawl != null:
+		_tavern_brawl.tick(delta)
 	_tick_defense_posture(delta)
 	var medium_pulses: int = _cadence.consume_lane(&"medium_pulse") if _cadence != null else 1
 	for _pulse in medium_pulses:
@@ -1213,10 +1229,10 @@ func get_tavern_inner_bounds_world() -> Rect2:
 
 ## ── Tavern Sentinel Garrison (Fase 6) ────────────────────────────────────────
 ##
-## Guarnición completa de 7 sentinels:
+## Guarnición completa de 11 sentinels:
 ##   interior_guard (×2) — flanquean al keeper; presencia visible del espacio interior
 ##   door_guard     (×1) — borde exterior de la puerta; control de acceso; ronda corta
-##   perimeter_guard(×4) — norte/sur/este/oeste; cada uno patrulla su lateral
+##   perimeter_guard(×8) — dos por lateral (norte/sur/este/oeste); offset ±56px
 ##
 ## Anti-doble-spawn: _tavern_sentinels_spawned + comprobación de grupo.
 ## TODO(multi-taberna): filtrar por tavern_site_id cuando haya más de una taberna.
@@ -1269,17 +1285,32 @@ func ensure_tavern_sentinels_spawned() -> void:
 	# Perimeter guards — 128px fuera del inner bounds (4 tiles; clearance segura
 	# para paredes de hasta 3 tiles/96px de espesor). Valor reducido desde 192px
 	# porque a mayor distancia el nav mesh puede no tener cobertura y el pathfinding falla.
+	# Dos guards por lado (8 total) — offset lateral de 56px para cobertura doblada.
 	const _PM: float = 128.0
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(cx, bounds.position.y - _PM), "north")
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(cx, bounds.position.y + bounds.size.y + _PM), "south")
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(bounds.position.x + bounds.size.x + _PM, cy), "east")
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(bounds.position.x - _PM, cy), "west")
+	const _PO: float = 56.0   # offset lateral entre los dos guards de cada lado
 
-	Debug.log("world", "[TavernSentinels] 7 desplegados — keeper=%s exit=%s bounds=%s" % [
+	# Norte (×2)
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(cx - _PO, bounds.position.y - _PM), "north")
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(cx + _PO, bounds.position.y - _PM), "north")
+	# Sur (×2)
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(cx - _PO, bounds.position.y + bounds.size.y + _PM), "south")
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(cx + _PO, bounds.position.y + bounds.size.y + _PM), "south")
+	# Este (×2)
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(bounds.position.x + bounds.size.x + _PM, cy - _PO), "east")
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(bounds.position.x + bounds.size.x + _PM, cy + _PO), "east")
+	# Oeste (×2)
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(bounds.position.x - _PM, cy - _PO), "west")
+	_spawn_single_tavern_sentinel("perimeter_guard",
+		Vector2(bounds.position.x - _PM, cy + _PO), "west")
+
+	Debug.log("world", "[TavernSentinels] 11 desplegados — keeper=%s exit=%s bounds=%s" % [
 		str(keeper_pos), str(exit_pos), str(bounds)
 	])
 
@@ -1316,40 +1347,63 @@ func _spawn_single_tavern_sentinel(role: String, pos: Vector2, side: String = ""
 	return s
 
 
-## Patrol points para interior guards — rectángulo dentro del interior de la taberna.
-## Los guardias recorren los 4 vértices del interior (con margen interior de 32px).
+## Patrol points para interior guards — 8 puntos que mezclan esquinas con puntos
+## hacia el centro, de modo que al recorrerse en orden aleatorio el movimiento
+## no sea un simple rectángulo sino un vagabundeo dentro del espacio interior.
 func _get_interior_patrol_points() -> PackedVector2Array:
 	var b: Rect2 = get_tavern_inner_bounds_world()
-	var inset: float = 32.0
-	# grow(-inset) encoge el rect hacia adentro
-	var bi: Rect2 = b.grow(-inset)
+	var inset: float = 28.0
+	var bi: Rect2   = b.grow(-inset)
+	var cx: float   = bi.position.x + bi.size.x * 0.5
+	var cy: float   = bi.position.y + bi.size.y * 0.5
+	var hw: float   = bi.size.x * 0.5
+	var hh: float   = bi.size.y * 0.5
+	# 4 esquinas + 4 puntos interiores (≈45 % del camino al centro).
+	# Al elegirse al azar, los guardias cruzan el interior en diagonal en lugar
+	# de seguir siempre el perímetro.
 	return PackedVector2Array([
-		bi.position,                                     # esquina NW
-		bi.position + Vector2(bi.size.x, 0.0),          # esquina NE
-		bi.position + bi.size,                           # esquina SE
-		bi.position + Vector2(0.0, bi.size.y),           # esquina SW
+		bi.position,                                   # NW
+		bi.position + Vector2(bi.size.x, 0.0),         # NE
+		bi.position + bi.size,                         # SE
+		bi.position + Vector2(0.0, bi.size.y),         # SW
+		Vector2(cx, cy - hh * 0.45),                  # interior norte
+		Vector2(cx + hw * 0.40, cy),                  # interior este
+		Vector2(cx, cy + hh * 0.45),                  # interior sur
+		Vector2(cx - hw * 0.40, cy),                  # interior oeste
 	])
 
 
-## Patrol points para perimeter guards — recorren todo su lateral del edificio de extremo
-## a extremo, usando el mismo margen de spawn (128px) para los extremos de la ruta.
+## Patrol points para perimeter guards — 5 puntos con variación de profundidad
+## que crean una trayectoria ondulada a lo largo del lateral, nunca una línea recta.
+##
+## "toward" = dirección que acerca al muro (e.g. +y para norte, -y para sur).
+## d1/d2 se randomizan por instancia para que dos guards del mismo lado
+## tengan rutas ligeramente distintas y no caminen sincronizados.
 func _get_perimeter_patrol_points(side: String, home: Vector2) -> PackedVector2Array:
-	var b: Rect2 = get_tavern_inner_bounds_world()
-	const M: float = 128.0  # mismo margen que las posiciones de spawn
+	var b: Rect2  = get_tavern_inner_bounds_world()
+	const M: float = 128.0
+	var d1: float  = randf_range(20.0, 32.0)   # profundidad variante: más cerca del muro
+	var d2: float  = randf_range(16.0, 26.0)   # profundidad variante: más lejos del muro
 	match side:
 		"north", "south":
-			# Patrulla horizontal: extremo oeste → centro → extremo este
+			# toward: +1 = acercarse al muro (norte sube y), -1 (sur baja y)
+			var toward: float = 1.0 if side == "north" else -1.0
 			return PackedVector2Array([
-				Vector2(b.position.x - M, home.y),
-				home,
-				Vector2(b.position.x + b.size.x + M, home.y),
+				Vector2(b.position.x - M,                 home.y + toward * d1),
+				Vector2(b.position.x + b.size.x * 0.25,  home.y - toward * d2),
+				Vector2(b.position.x + b.size.x * 0.5,   home.y),
+				Vector2(b.position.x + b.size.x * 0.75,  home.y - toward * d2),
+				Vector2(b.position.x + b.size.x + M,     home.y + toward * d1),
 			])
 		"east", "west":
-			# Patrulla vertical: extremo norte → centro → extremo sur
+			# toward: -1 = acercarse al muro (este baja x), +1 (oeste sube x)
+			var toward: float = -1.0 if side == "east" else 1.0
 			return PackedVector2Array([
-				Vector2(home.x, b.position.y - M),
-				home,
-				Vector2(home.x, b.position.y + b.size.y + M),
+				Vector2(home.x + toward * d1,   b.position.y - M),
+				Vector2(home.x - toward * d2,   b.position.y + b.size.y * 0.25),
+				Vector2(home.x,                  b.position.y + b.size.y * 0.5),
+				Vector2(home.x - toward * d2,   b.position.y + b.size.y * 0.75),
+				Vector2(home.x + toward * d1,   b.position.y + b.size.y + M),
 			])
 	return PackedVector2Array()
 

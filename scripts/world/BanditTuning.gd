@@ -33,6 +33,14 @@ const GROUP_HUNTING_RELEASE_THRESHOLD: float = 6.5
 const GROUP_INTENT_HYSTERESIS_GRACE: float = 10.0
 
 # ---------------------------------------------------------------------------
+# Wall probe — banda pequeña enviada a destruir una pared del jugador (lv 1-6)
+# Frecuencia y tamaño del squad escalan con el nivel de hostilidad.
+# ---------------------------------------------------------------------------
+const WALL_PROBE_ATTACK_DURATION: float = 22.0  # s — tiempo golpeando la pared
+const WALL_PROBE_MAX_DURATION:    float = 55.0  # s — abort total del job
+const WALL_PROBE_WALL_INTERVAL:   float = 5.0   # s — cada cuánto redirige al muro
+
+# ---------------------------------------------------------------------------
 # Physics / separation
 # ---------------------------------------------------------------------------
 const FRICTION_COMPENSATION: float = 25.0
@@ -197,3 +205,31 @@ static func minimum_alerted_threshold() -> float:
 
 static func minimum_hunting_threshold() -> float:
 	return 2.0
+
+
+# ---------------------------------------------------------------------------
+# Wall probe accessors
+# ---------------------------------------------------------------------------
+
+## Retorna {chance: float, cooldown: float, squad_size: int} para el nivel dado.
+## chance    — probabilidad de dispararse en cada scan elegible (0.0-1.0)
+## cooldown  — segundos mínimos entre probes del mismo grupo
+## squad_size — cuántos bandidos son redirigidos a golpear la pared
+static func wall_probe_config(level: int) -> Dictionary:
+	match clampi(level, 1, 10):
+		1: return {"chance": 0.10, "cooldown": 300.0, "squad_size": 1}
+		2: return {"chance": 0.15, "cooldown": 250.0, "squad_size": 1}
+		3: return {"chance": 0.22, "cooldown": 210.0, "squad_size": 1}
+		4: return {"chance": 0.30, "cooldown": 175.0, "squad_size": 2}
+		5: return {"chance": 0.40, "cooldown": 145.0, "squad_size": 2}
+		6: return {"chance": 0.52, "cooldown": 115.0, "squad_size": 2}
+		_: return {"chance": 0.52, "cooldown": 115.0, "squad_size": 2}
+
+static func wall_probe_attack_duration() -> float:
+	return WALL_PROBE_ATTACK_DURATION
+
+static func wall_probe_max_duration() -> float:
+	return WALL_PROBE_MAX_DURATION
+
+static func wall_probe_wall_interval() -> float:
+	return WALL_PROBE_WALL_INTERVAL

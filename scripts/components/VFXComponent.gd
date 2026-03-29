@@ -31,8 +31,7 @@ func physics_tick(_delta: float) -> void:
 func play_attack_vfx() -> void:
 	if player == null:
 		return
-	if player.has_node("Camera2D"):
-		player.get_node("Camera2D").shake(4.0)
+	CameraFX.shake(4.0)
 
 func play_block_vfx() -> void:
 	if player == null:

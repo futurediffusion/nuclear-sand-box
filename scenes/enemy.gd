@@ -753,17 +753,8 @@ func _trigger_death_shake() -> void:
 	# Only shake when the player dealt the killing blow — not in enemy-vs-enemy fights
 	if not _last_hit_was_from_player:
 		return
-	if ai_component == null or not is_instance_valid(ai_component.player):
-		return
-	var p := ai_component.player
-	if not p.has_node("Camera2D"):
-		return
-	var cam := p.get_node("Camera2D")
 	var mul := finisher_shake_multiplier if _is_finisher_death else 1.0
-	if cam and cam.has_method("shake_impulse"):
-		cam.shake_impulse(death_shake_duration * mul, death_shake_magnitude * mul)
-	elif cam and cam.has_method("shake"):
-		cam.shake(death_shake_magnitude * mul)
+	CameraFX.shake_impulse(death_shake_duration * mul, death_shake_magnitude * mul)
 
 func _play_death_sound() -> void:
 	if _enemy_death_sound == null:
