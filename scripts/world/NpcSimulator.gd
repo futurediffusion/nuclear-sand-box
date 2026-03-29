@@ -10,14 +10,14 @@ class_name NpcSimulator
 
 @export_group("Data-Only Simulation")
 @export var data_only_enabled: bool = true
-@export var sim_radius: float = 520.0
+@export var sim_radius: float = 900.0
 @export var sim_hysteresis: float = 80.0
 @export var sim_check_interval: float = 0.25
 @export var despawn_grace_seconds: float = 1.0
 @export var debug_counts: bool = false
 ## Spawn visual node (in lite/sleeping mode) at this radius.
 ## Must be > (sim_radius - sim_hysteresis) and < (sim_radius + sim_hysteresis).
-@export var visual_radius: float = 700.0
+@export var visual_radius: float = 1100.0
 ## If true, prewarm runs even on enemies that already have a saved world_behavior.
 ## Useful to re-disperse enemies on existing saves without a full F7 reset.
 @export var reprewarm_existing: bool = false
@@ -25,7 +25,7 @@ class_name NpcSimulator
 ## outside full-AI radius). Despawn only on chunk unload. Eliminates the
 ## "empty camp" visual problem for small worlds where all chunks stay loaded.
 ## Set false to revert to proximity-based spawning (visual_radius).
-@export var spawn_with_chunk: bool = true
+@export var spawn_with_chunk: bool = false
 
 # Asignado por World via setup()
 var player: Node2D = null
@@ -48,6 +48,10 @@ var spawning_enemy_ids: Dictionary = {}  # enemy_id -> true
 var _lite_timer: float = 0.0
 var _sim_timer: float = 0.0
 
+var _process_ms_rolling: float = 0.0
+var _process_ms_samples: int = 0
+var process_ms_avg: float = 0.0
+
 # ── Data-only behaviors ───────────────────────────────────────────────────────
 # Owned by NpcSimulator for enemies that are alive but have no active node.
 # BanditBehaviorLayer owns behaviors for enemies that DO have an active node.
@@ -66,6 +70,28 @@ func _clear_enemy_tracking(enemy_id: String, clear_spawning: bool = true) -> voi
 	active_enemy_chunk.erase(enemy_id)
 	if clear_spawning:
 		spawning_enemy_ids.erase(enemy_id)
+
+func get_active_distance_stats() -> Dictionary:
+	if player == null or not is_instance_valid(player) or active_enemies.is_empty():
+		return {"min": -1.0, "max": -1.0, "avg": -1.0, "count": 0}
+	var player_pos: Vector2 = player.global_position
+	var d_min: float = INF
+	var d_max: float = 0.0
+	var d_sum: float = 0.0
+	var count: int = 0
+	for enemy_id in active_enemies.keys():
+		var node := get_enemy_node(String(enemy_id))
+		if node == null:
+			continue
+		var dist: float = (node as Node2D).global_position.distance_to(player_pos)
+		d_min = minf(d_min, dist)
+		d_max = maxf(d_max, dist)
+		d_sum += dist
+		count += 1
+	if count == 0:
+		return {"min": -1.0, "max": -1.0, "avg": -1.0, "count": 0}
+	return {"min": d_min, "max": d_max, "avg": d_sum / float(count), "count": count}
+
 
 func get_enemy_node(enemy_id: String) -> Node:
 	if not active_enemies.has(enemy_id):
@@ -111,8 +137,15 @@ func setup(ctx: Dictionary) -> void:
 	_world_h_tiles = ctx.get("height", 64)
 
 func _process(delta: float) -> void:
+	var _t0 := Time.get_ticks_usec()
 	_tick_lite_mode(delta)
 	_tick_data_only(delta)
+	_process_ms_rolling += float(Time.get_ticks_usec() - _t0) / 1000.0
+	_process_ms_samples += 1
+	if _process_ms_samples >= 60:
+		process_ms_avg = _process_ms_rolling / 60.0
+		_process_ms_rolling = 0.0
+		_process_ms_samples = 0
 
 # ---------------------------------------------------------------------------
 # Lite mode — activa/desactiva IA de enemigos según distancia al jugador
@@ -267,6 +300,15 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 	else:
 		if node.has_method("exit_lite_mode"):
 			node.call("exit_lite_mode")
+
+	# Fade-in para evitar pop-in visual en el spawn.
+	# Spawns lejanos (start_lite) usan fade largo — el jugador puede verlos aparecer.
+	# Spawns cercanos usan fade corto — el jugador ya estaba encima.
+	if node is CanvasItem:
+		(node as CanvasItem).modulate.a = 0.0
+		var _tw := node.create_tween()
+		_tw.tween_property(node, "modulate:a", 1.0, 0.9 if start_lite else 0.2)
+
 	EnemyRegistry.register_enemy(node)
 
 	var member_role: String = String(save_state.get("role", "scavenger"))
@@ -548,9 +590,17 @@ func _scan_nearby_resources(node_pos: Vector2) -> Array:
 	return result
 
 
-func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float) -> void:
+func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float, skip_scene_scan: bool = false) -> void:
 	var beh: BanditWorldBehavior = _ensure_data_behavior(enemy_id, state)
-	var ctx: Dictionary = _build_data_behavior_ctx(enemy_id, state)
+	var ctx: Dictionary
+	if skip_scene_scan:
+		ctx = {
+			"node_pos": Vector2(state.get("pos", Vector2.ZERO)),
+			"nearby_drops_info": [],
+			"nearby_res_info": [],
+		}
+	else:
+		ctx = _build_data_behavior_ctx(enemy_id, state)
 	beh.tick(sim_delta, ctx)
 	var vel: Vector2 = beh.get_desired_velocity()
 	if vel.length_squared() > 0.01:
@@ -591,7 +641,7 @@ func _prewarm_chunk(chunk_key: String) -> void:
 		if state.has("world_behavior") and not reprewarm_existing:
 			continue   # already has simulated state — loaded from save
 		for _i in range(steps):
-			_tick_data_behavior(enemy_id, state, PREWARM_STEP)
+			_tick_data_behavior(enemy_id, state, PREWARM_STEP, true)
 		prewarmed += 1
 	if prewarmed > 0:
 		Debug.log("npc_data", "[NpcSim] prewarm chunk=%s enemies=%d steps=%d reprewarm=%s" % [

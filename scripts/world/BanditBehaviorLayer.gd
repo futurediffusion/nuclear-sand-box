@@ -359,6 +359,7 @@ func _tick_behaviors() -> void:
 	_lod_debug_last_npc.clear()
 	_lod_debug_npc_counts = {"fast": 0, "medium": 0, "slow": 0}
 	var drop_nodes_snapshot: Array = _get_all_drop_nodes()
+	var res_nodes_snapshot: Array = _get_all_resource_nodes()
 	var leader_pos_by_group: Dictionary = {}
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
@@ -394,8 +395,8 @@ func _tick_behaviors() -> void:
 
 		var ctx: Dictionary = {
 			"node_pos":                       node_pos,
-			"nearby_drops_info":              _build_drops_info(node_pos),
-			"nearby_res_info":                _build_res_info(node_pos),
+			"nearby_drops_info":              _build_drops_info(node_pos, drop_nodes_snapshot),
+			"nearby_res_info":                _build_res_info(node_pos, res_nodes_snapshot),
 			"find_nearest_player_wall":       _find_wall_cb,
 			"find_nearest_player_workbench":  _find_workbench_cb,
 			"find_nearest_player_storage":    _find_storage_cb,
@@ -423,19 +424,15 @@ func _tick_behaviors() -> void:
 # ctx builders
 # ---------------------------------------------------------------------------
 
-func _build_drops_info(node_pos: Vector2) -> Array:
+func _build_drops_info(node_pos: Vector2, all_drops: Array) -> Array:
 	var result: Array = []
-	var nearby_drops: Array = []
-	if _world_spatial_index != null:
-		nearby_drops = _world_spatial_index.get_runtime_nodes_near(WorldSpatialIndex.KIND_ITEM_DROP, node_pos, BanditTuningScript.loot_scan_radius())
-	else:
-		nearby_drops = get_tree().get_nodes_in_group("item_drop")
-	for drop in nearby_drops:
+	var r2: float = BanditTuningScript.loot_scan_radius_sq()
+	for drop in all_drops:
 		var drop_node := drop as Node2D
 		if drop_node == null or not is_instance_valid(drop_node) \
 				or drop_node.is_queued_for_deletion():
 			continue
-		if node_pos.distance_squared_to(drop_node.global_position) > BanditTuningScript.loot_scan_radius_sq():
+		if node_pos.distance_squared_to(drop_node.global_position) > r2:
 			continue
 		result.append({
 			"id":     drop_node.get_instance_id(),
@@ -445,19 +442,15 @@ func _build_drops_info(node_pos: Vector2) -> Array:
 	return result
 
 
-func _build_res_info(node_pos: Vector2) -> Array:
+func _build_res_info(node_pos: Vector2, all_resources: Array) -> Array:
 	var result: Array = []
-	var nearby_resources: Array = []
-	if _world_spatial_index != null:
-		nearby_resources = _world_spatial_index.get_runtime_nodes_near(WorldSpatialIndex.KIND_WORLD_RESOURCE, node_pos, BanditTuningScript.resource_scan_radius())
-	else:
-		nearby_resources = get_tree().get_nodes_in_group("world_resource")
-	for res in nearby_resources:
+	var r2: float = BanditTuningScript.resource_scan_radius_sq()
+	for res in all_resources:
 		var res_node := res as Node2D
 		if res_node == null or not is_instance_valid(res_node) \
 				or res_node.is_queued_for_deletion():
 			continue
-		if node_pos.distance_squared_to(res_node.global_position) > BanditTuningScript.resource_scan_radius_sq():
+		if node_pos.distance_squared_to(res_node.global_position) > r2:
 			continue
 		result.append({"pos": res_node.global_position, "id": res_node.get_instance_id()})
 	return result
@@ -467,6 +460,12 @@ func _get_all_drop_nodes() -> Array:
 	if _world_spatial_index != null:
 		return _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_ITEM_DROP)
 	return get_tree().get_nodes_in_group("item_drop")
+
+
+func _get_all_resource_nodes() -> Array:
+	if _world_spatial_index != null:
+		return _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORLD_RESOURCE)
+	return get_tree().get_nodes_in_group("world_resource")
 
 
 # ---------------------------------------------------------------------------

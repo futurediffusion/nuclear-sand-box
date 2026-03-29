@@ -71,7 +71,8 @@
       "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernAuthorityPolicy.gd)",
       "Bash(godot --path . --check-only --script scripts/systems/local_authority/TavernGarrisonMonitor.gd)",
       "Bash(node:*)",
-      "Bash(grep -r .hit\\\\\\(/c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts --include=*.gd)"
+      "Bash(grep -r .hit\\\\\\(/c/Users/walva/OneDrive/Documentos/nuclear-sand-box/scripts --include=*.gd)",
+      "Bash(godot --path . --check-only --script scripts/world/WorldSimTelemetry.gd)"
     ]
   }
 }

@@ -35,6 +35,9 @@ var _runtime_meta_by_id: Dictionary = {}
 var _placeables_cache_revision: int = -1
 var _placeables_by_item_id_and_chunk: Dictionary = {}
 
+var _queries_total: int = 0
+var _queries_with_hits: int = 0
+
 
 func setup(ctx: Dictionary) -> void:
 	_world_to_tile_cb = ctx.get("world_to_tile", Callable())
@@ -87,6 +90,7 @@ func update_runtime_node(kind: StringName, node: Node) -> void:
 
 
 func get_runtime_nodes_near(kind: StringName, world_pos: Vector2, radius: float) -> Array:
+	_queries_total += 1
 	var result: Array = []
 	var r2: float = radius * radius
 	for chunk_key in _get_chunk_keys_for_radius(world_pos, radius):
@@ -108,6 +112,8 @@ func get_runtime_nodes_near(kind: StringName, world_pos: Vector2, radius: float)
 				result.append(node)
 		for stale_id in stale_ids:
 			_unregister_runtime_id(stale_id)
+	if result.size() > 0:
+		_queries_with_hits += 1
 	return result
 
 
@@ -366,4 +372,6 @@ func get_debug_snapshot() -> Dictionary:
 		"persistent_cache_revision": _placeables_cache_revision,
 		"persistent_item_counts": persistent_counts,
 		"persistent_cache_item_ids": _placeables_by_item_id_and_chunk.size(),
+		"query_total": _queries_total,
+		"query_hit_rate": float(_queries_with_hits) / float(maxi(_queries_total, 1)),
 	}

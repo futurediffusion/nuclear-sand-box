@@ -186,6 +186,11 @@ static func get_behavior_tick_debug(ctx: Dictionary) -> Dictionary:
 		reasons.append("idle_far_sleep_bias")
 
 	var interval: float = clampf(base_interval * multiplier, MIN_BEHAVIOR_TICK_INTERVAL, MAX_BEHAVIOR_TICK_INTERVAL)
+	# Floor de distancia: un NPC a >FAR no puede tickear más rápido que slow,
+	# sin importar intent ni estado de combate — a esa distancia no hay combate real posible.
+	if distance_to_player >= ACTOR_FAR_DISTANCE:
+		interval = maxf(interval, base_interval * 1.6)
+		reasons.push_front("distance_floor")
 	return {
 		"interval": interval,
 		"multiplier": multiplier,

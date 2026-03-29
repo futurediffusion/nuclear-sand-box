@@ -15,17 +15,38 @@ const BOOT_TRACE := true
 @export var test_density_extra_copper_per_chunk_load := 4
 @export var test_density_extra_bandit_camps_per_chunk_load := 1
 @export var categories := {
-	"boot": BOOT_TRACE,
+	"boot": false,
 	"audio": false,
 	"events": false,
 	"ai": false,
 	"wall": false,
 	"inv": false,
-	"chunk": true,
-	"spawn": true,
+	"chunk": false,
+	"spawn": false,
 	"save": false,
 	"copper": false,
 	"loot": false,
+	# --- tuning-irrelevant: silenciados ---
+	"npc_data": false,
+	"npc_lite": false,
+	"bandit_ai": false,
+	"bandit_lod": false,
+	"intel": false,
+	"camp_stash": false,
+	"sentinel": false,
+	"authority": false,
+	"world": false,
+	"territory": false,
+	"raid": false,
+	"resource_repop": false,
+	"npc_path": false,
+	"grass": false,
+	"faction_hostility": false,
+	"crafting": false,
+	"chunk_perf": false,
+	"ground": false,
+	# --- telemetría de tuning: activo ---
+	"perf_telemetry": true,
 }
 
 static func _get_singleton() -> DebugSystem:

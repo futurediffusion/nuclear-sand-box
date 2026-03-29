@@ -2,6 +2,7 @@ class_name WorldSimTelemetry
 extends RefCounted
 
 var enabled: bool = true
+var print_interval: float = 5.0
 
 var _world: Node = null
 var _cadence: WorldCadenceCoordinator = null
@@ -9,6 +10,9 @@ var _bandit_behavior_layer: BanditBehaviorLayer = null
 var _settlement_intel: SettlementIntel = null
 var _world_spatial_index: WorldSpatialIndex = null
 var _maintenance_snapshot_cb: Callable = Callable()
+var _npc_sim: NpcSimulator = null
+var _perf_monitor: ChunkPerfMonitor = null
+var _print_timer: float = 0.0
 
 
 func setup(ctx: Dictionary) -> void:
@@ -19,6 +23,67 @@ func setup(ctx: Dictionary) -> void:
 	_settlement_intel = ctx.get("settlement_intel") as SettlementIntel
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 	_maintenance_snapshot_cb = ctx.get("maintenance_snapshot_cb", Callable())
+	_npc_sim = ctx.get("npc_sim") as NpcSimulator
+	_perf_monitor = ctx.get("perf_monitor") as ChunkPerfMonitor
+
+
+func tick(delta: float) -> void:
+	if not enabled:
+		return
+	_print_timer += delta
+	if _print_timer < print_interval:
+		return
+	_print_timer = 0.0
+	_print_perf_to_console()
+
+
+func _print_perf_to_console() -> void:
+	var snapshot := get_debug_snapshot()
+	var bandit: Dictionary = snapshot.get("bandit_lod", {})
+	var settlement: Dictionary = snapshot.get("settlement", {})
+	var spatial: Dictionary = snapshot.get("spatial_index", {})
+	var timers: Dictionary = settlement.get("timers", {})
+	var npc_ms: float = _npc_sim.process_ms_avg if _npc_sim != null else -1.0
+	var gen_p50: float = _perf_monitor.get_stage_p50(ChunkPerfMonitor.STAGE_GENERATE) if _perf_monitor != null else -1.0
+	var ent_p50: float = _perf_monitor.get_stage_p50(ChunkPerfMonitor.STAGE_ENTITIES) if _perf_monitor != null else -1.0
+	var q_total: int = int(spatial.get("query_total", 0))
+	var hit_pct: int = int(spatial.get("query_hit_rate", 0.0) * 100.0)
+	var g_counts: Dictionary = _nested_dict(bandit, ["group_scan", "group_counts"])
+	var npc_counts: Dictionary = bandit.get("npc_counts", {})
+	var npc_reasons: Dictionary = bandit.get("npc_dominant_reasons", {})
+	var dist_stats: Dictionary = _npc_sim.get_active_distance_stats() if _npc_sim != null else {}
+	var dist_str: String = "n/a"
+	if int(dist_stats.get("count", 0)) > 0:
+		dist_str = "min=%.0f avg=%.0f max=%.0f" % [
+			float(dist_stats.get("min", 0.0)),
+			float(dist_stats.get("avg", 0.0)),
+			float(dist_stats.get("max", 0.0)),
+		]
+	var top_reason: String = ""
+	var top_count: int = 0
+	for r in npc_reasons.keys():
+		if int(npc_reasons[r]) > top_count:
+			top_count = int(npc_reasons[r])
+			top_reason = String(r)
+	Debug.log("perf_telemetry", (
+		"chunk gen=%.2fms ent=%.2fms | npc sim=%.2fms (active=%d data=%d) dist[%s] | "
+		+ "bandits g[%s] npc[%s] top=%s | "
+		+ "settlement wb=%.1f/30s base=%.1f/10s bases=%d | "
+		+ "spatial hit=%d%% (%d q)"
+	) % [
+		gen_p50, ent_p50,
+		npc_ms,
+		_npc_sim.active_enemies.size() if _npc_sim != null else 0,
+		_npc_sim._data_behaviors.size() if _npc_sim != null else 0,
+		dist_str,
+		_format_bucket_counts(g_counts),
+		_format_bucket_counts(npc_counts),
+		top_reason,
+		float(timers.get("workbench_rescan_timer", 0.0)),
+		float(timers.get("base_rescan_timer", 0.0)),
+		int(settlement.get("bases_detected", 0)),
+		hit_pct, q_total,
+	])
 
 
 func get_debug_snapshot() -> Dictionary:

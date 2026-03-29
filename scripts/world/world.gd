@@ -627,6 +627,8 @@ func _ready() -> void:
 		"settlement_intel": _settlement_intel,
 		"world_spatial_index": _world_spatial_index,
 		"maintenance_snapshot_cb": Callable(self, "_get_world_maintenance_debug_snapshot"),
+		"npc_sim": npc_simulator,
+		"perf_monitor": _perf_monitor,
 	})
 
 	# Wire SettlementIntel into BanditGroupIntel (must be after _settlement_intel is ready)
@@ -732,6 +734,8 @@ func _process(delta: float) -> void:
 		entity_coordinator.set_player_pos(player.global_position)
 	_update_cliff_occlusion()
 	_process_chunk_perf_debug(delta)
+	if _world_sim_telemetry != null:
+		_world_sim_telemetry.tick(delta)
 	if _cadence != null and _cadence.consume_lane(&"autosave") > 0:
 		_perform_world_save("autosave")
 	if _cadence != null and _cadence.consume_lane(&"chunk_pulse") <= 0:

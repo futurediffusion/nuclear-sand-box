@@ -141,6 +141,11 @@ func _alert_threshold(stage: String) -> float:
 		STAGE_CLIFF_COLLIDER: return alert_cliff_collider_ms
 		_: return 0.0
 
+func get_stage_p50(stage: String, ring: int = 0) -> float:
+	var samples: Array = (_data.get(ring, {}) as Dictionary).get(stage, [])
+	return _calc_percentile(samples, 0.50)
+
+
 func _calc_percentile(values: Array, ratio: float) -> float:
 	if values.is_empty():
 		return 0.0

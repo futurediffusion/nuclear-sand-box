@@ -83,7 +83,7 @@ func process(delta: float) -> void:
 	var use_world_cadence: bool = _cadence != null
 	if not use_world_cadence:
 		_rescan_timer += delta
-		_base_rescan_timer += delta
+	_base_rescan_timer += delta
 
 	# --- TTL expiry ---
 	var i := _markers.size() - 1
@@ -507,7 +507,7 @@ func _tile_to_world(tile_pos: Vector2i) -> Vector2:
 
 
 func get_debug_snapshot() -> Dictionary:
-	var pending_doors: Array[Vector2i] = _pending_base_scan.get("doors", [])
+	var pending_doors: Array[Vector2i] = Array(_pending_base_scan.get("doors", []), TYPE_VECTOR2I, "", null)
 	var base_cursor: int = int(_pending_base_scan.get("cursor", 0))
 	var persistent_markers: int = 0
 	var workbench_markers: int = 0
