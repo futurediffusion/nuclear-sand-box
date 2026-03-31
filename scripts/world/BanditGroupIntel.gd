@@ -249,6 +249,9 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var effective_t_hunting: float = float(policy.get("effective_hunting_threshold", BanditTuning.hunting_threshold()))
 	var new_intent: String = String(policy.get("next_intent", current_intent))
 
+	# No resetear a "idle" si hay un asalto de placement_react activo para este grupo
+	if new_intent == "idle" and BanditGroupMemory.has_placement_react_lock(group_id):
+		return
 	BanditGroupMemory.update_intent(group_id, new_intent)
 
 	if new_intent == "idle":

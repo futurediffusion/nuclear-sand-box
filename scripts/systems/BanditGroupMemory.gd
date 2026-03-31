@@ -207,6 +207,44 @@ static func _res_pos_key(pos: Vector2) -> String:
 	return "%d_%d" % [int(pos.x / 32.0), int(pos.y / 32.0)]
 
 
+## Bloquea el reset de intent a "idle" por BGI durante N segundos (asalto activo).
+func set_placement_react_lock(group_id: String, duration: float) -> void:
+	if not _groups.has(group_id):
+		return
+	_groups[group_id]["placement_react_until"] = RunClock.now() + duration
+
+
+## Devuelve true si hay un asalto de placement_react activo para este grupo.
+func has_placement_react_lock(group_id: String) -> bool:
+	if not _groups.has(group_id):
+		return false
+	return RunClock.now() < float(_groups.get(group_id, {}).get("placement_react_until", 0.0))
+
+
+## Almacena un target de asalto pendiente para cuando el grupo spawne.
+func set_assault_target(group_id: String, target_pos: Vector2) -> void:
+	if not _groups.has(group_id):
+		return
+	_groups[group_id]["pending_assault_target"] = target_pos
+
+
+## Lee el target pendiente sin borrarlo. Vector2(-1,-1) si no hay ninguno.
+func get_assault_target(group_id: String) -> Vector2:
+	if not _groups.has(group_id):
+		return Vector2(-1.0, -1.0)
+	var g: Dictionary = _groups[group_id]
+	if not g.has("pending_assault_target"):
+		return Vector2(-1.0, -1.0)
+	return g["pending_assault_target"] as Vector2
+
+
+## Elimina el target pendiente del grupo.
+func clear_assault_target(group_id: String) -> void:
+	if not _groups.has(group_id):
+		return
+	_groups[group_id].erase("pending_assault_target")
+
+
 func promote_leader(group_id: String, npc_id: String) -> void:
 	if not _groups.has(group_id):
 		return
@@ -263,6 +301,8 @@ func serialize() -> Dictionary:
 		# Strip ephemeral session-only fields (contain Vector2 that can't round-trip JSON)
 		g.erase("reported_resources")
 		g.erase("resource_claims")
+		g.erase("pending_assault_target")
+		g.erase("placement_react_until")
 		# Vector2 → plain dict (JSON-safe)
 		var hwp: Vector2 = g.get("home_world_pos", Vector2.ZERO)
 		g["home_world_pos"] = {"x": hwp.x, "y": hwp.y}

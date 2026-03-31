@@ -72,7 +72,10 @@ func _consume_raid_queue() -> void:
 		if _has_active_job(gid):
 			continue
 		var g: Dictionary = BanditGroupMemory.get_group(gid)
-		if String(g.get("current_group_intent", "")) != "raiding":
+		var intent_ok: bool = String(g.get("current_group_intent", "")) == "raiding"
+		# structure_assault es una reacción de colocación — no depende del intent del grupo
+		var force_consume: bool = RaidQueue.has_structure_assault_for_group(gid)
+		if not intent_ok and not force_consume:
 			continue
 		var intents: Array = RaidQueue.consume_for_group(gid)
 		if intents.is_empty():
@@ -114,6 +117,8 @@ func _tick_jobs() -> void:
 					_tick_placeable_assault(job, gid)
 				elif raid_type == "wall_probe":
 					_tick_wall_probe_assault(job, gid)
+				elif raid_type == "structure_assault":
+					_tick_structure_assault(job, gid)
 				else:
 					_tick_wall_assault(job, gid)
 				if _tick_attacking(job, gid):
@@ -232,7 +237,7 @@ func _tick_attacking(job: Dictionary, gid: String) -> bool:
 		"light":
 			max_attack = LIGHT_ATTACK_DURATION
 			max_total  = LIGHT_MAX_DURATION
-		"wall_probe":
+		"wall_probe", "structure_assault":
 			max_attack = BanditTuning.wall_probe_attack_duration()
 			max_total  = BanditTuning.wall_probe_max_duration()
 		_:
@@ -298,6 +303,55 @@ func _tick_placeable_assault(job: Dictionary, gid: String) -> void:
 
 
 # ---------------------------------------------------------------------------
+# Stage: ATTACKING — structure assault (placement reaction, cualquier nivel)
+# ---------------------------------------------------------------------------
+
+## Reacción inmediata al colocar estructuras: sin checks de perfil de hostilidad.
+## Prioridad de objetivo: pared → storage → workbench.
+## Toda la escuadra converge sobre el mismo objetivo.
+func _tick_structure_assault(job: Dictionary, gid: String) -> void:
+	if RunClock.now() < float(job.get("wall_assault_next_at", 0.0)):
+		return
+
+	var base_center: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
+	var target_pos: Vector2  = Vector2(-1.0, -1.0)
+
+	# Prioridad: pared > storage > workbench
+	if _find_wall.is_valid():
+		target_pos = _find_wall.call(base_center, WALL_SEARCH_RADIUS) as Vector2
+	if target_pos.x < 0.0 and _find_storage.is_valid():
+		target_pos = _find_storage.call(base_center, PLACEABLE_SEARCH_RADIUS) as Vector2
+	if target_pos.x < 0.0 and _find_workbench.is_valid():
+		target_pos = _find_workbench.call(base_center, PLACEABLE_SEARCH_RADIUS) as Vector2
+
+	if target_pos.x < 0.0:
+		return
+
+	var squad_size: int   = int(job.get("probe_squad_size", 2))
+	var g: Dictionary     = BanditGroupMemory.get_group(gid)
+	var member_ids: Array = g.get("member_ids", [])
+	var redirected: int   = 0
+	for mid in member_ids:
+		if redirected >= squad_size:
+			break
+		var node = _npc_simulator.get_enemy_node(String(mid)) if _npc_simulator != null else null
+		if node == null:
+			continue
+		var bwb = node.get_node_or_null("WorldBehavior")
+		if bwb == null or not bwb.has_method("enter_wall_assault"):
+			continue
+		bwb.call("enter_wall_assault", target_pos)
+		redirected += 1
+
+	job["wall_assault_next_at"] = RunClock.now() + WALL_ASSAULT_INTERVAL
+	if redirected > 0:
+		Debug.log("raid", "[RF] structure assault — group=%s target=%s redirected=%d/%d" % [
+			gid, str(target_pos), redirected, squad_size])
+	else:
+		Debug.log("placement_react", "[RF] structure assault — SIN nodos activos para group=%s (bandidos no spawneados)" % gid)
+
+
+# ---------------------------------------------------------------------------
 # Stage: ATTACKING — wall probe (niveles 1-6)
 # ---------------------------------------------------------------------------
 
@@ -353,12 +407,15 @@ func _abort_invalid_jobs() -> void:
 		if g.is_empty():
 			abort_ids.append(gid)
 			continue
-		var leader_id: String = String(g.get("leader_id", ""))
-		if leader_id == "":
-			abort_ids.append(gid)
-			continue
-		if _npc_simulator != null and _npc_simulator.get_enemy_node(leader_id) == null:
-			abort_ids.append(gid)
+		# structure_assault: no abortar por leader ausente — usa timeout (APPROACH_TIMEOUT)
+		var raid_type: String = String(job.get("raid_type", ""))
+		if raid_type != "structure_assault":
+			var leader_id: String = String(g.get("leader_id", ""))
+			if leader_id == "":
+				abort_ids.append(gid)
+				continue
+			if _npc_simulator != null and _npc_simulator.get_enemy_node(leader_id) == null:
+				abort_ids.append(gid)
 	for gid in abort_ids:
 		_finish_raid(gid, "abort")
 
@@ -374,10 +431,11 @@ func _finish_raid(gid: String, reason: String) -> void:
 	_active_jobs.erase(gid)
 	var social_cd: float
 	match String(job.get("raid_type", "full")):
-		"full":       social_cd = 18.0
-		"light":      social_cd = 10.0
-		"wall_probe": social_cd = 6.0
-		_:            social_cd = 10.0
+		"full":               social_cd = 18.0
+		"light":              social_cd = 10.0
+		"wall_probe":         social_cd = 6.0
+		"structure_assault":  social_cd = 6.0
+		_:                    social_cd = 10.0
 	BanditGroupMemory.push_social_cooldown(gid, social_cd)
 	BanditGroupMemory.update_intent(gid, "idle")
 	var faction_id: String = String(job.get("faction_id", ""))

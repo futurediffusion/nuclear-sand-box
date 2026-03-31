@@ -113,6 +113,8 @@ var _last_intent: String = ""
 # ── Oportunistic wall assault ─────────────────────────────────────────────────
 # Cooldown por NPC para que no spamee el ataque al mismo muro.
 var _wall_assault_cooldown_until: float = 0.0
+# Cuando true: leash desactivado y _move_target protegido (en camino a destruir estructura)
+var _in_assault: bool = false
 
 # ── Property sabotage (workbench / storage) ───────────────────────────────────
 # Cooldown por NPC para ataques oportunistas a placeables del jugador (nivel 7+).
@@ -177,6 +179,9 @@ func _get_speed() -> float:
 	return base * (1.0 + intensity_boost)
 
 func _get_home_return_dist() -> float:
+	# Durante asalto directo: sin leash — el NPC debe llegar al target sin importar distancia
+	if _in_assault:
+		return 9999.0
 	# Roaming guards handle their own return via timer — disable distance leash
 	if role == "bodyguard" and _is_roaming_guard:
 		return 9999.0
@@ -256,6 +261,10 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	if prev_state == State.RESOURCE_WATCH and state != State.RESOURCE_WATCH:
 		_on_leave_resource_watch()
 
+	# Limpiar modo asalto cuando el NPC llega/abandona APPROACH_INTEREST
+	if _in_assault and state != State.APPROACH_INTEREST:
+		_in_assault = false
+
 	# ── 3b. Barrel exclusion zone ─────────────────────────────────────────
 	# Hard exclusion: cualquier NPC que no esté depositando activamente
 	# y esté dentro de 88 px del barril → patrol inmediato.
@@ -327,7 +336,8 @@ func _tick_roaming_guard_phase(delta: float, ctx: Dictionary) -> void:
 
 		"returning":
 			# Keep the approach target updated as the leader moves
-			if state == State.APPROACH_INTEREST:
+			# (pero no interferir si estamos en un asalto directo a estructura)
+			if state == State.APPROACH_INTEREST and not _in_assault:
 				_move_target = leader_pos
 			# Arrival: either super.tick() already transitioned us to IDLE or we're close
 			var near_leader := node_pos.distance_squared_to(leader_pos) < 110.0 * 110.0
@@ -704,13 +714,17 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 							member_id, str(interest_pos)])
 
 		"raiding":
-			# Nivel 10: todos los miembros convergen en la base del jugador.
-			var g_raid: Dictionary = BanditGroupMemory.get_group(group_id)
-			var base_pos: Vector2  = g_raid.get("last_interest_pos", home_pos) as Vector2
-			if base_pos.distance_squared_to(home_pos) > 1.0:
-				_move_target = base_pos
-				state        = State.APPROACH_INTEREST
-				_state_timer = 0.0
+			# Converger en el objetivo de raid/asalto (last_interest_pos = target actual).
+			# Si ya estamos en asalto directo (_in_assault), no sobreescribir el target.
+			if not _in_assault:
+				var g_raid: Dictionary = BanditGroupMemory.get_group(group_id)
+				var base_pos: Vector2  = g_raid.get("last_interest_pos", home_pos) as Vector2
+				if base_pos.distance_squared_to(home_pos) > 1.0:
+					_move_target = base_pos
+					state        = State.APPROACH_INTEREST
+					_state_timer = 0.0
+					_in_assault  = true
+					_invalidate_npc_path()
 
 		"idle":
 			if state == State.APPROACH_INTEREST or state == State.FOLLOW_LEADER \
@@ -740,6 +754,8 @@ func enter_wall_assault(wall_pos: Vector2) -> void:
 	_move_target = wall_pos
 	state        = State.APPROACH_INTEREST
 	_state_timer = 0.0
+	_in_assault  = true
+	_invalidate_npc_path()
 
 
 ## Sabotaje oportunista a placeables (workbench / storage) — no raid:

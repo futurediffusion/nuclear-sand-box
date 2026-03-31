@@ -74,6 +74,26 @@ func enqueue_wall_probe(faction_id: String, group_id: String, leader_id: String,
 		group_id, base_id, probe_squad_size])
 
 
+func enqueue_structure_assault(faction_id: String, group_id: String, leader_id: String,
+		base_center: Vector2, base_id: String, squad_size: int) -> void:
+	var intent: Dictionary = {
+		"faction_id":       faction_id,
+		"group_id":         group_id,
+		"leader_id":        leader_id,
+		"base_center":      base_center,
+		"base_id":          base_id,
+		"raid_type":        "structure_assault",
+		"probe_squad_size": squad_size,
+		"created_at":       RunClock.now(),
+	}
+	_intents.append(intent)
+	if group_id != "":
+		_last_raid_time_by_group[group_id]       = RunClock.now()
+		_last_wall_probe_time_by_group[group_id] = RunClock.now()
+	Debug.log("raid", "[RQ] structure assault enqueued — group=%s squad=%d center=%s" % [
+		group_id, squad_size, str(base_center)])
+
+
 func get_last_wall_probe_time(group_id: String) -> float:
 	return float(_last_wall_probe_time_by_group.get(group_id, 0.0))
 
@@ -81,6 +101,14 @@ func get_last_wall_probe_time(group_id: String) -> float:
 func has_pending_for_group(group_id: String) -> bool:
 	for i in _intents:
 		if String(i.get("group_id", "")) == group_id:
+			return true
+	return false
+
+
+func has_structure_assault_for_group(group_id: String) -> bool:
+	for i in _intents:
+		if String(i.get("group_id", "")) == group_id \
+				and String(i.get("raid_type", "")) == "structure_assault":
 			return true
 	return false
 

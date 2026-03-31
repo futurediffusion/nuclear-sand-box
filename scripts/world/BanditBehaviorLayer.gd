@@ -502,6 +502,12 @@ func _ensure_behaviors_for_active_enemies() -> void:
 		_behavior_elapsed[enemy_id_str] = randf() * BanditTuningScript.behavior_tick_interval()
 		Debug.log("bandit_ai", "[BanditBL] behavior created id=%s role=%s group=%s cargo_cap=%d home=%s" % [
 			enemy_id_str, beh.role, beh.group_id, beh.cargo_capacity, str(beh.home_pos)])
+		# Si el grupo tiene un assault pendiente (colocación de estructura mientras no estaban spawneados)
+		var assault_target: Vector2 = BanditGroupMemory.get_assault_target(beh.group_id)
+		if assault_target.x >= 0.0:
+			beh.enter_wall_assault(assault_target)
+			Debug.log("placement_react", "[BBL] pending assault applied on spawn id=%s group=%s target=%s" % [
+				enemy_id_str, beh.group_id, str(assault_target)])
 
 
 # ---------------------------------------------------------------------------
@@ -619,6 +625,45 @@ func notify_territory_reaction(_faction_id: String, group_id: String,
 	if _territory_response == null:
 		return
 	_territory_response.notify_reaction(group_id, intrusion_pos, kind)
+
+
+## Envía directamente N miembros del grupo a atacar target_pos.
+## Funciona tanto en lite-mode (BanditWorldBehavior en _behaviors) como en
+## modo activo (WorldBehavior child node). Retorna cuántos fueron redirigidos.
+func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size: int) -> int:
+	var redirected: int = 0
+	for eid in _behaviors:
+		if redirected >= squad_size:
+			break
+		var beh: BanditWorldBehavior = _behaviors[eid]
+		if beh.group_id != group_id:
+			continue
+		beh.enter_wall_assault(target_pos)
+		redirected += 1
+	# Fallback: nodo activo con WorldBehavior child (modo combate completo)
+	if redirected == 0 and _npc_simulator != null:
+		var g: Dictionary = BanditGroupMemory.get_group(group_id)
+		for mid in g.get("member_ids", []):
+			if redirected >= squad_size:
+				break
+			var node = _npc_simulator.get_enemy_node(String(mid))
+			if node == null:
+				continue
+			var wb = node.get_node_or_null("WorldBehavior")
+			if wb != null and wb.has_method("enter_wall_assault"):
+				wb.call("enter_wall_assault", target_pos)
+				redirected += 1
+	if redirected == 0:
+		# Enemigos aún no spawneados — guardar target para cuando aparezcan
+		BanditGroupMemory.set_assault_target(group_id, target_pos)
+		Debug.log("placement_react", "[BBL] dispatch queued (no spawneados) group=%s target=%s" % [
+			group_id, str(target_pos)])
+	else:
+		# Despachados correctamente — limpiar cualquier target pendiente previo
+		BanditGroupMemory.clear_assault_target(group_id)
+		Debug.log("placement_react", "[BBL] dispatch group=%s target=%s redirected=%d/%d" % [
+			group_id, str(target_pos), redirected, squad_size])
+	return redirected
 
 
 # ---------------------------------------------------------------------------

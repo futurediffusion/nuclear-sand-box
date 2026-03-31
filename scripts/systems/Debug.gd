@@ -45,9 +45,10 @@ const BOOT_TRACE := true
 	"crafting": false,
 	"chunk_perf": false,
 	"ground": false,
-	# --- telemetría de tuning: activo ---
-	"perf_telemetry": true,
+	# --- telemetría de tuning ---
+	"perf_telemetry": false,
 	"faction_eradication": true,
+	"placement_react": true,
 }
 
 static func _get_singleton() -> DebugSystem:

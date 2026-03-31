@@ -153,6 +153,23 @@ var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
 
+# ── Placement Reaction ────────────────────────────────────────────────────────
+## Cuando el jugador coloca un bloque, el grupo bandit más cercano reacciona
+## inmediatamente enviando una escuadra a destruirlo.
+## Si el jugador mata esa escuadra, viene una más grande.
+const _PLACEMENT_REACT_RADIUS: float = 1400.0      # radio máx desde camp home_pos
+const _PLACEMENT_REACT_ESCALATION_RADIUS: float = 600.0  # radio de muerte que cuenta como "defensa"
+const _PLACEMENT_REACT_BASE_SQUAD: int = 2         # tamaño inicial de escuadra
+const _PLACEMENT_REACT_MAX_SQUAD: int = 6          # tope de escalada
+const _PLACEMENT_REACT_COOLDOWN: float = 40.0      # cooldown entre dispatches nuevos
+var _placement_react_group_id: String = ""
+var _placement_react_faction_id: String = ""
+var _placement_react_pos: Vector2 = Vector2.ZERO
+var _placement_react_wave: int = 0
+var _placement_react_kills: int = 0
+var _placement_react_squad_size: int = 0
+var _placement_react_cooldown_until: float = 0.0
+
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
 const LAYER_GROUND: int = 0
@@ -531,6 +548,8 @@ func _ready() -> void:
 
 	if GameEvents != null and not GameEvents.entity_died.is_connected(_on_entity_died):
 		GameEvents.entity_died.connect(_on_entity_died)
+	if not PlacementSystem.placement_completed.is_connected(_on_placement_completed):
+		PlacementSystem.placement_completed.connect(_on_placement_completed)
 	if not chunk_stage_completed.is_connected(_on_chunk_stage_completed):
 		chunk_stage_completed.connect(_on_chunk_stage_completed)
 
@@ -1735,7 +1754,103 @@ func _on_wall_drop_for_intel(tile_pos: Vector2i, _item_id: String, _amount: int)
 		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_pos))
 	_player_territory_dirty = true
 
+func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
+	var world_pos: Vector2 = _tile_to_world(tile_pos)
+	Debug.log("placement_react", "placement_completed item=%s tile=%s world=%s" % [
+		_item_id, str(tile_pos), str(world_pos)])
+	# Si hay una reacción activa en cooldown, ignorar — los enemigos ya están en camino
+	if RunClock.now() < _placement_react_cooldown_until and _placement_react_group_id != "":
+		Debug.log("placement_react", "  SKIP (cooldown %.0fs)" % [
+			_placement_react_cooldown_until - RunClock.now()])
+		return
+	_placement_react_wave = 0
+	_trigger_placement_react(world_pos)
+
+
+func _trigger_placement_react(target_pos: Vector2) -> void:
+	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
+	Debug.log("placement_react", "--- placement react wave=%d target=%s groups_total=%d ---" % [
+		_placement_react_wave, str(target_pos), all_ids.size()])
+
+	if all_ids.is_empty():
+		Debug.log("placement_react", "  SKIP: no hay grupos registrados en BanditGroupMemory")
+		return
+
+	var best_gid: String = ""
+	var best_dist: float = INF  # sin límite de radio — cubre todo el mundo
+	for gid in all_ids:
+		var g: Dictionary = BanditGroupMemory.get_group(gid)
+		var home_pos: Vector2 = g.get("home_world_pos", Vector2.ZERO) as Vector2
+		var dist: float = home_pos.distance_to(target_pos)
+		var eradicated: bool = bool(g.get("eradicated", false))
+		var members: Array = g.get("member_ids", []) as Array
+		var leader_id_check: String = String(g.get("leader_id", ""))
+		# Fallback: si no hay leader designado, usar el primer miembro vivo
+		if leader_id_check == "" and members.size() > 0:
+			leader_id_check = String(members[0])
+		var has_pending: bool = RaidQueue.has_pending_for_group(gid)
+		var intent: String = String(g.get("current_group_intent", "idle"))
+		Debug.log("placement_react", "  grupo=%s dist=%.0f eradicated=%s members=%d leader='%s' pending=%s intent=%s" % [
+			gid, dist, str(eradicated), members.size(), leader_id_check, str(has_pending), intent])
+		if eradicated:
+			continue
+		if leader_id_check == "":
+			continue
+		# Solo bloquear si hay un structure_assault ya activo (ya viajando/atacando).
+		# Un pending sin consumir no bloquea — puede que el intent haya sido reseteado.
+		if has_pending and not RaidQueue.has_structure_assault_for_group(gid):
+			continue
+		if dist < best_dist:
+			best_dist = dist
+			best_gid = gid
+
+	if best_gid == "":
+		Debug.log("placement_react", "  SKIP: no hay ningún grupo apto (todos eradicated, pending, o sin miembros)")
+		return
+
+	var g: Dictionary = BanditGroupMemory.get_group(best_gid)
+	var faction_id: String = String(g.get("faction_id", "bandits"))
+	var members_g: Array   = g.get("member_ids", []) as Array
+	var leader_id: String  = String(g.get("leader_id", ""))
+	if leader_id == "" and members_g.size() > 0:
+		leader_id = String(members_g[0])
+	var squad: int = mini(_PLACEMENT_REACT_BASE_SQUAD + _placement_react_wave, _PLACEMENT_REACT_MAX_SQUAD)
+	_placement_react_group_id  = best_gid
+	_placement_react_faction_id = faction_id
+	_placement_react_pos       = target_pos
+	_placement_react_kills     = 0
+	_placement_react_squad_size = squad
+	# Registrar la posición objetivo para que el intent handler "raiding" la use correctamente
+	BanditGroupMemory.record_interest(best_gid, target_pos, "placement_react")
+	# Dispatch directo via BanditBehaviorLayer — funciona en lite-mode y modo activo
+	var redirected: int = 0
+	if _bandit_behavior_layer != null:
+		redirected = _bandit_behavior_layer.dispatch_group_to_target(best_gid, target_pos, squad)
+	if redirected > 0:
+		_placement_react_cooldown_until = RunClock.now() + _PLACEMENT_REACT_COOLDOWN
+	# Bloquear que BGI resetee el intent a "idle" durante 60s mientras el asalto está activo
+	BanditGroupMemory.set_placement_react_lock(best_gid, 60.0)
+	BanditGroupMemory.update_intent(best_gid, "raiding")
+	Debug.log("placement_react", "  DISPATCHED group=%s faction=%s squad=%d redirected=%d dist=%.0f" % [
+		best_gid, faction_id, squad, redirected, best_dist])
+
+
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
+	# Escalada: si murió un enemy del faction que mandamos, cerca del bloque colocado
+	if kind == "enemy" and _placement_react_group_id != "" and uid != "":
+		var profile: Dictionary = NpcProfileSystem.get_profile(uid)
+		var dead_faction: String = String(profile.get("faction_id", ""))
+		var dist_to_react: float = _pos.distance_to(_placement_react_pos)
+		if dead_faction == _placement_react_faction_id:
+			Debug.log("placement_react", "enemy killed faction=%s dist_to_react=%.0f (max=%.0f) kills=%d/%d" % [
+				dead_faction, dist_to_react, _PLACEMENT_REACT_ESCALATION_RADIUS,
+				_placement_react_kills + 1, _placement_react_squad_size])
+			if dist_to_react <= _PLACEMENT_REACT_ESCALATION_RADIUS:
+				_placement_react_kills += 1
+				if _placement_react_kills >= _placement_react_squad_size:
+					_placement_react_wave += 1
+					Debug.log("placement_react", "  ESCALATE wave=%d" % _placement_react_wave)
+					_trigger_placement_react(_placement_react_pos)
 	if kind == "enemy" and uid != "":
 		npc_simulator.on_entity_died(uid)
 	# Incidente institucional: muerte dentro de la taberna.

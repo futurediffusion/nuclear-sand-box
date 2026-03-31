@@ -82,6 +82,7 @@ bow_release_volume_db = 6.0
 
 [node name="World" type="Node2D" parent="."]
 script = ExtResource("2_jkv2x")
+active_radius = 3
 copper_ore_scene = ExtResource("23_copper")
 stone_ore_scene = ExtResource("5_2wyq8")
 tree_scene = ExtResource("6_vxglm")
