@@ -18,6 +18,7 @@ const LIGHT_MAX_DURATION: float = 75.0
 const STRUCTURE_APPROACH_TIMEOUT: float = 180.0
 const STRUCTURE_ATTACK_DURATION: float = 120.0
 const STRUCTURE_MAX_DURATION: float = 360.0
+const DISPATCH_JITTER_RATIO: float = 0.16
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
@@ -200,7 +201,7 @@ func _tick_wall_assault(job: Dictionary, gid: String) -> void:
 
 	var redirected: int = _dispatch_group(gid, target_pos, -1)
 	job["base_center"] = target_pos
-	job["wall_assault_next_at"] = RunClock.now() + WALL_ASSAULT_INTERVAL
+	job["wall_assault_next_at"] = _next_dispatch_at(gid, WALL_ASSAULT_INTERVAL)
 	if redirected > 0:
 		Debug.log("raid", "[RF] full assault group=%s target=%s redirected=%d/ALL" % [
 			gid, str(target_pos), redirected
@@ -231,7 +232,7 @@ func _tick_placeable_assault(job: Dictionary, gid: String) -> void:
 
 	var redirected: int = _dispatch_group(gid, target_pos, -1)
 	job["base_center"] = target_pos
-	job["wall_assault_next_at"] = RunClock.now() + WALL_ASSAULT_INTERVAL
+	job["wall_assault_next_at"] = _next_dispatch_at(gid, WALL_ASSAULT_INTERVAL)
 	if redirected > 0:
 		Debug.log("raid", "[RF] light assault group=%s target=%s redirected=%d/ALL wall_chance=%.0f%%" % [
 			gid, str(target_pos), redirected, wall_chance * 100.0
@@ -257,7 +258,7 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 			Debug.log("raid", "[RF] structure assault no-target window started group=%s anchor=%s" % [
 				gid, str(anchor)
 			])
-		job["wall_assault_next_at"] = now + BanditTuning.wall_probe_wall_interval()
+		job["wall_assault_next_at"] = _next_dispatch_at(gid, BanditTuning.wall_probe_wall_interval())
 		return
 
 	job["no_target_since"] = 0.0
@@ -267,7 +268,7 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 		requested = -1
 	var redirected: int = _dispatch_group(gid, target_pos, requested)
 	job["base_center"] = target_pos
-	job["wall_assault_next_at"] = now + BanditTuning.wall_probe_wall_interval()
+	job["wall_assault_next_at"] = _next_dispatch_at(gid, BanditTuning.wall_probe_wall_interval())
 	if redirected > 0:
 		var req_text: String = "ALL" if requested <= 0 else str(requested)
 		Debug.log("raid", "[RF] structure assault group=%s target=%s redirected=%d/%s" % [
@@ -291,11 +292,19 @@ func _tick_wall_probe_assault(job: Dictionary, gid: String) -> void:
 	var squad_size: int = maxi(1, int(job.get("probe_squad_size", 1)))
 	var redirected: int = _dispatch_group(gid, wall_pos, squad_size)
 	job["base_center"] = wall_pos
-	job["wall_assault_next_at"] = RunClock.now() + BanditTuning.wall_probe_wall_interval()
+	job["wall_assault_next_at"] = _next_dispatch_at(gid, BanditTuning.wall_probe_wall_interval())
 	if redirected > 0:
 		Debug.log("raid", "[RF] wall probe group=%s wall=%s redirected=%d/%d" % [
 			gid, str(wall_pos), redirected, squad_size
 		])
+
+
+func _next_dispatch_at(group_id: String, interval: float) -> float:
+	var clamped_interval: float = maxf(0.05, interval)
+	var h: int = absi(hash(group_id))
+	var phase: float = float(h % 997) / 997.0
+	var jitter: float = clamped_interval * DISPATCH_JITTER_RATIO * phase
+	return RunClock.now() + clamped_interval + jitter
 
 
 func _tick_attacking(job: Dictionary, gid: String) -> bool:

@@ -61,6 +61,10 @@ const STRUCTURE_STICKY_TEAM_TARGET_TTL: float = 4.5
 const STRUCTURE_TARGET_VALIDATION_RADIUS: float = 72.0
 const STRUCTURE_WALL_TARGET_VALIDATION_RADIUS: float = 42.0
 const STRUCTURE_POOL_SAMPLE_MIN_SEPARATION_SQ: float = 64.0 * 64.0
+const STRUCTURE_WALL_SAMPLE_MAX_POINTS: int = 16
+const STRUCTURE_TARGET_POOL_CACHE_TTL: float = 0.45
+const STRUCTURE_TARGET_VALID_CACHE_TTL: float = 0.20
+const STRUCTURE_TARGET_CACHE_POS_QUANTUM: float = 24.0
 const STRUCTURE_DISPATCH_SYNC_BUDGET: int = 3
 const STRUCTURE_DISPATCH_FRAME_BUDGET: int = 4
 const STRUCTURE_DISPATCH_MAX_PENDING_JOBS: int = 12
@@ -182,6 +186,10 @@ var _world_node:         Node                    = null
 var _world_spatial_index: WorldSpatialIndex      = null
 var _pending_structure_dispatches: Array[Dictionary] = []
 var _group_team_target_cache: Dictionary         = {}
+var _group_target_pool_cache: Dictionary         = {}
+var _structure_target_valid_cache: Dictionary    = {}
+var _structure_cache_gc_at: float                = 0.0
+var _dispatch_log_next_at: Dictionary            = {}
 var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
 
@@ -356,6 +364,9 @@ func _physics_process(_delta: float) -> void:
 func _process(delta: float) -> void:
 	if _npc_simulator == null:
 		return
+	if RunClock.now() >= _structure_cache_gc_at:
+		_structure_cache_gc_at = RunClock.now() + 1.5
+		_prune_structure_target_caches()
 	if _group_intel != null:
 		_group_intel.tick(delta)
 	var director_pulses: int = _cadence.consume_lane(&"director_pulse") if _cadence != null else 0
@@ -713,11 +724,12 @@ func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size:
 	var member_ids: Array[String] = _collect_live_structure_dispatch_member_ids(group_id, target_pos, cap)
 	if member_ids.is_empty():
 		BanditGroupMemory.set_assault_target(group_id, target_pos)
-		Debug.log("placement_react", "[BBL] dispatch queued (no spawneados) group=%s target=%s" % [
-			group_id, str(target_pos)])
+		if _can_emit_dispatch_log(group_id, 0.8):
+			Debug.log("placement_react", "[BBL] dispatch queued (no spawneados) group=%s target=%s" % [
+				group_id, str(target_pos)])
 		return 0
 
-	var target_pool: Array[Vector2] = _build_structure_target_pool(target_pos)
+	var target_pool: Array[Vector2] = _build_structure_target_pool_cached(group_id, target_pos)
 	var claimed_targets: Array[Vector2] = []
 	var team_targets: Dictionary = _load_group_sticky_team_targets(group_id)
 	var immediate_count: int = mini(STRUCTURE_DISPATCH_SYNC_BUDGET, member_ids.size())
@@ -742,26 +754,28 @@ func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size:
 			claimed_targets,
 			team_targets
 		)
-		Debug.log("placement_react", "[BBL] dispatch deferred group=%s anchor=%s now=%d later=%d budget=%d" % [
-			group_id,
-			str(target_pos),
-			immediate_redirected,
-			member_ids.size() - immediate_count,
-			STRUCTURE_DISPATCH_FRAME_BUDGET,
-		])
+		if _can_emit_dispatch_log(group_id, 0.8):
+			Debug.log("placement_react", "[BBL] dispatch deferred group=%s anchor=%s now=%d later=%d budget=%d" % [
+				group_id,
+				str(target_pos),
+				immediate_redirected,
+				member_ids.size() - immediate_count,
+				STRUCTURE_DISPATCH_FRAME_BUDGET,
+			])
 
 	BanditGroupMemory.clear_assault_target(group_id)
 	_save_group_sticky_team_targets(group_id, team_targets)
 	var requested: String = "ALL" if squad_size <= 0 else str(squad_size)
 	var team_count: int = int(ceili(float(member_ids.size()) / float(maxi(1, STRUCTURE_TARGET_TEAM_SIZE))))
-	Debug.log("placement_react", "[BBL] dispatch group=%s anchor=%s redirected=%d/%s teams=%d unique_targets=%d" % [
-		group_id,
-		str(target_pos),
-		member_ids.size(),
-		requested,
-		team_count,
-		_count_unique_structure_targets(claimed_targets),
-	])
+	if _can_emit_dispatch_log(group_id, 0.8):
+		Debug.log("placement_react", "[BBL] dispatch group=%s anchor=%s redirected=%d/%s teams=%d unique_targets=%d" % [
+			group_id,
+			str(target_pos),
+			member_ids.size(),
+			requested,
+			team_count,
+			_count_unique_structure_targets(claimed_targets),
+		])
 	return member_ids.size()
 
 
@@ -805,8 +819,9 @@ func _process_pending_structure_dispatches() -> void:
 		_save_group_sticky_team_targets(gid, team_targets)
 		_pending_structure_dispatches[idx] = job
 		if next_idx >= member_ids.size():
-			Debug.log("placement_react", "[BBL] deferred dispatch finished group=%s total=%d" % [
-				String(job.get("group_id", "")), member_ids.size()])
+			if _can_emit_dispatch_log(gid, 0.8):
+				Debug.log("placement_react", "[BBL] deferred dispatch finished group=%s total=%d" % [
+					String(job.get("group_id", "")), member_ids.size()])
 			_save_group_sticky_team_targets(gid, team_targets)
 			_pending_structure_dispatches.remove_at(idx)
 			continue
@@ -880,13 +895,41 @@ func _pick_member_target_from_pool(member_pos: Vector2, anchor_pos: Vector2,
 	return fallback_best
 
 
+func _build_structure_target_pool_cached(group_id: String, anchor_pos: Vector2) -> Array[Vector2]:
+	if group_id == "":
+		return _build_structure_target_pool(anchor_pos)
+	var key: String = _get_target_pool_cache_key(anchor_pos)
+	var now: float = RunClock.now()
+	var entry: Dictionary = _group_target_pool_cache.get(group_id, {}) as Dictionary
+	if not entry.is_empty() \
+			and now <= float(entry.get("until", 0.0)) \
+			and String(entry.get("key", "")) == key:
+		var cached_pool: Array = entry.get("pool", []) as Array
+		if not cached_pool.is_empty():
+			var out_cached: Array[Vector2] = []
+			for raw_pos in cached_pool:
+				if raw_pos is Vector2:
+					out_cached.append(raw_pos as Vector2)
+			if not out_cached.is_empty():
+				return out_cached
+	var built: Array[Vector2] = _build_structure_target_pool(anchor_pos)
+	_group_target_pool_cache[group_id] = {
+		"key": key,
+		"pool": built.duplicate(true),
+		"until": now + STRUCTURE_TARGET_POOL_CACHE_TTL,
+	}
+	return built
+
+
 func _build_structure_target_pool(anchor_pos: Vector2) -> Array[Vector2]:
 	var pool: Array[Vector2] = []
 	# Prioridad: primero distribuir puntos de pared reales para evitar
 	# convergencia artificial en una sola punta/ancla.
 	_append_scored_wall_samples(pool, _collect_wall_samples(anchor_pos), anchor_pos)
 	for center in _build_structure_query_centers(anchor_pos, anchor_pos):
-		_append_structure_candidates_for_center(pool, center, STRUCTURE_MEMBER_QUERY_RADIUS)
+		# Los walls ya vienen del sampler dedicado; aquí solo sumar
+		# placeables/contenedores para evitar queries redundantes de pared.
+		_append_structure_candidates_for_center(pool, center, STRUCTURE_MEMBER_QUERY_RADIUS, false)
 		if pool.size() >= STRUCTURE_MEMBER_CANDIDATE_LIMIT:
 			break
 	if pool.is_empty():
@@ -900,7 +943,7 @@ func _collect_wall_samples(anchor_pos: Vector2) -> Array[Vector2]:
 		var sampled: Variant = _find_wall_samples_cb.call(
 			anchor_pos,
 			STRUCTURE_MEMBER_QUERY_RADIUS,
-			STRUCTURE_MEMBER_CANDIDATE_LIMIT,
+			STRUCTURE_WALL_SAMPLE_MAX_POINTS,
 			48.0
 		)
 		if sampled is Array:
@@ -1094,6 +1137,49 @@ func _enqueue_pending_structure_dispatch(group_id: String, target_pos: Vector2,
 	})
 
 
+func _get_target_pool_cache_key(anchor_pos: Vector2) -> String:
+	var q: float = maxf(1.0, STRUCTURE_TARGET_CACHE_POS_QUANTUM)
+	var qx: int = int(floor(anchor_pos.x / q))
+	var qy: int = int(floor(anchor_pos.y / q))
+	return "%d:%d" % [qx, qy]
+
+
+func _get_target_valid_cache_key(target_pos: Vector2) -> String:
+	var q: float = maxf(1.0, STRUCTURE_TARGET_CACHE_POS_QUANTUM)
+	var qx: int = int(floor(target_pos.x / q))
+	var qy: int = int(floor(target_pos.y / q))
+	return "%d:%d" % [qx, qy]
+
+
+func _prune_structure_target_caches() -> void:
+	var now: float = RunClock.now()
+	if not _group_target_pool_cache.is_empty():
+		for gid in _group_target_pool_cache.keys():
+			var entry: Dictionary = _group_target_pool_cache.get(gid, {}) as Dictionary
+			if entry.is_empty() or now > float(entry.get("until", 0.0)):
+				_group_target_pool_cache.erase(gid)
+	if not _structure_target_valid_cache.is_empty():
+		for key in _structure_target_valid_cache.keys():
+			var entry: Dictionary = _structure_target_valid_cache.get(key, {}) as Dictionary
+			if entry.is_empty() or now > float(entry.get("until", 0.0)):
+				_structure_target_valid_cache.erase(key)
+	if not _dispatch_log_next_at.is_empty():
+		for gid in _dispatch_log_next_at.keys():
+			if now > float(_dispatch_log_next_at.get(gid, 0.0)):
+				_dispatch_log_next_at.erase(gid)
+
+
+func _can_emit_dispatch_log(group_id: String, cooldown: float = 1.0) -> bool:
+	if group_id == "":
+		return false
+	var now: float = RunClock.now()
+	var next_at: float = float(_dispatch_log_next_at.get(group_id, 0.0))
+	if now < next_at:
+		return false
+	_dispatch_log_next_at[group_id] = now + maxf(0.1, cooldown)
+	return true
+
+
 func _load_group_sticky_team_targets(group_id: String) -> Dictionary:
 	if group_id == "":
 		return {}
@@ -1139,6 +1225,11 @@ func _save_group_sticky_team_targets(group_id: String, team_targets: Dictionary)
 func _is_structure_target_still_valid(target_pos: Vector2) -> bool:
 	if not _is_valid_structure_target(target_pos):
 		return false
+	var cache_key: String = _get_target_valid_cache_key(target_pos)
+	var now: float = RunClock.now()
+	var cached: Dictionary = _structure_target_valid_cache.get(cache_key, {}) as Dictionary
+	if not cached.is_empty() and now <= float(cached.get("until", 0.0)):
+		return bool(cached.get("valid", false))
 	var structure_radius: float = STRUCTURE_TARGET_VALIDATION_RADIUS
 	var structure_radius_sq: float = structure_radius * structure_radius
 	var structure_finders: Array = [_find_storage_cb, _find_placeable_cb, _find_workbench_cb]
@@ -1150,13 +1241,25 @@ func _is_structure_target_still_valid(target_pos: Vector2) -> bool:
 		if not _is_valid_structure_target(near):
 			continue
 		if near.distance_squared_to(target_pos) <= structure_radius_sq:
+			_structure_target_valid_cache[cache_key] = {
+				"valid": true,
+				"until": now + STRUCTURE_TARGET_VALID_CACHE_TTL,
+			}
 			return true
 	if _find_wall_cb.is_valid():
 		var wall_radius: float = STRUCTURE_WALL_TARGET_VALIDATION_RADIUS
 		var wall_radius_sq: float = wall_radius * wall_radius
 		var near_wall: Vector2 = _find_wall_cb.call(target_pos, wall_radius) as Vector2
 		if _is_valid_structure_target(near_wall) and near_wall.distance_squared_to(target_pos) <= wall_radius_sq:
+			_structure_target_valid_cache[cache_key] = {
+				"valid": true,
+				"until": now + STRUCTURE_TARGET_VALID_CACHE_TTL,
+			}
 			return true
+	_structure_target_valid_cache[cache_key] = {
+		"valid": false,
+		"until": now + STRUCTURE_TARGET_VALID_CACHE_TTL,
+	}
 	return false
 
 
@@ -1194,13 +1297,15 @@ func _resolve_member_assault_target(member_pos: Vector2, anchor_pos: Vector2,
 	return fallback_best
 
 
-func _append_structure_candidates_for_center(out: Array[Vector2], center: Vector2, radius: float) -> void:
+func _append_structure_candidates_for_center(out: Array[Vector2], center: Vector2, radius: float,
+		include_walls: bool = true) -> void:
 	if out.size() >= STRUCTURE_MEMBER_CANDIDATE_LIMIT:
 		return
 	_try_append_structure_candidate(out, _find_storage_cb, center, radius)
 	_try_append_structure_candidate(out, _find_placeable_cb, center, radius)
 	_try_append_structure_candidate(out, _find_workbench_cb, center, radius)
-	_try_append_structure_candidate(out, _find_wall_cb, center, radius)
+	if include_walls:
+		_try_append_structure_candidate(out, _find_wall_cb, center, radius)
 
 
 func _build_structure_query_centers(member_pos: Vector2, anchor_pos: Vector2) -> Array[Vector2]:
