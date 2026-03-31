@@ -178,6 +178,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 	if target.is_empty():
 		# Fallback: si estamos pegados al ancla de asalto y no hay target resoluble,
 		# intentar daño directo de pared cerca del ancla para evitar quedarse trabado.
+		var fallback_hit: bool = false
 		var fallback_positions: Array[Vector2] = [enemy_pos]
 		if _is_valid_target(attack_anchor) and enemy_pos.distance_squared_to(attack_anchor) > 1.0:
 			fallback_positions.append(attack_anchor)
@@ -191,10 +192,18 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 			if enemy_node.has_method("queue_ai_attack_press"):
 				enemy_node.call("queue_ai_attack_press", fallback_pos)
 			_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
+			fallback_hit = true
 			Debug.log("raid", "[BWC] structure fallback wall hit npc=%s group=%s pos=%s" % [
 				beh.member_id, beh.group_id, str(fallback_pos)
 			])
 			break
+		# Si ya no quedan paredes/placeables para este asalto y el NPC trae cargo,
+		# priorizar retorno al barril para depositar en vez de quedarse reteniendo el ítem.
+		if not fallback_hit and beh.cargo_count > 0:
+			beh.force_return_home()
+			Debug.log("raid", "[BWC] structure no-target → return home with cargo npc=%s group=%s cargo=%d" % [
+				beh.member_id, beh.group_id, beh.cargo_count
+			])
 		return
 	var target_pos: Vector2 = target.get("pos", INVALID_TARGET) as Vector2
 	if not _is_valid_target(target_pos):
