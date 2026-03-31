@@ -42,7 +42,7 @@ enum State {
 const ARRIVED_DIST_SQ: float        = 12.0 * 12.0
 # Radio ampliado para depositar en barril: cualquier tile alrededor cuenta (~3 tiles)
 const DEPOSIT_ARRIVED_DIST_SQ: float = 52.0 * 52.0
-const COLLECT_DIST_SQ: float     = 16.0 * 16.0  # close enough to collect a drop
+const COLLECT_DIST_SQ: float     = 44.0 * 44.0  # must exceed ally separation so LOOT_APPROACH can actually collect
 const FOLLOW_STOP_DIST_SQ: float = 20.0 * 20.0
 const DEFAULT_HOME_RETURN_DIST: float = 192.0
 

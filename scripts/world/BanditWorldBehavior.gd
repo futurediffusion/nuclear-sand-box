@@ -295,15 +295,19 @@ func tick(delta: float, ctx: Dictionary) -> void:
 			_desired_velocity = push_dir * _get_speed() * 0.5
 
 	# ── 4a. Drops visibles = prioridad máxima para TODOS los roles ───────
+	# Durante asalto de estructuras normalmente suprimimos "loot genérico" para
+	# mantener foco en el objetivo, PERO si ya hay drop pegado al NPC debemos
+	# permitir pickup inmediato para evitar loops de "me quedo encima del ítem".
 	if not is_cargo_full():
-		if _is_structure_assault_active() and BanditTuning.assault_suppress_generic_drop_pickup():
+		var suppress_generic_pickup: bool = _should_suppress_generic_drop_pickup(ctx)
+		if suppress_generic_pickup:
 			_log_assault_pickup_suppressed("visible_drop")
 		else:
 			_try_grab_visible_drop(ctx)
 
 	# ── 4b. From quiescent states, try to find other useful work ─────────
 	if pending_collect_id == 0 and (state == State.IDLE_AT_HOME or state == State.PATROL):
-		if _is_structure_assault_active() and BanditTuning.assault_suppress_generic_drop_pickup():
+		if _should_suppress_generic_drop_pickup(ctx):
 			_log_assault_pickup_suppressed("find_work")
 		else:
 			_try_find_work(ctx)
@@ -531,6 +535,29 @@ func _can_loot() -> bool:
 
 func _can_watch_resources() -> bool:
 	return role == "scavenger"
+
+
+func _should_suppress_generic_drop_pickup(ctx: Dictionary) -> bool:
+	if not _is_structure_assault_active():
+		return false
+	if not BanditTuning.assault_suppress_generic_drop_pickup():
+		return false
+	# Escape hatch: si el drop ya está dentro de rango real de pickup, NO suprimir.
+	# Así evitamos quedar pegados sobre el drop tras destruir un placeable.
+	return not _has_drop_within_sq(ctx, COLLECT_DIST_SQ)
+
+
+func _has_drop_within_sq(ctx: Dictionary, radius_sq: float) -> bool:
+	var node_pos: Vector2 = ctx.get("node_pos", home_pos)
+	var drops: Array = ctx.get("nearby_drops_info", [])
+	for raw_drop in drops:
+		if not (raw_drop is Dictionary):
+			continue
+		var drop: Dictionary = raw_drop as Dictionary
+		var dpos: Variant = drop.get("pos", null)
+		if dpos is Vector2 and node_pos.distance_squared_to(dpos as Vector2) <= radius_sq:
+			return true
+	return false
 
 
 # ---------------------------------------------------------------------------
