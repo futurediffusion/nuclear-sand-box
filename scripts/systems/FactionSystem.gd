@@ -15,6 +15,7 @@ func _ready() -> void:
 func _seed_default_factions() -> void:
 	ensure_faction("player",  "player",  0.0)
 	ensure_faction("bandit",  "bandit",  1.0)
+	ensure_faction("bandits", "bandit",  1.0) # alias usado por enemies/runtime
 	ensure_faction("tavern",  "tavern",  0.0)
 
 

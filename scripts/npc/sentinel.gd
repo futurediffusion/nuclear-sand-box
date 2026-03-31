@@ -1139,7 +1139,7 @@ func issue_order(order: OrderType, target: CharacterBody2D = null,
 	_current_order = order
 	_order_target  = target
 	_order_pos     = pos if target == null \
-	                 else (target as Node2D).global_position
+					 else (target as Node2D).global_position
 	_shove_count   = 0
 	if not _path_id.is_empty() and NpcPathService.is_ready():
 		NpcPathService.invalidate_path(_path_id)

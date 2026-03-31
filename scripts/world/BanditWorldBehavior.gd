@@ -109,6 +109,7 @@ var _leader_phase_timer: float    = 0.0
 var _pending_leave_home: bool = false
 
 var _last_intent: String = ""
+var _assault_suppress_log_until: float = 0.0
 
 # ── Oportunistic wall assault ─────────────────────────────────────────────────
 # Cooldown por NPC para que no spamee el ataque al mismo muro.
@@ -227,7 +228,8 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	# ── 0b. Post-deposit: leave home immediately ───────────────────────────
 	if _pending_leave_home:
 		_pending_leave_home = false
-		_enter_patrol_away_from_home()
+		if not _try_reengage_structure_assault("post_deposit"):
+			_enter_patrol_away_from_home()
 
 	# ── 0c. Roaming guard phase management ────────────────────────────────
 	if role == "bodyguard" and _is_roaming_guard:
@@ -294,11 +296,17 @@ func tick(delta: float, ctx: Dictionary) -> void:
 
 	# ── 4a. Drops visibles = prioridad máxima para TODOS los roles ───────
 	if not is_cargo_full():
-		_try_grab_visible_drop(ctx)
+		if _is_structure_assault_active() and BanditTuning.assault_suppress_generic_drop_pickup():
+			_log_assault_pickup_suppressed("visible_drop")
+		else:
+			_try_grab_visible_drop(ctx)
 
 	# ── 4b. From quiescent states, try to find other useful work ─────────
 	if pending_collect_id == 0 and (state == State.IDLE_AT_HOME or state == State.PATROL):
-		_try_find_work(ctx)
+		if _is_structure_assault_active() and BanditTuning.assault_suppress_generic_drop_pickup():
+			_log_assault_pickup_suppressed("find_work")
+		else:
+			_try_find_work(ctx)
 
 	# ── 4c. Oportunistic wall assault (nivel 6+, no en raid) ─────────────
 	# Enemigos cercanos a la base del jugador comienzan a atacar muros de forma
@@ -553,6 +561,8 @@ func _on_leave_resource_watch() -> void:
 ## Called by BanditBehaviorLayer once cargo has been deposited in the barrel.
 ## Forces the NPC to leave the barrel/home area immediately.
 func on_deposit_complete() -> void:
+	if _try_reengage_structure_assault("deposit_complete"):
+		return
 	_pending_leave_home = true
 
 
@@ -645,6 +655,61 @@ func _pick_nearest_res(res_info: Array, node_pos: Vector2) -> Dictionary:
 
 static func _res_key(pos: Vector2) -> String:
 	return "%d_%d" % [int(pos.x / 32.0), int(pos.y / 32.0)]
+
+
+func _is_valid_world_target(pos: Vector2) -> bool:
+	return pos.is_finite() and not pos.is_equal_approx(Vector2(-1.0, -1.0))
+
+
+func _is_structure_assault_active() -> bool:
+	if group_id == "":
+		return false
+	return BanditGroupMemory.is_structure_assault_active(group_id)
+
+
+func _resolve_assault_target_from_memory() -> Vector2:
+	if group_id == "":
+		return Vector2(-1.0, -1.0)
+	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	var interest_kind: String = String(g.get("last_interest_kind", ""))
+	if interest_kind != "":
+		var interest_pos: Vector2 = g.get("last_interest_pos", Vector2(-1.0, -1.0)) as Vector2
+		if _is_valid_world_target(interest_pos):
+			return interest_pos
+	var pending: Vector2 = BanditGroupMemory.get_assault_target(group_id)
+	if _is_valid_world_target(pending):
+		return pending
+	return Vector2(-1.0, -1.0)
+
+
+func get_structure_assault_focus_target() -> Vector2:
+	if not _in_assault:
+		return Vector2(-1.0, -1.0)
+	if state != State.APPROACH_INTEREST:
+		return Vector2(-1.0, -1.0)
+	return _move_target if _is_valid_world_target(_move_target) else Vector2(-1.0, -1.0)
+
+
+func _try_reengage_structure_assault(reason: String) -> bool:
+	if not _is_structure_assault_active():
+		return false
+	var target_pos: Vector2 = _resolve_assault_target_from_memory()
+	if not _is_valid_world_target(target_pos):
+		return false
+	enter_wall_assault(target_pos)
+	Debug.log("raid", "[BWB] re-engage structure assault member=%s group=%s reason=%s target=%s" % [
+		member_id, group_id, reason, str(target_pos)
+	])
+	return true
+
+
+func _log_assault_pickup_suppressed(point: String) -> void:
+	if RunClock.now() < _assault_suppress_log_until:
+		return
+	_assault_suppress_log_until = RunClock.now() + 6.0
+	Debug.log("raid", "[BWB] suppress pickup during structure assault member=%s group=%s point=%s" % [
+		member_id, group_id, point
+	])
 
 
 # ---------------------------------------------------------------------------
@@ -786,11 +851,11 @@ func _try_property_sabotage(ctx: Dictionary) -> void:
 		var find_st: Callable = ctx.get("find_nearest_player_storage", Callable())
 		if find_st.is_valid():
 			var st_pos: Vector2 = find_st.call(node_pos, 400.0) as Vector2
-			if st_pos.x >= 0.0:
-				if target_pos.x < 0.0 or \
+			if _is_valid_world_target(st_pos):
+				if not _is_valid_world_target(target_pos) or \
 						node_pos.distance_squared_to(st_pos) < node_pos.distance_squared_to(target_pos):
 					target_pos = st_pos
-	if target_pos.x < 0.0:
+	if not _is_valid_world_target(target_pos):
 		return
 	enter_wall_assault(target_pos)
 	_property_sabotage_cooldown_until = RunClock.now() + 35.0
@@ -823,7 +888,7 @@ func _try_opportunistic_wall_assault(ctx: Dictionary) -> void:
 		return
 	var node_pos: Vector2 = ctx.get("node_pos", home_pos) as Vector2
 	var wall_pos: Vector2 = find_wall.call(node_pos, 300.0) as Vector2
-	if wall_pos.x < 0.0:
+	if not _is_valid_world_target(wall_pos):
 		return
 	enter_wall_assault(wall_pos)
 	_wall_assault_cooldown_until = RunClock.now() + 20.0

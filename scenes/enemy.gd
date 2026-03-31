@@ -295,7 +295,8 @@ func _physics_process(delta: float) -> void:
 		hurt_t -= delta
 
 	var sleeping_now := ai_component != null and ai_component.is_sleeping()
-	var can_run_full_ai := not _is_lite_mode and ai_component != null and not sleeping_now and not external_ai_override
+	var can_run_full_ai := not _is_lite_mode and ai_component != null and not sleeping_now \
+			and not external_ai_override
 	if can_run_full_ai:
 		ai_component.physics_tick(delta)
 	else:

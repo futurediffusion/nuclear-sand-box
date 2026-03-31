@@ -41,6 +41,12 @@ const GIVE_SHORTCUT_OVERRIDES: Dictionary = {
 	"dw": {"item_id": "doorwood", "amount": 200},
 	"wb": {"item_id": "workbench", "amount": 200},
 }
+const GIVE_SHORTCUT_BUNDLES: Dictionary = {
+	"ba": [
+		{"item_id": "bow", "amount": 1},
+		{"item_id": "arrow", "amount": 200},
+	],
+}
 const GIVE_SHORTCUT_EXTRA_ALIASES: Dictionary = {
 	"arrow": ["arr", "arw", "flecha"],
 	"axe_copper": ["axc", "cax", "hachacobre", "hachac"],
@@ -520,27 +526,62 @@ func _try_execute_shortcut_without_prefix(command_text: String) -> bool:
 
 func _cmd_give_shortcut(raw_args: Array) -> void:
 	if raw_args.is_empty():
-		Debug.log("commands", "Uso: /gv <alias|item_id>  (ej: /gv ww)  |  /gv list")
+		Debug.log("commands", "Uso: /gv <alias|item_id> [mas_aliases...]  (ej: /gv ww ba)  |  /gv list")
 		return
-	var shortcut_key := String(raw_args[0]).strip_edges().to_lower()
-	if shortcut_key == "list":
-		_log_give_shortcut_list()
-		return
-	var resolve: Dictionary = _resolve_give_shortcut(shortcut_key)
-	if not bool(resolve.get("ok", false)):
-		var err: String = String(resolve.get("error", "unknown"))
-		if err == "ambiguous":
-			var options: Array = resolve.get("options", [])
-			Debug.log("commands", "Alias ambiguo '%s'. Usa uno de: %s" % [shortcut_key, _join_to_string(options)])
-			return
-		Debug.log("commands", "Alias/item desconocido: %s (usa /gv list)" % shortcut_key)
-		return
-	var item_id := String(resolve.get("item_id", "")).strip_edges().to_lower()
-	var amount := int(resolve.get("amount", GIVE_SHORTCUT_DEFAULT_AMOUNT))
-	if item_id.is_empty() or amount <= 0:
-		Debug.log("commands", "Shortcut invalido: %s" % shortcut_key)
-		return
-	_cmd_give([item_id, str(amount)])
+	var unknown_aliases: Array[String] = []
+	var applied_count: int = 0
+	for raw_arg in raw_args:
+		var shortcut_key := String(raw_arg).strip_edges().to_lower()
+		if shortcut_key.is_empty():
+			continue
+		if shortcut_key == "list":
+			_log_give_shortcut_list()
+			continue
+		if _try_execute_give_shortcut_bundle(shortcut_key):
+			applied_count += 1
+			continue
+		var resolve: Dictionary = _resolve_give_shortcut(shortcut_key)
+		if not bool(resolve.get("ok", false)):
+			var err: String = String(resolve.get("error", "unknown"))
+			if err == "ambiguous":
+				var options: Array = resolve.get("options", [])
+				Debug.log("commands", "Alias ambiguo '%s'. Usa uno de: %s" % [shortcut_key, _join_to_string(options)])
+				continue
+			if not unknown_aliases.has(shortcut_key):
+				unknown_aliases.append(shortcut_key)
+			continue
+		var item_id := String(resolve.get("item_id", "")).strip_edges().to_lower()
+		var amount := int(resolve.get("amount", GIVE_SHORTCUT_DEFAULT_AMOUNT))
+		if item_id.is_empty() or amount <= 0:
+			Debug.log("commands", "Shortcut invalido: %s" % shortcut_key)
+			continue
+		_cmd_give([item_id, str(amount)])
+		applied_count += 1
+	if not unknown_aliases.is_empty():
+		Debug.log("commands", "Alias/item desconocido: %s (usa /gv list)" % _join_to_string(unknown_aliases))
+	if applied_count <= 0 and unknown_aliases.is_empty():
+		Debug.log("commands", "No se aplicaron shortcuts. Uso: /gv <alias|item_id> [mas_aliases...]")
+
+
+func _try_execute_give_shortcut_bundle(shortcut_key: String) -> bool:
+	var bundle_variant: Variant = GIVE_SHORTCUT_BUNDLES.get(shortcut_key, null)
+	if not (bundle_variant is Array):
+		return false
+	var bundle_entries: Array = bundle_variant as Array
+	var granted_any: bool = false
+	for raw_entry in bundle_entries:
+		if not (raw_entry is Dictionary):
+			continue
+		var entry: Dictionary = raw_entry as Dictionary
+		var item_id := String(entry.get("item_id", "")).strip_edges().to_lower()
+		if item_id == "":
+			continue
+		var amount: int = maxi(1, int(entry.get("amount", GIVE_SHORTCUT_DEFAULT_AMOUNT)))
+		_cmd_give([item_id, str(amount)])
+		granted_any = true
+	if granted_any:
+		Debug.log("commands", "Bundle gv '%s' aplicado" % shortcut_key)
+	return granted_any
 
 
 # ---------------------------------------------------------------------------
@@ -670,8 +711,31 @@ func _log_give_shortcut_list() -> void:
 		rows.append("%s->%s" % [alias, item_id])
 	if rows.is_empty():
 		Debug.log("commands", "Aliases disponibles: usa directamente /gv <item_id>")
-		return
-	Debug.log("commands", "Aliases gv: %s" % _join_to_string(rows))
+	else:
+		Debug.log("commands", "Aliases gv: %s" % _join_to_string(rows))
+	var bundle_rows: Array[String] = []
+	for raw_alias in GIVE_SHORTCUT_BUNDLES.keys():
+		var alias := String(raw_alias).strip_edges().to_lower()
+		var entries_variant: Variant = GIVE_SHORTCUT_BUNDLES.get(raw_alias, null)
+		if alias == "" or not (entries_variant is Array):
+			continue
+		var entries: Array = entries_variant as Array
+		var parts: Array[String] = []
+		for raw_entry in entries:
+			if not (raw_entry is Dictionary):
+				continue
+			var entry: Dictionary = raw_entry as Dictionary
+			var item_id := String(entry.get("item_id", "")).strip_edges().to_lower()
+			if item_id == "":
+				continue
+			var amount: int = maxi(1, int(entry.get("amount", GIVE_SHORTCUT_DEFAULT_AMOUNT)))
+			parts.append("%s×%d" % [item_id, amount])
+		if parts.is_empty():
+			continue
+		bundle_rows.append("%s->%s" % [alias, "+".join(parts)])
+	if not bundle_rows.is_empty():
+		bundle_rows.sort()
+		Debug.log("commands", "Bundles gv: %s" % _join_to_string(bundle_rows))
 
 func _ensure_give_shortcuts() -> void:
 	if _give_shortcuts_ready:

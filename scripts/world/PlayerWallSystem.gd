@@ -450,6 +450,57 @@ func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Ve
 	return _tile_to_world(tile)
 
 
+## Devuelve una muestra de paredes del jugador cercanas a world_pos.
+## Prioriza segmentos con mayor conectividad (interior de lineas/conjuntos)
+## y limita la densidad con min_separation para repartir mejor targets.
+func find_player_wall_samples_world_pos(world_pos: Vector2, radius: float, max_points: int = 12,
+		min_separation: float = 48.0) -> Array[Vector2]:
+	var result: Array[Vector2] = []
+	if radius <= 0.0 or max_points <= 0:
+		return result
+	var center_tile: Vector2i = _world_to_tile(world_pos)
+	var tile_size_vec: Vector2 = _get_wall_tile_size_vec()
+	var tile_size: float = maxf(1.0, maxf(tile_size_vec.x, tile_size_vec.y))
+	var tile_radius: int = maxi(1, int(ceili(radius / tile_size)) + 1)
+	var rows: Array[Dictionary] = []
+	var radius_sq: float = radius * radius
+	for oy in range(-tile_radius, tile_radius + 1):
+		for ox in range(-tile_radius, tile_radius + 1):
+			var tile_pos: Vector2i = center_tile + Vector2i(ox, oy)
+			if not _is_valid_world_tile(tile_pos):
+				continue
+			if not _is_player_wall_tile(tile_pos):
+				continue
+			var wall_pos: Vector2 = _tile_to_world(tile_pos)
+			var dsq: float = world_pos.distance_squared_to(wall_pos)
+			if dsq > radius_sq:
+				continue
+			rows.append({
+				"pos": wall_pos,
+				"dsq": dsq,
+				"support": _count_player_wall_neighbors(tile_pos),
+			})
+	if rows.is_empty():
+		return result
+	_sort_wall_sample_rows(rows)
+	var min_sep_sq: float = maxf(0.0, min_separation) * maxf(0.0, min_separation)
+	for row in rows:
+		if result.size() >= max_points:
+			break
+		var pos: Vector2 = (row as Dictionary).get("pos", Vector2(-1.0, -1.0)) as Vector2
+		if pos.x < 0.0 or pos.y < 0.0:
+			continue
+		var too_close: bool = false
+		for existing in result:
+			if existing.distance_squared_to(pos) <= min_sep_sq:
+				too_close = true
+				break
+		if too_close:
+			continue
+		result.append(pos)
+	return result
+
+
 func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	if amount <= 0:
 		amount = 1
@@ -832,6 +883,42 @@ func _has_expected_wall_neighbor(tile_pos: Vector2i, expected_cells: Dictionary 
 func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) -> void:
 	if mark_chunk_walls_dirty_and_refresh_for_tiles_cb.is_valid():
 		mark_chunk_walls_dirty_and_refresh_for_tiles_cb.call(tile_positions)
+
+
+func _count_player_wall_neighbors(tile_pos: Vector2i) -> int:
+	var count: int = 0
+	for oy in range(-1, 2):
+		for ox in range(-1, 2):
+			if ox == 0 and oy == 0:
+				continue
+			var probe: Vector2i = tile_pos + Vector2i(ox, oy)
+			if not _is_valid_world_tile(probe):
+				continue
+			if _is_player_wall_tile(probe):
+				count += 1
+	return count
+
+
+func _sort_wall_sample_rows(rows: Array[Dictionary]) -> void:
+	for i in range(1, rows.size()):
+		var key: Dictionary = rows[i]
+		var key_support: int = int(key.get("support", 0))
+		var key_dsq: float = float(key.get("dsq", INF))
+		var j: int = i - 1
+		while j >= 0:
+			var cur: Dictionary = rows[j]
+			var cur_support: int = int(cur.get("support", 0))
+			var cur_dsq: float = float(cur.get("dsq", INF))
+			var should_shift: bool = false
+			if key_support > cur_support:
+				should_shift = true
+			elif key_support == cur_support and key_dsq < cur_dsq:
+				should_shift = true
+			if not should_shift:
+				break
+			rows[j + 1] = rows[j]
+			j -= 1
+		rows[j + 1] = key
 
 func _is_valid_world_tile(tile_pos: Vector2i) -> bool:
 	return tile_pos.x >= 0 and tile_pos.x < width and tile_pos.y >= 0 and tile_pos.y < height

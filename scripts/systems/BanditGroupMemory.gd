@@ -221,6 +221,44 @@ func has_placement_react_lock(group_id: String) -> bool:
 	return RunClock.now() < float(_groups.get(group_id, {}).get("placement_react_until", 0.0))
 
 
+## Marca contexto runtime de structure_assault para un grupo.
+## Debe refrescarse periódicamente desde RaidFlow.
+func mark_structure_assault_active(group_id: String, ttl_seconds: float) -> void:
+	if not _groups.has(group_id):
+		return
+	var ttl: float = maxf(ttl_seconds, 0.0)
+	var now: float = RunClock.now()
+	var g: Dictionary = _groups[group_id]
+	var was_until: float = float(g.get("structure_assault_active_until", 0.0))
+	g["structure_assault_active_until"] = now + ttl
+	if was_until <= now:
+		Debug.log("raid", "[BGM] structure assault active start group=%s ttl=%.1fs" % [group_id, ttl])
+		g["structure_assault_active_log_at"] = now
+		return
+	var last_log: float = float(g.get("structure_assault_active_log_at", 0.0))
+	if now - last_log >= 10.0:
+		Debug.log("raid", "[BGM] structure assault active refresh group=%s ttl=%.1fs" % [group_id, ttl])
+		g["structure_assault_active_log_at"] = now
+
+
+## Devuelve true mientras el grupo tenga structure_assault runtime vigente.
+func is_structure_assault_active(group_id: String) -> bool:
+	if not _groups.has(group_id):
+		return false
+	return RunClock.now() < float(_groups[group_id].get("structure_assault_active_until", 0.0))
+
+
+## Limpia el contexto runtime de structure_assault.
+func clear_structure_assault_active(group_id: String) -> void:
+	if not _groups.has(group_id):
+		return
+	var g: Dictionary = _groups[group_id]
+	if float(g.get("structure_assault_active_until", 0.0)) > RunClock.now():
+		Debug.log("raid", "[BGM] structure assault active clear group=%s" % group_id)
+	g.erase("structure_assault_active_until")
+	g.erase("structure_assault_active_log_at")
+
+
 ## Almacena un target de asalto pendiente para cuando el grupo spawne.
 func set_assault_target(group_id: String, target_pos: Vector2) -> void:
 	if not _groups.has(group_id):
@@ -286,6 +324,7 @@ func _make_group(group_id: String, faction_id: String, home_world_pos: Vector2) 
 		"reported_resources":         [],   # [{pos, reporter_id, res_key, time}]
 		"resource_claims":            {},   # {res_key -> member_id}
 		"wealth":                     0.0, # cumulative sell-price of stashed goods
+		"structure_assault_active_until": 0.0,
 		"eradicated":                 false,
 	}
 
@@ -303,6 +342,8 @@ func serialize() -> Dictionary:
 		g.erase("resource_claims")
 		g.erase("pending_assault_target")
 		g.erase("placement_react_until")
+		g.erase("structure_assault_active_until")
+		g.erase("structure_assault_active_log_at")
 		# Vector2 → plain dict (JSON-safe)
 		var hwp: Vector2 = g.get("home_world_pos", Vector2.ZERO)
 		g["home_world_pos"] = {"x": hwp.x, "y": hwp.y}
@@ -320,6 +361,8 @@ func deserialize(data: Dictionary) -> void:
 			g["current_intent_since"] = RunClock.now()
 		if not g.has("internal_social_cooldown_until"):
 			g["internal_social_cooldown_until"] = 0.0
+		if not g.has("structure_assault_active_until"):
+			g["structure_assault_active_until"] = 0.0
 		# Restore Vector2
 		var hwp = g.get("home_world_pos", {"x": 0.0, "y": 0.0})
 		if hwp is Dictionary:

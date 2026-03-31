@@ -245,6 +245,68 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		beh.member_id, str(spawn_pos), str(chest != null)])
 
 
+## Appends inventory-style entries into bandit carry, respecting cargo capacity.
+## entries format: [{item_id: String, amount: int}]
+## Returns {added: int, taken: Array[Dictionary], leftovers: Array[Dictionary]}.
+func append_manifest_entries(beh: BanditWorldBehavior, entries: Array) -> Dictionary:
+	var result := {
+		"added": 0,
+		"taken": [],
+		"leftovers": [],
+	}
+	if beh == null or entries.is_empty():
+		return result
+
+	var remaining_capacity: int = maxi(0, beh.cargo_capacity - beh.cargo_count)
+	if remaining_capacity <= 0:
+		for raw_entry in entries:
+			if not (raw_entry is Dictionary):
+				continue
+			var e: Dictionary = raw_entry as Dictionary
+			var item_id: String = String(e.get("item_id", "")).strip_edges()
+			var amount: int = int(e.get("amount", 0))
+			if item_id == "" or amount <= 0:
+				continue
+			(result["leftovers"] as Array).append({"item_id": item_id, "amount": amount})
+		return result
+
+	var taken: Array = []
+	var leftovers: Array = []
+	var added: int = 0
+	for raw_entry in entries:
+		if not (raw_entry is Dictionary):
+			continue
+		var entry: Dictionary = raw_entry as Dictionary
+		var item_id: String = String(entry.get("item_id", "")).strip_edges()
+		var amount: int = int(entry.get("amount", 0))
+		if item_id == "" or amount <= 0:
+			continue
+
+		var take_amount: int = mini(amount, remaining_capacity)
+		if take_amount > 0:
+			beh._cargo_manifest.append({
+				"item_id": item_id,
+				"amount": take_amount,
+				"node_id": 0,
+			})
+			beh.cargo_count += take_amount
+			remaining_capacity -= take_amount
+			added += take_amount
+			taken.append({"item_id": item_id, "amount": take_amount})
+
+		var leftover_amount: int = amount - take_amount
+		if leftover_amount > 0:
+			leftovers.append({"item_id": item_id, "amount": leftover_amount})
+
+		if remaining_capacity <= 0:
+			continue
+
+	result["added"] = added
+	result["taken"] = taken
+	result["leftovers"] = leftovers
+	return result
+
+
 ## Suelta todo el cargo al suelo cuando el NPC entra en combate.
 func drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var drop_pos: Vector2 = beh.home_pos

@@ -33,6 +33,11 @@ func set_storage_query(cb: Callable) -> void:
 		_flow.set_storage_query(cb)
 
 
+func set_placeable_query(cb: Callable) -> void:
+	if _flow != null:
+		_flow.set_placeable_query(cb)
+
+
 func process_raid() -> void:
 	if _flow != null:
 		_flow.process_flow()

@@ -100,6 +100,9 @@ var _contract_valid: bool = false
 var _path_id: String = ""   # agent_id for NpcPathService cache (lazy-init)
 ## Hasta cuándo puede perseguir al jugador por autodefensa (aunque el perfil no lo permita).
 var _provoked_until: float = 0.0
+## Mientras esté activo, no adquiere al player de forma proactiva.
+## Se usa para raids de estructuras: foco en objetivo estructural, no en jugador.
+var _structure_focus_until: float = 0.0
 
 func _has_property(obj: Object, property_name: String) -> bool:
 	if obj == null:
@@ -619,12 +622,32 @@ func notify_provoked(duration: float = 15.0) -> void:
 	_provoked_until = RunClock.now() + duration
 
 
+## Foco temporal en objetivo estructural.
+## Durante esta ventana, el AI no adquiere al player salvo autodefensa provocada.
+func focus_on_structure_for(duration: float = 15.0) -> void:
+	if duration <= 0.0:
+		return
+	_structure_focus_until = maxf(_structure_focus_until, RunClock.now() + duration)
+	wake_now()
+	if current_state != AIState.DEAD and current_state != AIState.DOWNED:
+		current_state = AIState.IDLE
+	_release_attack_input()
+
+
+func is_structure_focus_active() -> bool:
+	return RunClock.now() < _structure_focus_until
+
+
 ## Devuelve true si este AI puede iniciar una persecución no provocada contra el player.
 ## Respeta el perfil de hostilidad de la facción; siempre permite autodefensa.
 func _can_acquire_player() -> bool:
+	var now: float = RunClock.now()
 	# Autodefensa: el player nos atacó recientemente
-	if RunClock.now() < _provoked_until:
+	if now < _provoked_until:
 		return true
+	# Raid estructural activo: no perseguir al player proactivamente.
+	if now < _structure_focus_until:
+		return false
 	# Consultar perfil de facción
 	if owner_entity != null and "faction_id" in owner_entity:
 		var fid: String = String(owner_entity.get("faction_id"))

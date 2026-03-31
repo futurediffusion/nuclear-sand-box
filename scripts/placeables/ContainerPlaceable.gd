@@ -348,6 +348,83 @@ func is_position_nearby(pos: Vector2) -> bool:
 	return global_position.distance_to(pos) <= 70.0
 
 
+## True when this container belongs to player placement and can be raided by hostiles.
+func is_raid_lootable() -> bool:
+	return placed_uid != "" and faction_owner_id == ""
+
+
+## Total stack units currently available for raid extraction.
+func get_raid_loot_total_units() -> int:
+	var total: int = 0
+	for raw_slot in stored_slots:
+		if not (raw_slot is Dictionary):
+			continue
+		var slot := raw_slot as Dictionary
+		var item_id: String = String(slot.get("id", ""))
+		var amount: int = int(slot.get("count", 0))
+		if item_id == "":
+			item_id = String(slot.get("item_id", ""))
+			amount = int(slot.get("amount", 0))
+		if item_id == "" or amount <= 0:
+			continue
+		total += amount
+	return total
+
+
+## Extract up to [max_units] from internal slots for raid/carry flows.
+## Returns entries [{item_id, amount}] and persists the modified slots.
+func extract_items_for_raid(max_units: int) -> Array[Dictionary]:
+	var extracted: Array[Dictionary] = []
+	if not is_raid_lootable():
+		return extracted
+	if max_units <= 0:
+		return extracted
+	var remaining: int = max_units
+	var total_before: int = get_raid_loot_total_units()
+	if total_before <= 0:
+		return extracted
+
+	for i in range(stored_slots.size()):
+		if remaining <= 0:
+			break
+		var raw_slot: Variant = stored_slots[i]
+		if not (raw_slot is Dictionary):
+			continue
+		var slot := raw_slot as Dictionary
+		var item_id: String = String(slot.get("id", ""))
+		var amount: int = int(slot.get("count", 0))
+		if item_id == "":
+			item_id = String(slot.get("item_id", ""))
+			amount = int(slot.get("amount", 0))
+		if item_id == "" or amount <= 0:
+			continue
+
+		var take: int = mini(amount, remaining)
+		if take <= 0:
+			continue
+
+		extracted.append({"item_id": item_id, "amount": take})
+		var left: int = amount - take
+		if left > 0:
+			stored_slots[i] = {"id": item_id, "count": left}
+		else:
+			stored_slots[i] = null
+		remaining -= take
+
+	if extracted.is_empty():
+		return extracted
+
+	if _ui_open:
+		_close_ui()
+	sync_persistence_data()
+
+	var total_taken: int = max_units - remaining
+	Debug.log("raid", "[Container] raid loot uid=%s taken=%d before=%d after=%d" % [
+		placed_uid, total_taken, total_before, get_raid_loot_total_units()
+	])
+	return extracted
+
+
 ## Inserts up to [amount] of [item_id] into available slots.
 ## Returns the actually inserted amount. Syncs persistence if anything was inserted.
 func try_insert_item(item_id: String, amount: int) -> int:

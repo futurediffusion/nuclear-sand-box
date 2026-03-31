@@ -153,22 +153,16 @@ var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
 
-# ── Placement Reaction ────────────────────────────────────────────────────────
-## Cuando el jugador coloca un bloque, el grupo bandit más cercano reacciona
-## inmediatamente enviando una escuadra a destruirlo.
-## Si el jugador mata esa escuadra, viene una más grande.
-const _PLACEMENT_REACT_RADIUS: float = 1400.0      # radio máx desde camp home_pos
-const _PLACEMENT_REACT_ESCALATION_RADIUS: float = 600.0  # radio de muerte que cuenta como "defensa"
-const _PLACEMENT_REACT_BASE_SQUAD: int = 2         # tamaño inicial de escuadra
-const _PLACEMENT_REACT_MAX_SQUAD: int = 6          # tope de escalada
-const _PLACEMENT_REACT_COOLDOWN: float = 40.0      # cooldown entre dispatches nuevos
-var _placement_react_group_id: String = ""
-var _placement_react_faction_id: String = ""
-var _placement_react_pos: Vector2 = Vector2.ZERO
-var _placement_react_wave: int = 0
-var _placement_react_kills: int = 0
-var _placement_react_squad_size: int = 0
-var _placement_react_cooldown_until: float = 0.0
+# Placement reaction
+## Every hostile eligible group receives structure-assault targeting on player placement.
+## No fixed 3-unit cap: dispatch uses ALL members by default (configurable via squad value).
+## RaidQueue receives per-group structure_assault intents so behavior keeps consuming targets.
+const _PLACEMENT_REACT_INTENT_LOCK_SECONDS: float = 90.0
+const _PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD: int = -1  # -1 = all available members
+const _PLACEMENT_REACT_EVENT_MIN_INTERVAL: float = 0.20
+## Empty filter = query all player placeables from WorldSpatialIndex persistent cache.
+const _PLAYER_RAID_PLACEABLE_ITEM_IDS: Array[String] = []
+var _placement_react_last_event_at: float = -9999.0
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -530,6 +524,7 @@ func _ready() -> void:
 		"player":                player,
 		"speech_bubble_manager": _speech_bubble_manager,
 		"world_spatial_index": _world_spatial_index,
+		"world_node": self,
 	})  # Setup del sistema de extorsión
 
 	_resource_repopulator = ResourceRepopulatorScript.new()
@@ -653,11 +648,13 @@ func _ready() -> void:
 	# Wire SettlementIntel into BanditGroupIntel (must be after _settlement_intel is ready)
 	if _bandit_behavior_layer != null:
 		_bandit_behavior_layer.setup_group_intel({
-			"get_interest_markers_near":      Callable(self, "get_interest_markers_near"),
-			"get_detected_bases_near":        Callable(self, "get_detected_bases_near"),
-			"find_nearest_player_wall_world_pos":       Callable(self, "find_nearest_player_wall_world_pos"),
-		"find_nearest_player_workbench_world_pos":  Callable(self, "find_nearest_player_workbench_world_pos"),
-		"find_nearest_player_storage_world_pos":    Callable(self, "find_nearest_player_storage_world_pos"),
+			"get_interest_markers_near": Callable(self, "get_interest_markers_near"),
+			"get_detected_bases_near": Callable(self, "get_detected_bases_near"),
+			"find_nearest_player_wall_world_pos": Callable(self, "find_nearest_player_wall_world_pos"),
+			"find_player_wall_samples_world_pos": Callable(self, "find_player_wall_samples_world_pos"),
+			"find_nearest_player_workbench_world_pos": Callable(self, "find_nearest_player_workbench_world_pos"),
+			"find_nearest_player_storage_world_pos": Callable(self, "find_nearest_player_storage_world_pos"),
+			"find_nearest_player_placeable_world_pos": Callable(self, "find_nearest_player_placeable_world_pos"),
 		})
 
 	await update_chunks(current_player_chunk)
@@ -1109,17 +1106,44 @@ func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Ve
 		return Vector2(-1.0, -1.0)
 	return _player_wall_system.find_nearest_player_wall_world_pos(world_pos, radius)
 
+
+func find_player_wall_samples_world_pos(world_pos: Vector2, radius: float, max_points: int = 12,
+		min_separation: float = 48.0) -> Array[Vector2]:
+	if _player_wall_system == null:
+		return []
+	return _player_wall_system.find_player_wall_samples_world_pos(world_pos, radius, max_points, min_separation)
+
 func find_nearest_player_workbench_world_pos(world_pos: Vector2, radius: float) -> Vector2:
-	if _world_spatial_index == null:
-		return Vector2(-1.0, -1.0)
-	var node := _world_spatial_index.find_nearest_runtime_node(WorldSpatialIndex.KIND_WORKBENCH, world_pos, radius)
-	return node.global_position if node != null else Vector2(-1.0, -1.0)
+	return _find_nearest_player_placeable_world_pos_by_items(world_pos, radius, [BuildableCatalog.ID_WORKBENCH])
 
 func find_nearest_player_storage_world_pos(world_pos: Vector2, radius: float) -> Vector2:
+	return _find_nearest_player_placeable_world_pos_by_items(world_pos, radius, [
+		BuildableCatalog.ID_CHEST,
+		BuildableCatalog.ID_BARREL,
+	])
+
+
+func find_nearest_player_placeable_world_pos(world_pos: Vector2, radius: float) -> Vector2:
+	return _find_nearest_player_placeable_world_pos_by_items(world_pos, radius, _PLAYER_RAID_PLACEABLE_ITEM_IDS)
+
+
+func _find_nearest_player_placeable_world_pos_by_items(world_pos: Vector2, radius: float,
+		item_ids: Array[String]) -> Vector2:
 	if _world_spatial_index == null:
 		return Vector2(-1.0, -1.0)
-	var node := _world_spatial_index.find_nearest_runtime_node(WorldSpatialIndex.KIND_STORAGE, world_pos, radius)
-	return node.global_position if node != null else Vector2(-1.0, -1.0)
+	var best_pos: Vector2 = Vector2(-1.0, -1.0)
+	var best_dsq: float = radius * radius
+	var entries: Array[Dictionary] = _world_spatial_index.get_placeables_by_item_ids_near(world_pos, radius, item_ids)
+	for entry in entries:
+		var tile_pos := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
+		if tile_pos.x <= -999999 or tile_pos.y <= -999999:
+			continue
+		var placeable_pos: Vector2 = _tile_to_world(tile_pos)
+		var dsq: float = world_pos.distance_squared_to(placeable_pos)
+		if dsq < best_dsq:
+			best_dsq = dsq
+			best_pos = placeable_pos
+	return best_pos
 
 func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 20.0, allow_structural_feedback: bool = true) -> bool:
 	return _player_wall_system != null and _player_wall_system.hit_wall_at_world_pos(world_pos, amount, radius, allow_structural_feedback)
@@ -1758,99 +1782,114 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 	var world_pos: Vector2 = _tile_to_world(tile_pos)
 	Debug.log("placement_react", "placement_completed item=%s tile=%s world=%s" % [
 		_item_id, str(tile_pos), str(world_pos)])
-	# Si hay una reacción activa en cooldown, ignorar — los enemigos ya están en camino
-	if RunClock.now() < _placement_react_cooldown_until and _placement_react_group_id != "":
-		Debug.log("placement_react", "  SKIP (cooldown %.0fs)" % [
-			_placement_react_cooldown_until - RunClock.now()])
+	# Throttle mínimo para evitar duplicados por input/drag en el mismo frame.
+	var now: float = RunClock.now()
+	if now - _placement_react_last_event_at < _PLACEMENT_REACT_EVENT_MIN_INTERVAL:
 		return
-	_placement_react_wave = 0
+	_placement_react_last_event_at = now
 	_trigger_placement_react(world_pos)
 
 
 func _trigger_placement_react(target_pos: Vector2) -> void:
 	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
-	Debug.log("placement_react", "--- placement react wave=%d target=%s groups_total=%d ---" % [
-		_placement_react_wave, str(target_pos), all_ids.size()])
-
+	Debug.log("placement_react", "--- placement react target=%s groups_total=%d ---" % [
+		str(target_pos), all_ids.size()])
 	if all_ids.is_empty():
 		Debug.log("placement_react", "  SKIP: no hay grupos registrados en BanditGroupMemory")
 		return
-
-	var best_gid: String = ""
-	var best_dist: float = INF  # sin límite de radio — cubre todo el mundo
+	var queued: int = 0
+	var dispatched_groups: int = 0
+	var pending_groups: int = 0
+	var total_redirected: int = 0
 	for gid in all_ids:
 		var g: Dictionary = BanditGroupMemory.get_group(gid)
-		var home_pos: Vector2 = g.get("home_world_pos", Vector2.ZERO) as Vector2
-		var dist: float = home_pos.distance_to(target_pos)
+		var faction_id: String = String(g.get("faction_id", ""))
 		var eradicated: bool = bool(g.get("eradicated", false))
 		var members: Array = g.get("member_ids", []) as Array
-		var leader_id_check: String = String(g.get("leader_id", ""))
-		# Fallback: si no hay leader designado, usar el primer miembro vivo
-		if leader_id_check == "" and members.size() > 0:
-			leader_id_check = String(members[0])
-		var has_pending: bool = RaidQueue.has_pending_for_group(gid)
-		var intent: String = String(g.get("current_group_intent", "idle"))
-		Debug.log("placement_react", "  grupo=%s dist=%.0f eradicated=%s members=%d leader='%s' pending=%s intent=%s" % [
-			gid, dist, str(eradicated), members.size(), leader_id_check, str(has_pending), intent])
 		if eradicated:
 			continue
-		if leader_id_check == "":
+		if members.is_empty():
 			continue
-		# Solo bloquear si hay un structure_assault ya activo (ya viajando/atacando).
-		# Un pending sin consumir no bloquea — puede que el intent haya sido reseteado.
-		if has_pending and not RaidQueue.has_structure_assault_for_group(gid):
+		if not _is_group_hostile_for_structure_assault(g):
+			Debug.log("placement_react", "  group=%s faction=%s skipped (not hostile for structures)" % [
+				gid, faction_id])
 			continue
-		if dist < best_dist:
-			best_dist = dist
-			best_gid = gid
+		var leader_id: String = String(g.get("leader_id", ""))
+		if leader_id == "" and not members.is_empty():
+			leader_id = String(members[0])
+		if leader_id == "":
+			continue
+		BanditGroupMemory.record_interest(gid, target_pos, "structure_placed")
+		BanditGroupMemory.set_placement_react_lock(gid, _PLACEMENT_REACT_INTENT_LOCK_SECONDS)
+		BanditGroupMemory.update_intent(gid, "raiding")
+		var enqueued_now: bool = false
+		if not RaidQueue.has_structure_assault_for_group(gid):
+			RaidQueue.enqueue_structure_assault(
+				faction_id,
+				gid,
+				leader_id,
+				target_pos,
+				"placed_structure",
+				_PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
+			)
+			queued += 1
+			enqueued_now = true
+		var redirected: int = 0
+		if _bandit_behavior_layer != null:
+			redirected = _bandit_behavior_layer.dispatch_group_to_target(
+				gid,
+				target_pos,
+				_PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
+			)
+		if redirected > 0:
+			dispatched_groups += 1
+			total_redirected += redirected
+		else:
+			pending_groups += 1
+		Debug.log("placement_react", "  group=%s faction=%s redirected=%d queued_now=%s" % [
+			gid, faction_id, redirected, str(enqueued_now)])
+	Debug.log("placement_react", "  SUMMARY queued=%d dispatched_groups=%d pending_groups=%d redirected_total=%d" % [
+		queued, dispatched_groups, pending_groups, total_redirected])
 
-	if best_gid == "":
-		Debug.log("placement_react", "  SKIP: no hay ningún grupo apto (todos eradicated, pending, o sin miembros)")
-		return
 
-	var g: Dictionary = BanditGroupMemory.get_group(best_gid)
-	var faction_id: String = String(g.get("faction_id", "bandits"))
-	var members_g: Array   = g.get("member_ids", []) as Array
-	var leader_id: String  = String(g.get("leader_id", ""))
-	if leader_id == "" and members_g.size() > 0:
-		leader_id = String(members_g[0])
-	var squad: int = mini(_PLACEMENT_REACT_BASE_SQUAD + _placement_react_wave, _PLACEMENT_REACT_MAX_SQUAD)
-	_placement_react_group_id  = best_gid
-	_placement_react_faction_id = faction_id
-	_placement_react_pos       = target_pos
-	_placement_react_kills     = 0
-	_placement_react_squad_size = squad
-	# Registrar la posición objetivo para que el intent handler "raiding" la use correctamente
-	BanditGroupMemory.record_interest(best_gid, target_pos, "placement_react")
-	# Dispatch directo via BanditBehaviorLayer — funciona en lite-mode y modo activo
-	var redirected: int = 0
-	if _bandit_behavior_layer != null:
-		redirected = _bandit_behavior_layer.dispatch_group_to_target(best_gid, target_pos, squad)
-	if redirected > 0:
-		_placement_react_cooldown_until = RunClock.now() + _PLACEMENT_REACT_COOLDOWN
-	# Bloquear que BGI resetee el intent a "idle" durante 60s mientras el asalto está activo
-	BanditGroupMemory.set_placement_react_lock(best_gid, 60.0)
-	BanditGroupMemory.update_intent(best_gid, "raiding")
-	Debug.log("placement_react", "  DISPATCHED group=%s faction=%s squad=%d redirected=%d dist=%.0f" % [
-		best_gid, faction_id, squad, redirected, best_dist])
+func _is_group_hostile_for_structure_assault(group_data: Dictionary) -> bool:
+	var faction_id: String = String(group_data.get("faction_id", ""))
+	if faction_id == "":
+		return false
+	if _is_faction_baseline_hostile_to_player(faction_id):
+		return true
+	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
+	return profile.can_attack_punitively \
+		or profile.can_probe_walls \
+		or profile.can_damage_workbenches \
+		or profile.can_damage_storage \
+		or profile.can_damage_walls \
+		or profile.can_raid_base
+
+
+func _is_faction_baseline_hostile_to_player(faction_id: String) -> bool:
+	var fid: String = faction_id.strip_edges().to_lower()
+	if fid == "":
+		return false
+	var aliases: Array[String] = [fid]
+	if fid.ends_with("s"):
+		var singular: String = fid.substr(0, fid.length() - 1)
+		if singular != "":
+			aliases.append(singular)
+	else:
+		aliases.append(fid + "s")
+	for raw_alias in aliases:
+		var alias: String = String(raw_alias)
+		var faction_data: Dictionary = FactionSystem.get_faction(alias)
+		if faction_data.is_empty():
+			continue
+		if float(faction_data.get("hostility_to_player", 0.0)) > 0.0:
+			return true
+	# Fallback defensivo para facciones hostiles no registradas aún en FactionSystem.
+	return fid.find("bandit") >= 0 or fid.find("goblin") >= 0 or fid.find("raider") >= 0
 
 
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
-	# Escalada: si murió un enemy del faction que mandamos, cerca del bloque colocado
-	if kind == "enemy" and _placement_react_group_id != "" and uid != "":
-		var profile: Dictionary = NpcProfileSystem.get_profile(uid)
-		var dead_faction: String = String(profile.get("faction_id", ""))
-		var dist_to_react: float = _pos.distance_to(_placement_react_pos)
-		if dead_faction == _placement_react_faction_id:
-			Debug.log("placement_react", "enemy killed faction=%s dist_to_react=%.0f (max=%.0f) kills=%d/%d" % [
-				dead_faction, dist_to_react, _PLACEMENT_REACT_ESCALATION_RADIUS,
-				_placement_react_kills + 1, _placement_react_squad_size])
-			if dist_to_react <= _PLACEMENT_REACT_ESCALATION_RADIUS:
-				_placement_react_kills += 1
-				if _placement_react_kills >= _placement_react_squad_size:
-					_placement_react_wave += 1
-					Debug.log("placement_react", "  ESCALATE wave=%d" % _placement_react_wave)
-					_trigger_placement_react(_placement_react_pos)
 	if kind == "enemy" and uid != "":
 		npc_simulator.on_entity_died(uid)
 	# Incidente institucional: muerte dentro de la taberna.

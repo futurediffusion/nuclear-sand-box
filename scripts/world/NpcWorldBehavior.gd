@@ -239,7 +239,7 @@ func _get_max_patrol_time() -> float:
 ## (PATROL/APPROACH) or starts a perpendicular detour (RETURN_HOME/FOLLOW_LEADER).
 func _check_stuck(delta: float, node_pos: Vector2) -> void:
 	match state:
-		State.PATROL, State.APPROACH_INTEREST:
+		State.PATROL:
 			_stuck_timer += delta
 			if _stuck_timer >= STUCK_CHECK_INTERVAL:
 				var moved_sq: float = node_pos.distance_squared_to(_stuck_check_pos)
@@ -248,6 +248,26 @@ func _check_stuck(delta: float, node_pos: Vector2) -> void:
 				if moved_sq < STUCK_MIN_PROGRESS_SQ:
 					_invalidate_npc_path()
 					_enter_idle_at_home()
+
+		State.APPROACH_INTEREST:
+			_stuck_timer += delta
+			if _stuck_timer >= STUCK_CHECK_INTERVAL:
+				var moved_sq: float = node_pos.distance_squared_to(_stuck_check_pos)
+				_stuck_check_pos = node_pos
+				_stuck_timer     = 0.0
+				if moved_sq < STUCK_MIN_PROGRESS_SQ:
+					_invalidate_npc_path()
+					# En aproximación a objetivos, evitar caer a IDLE inmediato.
+					# Aplicamos un pequeño desvío para romper atascos en esquinas.
+					if _detour_timer <= 0.0:
+						var forward: Vector2 = (_move_target - node_pos).normalized()
+						if forward.length_squared() < 0.01:
+							forward = Vector2(1.0, 0.0)
+						var perp: Vector2 = Vector2(-forward.y, forward.x)
+						if _rng.randf() > 0.5:
+							perp = -perp
+						_detour_dir   = perp
+						_detour_timer = DETOUR_DURATION
 
 		State.RETURN_HOME, State.FOLLOW_LEADER:
 			_stuck_timer += delta
