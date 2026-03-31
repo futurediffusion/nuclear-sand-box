@@ -540,10 +540,17 @@ func _can_watch_resources() -> bool:
 func _should_suppress_generic_drop_pickup(ctx: Dictionary) -> bool:
 	if not _is_structure_assault_active():
 		return false
+	# Prioridad por rol durante asalto a estructuras del jugador:
+	# - bodyguard: mantiene foco total en romper muros/estructuras.
+	# - scavenger: cambia a loot en cuanto haya drops para llevarlos al barril.
+	if role == "scavenger":
+		return false
+	if role == "bodyguard":
+		return true
 	if not BanditTuning.assault_suppress_generic_drop_pickup():
 		return false
-	# Escape hatch: si el drop ya está dentro de rango real de pickup, NO suprimir.
-	# Así evitamos quedar pegados sobre el drop tras destruir un placeable.
+	# Escape hatch legacy para otros roles: si el drop ya está dentro de rango
+	# real de pickup, NO suprimir.
 	return not _has_drop_within_sq(ctx, COLLECT_DIST_SQ)
 
 
