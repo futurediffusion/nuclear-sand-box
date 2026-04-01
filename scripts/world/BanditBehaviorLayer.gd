@@ -36,6 +36,7 @@ const BanditTerritoryResponseScript := preload("res://scripts/world/BanditTerrit
 const BanditWorkCoordinatorScript   := preload("res://scripts/world/BanditWorkCoordinator.gd")
 const SimulationLODPolicyScript     := preload("res://scripts/world/SimulationLODPolicy.gd")
 const CombatStateServiceScript      := preload("res://scripts/world/CombatStateService.gd")
+const BanditDomainPortsScript      := preload("res://scripts/world/BanditDomainPorts.gd")
 
 # ---------------------------------------------------------------------------
 # Camp layout constants Ã¢ï¿½,ï¿½ï¿½?ï¿½ local geometry, not cross-system gameplay tuning.
@@ -193,6 +194,7 @@ var _structure_cache_gc_at: float                = 0.0
 var _dispatch_log_next_at: Dictionary            = {}
 var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
+var _domain_ports: BanditDomainPorts             = null
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +208,10 @@ func setup(ctx: Dictionary) -> void:
 	_bubble_manager = ctx.get("speech_bubble_manager")
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 	_world_node = ctx.get("world_node")
+	_domain_ports = ctx.get("domain_ports") as BanditDomainPorts
+	if _domain_ports == null:
+		_domain_ports = BanditDomainPortsScript.new() as BanditDomainPorts
+		_domain_ports.setup()
 	# Temporal governance boundary:
 	# world cadence drives cross-system directors so extortion/raid orchestration
 	# shares the same world pulse grid as chunk/autosave maintenance. This layer
@@ -221,6 +227,7 @@ func setup(ctx: Dictionary) -> void:
 		"player":                _player,
 		"speech_bubble_manager": _bubble_manager,
 		"get_behavior_for_enemy": Callable(self, "_get_behavior"),
+		"domain_ports": _domain_ports,
 	})
 
 	# Raid director
@@ -239,6 +246,7 @@ func setup(ctx: Dictionary) -> void:
 	_territory_response.setup({
 		"npc_simulator": _npc_simulator,
 		"speech_bubble_manager": _bubble_manager,
+		"domain_ports": _domain_ports,
 	})
 
 	# Camp stash system
@@ -342,11 +350,11 @@ func _physics_process(_delta: float) -> void:
 	# Debug: alerted scout sigue al player
 	if DEBUG_ALERTED_CHASE and _player != null and is_instance_valid(_player):
 		var ap: Vector2 = _player.global_position
-		for gid in BanditGroupMemory.get_all_group_ids():
-			var g: Dictionary = BanditGroupMemory.get_group(gid)
+		for gid in _domain_ports.bandit_group_memory().get_all_group_ids():
+			var g: Dictionary = _domain_ports.bandit_group_memory().get_group(gid)
 			if String(g.get("current_group_intent", "")) != "alerted":
 				continue
-			var scout_id: String = BanditGroupMemory.get_scout(gid)
+			var scout_id: String = _domain_ports.bandit_group_memory().get_scout(gid)
 			if scout_id == "":
 				continue
 			var snode = _npc_simulator.get_enemy_node(scout_id)
@@ -367,8 +375,10 @@ func _physics_process(_delta: float) -> void:
 func _process(delta: float) -> void:
 	if _npc_simulator == null:
 		return
-	if RunClock.now() >= _structure_cache_gc_at:
-		_structure_cache_gc_at = RunClock.now() + 1.5
+	var input_ctx: Dictionary = _domain_ports.capture_input_context({"delta": delta})
+	var now: float = float(input_ctx.get("now", 0.0))
+	if now >= _structure_cache_gc_at:
+		_structure_cache_gc_at = now + 1.5
 		_prune_structure_target_caches()
 	if _group_intel != null:
 		_group_intel.tick(delta)
@@ -542,12 +552,12 @@ func _ensure_behavior_for_enemy(enemy_id_str: String, node: Node = null,
 
 	var faction_id: String = String(save_state.get("faction_id", ""))
 	if faction_id == "":
-		var g_fallback: Dictionary = BanditGroupMemory.get_group(group_id)
+		var g_fallback: Dictionary = _domain_ports.bandit_group_memory().get_group(group_id)
 		faction_id = String(g_fallback.get("faction_id", "bandits"))
 
 	var home_pos: Vector2 = _get_home_pos(save_state)
 	if home_pos == Vector2.ZERO and allow_runtime_fallback:
-		var g_home: Dictionary = BanditGroupMemory.get_group(group_id)
+		var g_home: Dictionary = _domain_ports.bandit_group_memory().get_group(group_id)
 		if g_home.has("home_world_pos"):
 			var hpos = g_home.get("home_world_pos", Vector2.ZERO)
 			if hpos is Vector2:
@@ -592,7 +602,7 @@ func _ensure_behaviors_for_active_enemies() -> void:
 		if beh == null:
 			continue
 		# Si el grupo tiene un assault pendiente (colocaciï¿½fÂ³n de estructura mientras no estaban spawneados)
-		var assault_target: Vector2 = BanditGroupMemory.get_assault_target(beh.group_id)
+		var assault_target: Vector2 = _domain_ports.bandit_group_memory().get_assault_target(beh.group_id)
 		if assault_target.x >= 0.0:
 			beh.enter_wall_assault(assault_target)
 			_apply_structure_assault_focus(node)
@@ -630,11 +640,11 @@ func _maybe_show_recognition_bubble(beh: BanditWorldBehavior,
 	if beh.group_id == "":
 		return
 	# Solo si estï¿½fÂ¡ cazando activamente
-	var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
+	var g: Dictionary = _domain_ports.bandit_group_memory().get_group(beh.group_id)
 	if String(g.get("current_group_intent", "")) != "hunting":
 		return
 	# Cooldown por NPC
-	if RunClock.now() < beh.recognition_bubble_until:
+	if _domain_ports.now() < beh.recognition_bubble_until:
 		return
 	# Solo si el jugador estï¿½fÂ¡ cerca
 	if _player.global_position.distance_squared_to(node_pos) > RECOGNITION_RANGE_SQ:
@@ -643,7 +653,7 @@ func _maybe_show_recognition_bubble(beh: BanditWorldBehavior,
 	var faction_id: String = String(g.get("faction_id", ""))
 	if faction_id == "":
 		return
-	var h_level: int = FactionHostilityManager.get_hostility_level(faction_id)
+	var h_level: int = _domain_ports.faction_hostility().get_hostility_level(faction_id)
 	if h_level < 3:
 		return
 	# Elegir el tier de frases mï¿½fÂ¡s alto que no supere el nivel actual
@@ -657,7 +667,7 @@ func _maybe_show_recognition_bubble(beh: BanditWorldBehavior,
 		return
 	var phrase: String = phrases[randi() % phrases.size()] as String
 	_bubble_manager.show_actor_bubble(node as Node2D, phrase, 3.5)
-	beh.recognition_bubble_until = RunClock.now() + RECOGNITION_COOLDOWN
+	beh.recognition_bubble_until = _domain_ports.now() + RECOGNITION_COOLDOWN
 	Debug.log("bandit_ai", "[BBL] recognition bubble npc=%s h_level=%d tier=%d" % [
 		beh.member_id, h_level, phrase_tier])
 
@@ -673,7 +683,7 @@ func _maybe_show_idle_chat(beh: BanditWorldBehavior,
 	if _bubble_manager == null:
 		return
 	# Cooldown por NPC (escalonado desde setup para que no hablen todos a la vez)
-	if RunClock.now() < beh.idle_chat_until:
+	if _domain_ports.now() < beh.idle_chat_until:
 		return
 	# Solo en estados ociosos Ã¢ï¿½,ï¿½ï¿½?ï¿½ no mientras caza, extorsiona, carga material ni vuelve al camp
 	var state_ok: bool = beh.state == NpcWorldBehavior.State.IDLE_AT_HOME \
@@ -682,7 +692,7 @@ func _maybe_show_idle_chat(beh: BanditWorldBehavior,
 		return
 	# No chatear si el grupo estï¿½fÂ¡ en intenciï¿½fÂ³n activa
 	if beh.group_id != "":
-		var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
+		var g: Dictionary = _domain_ports.bandit_group_memory().get_group(beh.group_id)
 		var intent: String = String(g.get("current_group_intent", ""))
 		if intent == "hunting" or intent == "extorting" or intent == "raiding":
 			return
@@ -693,12 +703,12 @@ func _maybe_show_idle_chat(beh: BanditWorldBehavior,
 	# Baja probabilidad por tick para que no salga en cada tick elegible
 	# (tick interval ~0.5s Ã¢ï¿½?ï¿½ï¿½?T ~1.5% chance por tick elegible Ã¢ï¿½?ï¿½ï¿½?T frase cada ~33s en ventana)
 	if randf() > 0.015:
-		beh.idle_chat_until = RunClock.now() + 2.0  # micro-cooldown para no re-tirar cada frame
+		beh.idle_chat_until = _domain_ports.now() + 2.0  # micro-cooldown para no re-tirar cada frame
 		return
 	var phrase: String = IDLE_CHAT_PHRASES[randi() % IDLE_CHAT_PHRASES.size()]
 	_bubble_manager.show_actor_bubble(node as Node2D, phrase, 3.5)
 	# Cooldown aleatorio para que cada NPC hable a su propio ritmo
-	beh.idle_chat_until = RunClock.now() + randf_range(IDLE_CHAT_COOLDOWN_MIN, IDLE_CHAT_COOLDOWN_MAX)
+	beh.idle_chat_until = _domain_ports.now() + randf_range(IDLE_CHAT_COOLDOWN_MIN, IDLE_CHAT_COOLDOWN_MAX)
 
 
 func _get_behavior(enemy_id: String) -> BanditWorldBehavior:
@@ -724,11 +734,11 @@ func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size:
 	if _npc_simulator == null:
 		return 0
 	# Colectar miembros de la oleada de ataque (capeado al squad_size real)
-	var g_total: int = (BanditGroupMemory.get_group(group_id).get("member_ids", []) as Array).size()
+	var g_total: int = (_domain_ports.bandit_group_memory().get_group(group_id).get("member_ids", []) as Array).size()
 	var wave_cap: int = squad_size if squad_size > 0 else g_total
 	var member_ids: Array[String] = _collect_live_structure_dispatch_member_ids(group_id, target_pos, wave_cap)
 	if member_ids.is_empty():
-		BanditGroupMemory.set_assault_target(group_id, target_pos)
+		_domain_ports.bandit_group_memory().set_assault_target(group_id, target_pos)
 		if _can_emit_dispatch_log(group_id, 0.8):
 			Debug.log("placement_react", "[BBL] dispatch queued (no spawneados) group=%s target=%s" % [
 				group_id, str(target_pos)])
@@ -776,7 +786,7 @@ func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size:
 				STRUCTURE_DISPATCH_FRAME_BUDGET,
 			])
 
-	BanditGroupMemory.clear_assault_target(group_id)
+	_domain_ports.bandit_group_memory().clear_assault_target(group_id)
 	_save_group_sticky_team_targets(group_id, team_targets)
 	var requested: String = "ALL" if squad_size <= 0 else str(squad_size)
 	var team_count: int = int(ceili(float(member_ids.size()) / float(maxi(1, STRUCTURE_TARGET_TEAM_SIZE))))
@@ -800,7 +810,7 @@ func _process_pending_structure_dispatches() -> void:
 	while idx < _pending_structure_dispatches.size() and budget > 0:
 		var job: Dictionary = _pending_structure_dispatches[idx] as Dictionary
 		var gid: String = String(job.get("group_id", ""))
-		if gid == "" or BanditGroupMemory.get_group(gid).is_empty():
+		if gid == "" or _domain_ports.bandit_group_memory().get_group(gid).is_empty():
 			_save_group_sticky_team_targets(gid, {})
 			_pending_structure_dispatches.remove_at(idx)
 			continue
@@ -912,7 +922,7 @@ func _build_structure_target_pool_cached(group_id: String, anchor_pos: Vector2) 
 	if group_id == "":
 		return _build_structure_target_pool(anchor_pos)
 	var key: String = _get_target_pool_cache_key(anchor_pos)
-	var now: float = RunClock.now()
+	var now: float = _domain_ports.now()
 	var entry: Dictionary = _group_target_pool_cache.get(group_id, {}) as Dictionary
 	if not entry.is_empty() \
 			and now <= float(entry.get("until", 0.0)) \
@@ -1097,7 +1107,7 @@ func _collect_live_structure_dispatch_member_ids(group_id: String, target_pos: V
 			"anchor_dsq": (node as Node2D).global_position.distance_squared_to(target_pos),
 		})
 	if rows.size() < cap:
-		var g: Dictionary = BanditGroupMemory.get_group(group_id)
+		var g: Dictionary = _domain_ports.bandit_group_memory().get_group(group_id)
 		for mid in g.get("member_ids", []):
 			var mid_str: String = String(mid)
 			if seen.has(mid_str):
@@ -1125,7 +1135,7 @@ func _collect_overflow_ids(group_id: String, exclude_ids: Array[String]) -> Arra
 	for eid in exclude_ids:
 		exclude[eid] = true
 	var out: Array[String] = []
-	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	var g: Dictionary = _domain_ports.bandit_group_memory().get_group(group_id)
 	for mid in g.get("member_ids", []):
 		var mid_str: String = String(mid)
 		if exclude.has(mid_str):
@@ -1183,7 +1193,7 @@ func _get_target_valid_cache_key(target_pos: Vector2) -> String:
 
 
 func _prune_structure_target_caches() -> void:
-	var now: float = RunClock.now()
+	var now: float = _domain_ports.now()
 	if not _group_target_pool_cache.is_empty():
 		for gid in _group_target_pool_cache.keys():
 			var entry: Dictionary = _group_target_pool_cache.get(gid, {}) as Dictionary
@@ -1203,7 +1213,7 @@ func _prune_structure_target_caches() -> void:
 func _can_emit_dispatch_log(group_id: String, cooldown: float = 1.0) -> bool:
 	if group_id == "":
 		return false
-	var now: float = RunClock.now()
+	var now: float = _domain_ports.now()
 	var next_at: float = float(_dispatch_log_next_at.get(group_id, 0.0))
 	if now < next_at:
 		return false
@@ -1217,7 +1227,7 @@ func _load_group_sticky_team_targets(group_id: String) -> Dictionary:
 	var entry: Dictionary = _group_team_target_cache.get(group_id, {}) as Dictionary
 	if entry.is_empty():
 		return {}
-	var now: float = RunClock.now()
+	var now: float = _domain_ports.now()
 	if now > float(entry.get("until", 0.0)):
 		_group_team_target_cache.erase(group_id)
 		return {}
@@ -1249,7 +1259,7 @@ func _save_group_sticky_team_targets(group_id: String, team_targets: Dictionary)
 		return
 	_group_team_target_cache[group_id] = {
 		"targets": team_targets.duplicate(true),
-		"until": RunClock.now() + STRUCTURE_STICKY_TEAM_TARGET_TTL,
+		"until": _domain_ports.now() + STRUCTURE_STICKY_TEAM_TARGET_TTL,
 	}
 
 
@@ -1257,7 +1267,7 @@ func _is_structure_target_still_valid(target_pos: Vector2) -> bool:
 	if not _is_valid_structure_target(target_pos):
 		return false
 	var cache_key: String = _get_target_valid_cache_key(target_pos)
-	var now: float = RunClock.now()
+	var now: float = _domain_ports.now()
 	var cached: Dictionary = _structure_target_valid_cache.get(cache_key, {}) as Dictionary
 	if not cached.is_empty() and now <= float(cached.get("until", 0.0)):
 		return bool(cached.get("valid", false))
@@ -1494,7 +1504,7 @@ func _get_save_state_for(enemy_id: String) -> Dictionary:
 	var chunk_key: String = _npc_simulator.get_enemy_chunk_key(enemy_id)
 	if chunk_key == "":
 		return {}
-	var chunk_states: Dictionary = WorldSave.enemy_state_by_chunk.get(chunk_key, {})
+	var chunk_states: Dictionary = _domain_ports.world_save().enemy_state_by_chunk.get(chunk_key, {})
 	var state_v = chunk_states.get(enemy_id, {})
 	if state_v is Dictionary:
 		return state_v as Dictionary
@@ -1522,7 +1532,7 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 		distance_to_player = node_pos.distance_to(_player.global_position)
 	var group_intent: String = "idle"
 	if beh.group_id != "":
-		group_intent = String(BanditGroupMemory.get_group(beh.group_id).get("current_group_intent", "idle"))
+		group_intent = String(_domain_ports.bandit_group_memory().get_group(beh.group_id).get("current_group_intent", "idle"))
 	var ai_state_name: String = ""
 	if beh.state >= 0 and beh.state < NpcWorldBehavior.State.size():
 		ai_state_name = NpcWorldBehavior.State.keys()[beh.state]

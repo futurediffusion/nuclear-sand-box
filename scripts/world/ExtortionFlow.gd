@@ -6,6 +6,7 @@ extends Node
 ## Sin dependencias de UI — se comunica con ExtortionUIAdapter via callables.
 
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
+const BanditDomainPortsScript := preload("res://scripts/world/BanditDomainPorts.gd")
 
 ## Frases de acercamiento — se muestran cuando el grupo ya está cerca del jugador.
 const TAUNT_PHRASES: Array[String] = [
@@ -99,6 +100,7 @@ var _post_pay_groups:   Dictionary = {}  # gid -> Array[String] de ids suprimido
 #   3) el job deba sobrevivir reload/rebuild del mundo.
 # Hoy no hace falta: un servicio genérico agregaría más abstracción que claridad.
 var _scheduled_callbacks: Array[Dictionary] = []
+var _domain_ports: BanditDomainPorts = null
 
 
 func setup(ctx: Dictionary) -> void:
@@ -108,6 +110,10 @@ func setup(ctx: Dictionary) -> void:
 	_get_behavior_for_enemy = ctx.get("get_behavior_for_enemy", Callable())
 	_show_choice_ui         = ctx.get("show_choice_ui",         Callable())
 	_close_choice_ui        = ctx.get("close_choice_ui",        Callable())
+	_domain_ports = ctx.get("domain_ports") as BanditDomainPorts
+	if _domain_ports == null:
+		_domain_ports = BanditDomainPortsScript.new() as BanditDomainPorts
+		_domain_ports.setup()
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +144,7 @@ func apply_movement(friction_compensation: float) -> void:
 					var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
 					if behavior != null:
 						behavior.force_return_home()
-				Debug.log("extortion", "[EXTORT] aggro resolved (player downed) group=%s" % gid)
+				_domain_ports.debug_log("extortion", "[EXTORT] aggro resolved (player downed) group=%s" % gid)
 			continue
 
 		if job.needs_warning_strike():
@@ -173,31 +179,31 @@ func on_choice_resolved(option: int, gid: String) -> void:
 			var pay_amount: int = BanditTuningScript.extort_pay_amount(inv.gold if inv != null else 0, gid)
 			if inv != null and inv.gold >= pay_amount:
 				inv.spend_gold(pay_amount)
-				FactionHostilityManager.add_hostility(faction, 0.0, "extortion_paid",
+				_domain_ports.faction_hostility().add_hostility(faction, 0.0, "extortion_paid",
 					{"group_id": gid, "amount": pay_amount})
-				Debug.log("extortion", "[EXTORT] paid %d gold group=%s" % [pay_amount, gid])
+				_domain_ports.debug_log("extortion", "[EXTORT] paid %d gold group=%s" % [pay_amount, gid])
 				_show_reaction_bubble(job, PAY_ACK_PHRASES)
-				BanditGroupMemory.push_social_cooldown(gid, 10.0)
+				_domain_ports.bandit_group_memory().push_social_cooldown(gid, 10.0)
 				_resolve_extortion_idle(job)
 			else:
 				# El jugador quiso pagar pero no tiene oro: misma gravedad que negarse
-				FactionHostilityManager.add_hostility(faction, 0.0, "extortion_refused",
+				_domain_ports.faction_hostility().add_hostility(faction, 0.0, "extortion_refused",
 					{"group_id": gid, "reason": "cant_pay"})
-				Debug.log("extortion", "[EXTORT] can't pay, forced refuse group=%s" % gid)
+				_domain_ports.debug_log("extortion", "[EXTORT] can't pay, forced refuse group=%s" % gid)
 				_show_poverty_taunts(job)
-				BanditGroupMemory.push_social_cooldown(gid, 6.0)
+				_domain_ports.bandit_group_memory().push_social_cooldown(gid, 6.0)
 				_resolve_extortion_warn(job)
 		2:
-			FactionHostilityManager.add_hostility(faction, 0.0, "extortion_refused",
+			_domain_ports.faction_hostility().add_hostility(faction, 0.0, "extortion_refused",
 				{"group_id": gid})
 			_show_reaction_bubble(job, REFUSE_REACTION_PHRASES)
-			BanditGroupMemory.push_social_cooldown(gid, 6.0)
+			_domain_ports.bandit_group_memory().push_social_cooldown(gid, 6.0)
 			_resolve_extortion_warn(job)
 		3:
-			FactionHostilityManager.add_hostility(faction, 0.0, "extortion_insulted",
+			_domain_ports.faction_hostility().add_hostility(faction, 0.0, "extortion_insulted",
 				{"group_id": gid})
 			_show_reaction_bubble(job, INSULT_REACTION_PHRASES)
-			BanditGroupMemory.push_social_cooldown(gid, 12.0)
+			_domain_ports.bandit_group_memory().push_social_cooldown(gid, 12.0)
 			_resolve_extortion_aggro(job)
 
 
@@ -246,7 +252,7 @@ func _abort_invalid_jobs() -> void:
 
 
 func _get_abort_reason(gid: String, job: ExtortionJob, player_pos: Vector2) -> String:
-	var group_data: Dictionary = BanditGroupMemory.get_group(gid)
+	var group_data: Dictionary = _domain_ports.bandit_group_memory().get_group(gid)
 	if group_data.is_empty():
 		return "group_missing"
 
@@ -300,14 +306,14 @@ func _abort_job(gid: String, job: ExtortionJob, reason: String) -> void:
 	_release_job_ai_control(job)
 	if _close_choice_ui.is_valid():
 		_close_choice_ui.call(gid)
-	var group_data: Dictionary = BanditGroupMemory.get_group(gid)
-	BanditGroupMemory.reject_execution_intent(gid, "ExtortionFlow", reason, {
+	var group_data: Dictionary = _domain_ports.bandit_group_memory().get_group(gid)
+	_domain_ports.bandit_group_memory().reject_execution_intent(gid, "ExtortionFlow", reason, {
 		"active_job": true,
 		"current_intent": String(group_data.get("current_group_intent", "idle")),
 	})
 	# Feedback visual según el motivo del abort
 	_show_abort_feedback(job, reason, group_data)
-	Debug.log("extortion", "[EXTORT ABORT] group=%s reason=%s" % [gid, reason])
+	_domain_ports.debug_log("extortion", "[EXTORT ABORT] group=%s reason=%s" % [gid, reason])
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +332,7 @@ func _consume_extortion_queue() -> void:
 			done.append(gid)
 	for gid in done:
 		_active_extortions.erase(gid)
-		Debug.log("extortion", "[EXTORT FLOW] job cleaned group=%s" % gid)
+		_domain_ports.debug_log("extortion", "[EXTORT FLOW] job cleaned group=%s" % gid)
 
 	# Fase taunt
 	if _bubble_manager != null:
@@ -346,7 +352,7 @@ func _consume_extortion_queue() -> void:
 				var phrase: String = TAUNT_PHRASES[randi() % TAUNT_PHRASES.size()]
 				_bubble_manager.show_actor_bubble(enode as Node2D, phrase,
 					BanditTuningScript.extort_taunt_bubble_duration(job.group_id))
-				Debug.log("extortion", "[EXTORT] taunt group=%s speaker=%s" % [gid, eid])
+				_domain_ports.debug_log("extortion", "[EXTORT] taunt group=%s speaker=%s" % [gid, eid])
 				break
 
 	# Fase collect
@@ -369,27 +375,27 @@ func _consume_extortion_queue() -> void:
 				var preview_amount: int = BanditTuningScript.extort_pay_amount(player_gold_pre, gid)
 				var is_minimum: bool    = int(player_gold_pre * 0.2) < 1
 				_show_choice_ui.call(gid, preview_amount, is_minimum, job.extort_reason)
-				Debug.log("extortion", "[EXTORT] collection triggered group=%s speaker=%s" % [gid, eid])
+				_domain_ports.debug_log("extortion", "[EXTORT] collection triggered group=%s speaker=%s" % [gid, eid])
 				break
 
 	if not _active_extortions.is_empty():
 		return
 
 	# Arrancar job nuevo desde la cola
-	for gid in BanditGroupMemory.get_all_group_ids():
+	for gid in _domain_ports.bandit_group_memory().get_all_group_ids():
 		if _active_extortions.has(gid):
 			continue
-		var group_data: Dictionary = BanditGroupMemory.get_group(gid)
+		var group_data: Dictionary = _domain_ports.bandit_group_memory().get_group(gid)
 		if String(group_data.get("current_group_intent", "")) != "extorting":
 			continue
-		var execution_intent: Dictionary = BanditGroupMemory.get_execution_intent(gid)
+		var execution_intent: Dictionary = _domain_ports.bandit_group_memory().get_execution_intent(gid)
 		if execution_intent.is_empty() or String(execution_intent.get("intent", "")) != "extorting":
-			BanditGroupMemory.reject_execution_intent(gid, "ExtortionFlow", "execution_intent_missing_or_mismatch", {
+			_domain_ports.bandit_group_memory().reject_execution_intent(gid, "ExtortionFlow", "execution_intent_missing_or_mismatch", {
 				"expected_intent": "extorting",
 				"current_group_intent": String(group_data.get("current_group_intent", "")),
 			})
 			continue
-		var intents: Array = ExtortionQueue.consume_for_group(gid)
+		var intents: Array = _domain_ports.extortion_queue().consume_for_group(gid)
 		if intents.is_empty():
 			continue
 		var leader_id: String = String(group_data.get("leader_id", ""))
@@ -417,7 +423,7 @@ func _consume_extortion_queue() -> void:
 		for aid in assigned:
 			var anode := _npc_simulator.get_enemy_node(aid)
 			_set_enemy_scripted_control(anode, true)
-		Debug.log("extortion", "[EXTORT FLOW] job started group=%s leader=%s assigned=%d reason=%s" % [
+		_domain_ports.debug_log("extortion", "[EXTORT FLOW] job started group=%s leader=%s assigned=%d reason=%s" % [
 			gid, leader_id, assigned.size(), new_job.extort_reason])
 		break
 
@@ -436,7 +442,7 @@ func _check_retaliation() -> void:
 			if anode == null or not is_instance_valid(anode):
 				continue
 			if "hurt_t" in anode and float(anode.get("hurt_t")) > 0.0:
-				Debug.log("extortion", "[EXTORT] retaliation — bandit hit during job group=%s" % gid)
+				_domain_ports.debug_log("extortion", "[EXTORT] retaliation — bandit hit during job group=%s" % gid)
 				_resolve_extortion_aggro(job)
 				break
 
@@ -454,7 +460,7 @@ func _check_retaliation() -> void:
 			for aid in ids:
 				var anode := _npc_simulator.get_enemy_node(aid)
 				_set_enemy_scripted_control(anode, false)
-			Debug.log("extortion", "[EXTORT] post-pay retaliation — group=%s ai released early" % gid)
+			_domain_ports.debug_log("extortion", "[EXTORT] post-pay retaliation — group=%s ai released early" % gid)
 
 
 # ---------------------------------------------------------------------------
@@ -463,8 +469,8 @@ func _check_retaliation() -> void:
 
 func _resolve_extortion_idle(job: ExtortionJob) -> void:
 	job.mark_resolved()
-	BanditGroupMemory.clear_execution_intent(job.group_id, "extortion_resolved_idle")
-	BanditGroupMemory.update_intent(job.group_id, "idle")
+	_domain_ports.bandit_group_memory().clear_execution_intent(job.group_id, "extortion_resolved_idle")
+	_domain_ports.bandit_group_memory().update_intent(job.group_id, "idle")
 	for aid: String in job.assigned_ids:
 		var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
 		if behavior != null:
@@ -479,12 +485,12 @@ func _resolve_extortion_idle(job: ExtortionJob) -> void:
 			var anode := _npc_simulator.get_enemy_node(aid)
 			_set_enemy_scripted_control(anode, false)
 	)
-	Debug.log("extortion", "[EXTORT] resolved idle — ai re-enable in %.1f s" % reenable_delay)
+	_domain_ports.debug_log("extortion", "[EXTORT] resolved idle — ai re-enable in %.1f s" % reenable_delay)
 
 
 func _resolve_extortion_warn(job: ExtortionJob) -> void:
 	job.mark_warning_strike()
-	Debug.log("extortion", "[EXTORT] warn pending (refuse) — approaching player")
+	_domain_ports.debug_log("extortion", "[EXTORT] warn pending (refuse) — approaching player")
 
 
 func _resolve_extortion_aggro(job: ExtortionJob) -> void:
@@ -492,7 +498,7 @@ func _resolve_extortion_aggro(job: ExtortionJob) -> void:
 		_close_choice_ui.call(job.group_id)
 	job.mark_full_aggro()
 	_release_job_ai_control(job)
-	Debug.log("extortion", "[EXTORT] resolved aggro")
+	_domain_ports.debug_log("extortion", "[EXTORT] resolved aggro")
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +510,7 @@ func _tick_warning_strike(job: ExtortionJob, player_pos: Vector2, friction_compe
 	var speaker := _npc_simulator.get_enemy_node(speaker_id) if speaker_id != "" else null
 	if speaker == null:
 		_abort_job(job.group_id, job, "speaker_missing")
-		Debug.log("extortion", "[EXTORT] warn strike aborted (speaker missing) group=%s" % job.group_id)
+		_domain_ports.debug_log("extortion", "[EXTORT] warn strike aborted (speaker missing) group=%s" % job.group_id)
 		return
 
 	var to_player: Vector2 = player_pos - (speaker as Node2D).global_position
@@ -519,8 +525,8 @@ func _tick_warning_strike(job: ExtortionJob, player_pos: Vector2, friction_compe
 		if speaker.has_method("begin_scripted_melee_action"):
 			speaker.begin_scripted_melee_action(player_pos, reenable_delay)
 		job.mark_resolved()
-		BanditGroupMemory.clear_execution_intent(job.group_id, "extortion_warn_delivered")
-		BanditGroupMemory.update_intent(job.group_id, "idle")
+		_domain_ports.bandit_group_memory().clear_execution_intent(job.group_id, "extortion_warn_delivered")
+		_domain_ports.bandit_group_memory().update_intent(job.group_id, "idle")
 		var ids_warn: Array[String] = job.assigned_ids.duplicate()
 		var gid_warn: String        = job.group_id
 		_post_pay_groups[gid_warn]  = ids_warn
@@ -534,7 +540,7 @@ func _tick_warning_strike(job: ExtortionJob, player_pos: Vector2, friction_compe
 			var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
 			if behavior != null:
 				behavior.force_return_home()
-		Debug.log("extortion", "[EXTORT] warn strike delivered group=%s" % job.group_id)
+		_domain_ports.debug_log("extortion", "[EXTORT] warn strike delivered group=%s" % job.group_id)
 	else:
 		_set_enemy_scripted_control(speaker, true)
 		_drive_enemy_toward_point(speaker, player_pos,
