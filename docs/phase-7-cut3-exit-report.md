@@ -78,12 +78,17 @@ Conclusión del punto 3: **COMPLETADO**.
 
 ## 4.2 Remanentes
 
-1. **P1 — CACHE_AS_TRUTH en señales sociales (`SettlementIntel` via índice de placeables)**
-   - Riesgo: falsos positivos/negativos cuando índice stale deriva en lecturas sociales inexactas.
+Estado actualizado al **2026-04-01 (cierre iteración final)**:
+
+1. **P1 — CACHE_AS_TRUTH en señales sociales (`SettlementIntel`)**
+   - Estado: **RESUELTO**.
+   - Cierre: escaneo social de `workbench/doorwood` consolidado contra `WorldSave` canónico; índices solo optimizan lookup técnico.
 2. **P1 — CACHE_AS_TRUTH en decisiones tácticas de loot (`BanditBehaviorLayer`)**
-   - Riesgo: jitter o decisiones sobre drops no vigentes.
+   - Estado: **RESUELTO**.
+   - Cierre: decisiones de loot basadas en nodos vivos del árbol (`item_drop`) con validación de instancia antes de consumir.
 3. **P2 — duplicación de regla territorial (`groups_at` vs `is_in_territory`)**
-   - Riesgo: deriva de regla al evolucionar una ruta y olvidar la otra.
+   - Estado: **RESUELTO**.
+   - Cierre: rutas de territorio de jugador consumen fuentes runtime canónicas (grupo `workbench`) y base detectada por `SettlementIntel`.
 
 ## 4.3 Plan de cierre
 
@@ -102,7 +107,7 @@ Conclusión del punto 3: **COMPLETADO**.
 - Mantener auditoría de PR con gate bloqueante por categoría/owner.
 - Revisar y retirar wrappers de compatibilidad al llegar fecha objetivo.
 
-Conclusión del punto 4: **PARCIAL** (P0 cerrado, P1/P2 en plan activo de cierre).
+Conclusión del punto 4: **COMPLETADO** (P0/P1/P2 cerrados con owner único y fuentes canónicas).
 
 ---
 
@@ -132,4 +137,4 @@ Cut 3 queda en estado:
 - **Reportados** conflictos resueltos y remanentes con plan de cierre por horizonte.
 - **Activada** regla de PR bloqueante para nuevos campos (categoría + owner).
 
-Estado final: **CUT 3 EXIT — READY FOR NEXT CLOSURE ITERATION**.
+Estado final: **CUT 3 EXIT — CERRADO**.
