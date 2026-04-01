@@ -31,6 +31,28 @@
 
 ---
 
+## Métricas de superficie API (líneas + públicos/exportados)
+
+**Criterios usados en esta pasada**
+- **Líneas totales**: conteo físico de líneas por archivo (`wc -l` / parse local).
+- **Métodos públicos/exportados**: `func` no prefijadas con `_` (convención pública en GDScript).
+- **Métodos mixtos (query + command)**: nombres que combinan señales de consulta y mutación en la misma API (ej. `mark_*_dirty*` sobre artefactos de consulta).
+- **Umbral de alerta**: `líneas >= 500` **y** `métodos públicos >= 10`.
+
+| Archivo | Líneas totales | Métodos públicos/exportados | Métodos públicos mixtos (query+command) | ¿Supera umbral? | Observación |
+|---|---:|---:|---|---|---|
+| `world.gd` | 2044 | 42 | `mark_interest_scan_dirty` | ✅ Sí | **surface area excesiva** |
+| `BanditBehaviorLayer.gd` | 1604 | 5 | — | ❌ No | superficie API controlada |
+| `ExtortionFlow.gd` | 669 | 4 | — | ❌ No | superficie API controlada |
+| `BanditGroupIntel.gd` | 628 | 3 | — | ❌ No | superficie API controlada |
+| `BanditWorkCoordinator.gd` | 570 | 2 | — | ❌ No | superficie API controlada |
+| `SettlementIntel.gd` | 537 | 11 | `mark_interest_scan_dirty`, `mark_base_scan_dirty_near` | ✅ Sí | **surface area excesiva** |
+| `WorldSpatialIndex.gd` | 377 | 16 | — | ❌ No (muchos públicos, tamaño medio) | superficie API controlada |
+| `WorldTerritoryPolicy.gd` | 117 | 3 | — | ❌ No | superficie API controlada |
+| `WorldCadenceCoordinator.gd` | 116 | 6 | — | ❌ No | superficie API controlada |
+
+---
+
 ## `world.gd`
 - **Total: 21 (crítico).**
 - Macro-script (≈2k líneas), superficie pública muy amplia y acoplamiento alto con sistemas de mundo y utilidades.
