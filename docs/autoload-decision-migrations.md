@@ -20,6 +20,12 @@ Fecha: 2026-04-01.
 - **Después:** `BanditGroupIntel` usa `get_last_wall_probe_time` vía puerto y aplica el gating en su política local.
 - **Razón arquitectónica:** la decisión se integra con otros guards del owner (intent actual, pending work, probabilidad, configuración por nivel), evitando reglas de negocio distribuidas en globales.
 
+## 4) `DownedEncounterCoordinator` verdict/loot → `AIComponent` (owner de combate NPC)
+
+- **Antes:** el autoload `DownedEncounterCoordinator` resolvía el veredicto (`SPARE/FINISH`), calculaba chance por hostilidad y ejecutaba el saqueo del player KO.
+- **Después:** `AIComponent` resuelve el veredicto cuando detecta un target downed y persiste el resultado en el coordinador vía `resolve_session(encounter_key, resolution)`.
+- **Razón arquitectónica:** la semántica de combate KO (rematar o no, y consecuencias inmediatas) pertenece al owner de dominio de combate del actor (`AIComponent`). El autoload queda como **infra compartida** de sesión/participantes + acceso controlado (`force_spare_for`, `is_force_spare_active`).
+
 ## Cambios de integración (puertos)
 
 - `world.gd` ahora inyecta `extortion_queue_port` y `raid_queue_port` al setup de `BanditGroupIntel`.

@@ -51,6 +51,14 @@ enum BowState { IDLE, CHARGING, COOLDOWN }
 ## Segundos que el NPC sigue persiguiendo la última posición vista sin contacto visual.
 @export var lost_target_timeout: float = 5.0
 
+@export_group("AI Downed Encounter")
+@export var downed_base_finish_chance: float = 0.30
+@export var downed_min_finish_chance: float = 0.05
+@export var downed_max_finish_chance: float = 0.95
+@export var downed_hostility_finish_bonus_max: float = 0.40
+@export var downed_spare_ignore_seconds: float = 4.0
+@export var downed_spare_safe_radius: float = 180.0
+
 var owner_entity = null  # tipado suelto — acepta EnemyAI o TavernKeeper vía duck typing
 var player: CharacterBody2D = null
 var current_target: CharacterBody2D = null
@@ -513,6 +521,9 @@ func _update_state() -> void:
 			return
 
 		var verdict: int = int(policy.get("verdict", 0))
+		if verdict == DownedEncounterCoordinator.Verdict.NONE:
+			policy = _resolve_downed_encounter_policy(policy, target)
+			verdict = int(policy.get("verdict", 0))
 
 		if verdict == DownedEncounterCoordinator.Verdict.SPARE:
 			if current_state != AIState.DISENGAGE:
@@ -607,6 +618,153 @@ func _update_state() -> void:
 	if (current_state == AIState.ATTACK or current_state == AIState.CHASE) and target != null:
 		if AggroTrackerService != null and AggroTrackerService.has_method("register_engagement"):
 			AggroTrackerService.register_engagement(owner_entity, target)
+
+
+func _resolve_downed_encounter_policy(policy: Dictionary, target: Node) -> Dictionary:
+	if DownedEncounterCoordinator == null:
+		return policy
+	var encounter_key: String = String(policy.get("encounter_key", ""))
+	if encounter_key == "":
+		return policy
+	var faction_id: String = String(policy.get("faction_id", ""))
+	var participants: Array = policy.get("participant_uids", []) as Array
+	var resolution: Dictionary = {
+		"verdict": DownedEncounterCoordinator.Verdict.NONE,
+		"executor_uid": "",
+		"ignore_until": 0.0,
+		"safe_radius": downed_spare_safe_radius,
+		"resolved_at": RunClock.now(),
+	}
+
+	if DownedEncounterCoordinator.is_force_spare_active():
+		resolution["verdict"] = DownedEncounterCoordinator.Verdict.SPARE
+		resolution["ignore_until"] = RunClock.now() + downed_spare_ignore_seconds
+	else:
+		var hostility_modifier: float = float(FactionHostilityManager.get_hostility_level(faction_id)) / 10.0 * downed_hostility_finish_bonus_max
+		var finish_chance: float = clampf(downed_base_finish_chance + hostility_modifier, downed_min_finish_chance, downed_max_finish_chance)
+		if randf() < finish_chance:
+			resolution["verdict"] = DownedEncounterCoordinator.Verdict.FINISH
+			if participants.size() > 0:
+				var idx: int = int(abs(hash(encounter_key))) % participants.size()
+				resolution["executor_uid"] = String(participants[idx])
+		else:
+			resolution["verdict"] = DownedEncounterCoordinator.Verdict.SPARE
+			resolution["ignore_until"] = RunClock.now() + downed_spare_ignore_seconds
+			_try_loot_downed_target(target, faction_id, participants)
+
+	DownedEncounterCoordinator.resolve_session(encounter_key, resolution)
+	var patched := policy.duplicate(true)
+	patched["verdict"] = resolution["verdict"]
+	patched["executor_uid"] = resolution["executor_uid"]
+	patched["ignore_until"] = resolution["ignore_until"]
+	patched["safe_radius"] = resolution["safe_radius"]
+	return patched
+
+
+func _try_loot_downed_target(target: Node, faction_id: String, participants: Array) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
+	var inv: InventoryComponent = target.get_node_or_null("InventoryComponent") as InventoryComponent
+	if inv == null:
+		return
+	var level: int = profile.hostility_level
+	var target_pos: Vector2 = (target as Node2D).global_position
+	if level >= 4 and inv.gold > 0:
+		var gold_pct: float = 0.70
+		match level:
+			4: gold_pct = 0.10
+			5: gold_pct = 0.20
+			6: gold_pct = 0.30
+			7: gold_pct = 0.40
+			8: gold_pct = 0.50
+		var gold_stolen: int = mini(maxi(1, int(float(inv.gold) * gold_pct)), inv.gold)
+		inv.spend_gold(gold_stolen)
+		var faction_data: FactionHostilityData = FactionHostilityManager.get_faction_state(faction_id)
+		faction_data.band_wealth += float(gold_stolen)
+	if not profile.can_loot_player:
+		return
+	var steal_all: bool = level >= 9
+	var max_steal: int = inv.max_slots
+	match level:
+		6: max_steal = 1
+		7: max_steal = 2
+		8: max_steal = 3
+	var stolen: Array[Dictionary] = []
+	for i in range(inv.max_slots):
+		if not steal_all and stolen.size() >= max_steal:
+			break
+		var s: Variant = inv.slots[i]
+		if s == null:
+			continue
+		var slot: Dictionary = s as Dictionary
+		var item_id: String = String(slot.get("id", ""))
+		var count: int = int(slot.get("count", 0))
+		if item_id == "" or count <= 0:
+			continue
+		inv.remove_item(item_id, count)
+		stolen.append({"id": item_id, "count": count})
+	if stolen.is_empty():
+		return
+	var world_node: Node = get_tree().current_scene
+	if world_node == null:
+		return
+	var looters: Array[Node2D] = _find_enemies_by_uids_sorted(participants, target_pos)
+	if looters.is_empty():
+		return
+	var anchor: Vector2 = _find_faction_container_pos(faction_id, looters[0].global_position)
+	for i in range(stolen.size()):
+		var item: Dictionary = stolen[i]
+		var drop_node: Node = LootSystem.spawn_drop(null, item["id"], item["count"], target_pos, world_node, {"drop_scene": ContainerPlaceable.ITEM_DROP_SCENE})
+		if drop_node == null:
+			continue
+		var looter: Node2D = looters[i % looters.size()]
+		var carry: CarryComponent = looter.get_node_or_null("CarryComponent") as CarryComponent
+		if carry == null:
+			continue
+		var delay: float = 0.1 + i * 0.05
+		var cap_carry := carry
+		var cap_drop := drop_node as Node2D
+		var cap_looter := looter
+		get_tree().create_timer(delay).timeout.connect(func() -> void:
+			if not is_instance_valid(cap_carry) or not is_instance_valid(cap_drop):
+				return
+			if not cap_carry.try_pickup(cap_drop):
+				return
+			var ai: AIComponent = cap_looter.get_node_or_null("AIComponent") as AIComponent
+			if ai != null:
+				ai.begin_carry_return(anchor)
+		)
+
+
+func _find_enemies_by_uids_sorted(uids: Array, origin: Vector2) -> Array[Node2D]:
+	var result: Array[Node2D] = []
+	for e in EnemyRegistry.get_live_enemies():
+		if not is_instance_valid(e) or not "entity_uid" in e:
+			continue
+		if not uids.has(String(e.get("entity_uid"))):
+			continue
+		result.append(e)
+	result.sort_custom(func(a: Node2D, b: Node2D) -> bool:
+		return origin.distance_squared_to(a.global_position) < origin.distance_squared_to(b.global_position)
+	)
+	return result
+
+
+func _find_faction_container_pos(faction_id: String, from_pos: Vector2) -> Vector2:
+	var best_pos: Vector2 = from_pos + Vector2(300.0, 0.0)
+	var best_dist: float = INF
+	for node in get_tree().get_nodes_in_group("chest"):
+		if not (node is ContainerPlaceable):
+			continue
+		var chest := node as ContainerPlaceable
+		if chest.faction_owner_id != faction_id:
+			continue
+		var dist: float = from_pos.distance_to(chest.global_position)
+		if dist < best_dist:
+			best_dist = dist
+			best_pos = chest.global_position
+	return best_pos
 
 ## Llamar desde el enemy cuando el player le pegó directamente.
 ## Activa autodefensa: el enemy puede perseguir aunque el perfil de facción no lo permita.
