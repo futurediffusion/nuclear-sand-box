@@ -79,6 +79,14 @@ Un PR queda en estado **No Ready / Rechazado** cuando ocurre cualquiera de estos
 
 ---
 
+
+## 7) Segunda ruta de decisión para assault/combat/hostility
+
+- **Severidad:** `bloqueante`
+- **Por qué es peligroso:** duplica autoridad de decisión, provoca drift entre policies y rompe la trazabilidad del owner canónico.
+- **Señal de detección:** se introduce una ruta paralela de decisión (if/heurística/pipeline alterno) para assault/combat/hostility fuera del owner canónico.
+- **Alternativa correcta:** extender el owner único existente (policy/service) y mantener consumidores en modo ejecución, no re-decisión.
+
 ## Checklist de revisión (uso obligatorio)
 
 - [ ] No se introducen olores **bloqueantes** de esta blacklist.

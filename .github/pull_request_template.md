@@ -1,3 +1,17 @@
+## Gate obligatorio — Copy/Paste requerido
+Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI.
+
+- Respuesta timer local injustificado: No
+- Evidencia timer local injustificado:
+- Respuesta decisión duplicada (assault/combat/hostility): No
+- Evidencia decisión duplicada (assault/combat/hostility):
+- Respuesta debug mutando estado: No
+- Evidencia debug mutando estado:
+- Justificación explícita si NO se usa Cadence en gameplay:
+- Registro de excepción temporal (si aplica):
+- Fecha de retiro obligatoria (YYYY-MM-DD):
+- Criterio de done (sin nueva deuda del mismo tipo): Sí
+
 ## Resumen
 - Describe brevemente el cambio y su impacto.
 

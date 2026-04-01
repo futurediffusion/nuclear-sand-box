@@ -10,6 +10,7 @@
 - No se acepta excepción sin fecha de retiro obligatoria (`YYYY-MM-DD`).
 - No se acepta excepción sin owner/responsable explícito de retiro.
 - El merge queda bloqueado para cualquier “Sí” sin justificación aprobada y sin fila en este registro.
+- Criterio de done obligatorio: no entra nueva deuda del tipo corregido en el PR; si entra, el PR queda en **No Ready**.
 
 ## Excepciones activas
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Estado |
