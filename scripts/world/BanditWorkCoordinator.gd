@@ -22,12 +22,18 @@ var _world_spatial_index: WorldSpatialIndex = null
 var _raid_attack_next_at: Dictionary = {}  # member_id -> RunClock.now()
 var _raid_loot_next_at: Dictionary = {}  # member_id -> RunClock.now()
 var _raid_breach_resolved_at: Dictionary = {}  # member_id -> RunClock.now() when breach attack succeeded
-var _raid_stage_by_member: Dictionary = {}  # member_id -> "breach"|"loot"|"closed"
+var _raid_stage_by_member: Dictionary = {}  # member_id -> "engage"|"breach"|"loot"|"retreat"|"closed"
+var _raid_run_result_by_member: Dictionary = {}  # member_id -> "success"|"abort"|"retreat"
 
+const RAID_STAGE_ENGAGE: String = "engage"
 const RAID_STAGE_BREACH: String = "breach"
 const RAID_STAGE_LOOT: String = "loot"
-const RAID_STAGE_RETURN: String = "return"
+const RAID_STAGE_RETREAT: String = "retreat"
 const RAID_STAGE_CLOSED: String = "closed"
+
+const RAID_RESULT_SUCCESS: String = "success"
+const RAID_RESULT_ABORT: String = "abort"
+const RAID_RESULT_RETREAT: String = "retreat"
 
 
 func setup(ctx: Dictionary) -> void:
@@ -75,6 +81,7 @@ func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
 	_raid_loot_next_at.erase(beh.member_id)
 	_raid_breach_resolved_at.erase(beh.member_id)
 	_raid_stage_by_member.erase(beh.member_id)
+	_raid_run_result_by_member.erase(beh.member_id)
 
 
 func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node, combat_state: Dictionary) -> void:
@@ -170,13 +177,20 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 	var now: float = float(command.get("now", RunClock.now()))
 	var member_id: String = beh.member_id
 	if not _raid_stage_by_member.has(member_id):
-		_raid_stage_by_member[member_id] = RAID_STAGE_BREACH
-	var stage: String = String(_raid_stage_by_member.get(member_id, RAID_STAGE_BREACH))
+		_raid_stage_by_member[member_id] = RAID_STAGE_ENGAGE
+		_raid_run_result_by_member[member_id] = ""
+	var stage: String = String(_raid_stage_by_member.get(member_id, RAID_STAGE_ENGAGE))
 
 	if stage == RAID_STAGE_CLOSED:
-		return {"allow": false, "reason": "stage_closed", "stage": RAID_STAGE_CLOSED}
-	if stage == RAID_STAGE_RETURN:
-		return _handle_raid_return_stage(beh, member_id, now)
+		return {"allow": false, "reason": "stage_closed", "stage": RAID_STAGE_CLOSED, "result": String(_raid_run_result_by_member.get(member_id, RAID_RESULT_ABORT))}
+	if not has_raid_context:
+		return _enter_retreat_or_abort(beh, member_id, now, "raid_context_lost")
+	if stage == RAID_STAGE_RETREAT:
+		return _handle_raid_retreat_stage(beh, member_id, now)
+	if stage == RAID_STAGE_ENGAGE:
+		if not _transition_raid_stage(member_id, RAID_STAGE_ENGAGE, RAID_STAGE_BREACH):
+			return _close_raid_run(member_id, RAID_RESULT_ABORT, "invalid_transition_engage", now)
+		return {"allow": false, "reason": "engage_confirmed", "stage": RAID_STAGE_BREACH}
 	if stage == RAID_STAGE_LOOT:
 		return _handle_raid_loot_stage(beh, enemy_node, member_id, now, attack_anchor, enemy_pos)
 	if now < float(_raid_attack_next_at.get(member_id, 0.0)):
@@ -201,7 +215,7 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 	var target: Dictionary = directive
 	var target_pos: Vector2 = target.get("pos", INVALID_TARGET) as Vector2
 	if not _is_valid_target(target_pos):
-		return {"allow": false, "reason": "invalid_target"}
+		return _close_raid_run(member_id, RAID_RESULT_ABORT, "invalid_target", now)
 	var attacked: bool = false
 	var target_kind: String = String(target.get("kind", ""))
 	if target_kind == "placeable":
@@ -216,14 +230,15 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 		attacked = _try_wall_slash_strike(enemy_node, target_pos)
 
 	if not attacked:
-		return {"allow": false, "reason": "attack_failed"}
+		return _close_raid_run(member_id, RAID_RESULT_ABORT, "attack_failed", now)
 
 	if target_kind != "wall":
 		if enemy_node.has_method("queue_ai_attack_press"):
 			enemy_node.call("queue_ai_attack_press", target_pos)
 	_raid_attack_next_at[member_id] = float(target.get("next_attack_at", now + RAID_ATTACK_COOLDOWN))
 	_raid_breach_resolved_at[member_id] = now
-	_raid_stage_by_member[member_id] = RAID_STAGE_LOOT
+	if not _transition_raid_stage(member_id, RAID_STAGE_BREACH, RAID_STAGE_LOOT):
+		return _close_raid_run(member_id, RAID_RESULT_ABORT, "invalid_transition_breach", now)
 	Debug.log("raid", "[BWC] structure hit npc=%s group=%s kind=%s pos=%s" % [
 		beh.member_id, beh.group_id, target_kind, str(target_pos)
 	])
@@ -257,30 +272,83 @@ func _handle_raid_loot_stage(beh: BanditWorldBehavior, enemy_node: Node, member_
 	var looted: bool = _try_loot_nearby_container(beh, enemy_node, attack_anchor, enemy_pos)
 	_raid_loot_next_at[member_id] = now + RAID_LOOT_COOLDOWN
 	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
-	_raid_stage_by_member[member_id] = RAID_STAGE_RETURN
+	_raid_run_result_by_member[member_id] = RAID_RESULT_SUCCESS
+	if not _transition_raid_stage(member_id, RAID_STAGE_LOOT, RAID_STAGE_RETREAT):
+		return _close_raid_run(member_id, RAID_RESULT_ABORT, "invalid_transition_loot", now)
 	if looted:
 		return {
 			"allow": true,
 			"reason": "container_looted",
-			"stage": RAID_STAGE_RETURN,
+			"stage": RAID_STAGE_RETREAT,
+			"result": RAID_RESULT_SUCCESS,
 		}
 	return {
 		"allow": true,
 		"reason": "loot_empty_or_unavailable",
-		"stage": RAID_STAGE_RETURN,
+		"stage": RAID_STAGE_RETREAT,
+		"result": RAID_RESULT_SUCCESS,
 	}
 
 
-func _handle_raid_return_stage(beh: BanditWorldBehavior, member_id: String, now: float) -> Dictionary:
+func _handle_raid_retreat_stage(beh: BanditWorldBehavior, member_id: String, now: float) -> Dictionary:
 	if beh.has_method("force_return_home"):
 		beh.call("force_return_home")
-	_raid_stage_by_member[member_id] = RAID_STAGE_CLOSED
+	var result: String = String(_raid_run_result_by_member.get(member_id, RAID_RESULT_RETREAT))
+	if result == "":
+		result = RAID_RESULT_RETREAT
+	return _close_raid_run(member_id, result, "return_home", now)
+
+
+func _enter_retreat_or_abort(beh: BanditWorldBehavior, member_id: String, now: float, reason: String) -> Dictionary:
+	var stage: String = String(_raid_stage_by_member.get(member_id, RAID_STAGE_ENGAGE))
+	if stage == RAID_STAGE_CLOSED:
+		return _close_raid_run(member_id, RAID_RESULT_ABORT, reason, now)
+	if stage == RAID_STAGE_RETREAT:
+		return _handle_raid_retreat_stage(beh, member_id, now)
+	_raid_run_result_by_member[member_id] = RAID_RESULT_RETREAT
+	if not _transition_raid_stage(member_id, stage, RAID_STAGE_RETREAT):
+		return _close_raid_run(member_id, RAID_RESULT_ABORT, "invalid_transition_retreat", now)
+	return _handle_raid_retreat_stage(beh, member_id, now)
+
+
+func _transition_raid_stage(member_id: String, from_stage: String, to_stage: String) -> bool:
+	var current: String = String(_raid_stage_by_member.get(member_id, RAID_STAGE_ENGAGE))
+	if current != from_stage:
+		return false
+	match from_stage:
+		RAID_STAGE_ENGAGE:
+			if to_stage != RAID_STAGE_BREACH:
+				return false
+		RAID_STAGE_BREACH:
+			if to_stage != RAID_STAGE_LOOT and to_stage != RAID_STAGE_RETREAT:
+				return false
+		RAID_STAGE_LOOT:
+			if to_stage != RAID_STAGE_RETREAT:
+				return false
+		RAID_STAGE_RETREAT:
+			if to_stage != RAID_STAGE_CLOSED:
+				return false
+		_:
+			return false
+	_raid_stage_by_member[member_id] = to_stage
+	return true
+
+
+func _close_raid_run(member_id: String, result: String, reason: String, now: float) -> Dictionary:
+	var stage: String = String(_raid_stage_by_member.get(member_id, RAID_STAGE_ENGAGE))
+	if stage != RAID_STAGE_CLOSED:
+		if stage == RAID_STAGE_RETREAT:
+			_transition_raid_stage(member_id, RAID_STAGE_RETREAT, RAID_STAGE_CLOSED)
+		else:
+			_raid_stage_by_member[member_id] = RAID_STAGE_CLOSED
+	_raid_run_result_by_member[member_id] = result
 	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
 	return {
-		"allow": true,
-		"reason": "return_home",
+		"allow": result != RAID_RESULT_ABORT,
+		"reason": reason,
 		"stage": RAID_STAGE_CLOSED,
 		"stage_closed": true,
+		"result": result,
 	}
 
 
