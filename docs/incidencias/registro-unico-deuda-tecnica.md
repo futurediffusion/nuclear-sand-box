@@ -7,7 +7,8 @@
 - Registrar aquí cualquier excepción temporal aprobada vinculada a un PR.
 - No se acepta excepción sin categoría permitida `LOCAL_TIMER_BY_DESIGN` cuando aplique a timer local.
 - No se acepta excepción sin fecha de revisión (`YYYY-MM-DD`).
-- No se acepta excepción sin fecha de retiro (`YYYY-MM-DD`).
+- No se acepta excepción sin fecha de retiro obligatoria (`YYYY-MM-DD`).
+- No se acepta excepción sin owner/responsable explícito de retiro.
 - El merge queda bloqueado para cualquier “Sí” sin justificación aprobada y sin fila en este registro.
 
 ## Excepciones activas
@@ -28,3 +29,9 @@
 - Responsable: owner registrado en cada excepción activa.
 - Resultado esperado por revisión: `seguir`, `retirar ahora` o `escalar` (si la fecha de retiro fue superada).
 - Regla: una excepción activa sin revisión semanal actualizada se considera incumplimiento del gate de PR.
+
+### Log de revisiones semanales
+
+| Fecha revisión | Excepción (ID) | Decisión (`seguir`/`retirar ahora`/`escalar`) | Acciones | Próxima revisión | Responsable |
+|---|---|---|---|---|---|
+| _Pendiente_ |  |  |  |  |  |
