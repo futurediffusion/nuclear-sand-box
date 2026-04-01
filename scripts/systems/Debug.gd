@@ -6,6 +6,7 @@ const BOOT_TRACE := true
 @export var enabled := BOOT_TRACE
 @export var safe_mode := true
 @export var dev_cheats_enabled := OS.is_debug_build()
+@export var tooling_channel_enabled := false
 @export var ghost_mode: bool = false   # /inv — player invisible a enemigos y sin daño
 @export var disable_vfx_pooling := false
 @export var disable_wall_occlusion := false

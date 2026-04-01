@@ -17,6 +17,7 @@ const SUGGESTION_PANEL_MAX_W  := 380.0
 
 ## Árbol de autocompletado. Valor vacío = sin subcomandos conocidos.
 const COMMAND_COMPLETIONS: Dictionary = {
+	"tool":            [],
 	"give":            [],
 	"gv":              [],
 	"dog":             [],
@@ -162,9 +163,9 @@ func _setup_command_bar() -> void:
 	_command_input.offset_right  = -8.0
 	_command_input.offset_bottom = -4.0
 	if Debug.dev_cheats_enabled:
-		_command_input.placeholder_text = "/give <item_id> <n>  |  /gv <alias>  |  /dog <n>  |  /sellall <id> <p>  |  /buydbg <id> <n> <p>"
+		_command_input.placeholder_text = "/give <item_id> <n>  |  /gv <alias>  |  /dog <n>  |  /tool <cmd> (diagnóstico)"
 	else:
-		_command_input.placeholder_text = "/give <item_id> <n>  |  /gv <alias|item_id>  |  /gv list  |  /dog <n>  |  /summon enemy [n] [ox] [oy]"
+		_command_input.placeholder_text = "/give <item_id> <n>  |  /gv <alias|item_id>  |  /gv list  |  /dog <n>"
 	_command_input.clear_button_enabled = true
 	_command_input.text_submitted.connect(_on_command_submitted)
 	_command_input.gui_input.connect(_on_command_gui_input)
@@ -429,13 +430,27 @@ func _execute_command(command_text: String) -> void:
 		return
 
 	var base_command := String(parts[0]).to_lower()
+	var in_tooling_channel: bool = false
+	if base_command == "tool":
+		in_tooling_channel = true
+		if parts.size() < 2:
+			Debug.log("commands", "Uso: /tool <comando diagnostico>")
+			return
+		base_command = String(parts[1]).to_lower()
+		parts = parts.slice(1)
 
 	match base_command:
 		"inv":
+			if not _require_tooling_channel(base_command, in_tooling_channel):
+				return
 			_cmd_toggle_ghost_mode()
 		"spawn":
+			if not _require_tooling_channel(base_command, in_tooling_channel):
+				return
 			_cmd_spawn()
 		"spawn_workbench":
+			if not _require_tooling_channel(base_command, in_tooling_channel):
+				return
 			_cmd_spawn_workbench()
 		"give":
 			_cmd_give(parts.slice(1))
@@ -444,6 +459,8 @@ func _execute_command(command_text: String) -> void:
 		"dog":
 			_cmd_give_gold(parts.slice(1))
 		"summon":
+			if not _require_tooling_channel(base_command, in_tooling_channel):
+				return
 			if parts.size() >= 2 and String(parts[1]).to_lower() == "enemy":
 				_cmd_summon_enemy(parts.slice(2))
 			elif parts.size() >= 2 and String(parts[1]).to_lower() == "sentinel":
@@ -451,8 +468,12 @@ func _execute_command(command_text: String) -> void:
 			else:
 				Debug.log("commands", "Uso: /summon enemy [n] [ox] [oy]  |  /summon sentinel")
 		"sentinel":
+			if not _require_tooling_channel(base_command, in_tooling_channel):
+				return
 			_cmd_sentinel(parts.slice(1))
 		"gotocamp", "camp":
+			if not _require_tooling_channel(base_command, in_tooling_channel):
+				return
 			_cmd_goto_camp()
 		"sellall":
 			if not Debug.dev_cheats_enabled:
@@ -488,6 +509,15 @@ func _execute_command(command_text: String) -> void:
 				_cmd_give(["copper", "3"])
 		_:
 			Debug.log("commands", "Comando desconocido: %s" % base_command)
+
+func _require_tooling_channel(base_command: String, in_tooling_channel: bool) -> bool:
+	if not in_tooling_channel:
+		Debug.log("commands", "Comando '%s' restringido. Usa /tool %s ..." % [base_command, base_command])
+		return false
+	if not Debug.tooling_channel_enabled:
+		Debug.log("commands", "Canal tooling deshabilitado (Debug.tooling_channel_enabled=false)")
+		return false
+	return true
 
 func _try_execute_shortcut_without_prefix(command_text: String) -> bool:
 	var parts := command_text.split(" ", false)
