@@ -18,18 +18,26 @@ Racional de permanencia:
 - Mantener un umbral estable de calidad arquitectónica en todos los PR nuevos.
 - Forzar decisiones explícitas (mitigación o excepción temporal) cuando aparezcan riesgos reales.
 
-## Regla de severidad y gate de rechazo
+## Reglas de bloqueo por tipo de violación
 
-- **bloqueante:** el PR se rechaza hasta corregir el olor o registrar excepción temporal aprobada con plan de retiro y fecha.
-- **advertencia:** el PR puede continuar solo con plan de mitigación explícito y ticket de seguimiento.
+Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`No Ready` / `Ready`).
 
-### Criterio de rechazo del PR
+| Tipo de violación | Severidad | Resultado de gate sin excepción aprobada |
+|---|---|---|
+| Timer local injustificado | Bloqueante | `No Ready` |
+| Lógica global nueva en autoload | Bloqueante | `No Ready` |
+| Duplicación de heurística crítica | Bloqueante | `No Ready` |
+| Segunda ruta de decisión assault/combat/hostility | Bloqueante | `No Ready` |
+| Debug mutando estado real | Bloqueante | `No Ready` |
+| Fallback temporal sin fecha de retiro | Bloqueante | `No Ready` |
+| Criterio de done Sprint 1 en `No` (reingreso de patrón corregido) | Bloqueante | `No Ready` |
 
-Un PR queda en estado **No Ready / Rechazado** cuando ocurre cualquiera de estos casos:
+### Reglas transversales obligatorias
 
-1. Introduce al menos un olor marcado como **bloqueante**.
-2. Introduce un olor de **advertencia** sin plan de mitigación y sin ticket.
-3. Introduce cualquier fallback permanente sin plan de retiro (se trata como bloqueante).
+1. **Owner de decisión**: todo cambio nuevo debe declarar owner canónico de la decisión afectada.
+2. **Categoría de verdad**: todo dato/campo nuevo debe declarar una única categoría (`runtime`, `save`, `derived`, `cache`).
+3. **Fallback temporal**: toda excepción temporal exige fecha de retiro (`YYYY-MM-DD`) desde el primer PR.
+4. **No reingreso Sprint 1**: los patrones ya corregidos en Sprint 1 no pueden reingresar; si reaparecen, el PR se bloquea.
 
 ---
 
@@ -92,6 +100,8 @@ Un PR queda en estado **No Ready / Rechazado** cuando ocurre cualquiera de estos
 - [ ] No se introducen olores **bloqueantes** de esta blacklist.
 - [ ] Si hubo **advertencias**, existe plan de mitigación + ticket.
 - [ ] Todo fallback nuevo incluye owner, fecha límite y criterio de retiro.
+- [ ] Todo cambio nuevo declara owner de decisión y categoría de verdad cuando aplica.
+- [ ] Ningún patrón ya corregido en Sprint 1 reingresa en el PR.
 
 ## Referencias normativas
 
