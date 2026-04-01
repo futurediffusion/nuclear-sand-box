@@ -174,7 +174,9 @@ var _cadence:        WorldCadenceCoordinator  = null
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _behavior_elapsed: Dictionary = {}
 var _tick_timer: float     = BanditTuningScript.behavior_tick_interval() * 0.35
-var _director_fallback_timer: float = 0.08
+var _consume_director_pulses_cb: Callable = Callable()
+var _director_adapter_timer: float = 0.08
+var _warned_missing_director_scheduler: bool = false
 
 var _extortion_director: BanditExtortionDirector = null
 var _raid_director:      BanditRaidDirector      = null
@@ -216,8 +218,11 @@ func setup(ctx: Dictionary) -> void:
 		_domain_ports.setup()
 	# Temporal governance boundary:
 	# world cadence drives cross-system directors so extortion/raid orchestration
-	# shares the same world pulse grid as chunk/autosave maintenance. This layer
-	# keeps only a tiny fallback timer for scenes/tests that do not inject cadence.
+	# shares the same world pulse grid as chunk/autosave maintenance.
+	# Temporary adapter: optional callback for scenes/tests that do not inject cadence.
+	_consume_director_pulses_cb = ctx.get("consume_director_pulses_cb", Callable())
+	if _cadence == null and not _consume_director_pulses_cb.is_valid():
+		_consume_director_pulses_cb = Callable(self, "_consume_director_pulses_local_adapter")
 
 	# Extortion director
 	if _extortion_director != null and is_instance_valid(_extortion_director):
@@ -279,6 +284,7 @@ func setup_group_intel(ctx: Dictionary) -> void:
 	_group_intel.setup({
 		"npc_simulator":             _npc_simulator,
 		"player":                    _player,
+		"cadence":                   _cadence,
 		"get_interest_markers_near": ctx.get("get_interest_markers_near", Callable()),
 		"get_detected_bases_near":   ctx.get("get_detected_bases_near",   Callable()),
 		"extortion_queue_port":      ctx.get("extortion_queue_port", {}),
@@ -393,12 +399,14 @@ func _process(delta: float) -> void:
 		_prune_structure_target_caches()
 	if _group_intel != null:
 		_group_intel.tick(delta)
-	var director_pulses: int = _cadence.consume_lane(&"director_pulse") if _cadence != null else 0
-	if _cadence == null:
-		_director_fallback_timer += delta
-		if _director_fallback_timer >= 0.12:
-			_director_fallback_timer -= 0.12
-			director_pulses = 1
+	var director_pulses: int = 0
+	if _cadence != null:
+		director_pulses = _cadence.consume_lane(&"director_pulse")
+	elif _consume_director_pulses_cb.is_valid():
+		director_pulses = maxi(0, int(_consume_director_pulses_cb.call()))
+	elif not _warned_missing_director_scheduler:
+		_warned_missing_director_scheduler = true
+		push_warning("BanditBehaviorLayer has no cadence or director pulse adapter; directors are paused until a scheduler is injected.")
 	for _pulse in director_pulses:
 		if _extortion_director != null:
 			_extortion_director.process_extortion(0.12)
@@ -414,6 +422,14 @@ func _process(delta: float) -> void:
 	_stash.ensure_barrels()
 	_tick_behaviors()
 	_prune_behaviors()
+
+
+func _consume_director_pulses_local_adapter() -> int:
+	_director_adapter_timer += get_process_delta_time()
+	if _director_adapter_timer < 0.12:
+		return 0
+	_director_adapter_timer -= 0.12
+	return 1
 
 
 # ---------------------------------------------------------------------------

@@ -13,9 +13,9 @@ Fecha de corte: 2026-04-01.
 |---|---|---|---|---|---|---|
 | 1 | `scripts/world/world.gd::_ready` + `WorldCadenceCoordinator.configure_lane` | Define lanes globales (`short_pulse`, `medium_pulse`, `director_pulse`, `chunk_pulse`, `autosave`, scans de settlement). | 0.12s, 0.50s, `chunk_check_interval`, `autosave_interval`, 10s/30s por lane. | Orquestación central de mundo (chunks, raids/extorsión vía director, territorio, persistencia). | `MANTENER_LOCAL_BY_DESIGN` | **P0 (base)** |
 | 2 | `scripts/world/world.gd::_process` (`consume_lane`) | Consume pulsos y ejecuta territorio, wall refresh, autosave y chunk update gating. | Por frame + pulsos due de Cadence. | Alto: afecta simulación de mundo + persistencia. | `MANTENER_LOCAL_BY_DESIGN` | **P0** |
-| 3 | `scripts/world/BanditBehaviorLayer.gd::_process` (`director_pulse` fallback local 0.12s) | Corre directors de extorsión/raid por Cadence, pero con timer fallback cuando no hay Cadence inyectado. | Cadence `director_pulse` o fallback cada 0.12s. | **Combate/hostilidad/raids** directos. | `MIGRAR_A_CADENCE` (el fallback) | **P0** |
+| 3 | `scripts/world/BanditBehaviorLayer.gd::_process` (`director_pulse`) | Corre directors de extorsión/raid con lane de Cadence; fallback reemplazado por adaptador temporal explícito (`consume_director_pulses_cb`). | Cadence `director_pulse` (0.12s). Adapter solo para bootstrap/tests sin world completo. | **Combate/hostilidad/raids** directos. | `MIGRADO_A_CADENCE` | **P0** |
 | 4 | `scripts/world/BanditBehaviorLayer.gd::_tick_timer` + `BanditTuning.behavior_tick_interval` | Tick de behaviors de bandidos (scan drops/recursos, intents de ejecución, movement intents). | 0.5s base, con sub-intervalos por NPC vía LOD interno. | **Combate/pathing/hostilidad** (NPC runtime principal). | `DUDOSO_REVISAR` | **P0** |
-| 5 | `scripts/world/BanditGroupIntel.gd::tick` (`_scan_timer`, `_scan_accumulator_by_group`) | Escaneo social por grupo y disparo de extorsión/raids/probes con cooldowns. | Base 8.0s (`GROUP_SCAN_INTERVAL`), dividido en slices (`GROUP_SCAN_SLICE_COUNT`). | **Hostilidad + raids** (decisión de intents). | `MIGRAR_A_CADENCE` | **P0** |
+| 5 | `scripts/world/BanditGroupIntel.gd::tick` (`bandit_group_scan_slice` + `_scan_accumulator_by_group`) | Escaneo social por grupo y disparo de extorsión/raids/probes con cooldowns. | Lane `bandit_group_scan_slice` (8.0 / `GROUP_SCAN_SLICE_COUNT`) + fallback local temporal si no hay Cadence inyectado. | **Hostilidad + raids** (decisión de intents). | `MIGRADO_A_CADENCE` (adapter temporal) | **P0** |
 | 6 | `scripts/world/RaidFlow.gd::_tick_jobs` (`wall_assault_next_at`) | Ciclo de jobs de raid y dispatch periódico contra walls/placeables. | Ventanas 2.5s (wall probe) / 6.0s (wall assault) + jitter por grupo. | **Raids + combate estructural**. | `MIGRAR_A_CADENCE` | **P0** |
 | 7 | `scripts/world/ExtortionFlow.gd::_tick_scheduled_callbacks` / `_schedule_callback` | Scheduler local de callbacks diferidos (reenable de AI, secuencias del job). | Countdown por `delta`; delays variables por evento. | **Hostilidad + combate** (warning strike/retaliation). | `MIGRAR_A_CADENCE` | **P0** |
 | 8 | `scripts/world/NpcPathService.gd::get_next_waypoint` | Repath interval cacheado por agente. | Default 1.5s, chase override 0.5s. | **Pathing** y respuesta de persecución. | `DUDOSO_REVISAR` | **P0** |
@@ -72,3 +72,19 @@ Fecha de corte: 2026-04-01.
 6. **Documentación y etiquetado de excepciones locales (P2/P3)**  
    - Añadir/normalizar `LOCAL_TIMER_BY_DESIGN` en timers visuales y limpieza efímera.  
    - Riesgo actual: deuda de governance, no de gameplay autoritativo.
+
+## Migraciones ejecutadas (corte 2026-04-01)
+
+### A) `BanditBehaviorLayer` directors (`director_pulse`)
+- **Antes:** doble scheduling para directors (Cadence + fallback local de 0.12s dentro de `_process`).
+- **Después:** consumo único desde `WorldCadenceCoordinator` (`director_pulse`); fallback local eliminado.
+- **Adaptador temporal:** `consume_director_pulses_cb` opcional para bootstrap/tests sin world wiring completo.
+- **Motivo:** quitar dual-path temporal en flujo de extorsión/raid y evitar drift entre escenas.
+- **Riesgos mitigados:** disparos duplicados/desfasados de directors, divergencia entre runtime de producción y harness de pruebas.
+
+### B) `BanditGroupIntel` social scan slices
+- **Antes:** timer local `_scan_timer` gobernaba el “cuándo” del scan por slices.
+- **Después:** lane dedicada `bandit_group_scan_slice` en Cadence gobierna el pulso global del scanner.
+- **Adaptador temporal:** si no hay Cadence inyectado, mantiene fallback local acotado para no romper escenas/harness legacy.
+- **Motivo:** centralizar ownership temporal del scanner social de alto impacto (intents de raid/extorsión).
+- **Riesgos mitigados:** competencia de relojes paralelos, cadence inconsistente al pausar/reanudar mundo, variación difícil de testear.
