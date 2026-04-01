@@ -100,3 +100,19 @@ Ante duda de clasificación, responder en orden:
 2. ¿Este dato define el estado restaurable del mundo? → `Save Truth`.
 3. ¿Este dato es una proyección derivada para consulta? → `Derived Index`.
 4. ¿Este dato existe solo para acelerar acceso/cálculo? → `Cache`.
+
+---
+
+## Registro de resoluciones — Phase 7 / Cut 3
+
+### WR-001 — Hostilidad de facción (DOUBLE_TRUTH)
+- **Fecha:** 2026-04-01
+- **Conflicto:** `FactionHostilityManager` y `FactionRelationService` mantenían score de hostilidad en paralelo.
+- **Owner único por dato semántico:** `FactionHostilityManager`.
+- **Decisión:** retirar estado espejo de `FactionRelationService` y convertirlo en capa de compatibilidad read-only + relay de eventos.
+- **Alcance técnico:**
+  - `FactionRelationService.get_hostility_score()` ahora lee desde `FactionHostilityManager.get_hostility_points()`.
+  - Se elimina `_faction_hostilities` (espejo frágil).
+  - `FactionRelationService` reemite cambios vía `hostility_score_changed` conectado a `FactionHostilityManager.hostility_changed`.
+- **Compatibilidad temporal:** wrapper mantenido hasta **2026-06-30** para no romper consumidores legacy.
+- **Salida esperada:** toda escritura semántica de hostilidad queda centralizada en owner canónico; secundarios solo leen/observan eventos.

@@ -17,7 +17,7 @@ Inventariar entidades/estado clave del mundo y señalar conflictos de soberanía
 |---|---|---|---|---|---|
 | Territorio bandido | Radio territorial efectivo por facción | `BanditTerritoryQuery.radius_for_faction` (usa `FactionHostilityManager.get_behavior_profile`) | derivado | `FactionHostilityManager` (indirecto, vía hostilidad) | `BanditTerritoryQuery.groups_at/is_in_territory`, `WorldTerritoryPolicy`, `TavernDefensePosture` |
 | Hostilidad de facción | `hostility_points`, `recent_heat`, `times_raided`, etc. | `FactionHostilityManager._factions` (`FactionHostilityData`) | runtime (persistible por save manager) | `FactionHostilityManager.add_hostility/reduce_hostility/_on_day_passed` | `BanditGroupIntel`, `RaidFlow`, `DownedEncounterCoordinator`, `BanditTerritoryQuery` |
-| Hostilidad (duplicada) | score hostilidad alterno | `FactionRelationService._faction_hostilities` | runtime | `FactionRelationService` (interno) | `FactionRelationService.get_hostility_score/get_finish_modifier` |
+| Hostilidad (compat temporal) | lectura/relay legacy de score hostilidad | `FactionRelationService` (sin estado propio, read-through) | derivado (compat) | *(sin writers de dominio)* | `FactionRelationService.get_hostility_score/get_finish_modifier`, listeners legacy de evento |
 | Raids en cola | intents de raid pendientes | `RaidQueue._intents` | runtime | `BanditGroupIntel` (`enqueue_*` vía puerto), otros emisores de raid | `RaidFlow._consume_raid_queue` |
 | Historial de raid por grupo | `_last_raid_time_by_group`, `_last_wall_probe_time_by_group` | `RaidQueue` | runtime | `RaidQueue.enqueue_*` | `BanditGroupIntel` (gates/cooldowns), helpers de cooldown |
 | Jobs activos de raid | `_active_jobs[group_id]` | `RaidFlow` | runtime | `RaidFlow._create_job/_tick_*` | `RaidFlow` interno, telemetría `raid_closed` |
@@ -35,14 +35,19 @@ Inventariar entidades/estado clave del mundo y señalar conflictos de soberanía
 
 ## 2) Conflictos detectados
 
-### P0 — DOUBLE_TRUTH: hostilidad en dos servicios
+### P0 — DOUBLE_TRUTH: hostilidad en dos servicios ✅ RESUELTO (Cut 3)
 - **Marcado:** `DOUBLE_TRUTH`
 - **Significado duplicado:** “score de hostilidad de facción”.
 - **Sitios:**
   1. `FactionHostilityManager` (`_factions`, canónico actual para gameplay).
-  2. `FactionRelationService` (`_faction_hostilities`, estado paralelo).
+  2. `FactionRelationService` (`_faction_hostilities`, estado paralelo) **[retirado]**.
 - **Impacto:** decisiones divergentes de combate/finish modifier según qué servicio lea cada sistema; alto riesgo de comportamiento inconsistente tras eventos de hostilidad.
 - **Riesgo de restauración:** si solo se persiste/rehidrata una fuente, la otra arranca desalineada.
+- **Resolución aplicada:**
+  - `FactionRelationService` migra a wrapper read-only contra `FactionHostilityManager`.
+  - Se elimina el campo espejo `_faction_hostilities`.
+  - Cambios de hostilidad se exponen como evento relay (`hostility_score_changed`) conectado desde `FactionHostilityManager.hostility_changed`.
+  - Compatibilidad temporal documentada con fecha de retiro del wrapper: **2026-06-30**.
 
 ### P1 — CACHE_AS_TRUTH: índice de placeables usado para detectar semántica social
 - **Marcado:** `CACHE_AS_TRUTH`
