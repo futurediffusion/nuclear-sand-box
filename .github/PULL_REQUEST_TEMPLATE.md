@@ -3,14 +3,20 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 
 - Respuesta timer local injustificado: No
 - Evidencia timer local injustificado:
+- Respuesta lógica nueva en autoload: No
+- Evidencia lógica nueva en autoload:
+- Respuesta duplicación de heurística crítica: No
+- Evidencia duplicación de heurística crítica:
 - Respuesta decisión duplicada (assault/combat/hostility): No
 - Evidencia decisión duplicada (assault/combat/hostility):
 - Respuesta debug mutando estado: No
 - Evidencia debug mutando estado:
+- Owner de decisión tocada (obligatorio):
+- Categoría de verdad para datos/campos nuevos: no aplica
 - Justificación explícita si NO se usa Cadence en gameplay:
-- Registro de excepción temporal (si aplica):
-- Fecha de retiro obligatoria (YYYY-MM-DD):
-- Criterio de done (sin nueva deuda del mismo tipo): Sí
+- Registro de excepción temporal (si aplica): sin excepción
+- Fecha de retiro obligatoria (YYYY-MM-DD): 2099-12-31
+- Criterio de done Sprint 1 (patrones corregidos no reingresan): Sí
 
 ## Runtime Architecture Review (obligatorio)
 
@@ -90,11 +96,15 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 
 > **Regla de merge (bloqueante):** timer local sin justificación + owner + excepción aprobada => **No Ready**.
 
-## Reglas de bloqueo (sin excepción aprobada)
+## Reglas de bloqueo por tipo de violación (sin excepción aprobada)
 
-- [ ] Sin excepción aprobada, cualquier violación bloqueante de esta plantilla deja el PR en **No Ready**.
-- [ ] Confirmo que toda excepción temporal usada quedó registrada en `docs/incidencias/registro-unico-deuda-tecnica.md`.
-- [ ] Confirmo que ninguna excepción temporal queda sin fecha de retiro comprometida (`YYYY-MM-DD`).
+- [ ] **Timer local injustificado** (`Respuesta timer local injustificado: Sí`) => **No Ready**.
+- [ ] **Lógica nueva en autoload** (`Respuesta lógica nueva en autoload: Sí`) => **No Ready**.
+- [ ] **Duplicación de heurística crítica** (`Respuesta duplicación de heurística crítica: Sí`) => **No Ready**.
+- [ ] **Segunda ruta de decisión assault/combat/hostility** (`Respuesta decisión duplicada (assault/combat/hostility): Sí`) => **No Ready**.
+- [ ] **Debug mutando estado real** (`Respuesta debug mutando estado: Sí`) => **No Ready**.
+- [ ] **Fallback/excepción temporal sin fecha de retiro** => **No Ready**.
+- [ ] **Criterio de done Sprint 1 en No** => **No Ready**.
 
 ## Declaración de feature (obligatorio para features nuevas)
 
