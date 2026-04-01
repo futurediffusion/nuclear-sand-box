@@ -144,3 +144,9 @@
 2. Crear tests de contrato de capa (smoke) para side effects prohibidos por dominio.  
 3. Cerrar D-03 y D-04 con refactor pequeño guiado por API canónica.  
 4. Mantener este documento como checklist de revisión de PR en cambios de runtime.
+
+## 6) Check obligatorio para Pull Requests
+
+- Todo PR que toque runtime debe completar el checklist en `.github/PULL_REQUEST_TEMPLATE.md`.
+- El revisor debe validar explícitamente fronteras contra este documento antes de aprobar.
+- Ninguna feature nueva se aprueba sin declarar capa responsable y regla del pacto respetada.
