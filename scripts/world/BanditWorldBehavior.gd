@@ -862,39 +862,25 @@ func enter_wall_assault(wall_pos: Vector2) -> void:
 ## Probabilidad: (nivel-6) × 2% por tick. Cooldown: 35s por NPC.
 ## La IA normal (slash.gd) inflige el daño al llegar y golpear el placeable.
 func _try_property_sabotage(ctx: Dictionary) -> void:
-	if RunClock.now() < _property_sabotage_cooldown_until:
-		return
 	if _profile == null:
 		return
-	var h_level: int = _profile.hostility_level
-	if h_level < 7:
-		return
-	# (nivel-6) × 2% — nivel 7→2%, 8→4%, 9→6%, 10→8%
-	var chance: float = float(h_level - 6) * 0.02
-	if _rng.randf() > chance:
-		return
 	var node_pos: Vector2 = ctx.get("node_pos", home_pos) as Vector2
-	var target_pos: Vector2 = Vector2(-1.0, -1.0)
-	# Nivel 7+: workbench
-	if h_level >= 7:
-		var find_wb: Callable = ctx.get("find_nearest_player_workbench", Callable())
-		if find_wb.is_valid():
-			target_pos = find_wb.call(node_pos, 400.0) as Vector2
-	# Nivel 8+: storage — preferir el más cercano entre los dos tipos
-	if h_level >= 8:
-		var find_st: Callable = ctx.get("find_nearest_player_storage", Callable())
-		if find_st.is_valid():
-			var st_pos: Vector2 = find_st.call(node_pos, 400.0) as Vector2
-			if _is_valid_world_target(st_pos):
-				if not _is_valid_world_target(target_pos) or \
-						node_pos.distance_squared_to(st_pos) < node_pos.distance_squared_to(target_pos):
-					target_pos = st_pos
-	if not _is_valid_world_target(target_pos):
+	var decision: Dictionary = BanditWallAssaultPolicy.evaluate_property_sabotage_order({
+		"now": RunClock.now(),
+		"cooldown_until": _property_sabotage_cooldown_until,
+		"hostility_level": _profile.hostility_level,
+		"roll": _rng.randf(),
+		"origin": node_pos,
+		"find_workbench": ctx.get("find_nearest_player_workbench", Callable()),
+		"find_storage": ctx.get("find_nearest_player_storage", Callable()),
+	})
+	if not bool(decision.get("allow", false)):
 		return
+	var target_pos: Vector2 = decision.get("target_pos", Vector2(-1.0, -1.0)) as Vector2
 	enter_wall_assault(target_pos)
-	_property_sabotage_cooldown_until = RunClock.now() + 35.0
-	Debug.log("bandit_ai", "[BWB] property sabotage — member=%s level=%d target=%s" % [
-		member_id, h_level, str(target_pos)])
+	_property_sabotage_cooldown_until = float(decision.get("cooldown_until", RunClock.now() + 35.0))
+	Debug.log("bandit_ai", "[BWB] property sabotage — member=%s level=%d kind=%s target=%s" % [
+		member_id, _profile.hostility_level, String(decision.get("target_kind", "")), str(target_pos)])
 
 
 ## Comportamiento oportunista individual (no raid):
@@ -902,32 +888,24 @@ func _try_property_sabotage(ctx: Dictionary) -> void:
 ## cercanos cuando está en patrulla o idle. Probabilidad: (nivel-5) × 1% por tick.
 ## Cooldown: 30s por NPC para evitar spam.
 func _try_opportunistic_wall_assault(ctx: Dictionary) -> void:
-	# Cooldown personal
-	if RunClock.now() < _wall_assault_cooldown_until:
-		return
-	# Verificar nivel de hostilidad (mínimo 6)
 	if _profile == null:
 		return
-	var h_level: int = _profile.hostility_level
-	if h_level < 6:
-		return
-	# Probabilidad por tick: escala con nivel (6→1%, 7→2%, 8→3%, 9→4%)
-	# Nivel 10 hace raids organizados — el oportunismo individual sigue activo
-	var chance: float = float(h_level - 5) * 0.03
-	if _rng.randf() > chance:
-		return
-	# Buscar muro cercano
-	var find_wall: Callable = ctx.get("find_nearest_player_wall", Callable())
-	if not find_wall.is_valid():
-		return
 	var node_pos: Vector2 = ctx.get("node_pos", home_pos) as Vector2
-	var wall_pos: Vector2 = find_wall.call(node_pos, 300.0) as Vector2
-	if not _is_valid_world_target(wall_pos):
+	var decision: Dictionary = BanditWallAssaultPolicy.evaluate_opportunistic_wall_order({
+		"now": RunClock.now(),
+		"cooldown_until": _wall_assault_cooldown_until,
+		"hostility_level": _profile.hostility_level,
+		"roll": _rng.randf(),
+		"origin": node_pos,
+		"find_wall": ctx.get("find_nearest_player_wall", Callable()),
+	})
+	if not bool(decision.get("allow", false)):
 		return
+	var wall_pos: Vector2 = decision.get("target_pos", Vector2(-1.0, -1.0)) as Vector2
 	enter_wall_assault(wall_pos)
-	_wall_assault_cooldown_until = RunClock.now() + 20.0
+	_wall_assault_cooldown_until = float(decision.get("cooldown_until", RunClock.now() + 20.0))
 	Debug.log("bandit_ai", "[BWB] opp. wall assault — member=%s level=%d wall=%s" % [
-		member_id, h_level, str(wall_pos)])
+		member_id, _profile.hostility_level, str(wall_pos)])
 
 
 # ---------------------------------------------------------------------------
