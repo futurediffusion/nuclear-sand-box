@@ -14,6 +14,51 @@ La capa de **Persistence no puede**:
 - corregir estado semántico por conveniencia al cargar,
 - introducir o resolver reglas de combate/AI/economía durante save/load.
 
+## Delimitación explícita de estado
+
+### 1) Estado solo runtime (transitorio)
+
+Debe existir únicamente en runtime y **nunca** entrar al snapshot durable:
+
+- índices auxiliares de lookup/rebuild (`placed_entity_chunk_by_uid`),
+- revisiones o contadores de invalidación (`placed_entities_revision`),
+- contexto de tick/callables inyectados (`wall_tile_blocker_fn`),
+- configuración operativa que viene del mundo activo (`chunk_size`).
+
+### 2) Estado serializable como save truth
+
+Persisten solo los hechos durables necesarios para continuidad:
+
+- `worldsave_chunks`,
+- `worldsave_enemy_state`,
+- `worldsave_enemy_spawns`,
+- `worldsave_global_flags`,
+- `worldsave_player_walls`,
+- `placed_entities_by_chunk`,
+- `placed_entity_data_by_uid`.
+
+### 3) Persistencia sin gameplay
+
+Persistencia se limita a guardar/restaurar snapshots autorizados.
+No interpreta intención del jugador/AI ni corrige outcomes por conveniencia.
+
+### 4) Mapeo explícito runtime <-> save
+
+El mapeo vive explícitamente en `WorldSave`:
+
+- `to_save_snapshot()` para `runtime -> save`.
+- `apply_save_snapshot(snapshot)` para `save -> runtime`.
+
+Este mapeo es estructural: sin reinterpretación semántica.
+
+### 5) Invariantes de carga
+
+Al cargar snapshot:
+
+- **Debe reconstruirse**: índices runtime derivados (`placed_entity_chunk_by_uid`).
+- **Debe recalcularse**: contadores/revisiones transitorias (`placed_entities_revision`) y wiring runtime (`wall_tile_blocker_fn`).
+- **No debe persistirse**: contexto de tick/decisiones activas no durables ni callables runtime.
+
 ---
 
 ## Rutas auditadas (save/load con impacto potencial sobre decisiones activas)
@@ -36,13 +81,11 @@ La capa de **Persistence no puede**:
 
 ### 1) SaveManager con restore autorizado + validación de integridad
 
-- Se separó captura/restauración de payload de `WorldSave` en:
-  - `_capture_world_save_payload()`
-  - `_restore_world_save_payload(data)`
-- Se agregó validación estructural sin semántica de gameplay:
-  - `_validate_world_save_payload(payload)`
-  - Verifica tipos esperados (`Dictionary`/`Array`) y sanea forma mínima.
-- Resultado: SaveManager restaura únicamente estado autorizado por owners (`WorldSave` y sistemas dueños) y reporta warnings de integridad sin decidir gameplay.
+- SaveManager delega el límite runtime/save a `WorldSave`:
+  - `WorldSave.to_save_snapshot()`
+  - `WorldSave.apply_save_snapshot(snapshot)`
+- La validación estructural vive junto al owner del estado (`WorldSave._validate_and_sanitize_save_snapshot`).
+- Resultado: SaveManager orquesta IO/migración legacy y `WorldSave` aplica exclusivamente snapshots autorizados, sin decidir gameplay.
 
 ### 2) WallPersistence sin decisiones de dominio
 

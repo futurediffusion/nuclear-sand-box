@@ -13,6 +13,102 @@ var player_walls_by_chunk: Dictionary = {}  # chunk_key(String) -> tile_key(Stri
 
 var chunk_size: int = 32
 
+const SAVE_SNAPSHOT_VERSION: int = 1
+const SAVE_KEY_CHUNKS := "worldsave_chunks"
+const SAVE_KEY_ENEMY_STATE := "worldsave_enemy_state"
+const SAVE_KEY_ENEMY_SPAWNS := "worldsave_enemy_spawns"
+const SAVE_KEY_GLOBAL_FLAGS := "worldsave_global_flags"
+const SAVE_KEY_PLAYER_WALLS := "worldsave_player_walls"
+const SAVE_KEY_PLACED_ENTITIES_BY_CHUNK := "placed_entities_by_chunk"
+const SAVE_KEY_PLACED_ENTITY_DATA_BY_UID := "placed_entity_data_by_uid"
+
+const SAVE_KEYS: Array[String] = [
+	SAVE_KEY_CHUNKS,
+	SAVE_KEY_ENEMY_STATE,
+	SAVE_KEY_ENEMY_SPAWNS,
+	SAVE_KEY_GLOBAL_FLAGS,
+	SAVE_KEY_PLAYER_WALLS,
+	SAVE_KEY_PLACED_ENTITIES_BY_CHUNK,
+	SAVE_KEY_PLACED_ENTITY_DATA_BY_UID,
+]
+
+# Runtime-only state that never becomes save truth.
+const RUNTIME_ONLY_KEYS: Array[String] = [
+	"placed_entity_chunk_by_uid",
+	"placed_entities_revision",
+	"wall_tile_blocker_fn",
+	"chunk_size",
+]
+
+## Explicit runtime -> save mapping. This function must remain semantically transparent.
+func to_save_snapshot() -> Dictionary:
+	return {
+		"version": SAVE_SNAPSHOT_VERSION,
+		SAVE_KEY_CHUNKS: chunks.duplicate(true),
+		SAVE_KEY_ENEMY_STATE: enemy_state_by_chunk.duplicate(true),
+		SAVE_KEY_ENEMY_SPAWNS: enemy_spawns_by_chunk.duplicate(true),
+		SAVE_KEY_GLOBAL_FLAGS: global_flags.duplicate(true),
+		SAVE_KEY_PLAYER_WALLS: player_walls_by_chunk.duplicate(true),
+		SAVE_KEY_PLACED_ENTITIES_BY_CHUNK: placed_entities_by_chunk.duplicate(true),
+		SAVE_KEY_PLACED_ENTITY_DATA_BY_UID: placed_entity_data_by_uid.duplicate(true),
+	}
+
+## Explicit save -> runtime mapping. Rebuilds runtime indexes but does not apply gameplay rules.
+func apply_save_snapshot(snapshot: Dictionary) -> PackedStringArray:
+	var errors := _validate_and_sanitize_save_snapshot(snapshot)
+	chunks = (snapshot.get(SAVE_KEY_CHUNKS, {}) as Dictionary).duplicate(true)
+	enemy_state_by_chunk = (snapshot.get(SAVE_KEY_ENEMY_STATE, {}) as Dictionary).duplicate(true)
+	enemy_spawns_by_chunk = (snapshot.get(SAVE_KEY_ENEMY_SPAWNS, {}) as Dictionary).duplicate(true)
+	global_flags = (snapshot.get(SAVE_KEY_GLOBAL_FLAGS, {}) as Dictionary).duplicate(true)
+	player_walls_by_chunk = (snapshot.get(SAVE_KEY_PLAYER_WALLS, {}) as Dictionary).duplicate(true)
+
+	clear_placed_entities()
+	placed_entities_by_chunk = (snapshot.get(SAVE_KEY_PLACED_ENTITIES_BY_CHUNK, {}) as Dictionary).duplicate(true)
+	for ckey in placed_entities_by_chunk:
+		var dict: Dictionary = placed_entities_by_chunk[ckey]
+		for uid in dict:
+			placed_entity_chunk_by_uid[String(uid)] = String(ckey)
+
+	placed_entity_data_by_uid.clear()
+	var placed_data_raw: Dictionary = snapshot.get(SAVE_KEY_PLACED_ENTITY_DATA_BY_UID, {})
+	for uid in placed_data_raw.keys():
+		var entity_data = placed_data_raw[uid]
+		placed_entity_data_by_uid[String(uid)] = (entity_data as Dictionary).duplicate(true)
+
+	return errors
+
+func _validate_and_sanitize_save_snapshot(snapshot: Dictionary) -> PackedStringArray:
+	var errors: PackedStringArray = []
+	for key in SAVE_KEYS:
+		if not (snapshot.get(key, {}) is Dictionary):
+			errors.append("WorldSave.%s expected Dictionary in '%s'" % [key, key])
+			snapshot[key] = {}
+
+	var placed_chunk: Dictionary = snapshot.get(SAVE_KEY_PLACED_ENTITIES_BY_CHUNK, {})
+	for ckey in placed_chunk.keys():
+		var entries: Variant = placed_chunk[ckey]
+		if not (entries is Dictionary):
+			errors.append("placed_entities_by_chunk[%s] must be Dictionary" % String(ckey))
+			placed_chunk[ckey] = {}
+			continue
+		var sanitized_entries: Dictionary = {}
+		for uid in (entries as Dictionary).keys():
+			var raw_entry: Variant = (entries as Dictionary)[uid]
+			if raw_entry is Dictionary:
+				sanitized_entries[String(uid)] = (raw_entry as Dictionary).duplicate(true)
+			else:
+				errors.append("placed entity '%s' in chunk '%s' is not Dictionary" % [String(uid), String(ckey)])
+		placed_chunk[ckey] = sanitized_entries
+	snapshot[SAVE_KEY_PLACED_ENTITIES_BY_CHUNK] = placed_chunk
+
+	var placed_data: Dictionary = snapshot.get(SAVE_KEY_PLACED_ENTITY_DATA_BY_UID, {})
+	for uid in placed_data.keys():
+		if not (placed_data[uid] is Dictionary):
+			errors.append("placed_entity_data_by_uid['%s'] must be Dictionary" % String(uid))
+			placed_data[uid] = {}
+	snapshot[SAVE_KEY_PLACED_ENTITY_DATA_BY_UID] = placed_data
+	return errors
+
 func chunk_key(cx: int, cy: int) -> String:
 	return "%d,%d" % [cx, cy]
 
