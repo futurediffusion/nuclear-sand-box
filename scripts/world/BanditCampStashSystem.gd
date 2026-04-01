@@ -31,9 +31,11 @@ const BARREL_SPAWN_COLUMN_STEP:  float = 32.0   # px entre barriles adicionales
 
 const CARRY_STACK_BASE_Y:  float = -22.0  # Y del primer item cargado sobre el NPC
 const CARRY_STACK_STEP_Y:  float =   8.0  # desplazamiento Y por item adicional en el stack
+const PICKUP_ROUTE_COOLDOWN: float = 0.20 # s, aplicado de forma uniforme a rutas de pickup/cargo
 
 # group_id (String) -> instance_id (int) del barrel físico (runtime-only, no persisted)
 var _camp_barrels: Dictionary = {}
+var _pickup_route_next_at: Dictionary = {} # member_id|route -> RunClock.now()
 
 # Callable(group_id: String, barrel_pos: Vector2) -> void
 # Implementado por BanditBehaviorLayer para propagar deposit_pos a los behaviors.
@@ -307,6 +309,53 @@ func append_manifest_entries(beh: BanditWorldBehavior, entries: Array) -> Dictio
 	return result
 
 
+## Flujo canónico para entradas abstractas de loot/cargo.
+## Aplica mismas validaciones (capacidad + cooldown por ruta) para todas las rutas.
+## route_key ejemplos: "drop_arrive", "drop_orbit", "raid_container".
+func collect_entries_canonical(beh: BanditWorldBehavior, entries: Array, route_key: String) -> Dictionary:
+	var result := {
+		"added": 0,
+		"taken": [],
+		"leftovers": [],
+		"blocked_reason": "",
+	}
+	if beh == null:
+		result["blocked_reason"] = "invalid_behavior"
+		return result
+	if entries.is_empty():
+		result["blocked_reason"] = "empty_entries"
+		return result
+	if beh.is_cargo_full():
+		result["blocked_reason"] = "cargo_full"
+		result["leftovers"] = entries.duplicate(true)
+		return result
+
+	var key := _pickup_route_key(beh, route_key)
+	var now: float = RunClock.now()
+	if now < float(_pickup_route_next_at.get(key, 0.0)):
+		result["blocked_reason"] = "pickup_cooldown"
+		result["leftovers"] = entries.duplicate(true)
+		return result
+
+	var cargo_result: Dictionary = append_manifest_entries(beh, entries)
+	result["added"] = int(cargo_result.get("added", 0))
+	result["taken"] = cargo_result.get("taken", []) as Array
+	result["leftovers"] = cargo_result.get("leftovers", []) as Array
+	if int(result["added"]) <= 0:
+		result["blocked_reason"] = "no_capacity"
+		return result
+
+	_pickup_route_next_at[key] = now + PICKUP_ROUTE_COOLDOWN
+	return result
+
+
+func _pickup_route_key(beh: BanditWorldBehavior, route_key: String) -> String:
+	var member: String = ""
+	if beh != null:
+		member = beh.member_id
+	return "%s|%s" % [member, route_key]
+
+
 ## Suelta todo el cargo al suelo cuando el NPC entra en combate.
 func drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var drop_pos: Vector2 = beh.home_pos
@@ -391,6 +440,24 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 
 	var collected_amount: int = int(drop_node.get("amount") if drop_node.get("amount") != null else 1)
 	var item_id: String       = String(drop_node.get("item_id") if drop_node.get("item_id") != null else "")
+	if collected_amount <= 0:
+		return
+
+	var route_key: String = "drop_arrive"
+	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH:
+		route_key = "drop_orbit"
+	var canonical: Dictionary = collect_entries_canonical(beh, [
+		{"item_id": item_id, "amount": collected_amount}
+	], route_key)
+	var accepted: int = int(canonical.get("added", 0))
+	if accepted <= 0:
+		return
+	var leftover_amount: int = 0
+	var leftovers: Array = canonical.get("leftovers", []) as Array
+	if not leftovers.is_empty():
+		var left0: Dictionary = leftovers[0] as Dictionary
+		leftover_amount = int(left0.get("amount", 0))
+
 	var drop_pos: Vector2     = drop_node.global_position
 	var pickup_sfx            = drop_node.get("pickup_sfx")
 	var sfx_stream: AudioStream = pickup_sfx if pickup_sfx is AudioStream else AudioSystem.default_pickup_sfx
@@ -403,7 +470,9 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 		)
 
 	var carried: bool = false
-	if enemy_node != null and is_instance_valid(enemy_node):
+	# Solo "adjuntamos" el nodo físico al NPC cuando se absorbió el stack completo.
+	# En pickups parciales, dejamos el nodo en mundo con amount residual.
+	if accepted >= collected_amount and enemy_node != null and is_instance_valid(enemy_node):
 		var orig_layer: int = drop_node.collision_layer
 		drop_node.remove_from_group("item_drop")
 		drop_node.set_deferred("monitoring",      false)
@@ -412,23 +481,27 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 		var stack_offset := Vector2(0.0, CARRY_STACK_BASE_Y - beh._cargo_manifest.size() * CARRY_STACK_STEP_Y)
 		drop_node.reparent(enemy_node, false)
 		drop_node.position = stack_offset
-		beh._cargo_manifest.append({
-			"item_id":    item_id,
-			"amount":     collected_amount,
-			"node_id":    drop_node.get_instance_id(),
-			"orig_layer": orig_layer,
-		})
+		for i in range(beh._cargo_manifest.size() - 1, -1, -1):
+			var existing: Dictionary = beh._cargo_manifest[i] as Dictionary
+			if String(existing.get("item_id", "")) != item_id:
+				continue
+			if int(existing.get("amount", 0)) != accepted:
+				continue
+			existing["node_id"] = drop_node.get_instance_id()
+			existing["orig_layer"] = orig_layer
+			beh._cargo_manifest[i] = existing
+			break
 		carried = true
 
 	if not carried:
-		drop_node.queue_free()
-		if item_id != "":
-			beh._cargo_manifest.append({"item_id": item_id, "amount": collected_amount, "node_id": 0})
+		if leftover_amount > 0:
+			drop_node.set("amount", leftover_amount)
+		else:
+			drop_node.queue_free()
 
 	var prev: int = beh.cargo_count
-	beh.cargo_count = mini(beh.cargo_count + collected_amount, beh.cargo_capacity)
 	Debug.log("bandit_ai", "[CampStash] collected %s×%d id=%s cargo=%d→%d/%d" % [
-		item_id, collected_amount, beh.member_id, prev, beh.cargo_count, beh.cargo_capacity])
+		item_id, accepted, beh.member_id, prev, beh.cargo_count, beh.cargo_capacity])
 
 
 # ---------------------------------------------------------------------------

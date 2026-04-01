@@ -249,7 +249,7 @@ func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
 	if extracted.is_empty():
 		return false
 
-	var cargo_result: Dictionary = _stash.append_manifest_entries(beh, extracted)
+	var cargo_result: Dictionary = _stash.collect_entries_canonical(beh, extracted, "raid_container")
 	var added: int = int(cargo_result.get("added", 0))
 	var leftovers: Array = cargo_result.get("leftovers", []) as Array
 	if not leftovers.is_empty():
