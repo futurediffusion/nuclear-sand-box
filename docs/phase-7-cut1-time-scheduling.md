@@ -35,9 +35,23 @@ Se permite timer local únicamente en los siguientes escenarios:
 Cada uso de timer local en las excepciones anteriores debe incluir:
 
 - **Justificación explícita** (qué problema resuelve y por qué Cadence no aplica en ese punto).
-- **Etiqueta obligatoria**: `LOCAL_TIMER_BY_DESIGN`.
+- **Categoría permitida obligatoria**: `LOCAL_TIMER_BY_DESIGN`.
+- **Fecha de revisión obligatoria** en formato `YYYY-MM-DD`.
 
-Sin ambos elementos, el uso de timer local se considera incumplimiento de esta política.
+Sin estos elementos, el uso de timer local se considera incumplimiento de esta política.
+
+## Gate obligatorio en checklist de PR
+
+La plantilla de PR debe validar explícitamente estos puntos:
+
+1. Si se añadió timer local.
+2. Si existe categoría permitida `LOCAL_TIMER_BY_DESIGN` y fecha de revisión.
+3. Si el caso realmente debía resolverse con Cadence.
+4. Si existe excepción temporal aprobada y registrada.
+
+**Criterio de bloqueo:** si el caso debía usar Cadence y no hay excepción temporal aprobada, el PR queda en estado **No Ready**.
+
+Registro único para excepciones: `docs/incidencias/registro-unico-deuda-tecnica.md`.
 
 ## Tabla de decisión y revisión
 
@@ -48,4 +62,3 @@ Sin ambos elementos, el uso de timer local se considera incumplimiento de esta p
 | Animación local | Local | Timing visual sin efecto en estado de gameplay autoritativo | 2026-04-01 |
 | Tooling temporal | Local | Soporte de desarrollo transitorio con alcance acotado | 2026-04-01 |
 | Pruebas controladas | Local | Validación aislada bajo condiciones de test explícitas | 2026-04-01 |
-
