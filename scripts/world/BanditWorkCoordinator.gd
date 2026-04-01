@@ -6,10 +6,10 @@ class_name BanditWorkCoordinator
 
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 const CombatStateServiceScript := preload("res://scripts/world/CombatStateService.gd")
+const BanditRaidRuntimePolicyScript := preload("res://scripts/world/BanditRaidRuntimePolicy.gd")
 
 const RAID_ATTACK_RANGE_SQ: float = 96.0 * 96.0
 const RAID_LOOT_RANGE_SQ: float = 76.0 * 76.0
-const RAID_TARGET_SEARCH_RADIUS: float = 180.0
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
 var _stash: BanditCampStashSystem = null
@@ -202,7 +202,7 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 	})
 	if not bool(directive.get("allow", false)):
 		var deny_reason: String = String(directive.get("reason", "attack_blocked"))
-		if _should_retreat_on_attack_deny(deny_reason):
+		if BanditRaidRuntimePolicyScript.should_retreat_on_attack_deny(deny_reason):
 			return _enter_raid_retreat(beh, member_id, now, deny_reason)
 		directive["stage"] = RAID_STAGE_BREACH
 		return directive
@@ -259,7 +259,7 @@ func _handle_raid_loot_stage(beh: BanditWorldBehavior, enemy_node: Node, member_
 	})
 	if not bool(loot_gate.get("allow", false)):
 		var deny_reason: String = String(loot_gate.get("reason", "loot_blocked"))
-		if _should_retreat_on_loot_deny(deny_reason):
+		if BanditRaidRuntimePolicyScript.should_retreat_on_loot_deny(deny_reason):
 			return _enter_raid_retreat(beh, member_id, now, deny_reason)
 		return {
 			"allow": false,
@@ -370,7 +370,13 @@ func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
 	if beh.is_cargo_full():
 		return false
 
-	var container: ContainerPlaceable = _find_nearest_raidable_container(enemy_pos, assault_anchor)
+	var runtime_interactables: Array = get_tree().get_nodes_in_group("interactable")
+	var container: ContainerPlaceable = BanditRaidRuntimePolicyScript.find_nearest_raidable_container(
+		enemy_pos,
+		assault_anchor,
+		_world_spatial_index,
+		runtime_interactables
+	)
 	if container == null:
 		return false
 
@@ -416,61 +422,6 @@ func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
 	return true
 
 
-func _find_nearest_raidable_container(enemy_pos: Vector2, assault_anchor: Vector2) -> ContainerPlaceable:
-	var best: ContainerPlaceable = null
-	var best_dsq: float = INF
-	var search_centers: Array[Vector2] = [assault_anchor]
-	if enemy_pos.distance_squared_to(assault_anchor) > 1.0:
-		search_centers.append(enemy_pos)
-
-	# Canonical runtime truth: live interactable nodes in scene tree.
-	# Spatial index is derived and may lag, so it can only add candidates.
-	var runtime_nodes: Array = get_tree().get_nodes_in_group("interactable")
-	if _world_spatial_index != null:
-		for center in search_centers:
-			if not _is_valid_target(center):
-				continue
-			runtime_nodes.append_array(_world_spatial_index.get_runtime_nodes_near(
-				WorldSpatialIndex.KIND_STORAGE,
-				center,
-				RAID_TARGET_SEARCH_RADIUS
-			))
-	var seen_containers: Dictionary = {}
-	for raw_node in runtime_nodes:
-		var container := raw_node as ContainerPlaceable
-		if container == null:
-			continue
-		var iid: int = container.get_instance_id()
-		if seen_containers.has(iid):
-			continue
-		seen_containers[iid] = true
-		if not _is_valid_raid_container(container):
-			continue
-		var near_any_center: bool = false
-		for center in search_centers:
-			if not _is_valid_target(center):
-				continue
-			if container.global_position.distance_squared_to(center) <= RAID_TARGET_SEARCH_RADIUS * RAID_TARGET_SEARCH_RADIUS:
-				near_any_center = true
-				break
-		if not near_any_center:
-			continue
-		var dsq: float = enemy_pos.distance_squared_to(container.global_position)
-		if dsq < best_dsq:
-			best_dsq = dsq
-			best = container
-	return best
-
-
-func _is_valid_raid_container(container: ContainerPlaceable) -> bool:
-	if container == null or not is_instance_valid(container) or container.is_queued_for_deletion():
-		return false
-	if not container.is_raid_lootable():
-		return false
-	if container.get_raid_loot_total_units() <= 0:
-		return false
-	return true
-
 
 func _damage_player_wall_at(world_pos: Vector2) -> bool:
 	if _world_node == null:
@@ -498,21 +449,6 @@ func _try_wall_slash_strike(enemy_node: Node, world_pos: Vector2) -> bool:
 func _is_valid_target(pos: Vector2) -> bool:
 	return pos.is_finite() and not pos.is_equal_approx(INVALID_TARGET)
 
-
-func _should_retreat_on_attack_deny(reason: String) -> bool:
-	match reason:
-		"canonical_target_missing", "no_attack_target", "invalid_target", "out_of_engage_radius", "raid_context_lost", "no_raid_context":
-			return true
-		_:
-			return false
-
-
-func _should_retreat_on_loot_deny(reason: String) -> bool:
-	match reason:
-		"loot_out_of_range", "invalid_loot_anchor", "raid_context_lost", "no_raid_context":
-			return true
-		_:
-			return false
 
 
 func _format_loot_entries(entries: Array) -> String:
