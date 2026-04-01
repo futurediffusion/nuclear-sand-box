@@ -9,6 +9,8 @@ Fuentes de verdad:
 - [`docs/phase-7-cut1-time-scheduling.md`](../docs/phase-7-cut1-time-scheduling.md)
 
 > **Regla de merge:** cualquier respuesta **“Sí”** sin justificación aprobada y sin excepción registrada bloquea el merge.
+> **Regla adicional (Bandit Assault Pipeline):** se bloquea merge si el cambio crea bifurcación no documentada en el diagrama canónico de `docs/phase-7-cut2-bandit-assault.md`.
+
 
 - [ ] **¿Este PR añade timer local explícito (`Timer`, `create_timer`, contador temporal en `_process` / `_physics_process`)?**
   - Respuesta:
@@ -34,6 +36,26 @@ Fuentes de verdad:
   - Respuesta:
   - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
 
+
+- [ ] **¿introduce ruta alternativa en Bandit Assault Pipeline?**
+  - Respuesta:
+  - Etapa(s) afectada(s):
+  - Owner(s) afectado(s):
+  - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
+- [ ] **¿duplica decisión ya definida en Bandit Assault Pipeline?**
+  - Respuesta:
+  - Etapa(s) afectada(s):
+  - Owner(s) afectado(s):
+  - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
+- [ ] **¿corrige intención a mitad de pipeline en Bandit Assault Pipeline?**
+  - Respuesta:
+  - Etapa(s) afectada(s):
+  - Owner(s) afectado(s):
+  - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
+- [ ] **¿declara explícitamente etapa y owner afectados en cada cambio de pipeline?**
+  - Respuesta:
+  - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
+
 ## Evidencia global obligatoria
 - [ ] Incluí evidencia para todos los puntos (ruta de código o nota de arquitectura).
 - [ ] Si hubo excepciones, quedaron registradas en `docs/incidencias/registro-unico-deuda-tecnica.md` (registro único de deuda temporal) con fecha de retiro y fecha de revisión.
@@ -46,4 +68,5 @@ Si marcaste algún **“Sí”**, completa:
 - Fecha de revisión (YYYY-MM-DD):
 - ID / enlace de aprobación:
 - Registro en deuda temporal (fila o sección):
+- Responsable de retiro:
 - Fecha de retiro comprometida (YYYY-MM-DD):

@@ -8,6 +8,31 @@
 - [ ] Si el caso debía usar Cadence: existe excepción temporal aprobada y registrada en `docs/incidencias/registro-unico-deuda-tecnica.md`.
 - [ ] Acepto el criterio de bloqueo: cualquier “Sí” sin excepción aprobada deja el PR en **No Ready**.
 
+
+## Checklist específica — Bandit Assault Pipeline (obligatoria cuando aplica)
+
+> Completar esta sección si el PR toca cualquier etapa o transición de `docs/phase-7-cut2-bandit-assault.md`.
+
+- [ ] **¿introduce ruta alternativa?**
+  - Respuesta:
+  - Etapa(s) afectada(s):
+  - Owner(s) afectado(s):
+  - Evidencia (ruta de código o nota de arquitectura):
+- [ ] **¿duplica decisión ya definida?**
+  - Respuesta:
+  - Etapa(s) afectada(s):
+  - Owner(s) afectado(s):
+  - Evidencia (ruta de código o nota de arquitectura):
+- [ ] **¿corrige intención a mitad de pipeline?**
+  - Respuesta:
+  - Etapa(s) afectada(s):
+  - Owner(s) afectado(s):
+  - Evidencia (ruta de código o nota de arquitectura):
+- [ ] **Para cada cambio del pipeline, declaré etapa y owner afectados.**
+
+> **Regla de merge (bloqueante):** se bloquea el merge si el cambio crea una bifurcación no documentada en el diagrama canónico de `docs/phase-7-cut2-bandit-assault.md`.
+> Si existe excepción temporal aprobada, debe registrarse en `docs/incidencias/registro-unico-deuda-tecnica.md` con responsable y fecha de retiro (`YYYY-MM-DD`).
+
 ## Declaración de feature (obligatorio para features nuevas)
 
 - **Capa responsable**: <!-- Behavior / Coordination / Persistence / Debug-Telemetry / Cadence / SpatialIndex -->
