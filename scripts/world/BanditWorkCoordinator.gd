@@ -10,9 +10,6 @@ const CombatStateServiceScript := preload("res://scripts/world/CombatStateServic
 const RAID_ATTACK_RANGE_SQ: float = 96.0 * 96.0
 const RAID_LOOT_RANGE_SQ: float = 76.0 * 76.0
 const RAID_TARGET_SEARCH_RADIUS: float = 180.0
-const RAID_ATTACK_COOLDOWN: float = 0.45
-const RAID_LOOT_COOLDOWN: float = 1.10
-
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
 var _stash: BanditCampStashSystem = null
@@ -193,8 +190,6 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 		return {"allow": false, "reason": "engage_confirmed", "stage": RAID_STAGE_BREACH}
 	if stage == RAID_STAGE_LOOT:
 		return _handle_raid_loot_stage(beh, enemy_node, member_id, now, attack_anchor, enemy_pos)
-	if now < float(_raid_attack_next_at.get(member_id, 0.0)):
-		return {"allow": false, "reason": "attack_cooldown", "stage": stage}
 
 	var directive: Dictionary = BanditWallAssaultPolicy.evaluate_structure_directive({
 		"world_node": _world_node,
@@ -209,6 +204,9 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 		"attack_range_sq": RAID_ATTACK_RANGE_SQ,
 	})
 	if not bool(directive.get("allow", false)):
+		var deny_reason: String = String(directive.get("reason", "attack_blocked"))
+		if _should_retreat_on_attack_deny(deny_reason):
+			return _enter_retreat_or_abort(beh, member_id, now, deny_reason)
 		directive["stage"] = RAID_STAGE_BREACH
 		return directive
 
@@ -235,7 +233,7 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 	if target_kind != "wall":
 		if enemy_node.has_method("queue_ai_attack_press"):
 			enemy_node.call("queue_ai_attack_press", target_pos)
-	_raid_attack_next_at[member_id] = float(target.get("next_attack_at", now + RAID_ATTACK_COOLDOWN))
+	_raid_attack_next_at[member_id] = float(target.get("next_attack_at", now + BanditWallAssaultPolicy.STRUCTURE_ATTACK_COOLDOWN))
 	_raid_breach_resolved_at[member_id] = now
 	if not _transition_raid_stage(member_id, RAID_STAGE_BREACH, RAID_STAGE_LOOT):
 		return _close_raid_run(member_id, RAID_RESULT_ABORT, "invalid_transition_breach", now)
@@ -263,15 +261,18 @@ func _handle_raid_loot_stage(beh: BanditWorldBehavior, enemy_node: Node, member_
 		"loot_range_sq": RAID_LOOT_RANGE_SQ,
 	})
 	if not bool(loot_gate.get("allow", false)):
+		var deny_reason: String = String(loot_gate.get("reason", "loot_blocked"))
+		if _should_retreat_on_loot_deny(deny_reason):
+			return _enter_retreat_or_abort(beh, member_id, now, deny_reason)
 		return {
 			"allow": false,
-			"reason": String(loot_gate.get("reason", "loot_blocked")),
+			"reason": deny_reason,
 			"stage": RAID_STAGE_LOOT,
 		}
 
 	var looted: bool = _try_loot_nearby_container(beh, enemy_node, attack_anchor, enemy_pos)
-	_raid_loot_next_at[member_id] = now + RAID_LOOT_COOLDOWN
-	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
+	_raid_loot_next_at[member_id] = now + BanditWallAssaultPolicy.STRUCTURE_LOOT_COOLDOWN
+	_raid_attack_next_at[member_id] = now + BanditWallAssaultPolicy.STRUCTURE_ATTACK_COOLDOWN
 	_raid_run_result_by_member[member_id] = RAID_RESULT_SUCCESS
 	if not _transition_raid_stage(member_id, RAID_STAGE_LOOT, RAID_STAGE_RETREAT):
 		return _close_raid_run(member_id, RAID_RESULT_ABORT, "invalid_transition_loot", now)
@@ -342,7 +343,7 @@ func _close_raid_run(member_id: String, result: String, reason: String, now: flo
 		else:
 			_raid_stage_by_member[member_id] = RAID_STAGE_CLOSED
 	_raid_run_result_by_member[member_id] = result
-	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
+	_raid_attack_next_at[member_id] = now + BanditWallAssaultPolicy.STRUCTURE_ATTACK_COOLDOWN
 	return {
 		"allow": result != RAID_RESULT_ABORT,
 		"reason": reason,
@@ -482,6 +483,22 @@ func _try_wall_slash_strike(enemy_node: Node, world_pos: Vector2) -> bool:
 
 func _is_valid_target(pos: Vector2) -> bool:
 	return pos.is_finite() and not pos.is_equal_approx(INVALID_TARGET)
+
+
+func _should_retreat_on_attack_deny(reason: String) -> bool:
+	match reason:
+		"canonical_target_missing", "no_attack_target", "invalid_target", "out_of_engage_radius", "raid_context_lost", "no_raid_context":
+			return true
+		_:
+			return false
+
+
+func _should_retreat_on_loot_deny(reason: String) -> bool:
+	match reason:
+		"loot_out_of_range", "invalid_loot_anchor", "raid_context_lost", "no_raid_context":
+			return true
+		_:
+			return false
 
 
 func _format_loot_entries(entries: Array) -> String:
