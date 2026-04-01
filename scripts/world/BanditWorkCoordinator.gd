@@ -5,6 +5,7 @@ class_name BanditWorkCoordinator
 ## Keeps concrete world interactions here and delegates carry logistics to CampStash.
 
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
+const CombatStateServiceScript := preload("res://scripts/world/CombatStateService.gd")
 
 const RAID_ENGAGE_RADIUS_SQ: float = 260.0 * 260.0
 const RAID_ATTACK_RANGE_SQ: float = 96.0 * 96.0
@@ -32,14 +33,14 @@ func setup(ctx: Dictionary) -> void:
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 
 
-func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array) -> void:
+func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array, combat_state: Dictionary = {}) -> void:
 	if beh == null:
 		return
 	if enemy_node == null or not is_instance_valid(enemy_node):
 		_handle_missing_enemy(beh)
 		return
 
-	_maybe_drop_carry_on_aggro(beh, enemy_node)
+	_maybe_drop_carry_on_aggro(beh, enemy_node, combat_state)
 	_handle_mining(beh, enemy_node)
 	_handle_structure_assault(beh, enemy_node)
 	_handle_collection_and_deposit(beh, enemy_node, drops_cache)
@@ -57,11 +58,14 @@ func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
 	_raid_loot_next_at.erase(beh.member_id)
 
 
-func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
+func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node, combat_state: Dictionary) -> void:
 	if _stash == null or beh._cargo_manifest.is_empty():
 		return
-	var ai_comp := enemy_node.get_node_or_null("AIComponent")
-	if ai_comp != null and ai_comp.get("target") != null:
+	var canonical: Dictionary = combat_state
+	if canonical.is_empty():
+		canonical = CombatStateServiceScript.read_actor_state(enemy_node)
+	var events: Array = canonical.get("events", []) as Array
+	if events.has(CombatStateServiceScript.EVENT_COMBAT_STARTED):
 		_stash.drop_carry_on_aggro(beh, enemy_node)
 
 

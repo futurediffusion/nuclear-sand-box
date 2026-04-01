@@ -35,7 +35,7 @@ const BanditCampStashSystemScript   := preload("res://scripts/world/BanditCampSt
 const BanditTerritoryResponseScript := preload("res://scripts/world/BanditTerritoryResponse.gd")
 const BanditWorkCoordinatorScript   := preload("res://scripts/world/BanditWorkCoordinator.gd")
 const SimulationLODPolicyScript     := preload("res://scripts/world/SimulationLODPolicy.gd")
-const AIComponentScript             := preload("res://scripts/components/AIComponent.gd")
+const CombatStateServiceScript      := preload("res://scripts/world/CombatStateService.gd")
 
 # ---------------------------------------------------------------------------
 # Camp layout constants Ã¢ï¿½,ï¿½ï¿½?ï¿½ local geometry, not cross-system gameplay tuning.
@@ -418,7 +418,7 @@ func _tick_behaviors() -> void:
 		if node == null or not node.has_method("is_world_behavior_eligible") \
 				or not node.is_world_behavior_eligible():
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
+				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, _get_runtime_lod_signals(node))
 			continue
 
 		var node_pos: Vector2 = node.global_position
@@ -427,7 +427,7 @@ func _tick_behaviors() -> void:
 		_behavior_elapsed[enemy_id] = elapsed
 		if elapsed < tick_interval:
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
+				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, _get_runtime_lod_signals(node))
 			continue
 		# Resetear a 0 en vez de acumular residual para evitar que elapsed crezca
 		# indefinidamente cuando tick_interval es corto (ej. 0.25s con jugador cerca).
@@ -461,7 +461,7 @@ func _tick_behaviors() -> void:
 			save_state_ref["world_behavior"] = beh.export_state()
 
 		if _work_coordinator != null:
-			_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
+			_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, _get_runtime_lod_signals(node))
 
 
 # ---------------------------------------------------------------------------
@@ -1542,26 +1542,19 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 
 
 func _get_runtime_lod_signals(node: Node) -> Dictionary:
-	var ai_comp = node.get("ai_component") if node != null else null
+	if node == null or not is_instance_valid(node):
+		return CombatStateServiceScript.read_actor_state(node)
+	var ai_comp = node.get("ai_component")
 	var current_state: int = int(ai_comp.get("current_state")) if ai_comp != null else -1
 	var current_target = ai_comp.get_current_target() if ai_comp != null and ai_comp.has_method("get_current_target") else null
 	var has_active_target: bool = current_target != null and is_instance_valid(current_target)
-	var is_in_direct_combat: bool = current_state == AIComponentScript.AIState.CHASE \
-			or current_state == AIComponentScript.AIState.ATTACK \
-			or has_active_target
 	var _let: Variant = node.get("last_engaged_time")
-	var was_recently_engaged: bool = SimulationLODPolicyScript.was_recently_engaged(float(_let) if _let != null else 0.0)
-	var is_runtime_busy_but_not_combat: bool = false
-	if not is_in_direct_combat:
-		is_runtime_busy_but_not_combat = current_state == AIComponentScript.AIState.HURT \
-				or current_state == AIComponentScript.AIState.DISENGAGE \
-				or current_state == AIComponentScript.AIState.HOLD_PERIMETER \
-				or bool(node.has_method("is_world_behavior_eligible") and not node.is_world_behavior_eligible())
-	return {
-		"is_in_direct_combat": is_in_direct_combat,
-		"was_recently_engaged": was_recently_engaged,
-		"is_runtime_busy_but_not_combat": is_runtime_busy_but_not_combat,
-	}
+	return CombatStateServiceScript.update_actor_state(node, {
+		"current_state": current_state,
+		"has_active_target": has_active_target,
+		"is_world_behavior_eligible": bool(node.has_method("is_world_behavior_eligible") and node.is_world_behavior_eligible()),
+		"last_engaged_time": float(_let) if _let != null else 0.0,
+	})
 
 
 func _record_npc_lod_debug(beh: BanditWorldBehavior, node: Node, lod_debug: Dictionary, runtime_signals: Dictionary) -> void:
