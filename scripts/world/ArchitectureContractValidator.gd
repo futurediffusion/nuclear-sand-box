@@ -24,6 +24,10 @@ static func validate_source_contracts() -> Dictionary:
 			failures.append("spatial index must expose runtime where/query")
 		if spatial_src.find("func get_placeables_in_tile_rect(") == -1:
 			failures.append("spatial index must expose persistent where/query")
+		if spatial_src.find("func rebuild_placeables_cache_from_truth(") == -1:
+			failures.append("spatial index must expose rebuild from canonical truth")
+		if spatial_src.find("func try_write_placeables_cache(") == -1:
+			failures.append("spatial index must expose blocked semantic-write API")
 
 		# Domain truth must live in domain owners, not inside the index.
 		for forbidden in [
@@ -31,6 +35,8 @@ static func validate_source_contracts() -> Dictionary:
 			"func is_storage_item_id(",
 			"const BLOCKING_EXCLUDED_ITEM_IDS",
 			"const STORAGE_ITEM_IDS",
+			"func set_placeables_cache_entry(",
+			"func upsert_placeables_cache_entry(",
 		]:
 			if spatial_src.find(forbidden) != -1:
 				failures.append("spatial index leaked semantic rule: %s" % forbidden)
