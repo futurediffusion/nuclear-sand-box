@@ -67,3 +67,16 @@ Mensaje sugerido para el canal:
 
 > Fuente de verdad del freeze: `docs/freeze-window.md`  
 > Hoy solo ejecutamos cambios permitidos (auditoría, limpieza, fronteras, deduplicación o renombrado semántico) con evidencia completa.
+
+## Criterios de salida y habilitación de features
+
+La salida formal del freeze se rige por `docs/freeze-exit-criteria.md`.
+
+Referencias publicadas y obligatorias:
+
+- Gate de salida del freeze: `docs/freeze-exit-criteria.md`
+- Mapa de soberanía: `docs/sovereignty-map.md`
+- Glosario canónico: `docs/domain-glossary.md`
+- Política de side effects: `docs/side-effects-policy.md`
+
+Una vez cumplidos todos los criterios de salida, las features nuevas se habilitan solo con referencia explícita al owner afectado (dominio + owner canónico) en cada PR.
