@@ -56,6 +56,11 @@ const _CARGO_CAP_BY_ROLE: Dictionary = {
 	"scavenger": 4,
 }
 
+
+const EXEC_INTENT_NONE: String = "none"
+const EXEC_INTENT_MINE_RESOURCE: String = "mine_resource"
+const EXEC_INTENT_STRUCTURE_ASSAULT: String = "structure_assault"
+
 # ── Roaming guard constants ────────────────────────────────────────────────────
 # Roaming guards patrol the full 64×64-tile map (≈2048 px per axis at 32 px/tile).
 const ROAMING_GUARD_PATROL_RADIUS: float = 2200.0   # max dispatch radius from leader
@@ -906,6 +911,98 @@ func _try_opportunistic_wall_assault(ctx: Dictionary) -> void:
 	_wall_assault_cooldown_until = float(decision.get("cooldown_until", RunClock.now() + 20.0))
 	Debug.log("bandit_ai", "[BWB] opp. wall assault — member=%s level=%d wall=%s" % [
 		member_id, _profile.hostility_level, str(wall_pos)])
+
+
+# ---------------------------------------------------------------------------
+# Intent -> execution command handoff
+# ---------------------------------------------------------------------------
+
+func issue_execution_intent(runtime_ctx: Dictionary = {}) -> Dictionary:
+	var now: float = float(runtime_ctx.get("now", RunClock.now()))
+	var node_pos: Vector2 = runtime_ctx.get("node_pos", home_pos) as Vector2
+
+	if pending_mine_id != 0:
+		var mine_id: int = pending_mine_id
+		pending_mine_id = 0
+		return {
+			"intent": EXEC_INTENT_MINE_RESOURCE,
+			"mine_id": mine_id,
+			"node_pos": node_pos,
+		}
+
+	var assault_intent: Dictionary = _build_structure_assault_intent(node_pos, now)
+	if not assault_intent.is_empty():
+		return assault_intent
+
+	return {"intent": EXEC_INTENT_NONE}
+
+
+func apply_execution_feedback(command: Dictionary, result: Dictionary = {}) -> void:
+	if command.is_empty() or result.is_empty():
+		return
+	var intent: String = String(command.get("intent", EXEC_INTENT_NONE))
+	if intent != EXEC_INTENT_STRUCTURE_ASSAULT:
+		return
+	var reason: String = String(result.get("reason", ""))
+	if reason == "container_looted":
+		force_return_home()
+		return
+	if reason == "no_attack_target" and cargo_count > 0:
+		force_return_home()
+		Debug.log("raid", "[BWB] structure no-target -> return home with cargo npc=%s group=%s cargo=%d" % [
+			member_id, group_id, cargo_count
+		])
+
+
+func _build_structure_assault_intent(node_pos: Vector2, now: float) -> Dictionary:
+	if group_id == "":
+		return {}
+	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	if g.is_empty():
+		return {}
+	var intent: String = String(g.get("current_group_intent", ""))
+	var assault_active: bool = BanditGroupMemory.is_structure_assault_active(group_id)
+	var has_raid_context: bool = assault_active \
+			or intent == "raiding" \
+			or BanditGroupMemory.has_placement_react_lock(group_id)
+	if not has_raid_context:
+		return {}
+
+	var group_anchor: Vector2 = _resolve_structure_assault_anchor(group_id, g)
+	var member_anchor: Vector2 = _resolve_structure_member_anchor(group_anchor)
+	return {
+		"intent": EXEC_INTENT_STRUCTURE_ASSAULT,
+		"node_pos": node_pos,
+		"now": now,
+		"has_raid_context": has_raid_context,
+		"group_anchor": group_anchor,
+		"member_anchor": member_anchor,
+		"attack_next_at": 0.0,
+	}
+
+
+func _resolve_structure_assault_anchor(in_group_id: String, g: Dictionary) -> Vector2:
+	var invalid: Vector2 = Vector2(-1.0, -1.0)
+	var anchor: Vector2 = g.get("last_interest_pos", invalid) as Vector2
+	if anchor.is_finite() and not anchor.is_equal_approx(invalid):
+		return anchor
+	var pending: Vector2 = BanditGroupMemory.get_assault_target(in_group_id)
+	if pending.is_finite() and not pending.is_equal_approx(invalid):
+		return pending
+	return invalid
+
+
+func _resolve_structure_member_anchor(group_anchor: Vector2) -> Vector2:
+	var invalid: Vector2 = Vector2(-1.0, -1.0)
+	if has_method("get_structure_assault_focus_target"):
+		var focus_raw: Variant = call("get_structure_assault_focus_target")
+		if focus_raw is Vector2:
+			var focus: Vector2 = focus_raw as Vector2
+			if focus.is_finite() and not focus.is_equal_approx(invalid):
+				return focus
+	if group_anchor.is_finite() and not group_anchor.is_equal_approx(invalid):
+		return group_anchor
+	return invalid
 
 
 # ---------------------------------------------------------------------------

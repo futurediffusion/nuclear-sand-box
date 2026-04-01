@@ -29,7 +29,7 @@ func setup(ctx: Dictionary) -> void:
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 
 
-func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array, combat_state: Dictionary = {}) -> void:
+func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array, execution_command: Dictionary = {}, combat_state: Dictionary = {}) -> void:
 	if beh == null:
 		return
 	if enemy_node == null or not is_instance_valid(enemy_node):
@@ -37,10 +37,24 @@ func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cac
 		return
 
 	_maybe_drop_carry_on_aggro(beh, enemy_node, combat_state)
-	_handle_mining(beh, enemy_node)
-	_handle_structure_assault(beh, enemy_node)
+	_execute_behavior_command(beh, enemy_node, execution_command)
 	_handle_collection_and_deposit(beh, enemy_node, drops_cache)
 
+
+
+
+func _execute_behavior_command(beh: BanditWorldBehavior, enemy_node: Node, command: Dictionary) -> void:
+	if command.is_empty():
+		return
+	var intent: String = String(command.get("intent", BanditWorldBehavior.EXEC_INTENT_NONE))
+	match intent:
+		BanditWorldBehavior.EXEC_INTENT_MINE_RESOURCE:
+			_handle_mining_command(beh, enemy_node, command)
+		BanditWorldBehavior.EXEC_INTENT_STRUCTURE_ASSAULT:
+			var result: Dictionary = _handle_structure_assault_command(beh, enemy_node, command)
+			beh.apply_execution_feedback(command, result)
+		_:
+			pass
 
 func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
 	if _stash != null and not beh._cargo_manifest.is_empty():
@@ -93,11 +107,10 @@ func _resolve_resource_center(beh: BanditWorldBehavior, enemy_node: Node) -> Vec
 	return res.global_position
 
 
-func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
-	var mine_id: int = beh.pending_mine_id
+func _handle_mining_command(beh: BanditWorldBehavior, enemy_node: Node, command: Dictionary) -> void:
+	var mine_id: int = int(command.get("mine_id", 0))
 	if mine_id == 0:
 		return
-	beh.pending_mine_id = 0
 	if not is_instance_id_valid(mine_id):
 		beh._resource_node_id = 0
 		return
@@ -125,30 +138,25 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		enemy_node.call("queue_ai_attack_press", res_pos)
 
 
-func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> void:
+func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Node, command: Dictionary) -> Dictionary:
 	if _stash == null:
-		return
+		return {"allow": false, "reason": "stash_unavailable"}
 	if _world_node == null or not is_instance_valid(_world_node):
-		return
+		return {"allow": false, "reason": "world_unavailable"}
 	if beh.group_id == "":
-		return
+		return {"allow": false, "reason": "missing_group_id"}
 
 	var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
 	if g.is_empty():
-		return
-	var intent: String = String(g.get("current_group_intent", ""))
-	var assault_active: bool = BanditGroupMemory.is_structure_assault_active(beh.group_id)
-	var has_raid_context: bool = assault_active \
-			or intent == "raiding" \
-			or BanditGroupMemory.has_placement_react_lock(beh.group_id)
-
-	var group_anchor: Vector2 = _resolve_assault_anchor(beh.group_id, g)
-	var member_anchor: Vector2 = _resolve_member_assault_anchor(beh, group_anchor)
+		return {"allow": false, "reason": "group_missing"}
+	var has_raid_context: bool = bool(command.get("has_raid_context", false))
+	var group_anchor: Vector2 = command.get("group_anchor", INVALID_TARGET) as Vector2
+	var member_anchor: Vector2 = command.get("member_anchor", INVALID_TARGET) as Vector2
 	var attack_anchor: Vector2 = member_anchor if _is_valid_target(member_anchor) else group_anchor
 
-	var enemy_pos: Vector2 = (enemy_node as Node2D).global_position
+	var enemy_pos: Vector2 = command.get("node_pos", (enemy_node as Node2D).global_position) as Vector2
 
-	var now: float = RunClock.now()
+	var now: float = float(command.get("now", RunClock.now()))
 	var member_id: String = beh.member_id
 
 	if now >= float(_raid_loot_next_at.get(member_id, 0.0)):
@@ -156,10 +164,10 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 		if looted:
 			_raid_loot_next_at[member_id] = now + RAID_LOOT_COOLDOWN
 			_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
-			return
+			return {"allow": true, "reason": "container_looted"}
 
 	if now < float(_raid_attack_next_at.get(member_id, 0.0)):
-		return
+		return {"allow": false, "reason": "attack_cooldown"}
 
 	var directive: Dictionary = BanditWallAssaultPolicy.evaluate_structure_directive({
 		"world_node": _world_node,
@@ -171,19 +179,14 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 		"member_anchor": member_anchor,
 	})
 	if not bool(directive.get("allow", false)):
-		if String(directive.get("reason", "")) == "no_attack_target" and beh.cargo_count > 0:
-			beh.force_return_home()
-			Debug.log("raid", "[BWC] structure no-target → return home with cargo npc=%s group=%s cargo=%d" % [
-				beh.member_id, beh.group_id, beh.cargo_count
-			])
-		return
+		return directive
 
 	var target: Dictionary = directive
 	var target_pos: Vector2 = target.get("pos", INVALID_TARGET) as Vector2
 	if not _is_valid_target(target_pos):
-		return
+		return {"allow": false, "reason": "invalid_target"}
 	if enemy_pos.distance_squared_to(target_pos) > RAID_ATTACK_RANGE_SQ:
-		return
+		return {"allow": false, "reason": "out_of_range"}
 
 	var attacked: bool = false
 	var target_kind: String = String(target.get("kind", ""))
@@ -199,7 +202,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 		attacked = _try_wall_slash_strike(enemy_node, target_pos)
 
 	if not attacked:
-		return
+		return {"allow": false, "reason": "attack_failed"}
 
 	if target_kind != "wall":
 		if enemy_node.has_method("queue_ai_attack_press"):
@@ -208,24 +211,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 	Debug.log("raid", "[BWC] structure hit npc=%s group=%s kind=%s pos=%s" % [
 		beh.member_id, beh.group_id, target_kind, str(target_pos)
 	])
-
-
-func _resolve_assault_anchor(group_id: String, g: Dictionary) -> Vector2:
-	var anchor: Vector2 = g.get("last_interest_pos", INVALID_TARGET) as Vector2
-	if _is_valid_target(anchor):
-		return anchor
-	var pending: Vector2 = BanditGroupMemory.get_assault_target(group_id)
-	return pending if _is_valid_target(pending) else INVALID_TARGET
-
-
-func _resolve_member_assault_anchor(beh: BanditWorldBehavior, group_anchor: Vector2) -> Vector2:
-	if beh != null and beh.has_method("get_structure_assault_focus_target"):
-		var focus_raw: Variant = beh.call("get_structure_assault_focus_target")
-		if focus_raw is Vector2:
-			var focus: Vector2 = focus_raw as Vector2
-			if _is_valid_target(focus):
-				return focus
-	return group_anchor if _is_valid_target(group_anchor) else INVALID_TARGET
+	return {"allow": true, "reason": "attacked", "target_kind": target_kind, "target_pos": target_pos}
 
 
 func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
@@ -267,7 +253,6 @@ func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
 			container.try_insert_item(String(entry.get("item_id", "")), int(entry.get("amount", 0)))
 		return false
 
-	beh.force_return_home()
 	Debug.log("raid", "[BWC] chest looted npc=%s group=%s chest_uid=%s +%d cargo=%d/%d items=%s" % [
 		beh.member_id,
 		beh.group_id,
