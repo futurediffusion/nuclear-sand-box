@@ -81,6 +81,95 @@ func update_intent(group_id: String, intent: String) -> void:
 		Debug.log("bandit_group", "[BGM] intent changed group=%s %s→%s" % [group_id, prev, intent])
 
 
+## Publica un contrato de intención inmutable para el tramo de ejecución.
+## Solo el owner de decisión debería emitirlo; ejecutores lo consumen como instrucción.
+func issue_execution_intent(group_id: String, intent: String, owner: String, ttl_seconds: float, payload: Dictionary = {}) -> Dictionary:
+	if not _groups.has(group_id):
+		return {}
+	var now: float = RunClock.now()
+	var ttl: float = maxf(ttl_seconds, 0.0)
+	var contract: Dictionary = {
+		"contract_id": "%s:%s:%d" % [group_id, intent, int(now * 1000.0)],
+		"intent": intent,
+		"owner": owner,
+		"issued_at": now,
+		"valid_until": now + ttl,
+		"ttl_seconds": ttl,
+		"payload": payload.duplicate(true),
+	}
+	_groups[group_id]["execution_intent"] = contract
+	Debug.log("bandit_group", "[BGM] execution intent issued group=%s intent=%s owner=%s ttl=%.1fs" % [
+		group_id, intent, owner, ttl,
+	])
+	return contract
+
+
+## Lee el contrato runtime vigente; retorna {} si no existe o expiró.
+func get_execution_intent(group_id: String) -> Dictionary:
+	if not _groups.has(group_id):
+		return {}
+	var g: Dictionary = _groups[group_id]
+	var contract: Dictionary = g.get("execution_intent", {}) as Dictionary
+	if contract.is_empty():
+		return {}
+	var valid_until: float = float(contract.get("valid_until", 0.0))
+	if RunClock.now() > valid_until:
+		g.erase("execution_intent")
+		return {}
+	return contract
+
+
+## Consume y limpia el contrato execution_intent.
+func clear_execution_intent(group_id: String, reason: String = "completed") -> void:
+	if not _groups.has(group_id):
+		return
+	var g: Dictionary = _groups[group_id]
+	var prev: Dictionary = g.get("execution_intent", {}) as Dictionary
+	if prev.is_empty():
+		return
+	g.erase("execution_intent")
+	Debug.log("bandit_group", "[BGM] execution intent cleared group=%s reason=%s intent=%s owner=%s" % [
+		group_id,
+		reason,
+		String(prev.get("intent", "")),
+		String(prev.get("owner", "")),
+	])
+
+
+## Registra un rechazo explícito de ejecución por condiciones runtime.
+func reject_execution_intent(group_id: String, source: String, reason: String, runtime_ctx: Dictionary = {}) -> void:
+	if not _groups.has(group_id):
+		return
+	var g: Dictionary = _groups[group_id]
+	var contract: Dictionary = get_execution_intent(group_id)
+	var event: Dictionary = {
+		"group_id": group_id,
+		"source": source,
+		"reason": reason,
+		"time": RunClock.now(),
+		"runtime_ctx": runtime_ctx.duplicate(true),
+		"intent": String(contract.get("intent", String(g.get("current_group_intent", "idle")))),
+		"owner": String(contract.get("owner", "")),
+		"contract_id": String(contract.get("contract_id", "")),
+	}
+	var events: Array = g.get("execution_rejections", []) as Array
+	events.append(event)
+	g["execution_rejections"] = events
+	g.erase("execution_intent")
+	Debug.log("bandit_group", "[BGM] execution intent rejected group=%s intent=%s owner=%s source=%s reason=%s" % [
+		group_id, String(event.get("intent", "")), String(event.get("owner", "")), source, reason,
+	])
+
+
+func consume_execution_rejections(group_id: String) -> Array:
+	if not _groups.has(group_id):
+		return []
+	var g: Dictionary = _groups[group_id]
+	var events: Array = g.get("execution_rejections", []) as Array
+	g["execution_rejections"] = []
+	return events
+
+
 ## Registra la última posición/tipo de actividad que llamó la atención del grupo.
 func record_interest(group_id: String, world_pos: Vector2, kind: String) -> void:
 	if not _groups.has(group_id):
@@ -325,6 +414,8 @@ func _make_group(group_id: String, faction_id: String, home_world_pos: Vector2) 
 		"resource_claims":            {},   # {res_key -> member_id}
 		"wealth":                     0.0, # cumulative sell-price of stashed goods
 		"structure_assault_active_until": 0.0,
+		"execution_intent":           {},
+		"execution_rejections":       [],
 		"eradicated":                 false,
 	}
 
@@ -344,6 +435,8 @@ func serialize() -> Dictionary:
 		g.erase("placement_react_until")
 		g.erase("structure_assault_active_until")
 		g.erase("structure_assault_active_log_at")
+		g.erase("execution_intent")
+		g.erase("execution_rejections")
 		# Vector2 → plain dict (JSON-safe)
 		var hwp: Vector2 = g.get("home_world_pos", Vector2.ZERO)
 		g["home_world_pos"] = {"x": hwp.x, "y": hwp.y}
@@ -363,6 +456,10 @@ func deserialize(data: Dictionary) -> void:
 			g["internal_social_cooldown_until"] = 0.0
 		if not g.has("structure_assault_active_until"):
 			g["structure_assault_active_until"] = 0.0
+		if not g.has("execution_intent"):
+			g["execution_intent"] = {}
+		if not g.has("execution_rejections"):
+			g["execution_rejections"] = []
 		# Restore Vector2
 		var hwp = g.get("home_world_pos", {"x": 0.0, "y": 0.0})
 		if hwp is Dictionary:

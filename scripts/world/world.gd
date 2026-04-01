@@ -1821,6 +1821,12 @@ func _trigger_placement_react(target_pos: Vector2) -> void:
 			continue
 		BanditGroupMemory.record_interest(gid, target_pos, "structure_placed")
 		BanditGroupMemory.set_placement_react_lock(gid, _PLACEMENT_REACT_INTENT_LOCK_SECONDS)
+		BanditGroupMemory.issue_execution_intent(
+			gid,
+			"raiding",
+			"World._trigger_placement_react",
+			_PLACEMENT_REACT_INTENT_LOCK_SECONDS,
+			{"source": "placement_react", "target_pos": target_pos})
 		BanditGroupMemory.update_intent(gid, "raiding")
 		var enqueued_now: bool = false
 		if not RaidQueue.has_structure_assault_for_group(gid):
