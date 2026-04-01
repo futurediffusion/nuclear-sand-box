@@ -173,9 +173,6 @@ var _cadence:        WorldCadenceCoordinator  = null
 
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _behavior_elapsed: Dictionary = {}
-var _tick_timer: float     = BanditTuningScript.behavior_tick_interval() * 0.35
-var _consume_director_pulses_cb: Callable = Callable()
-var _director_adapter_timer: float = 0.08
 var _warned_missing_director_scheduler: bool = false
 
 var _extortion_director: BanditExtortionDirector = null
@@ -219,10 +216,6 @@ func setup(ctx: Dictionary) -> void:
 	# Temporal governance boundary:
 	# world cadence drives cross-system directors so extortion/raid orchestration
 	# shares the same world pulse grid as chunk/autosave maintenance.
-	# Temporary adapter: optional callback for scenes/tests that do not inject cadence.
-	_consume_director_pulses_cb = ctx.get("consume_director_pulses_cb", Callable())
-	if _cadence == null and not _consume_director_pulses_cb.is_valid():
-		_consume_director_pulses_cb = Callable(self, "_consume_director_pulses_local_adapter")
 
 	# Extortion director
 	if _extortion_director != null and is_instance_valid(_extortion_director):
@@ -402,8 +395,6 @@ func _process(delta: float) -> void:
 	var director_pulses: int = 0
 	if _cadence != null:
 		director_pulses = _cadence.consume_lane(&"director_pulse")
-	elif _consume_director_pulses_cb.is_valid():
-		director_pulses = maxi(0, int(_consume_director_pulses_cb.call()))
 	elif not _warned_missing_director_scheduler:
 		_warned_missing_director_scheduler = true
 		push_warning("BanditBehaviorLayer has no cadence or director pulse adapter; directors are paused until a scheduler is injected.")
@@ -413,23 +404,17 @@ func _process(delta: float) -> void:
 		if _raid_director != null:
 			_raid_director.process_raid()
 	_process_pending_structure_dispatches()
-	_tick_timer += delta
-	if _tick_timer < BanditTuningScript.behavior_tick_interval():
+	var behavior_pulses: int = 0
+	if _cadence != null:
+		behavior_pulses = _cadence.consume_lane(&"bandit_behavior_tick")
+	if behavior_pulses <= 0:
 		return
-	_tick_timer = 0.0
 
-	_ensure_behaviors_for_active_enemies()
-	_stash.ensure_barrels()
-	_tick_behaviors()
-	_prune_behaviors()
-
-
-func _consume_director_pulses_local_adapter() -> int:
-	_director_adapter_timer += get_process_delta_time()
-	if _director_adapter_timer < 0.12:
-		return 0
-	_director_adapter_timer -= 0.12
-	return 1
+	for _pulse in behavior_pulses:
+		_ensure_behaviors_for_active_enemies()
+		_stash.ensure_barrels()
+		_tick_behaviors()
+		_prune_behaviors()
 
 
 # ---------------------------------------------------------------------------
