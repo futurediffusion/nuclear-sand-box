@@ -42,7 +42,7 @@ func get_wall(chunk_pos: Vector2i, tile_pos: Vector2i) -> Dictionary:
 func save_wall(chunk_pos: Vector2i, tile_pos: Vector2i, wall_data: Dictionary) -> void:
 	var normalized: Dictionary = serialize_wall_data(tile_pos, wall_data)
 	if normalized.is_empty():
-		remove_wall(chunk_pos, tile_pos)
+		push_warning("StructuralWallPersistence.save_wall: rejected payload for chunk=%s tile=%s" % [str(chunk_pos), str(tile_pos)])
 		return
 	_ensure_chunk_entry(chunk_pos)
 	var placed_tiles: Array = _get_chunk_placed_tiles(chunk_pos)
@@ -99,8 +99,11 @@ func list_walls_in_chunk(chunk_pos: Vector2i) -> Array[Dictionary]:
 	return load_chunk_walls(chunk_pos)
 
 func serialize_wall_data(tile_pos: Vector2i, wall_data: Dictionary) -> Dictionary:
-	var hp: int = int(wall_data.get(WALL_HP_KEY, structural_wall_default_hp))
-	hp = maxi(1, hp)
+	if not wall_data.has(WALL_HP_KEY):
+		return {}
+	var hp: int = int(wall_data.get(WALL_HP_KEY, 0))
+	if hp <= 0:
+		return {}
 	var serialized: Dictionary = {
 		WALL_LAYER_KEY: walls_map_layer,
 		WALL_TILE_KEY: tile_pos,
@@ -121,7 +124,8 @@ func deserialize_wall_data(raw_data: Dictionary) -> Dictionary:
 	if not (tile_raw is Vector2i):
 		return {}
 	var hp: int = int(raw_data.get(WALL_HP_KEY, structural_wall_default_hp))
-	hp = maxi(1, hp)
+	if hp <= 0:
+		return {}
 	var out: Dictionary = {
 		WALL_TILE_KEY: tile_raw,
 		WALL_HP_KEY: hp,
