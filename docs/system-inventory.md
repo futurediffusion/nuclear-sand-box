@@ -128,7 +128,7 @@ Este inventario describe **qué implementa cada dominio hoy**, sus entradas/sali
 
 ---
 
-## 4) Raids / extortion
+## 4) Coerción bandida (extorsión e incursión)
 
 ### Implementación actual
 - Extortion:
@@ -169,7 +169,7 @@ Este inventario describe **qué implementa cada dominio hoy**, sus entradas/sali
 
 ---
 
-## 5) Loot / drops / pickups
+## 5) Botín e inventario
 
 ### Implementación actual
 - `LootSystem` (`scripts/systems/LootSystem.gd`)
@@ -205,7 +205,7 @@ Este inventario describe **qué implementa cada dominio hoy**, sus entradas/sali
 
 ---
 
-## 6) Placement / placeables / walls
+## 6) Construcción y estructuras
 
 ### Implementación actual
 - `PlacementSystem` (`scripts/systems/PlacementSystem.gd`)
