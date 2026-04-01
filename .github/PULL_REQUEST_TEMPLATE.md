@@ -33,6 +33,19 @@
 > **Regla de merge (bloqueante):** se bloquea el merge si el cambio crea una bifurcación no documentada en el diagrama canónico de `docs/phase-7-cut2-bandit-assault.md`.
 > Si existe excepción temporal aprobada, debe registrarse en `docs/incidencias/registro-unico-deuda-tecnica.md` con responsable y fecha de retiro (`YYYY-MM-DD`).
 
+
+## Declaración de campos nuevos (bloqueante)
+
+> Completar esta sección si el PR agrega o modifica campos de estado/datos de dominio.
+
+- [ ] Para **cada campo nuevo**, declaré categoría única: `runtime` / `save` / `derived` / `cache`.
+- [ ] Para **cada campo nuevo**, declaré owner de escritura único (sistema/servicio/capa dueña).
+- [ ] Confirmo que ningún campo nuevo queda con doble categoría semántica.
+- [ ] Confirmo que índices/caches nuevos no son autoritativos de gameplay.
+- [ ] Si hubo excepción temporal, quedó registrada con owner, fecha de retiro (`YYYY-MM-DD`) y criterio de cierre.
+
+> **Regla de merge (bloqueante):** si un campo nuevo no declara categoría y owner, el PR queda en **No Ready**.
+
 ## Declaración de feature (obligatorio para features nuevas)
 
 - **Capa responsable**: <!-- Behavior / Coordination / Persistence / Debug-Telemetry / Cadence / SpatialIndex -->
