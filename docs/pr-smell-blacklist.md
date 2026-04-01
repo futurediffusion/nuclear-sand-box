@@ -26,18 +26,22 @@ Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`
 |---|---|---|
 | Timer local injustificado | Bloqueante | `No Ready` |
 | Lógica global nueva en autoload | Bloqueante | `No Ready` |
+| Lógica global oculta (aunque no sea autoload nuevo) | Bloqueante | `No Ready` |
 | Duplicación de heurística crítica | Bloqueante | `No Ready` |
 | Segunda ruta de decisión assault/combat/hostility | Bloqueante | `No Ready` |
 | Debug mutando estado real | Bloqueante | `No Ready` |
+| Telemetry/debug mutando estado fuera de canal controlado | Bloqueante | `No Ready` |
 | Fallback temporal sin fecha de retiro | Bloqueante | `No Ready` |
 | Criterio de done Sprint 1 en `No` (reingreso de patrón corregido) | Bloqueante | `No Ready` |
+| Criterio de done anti-reversión en `No` | Bloqueante | `No Ready` |
 
 ### Reglas transversales obligatorias
 
 1. **Owner de decisión**: todo cambio nuevo debe declarar owner canónico de la decisión afectada.
-2. **Categoría de verdad**: todo dato/campo nuevo debe declarar una única categoría (`runtime`, `save`, `derived`, `cache`).
-3. **Fallback temporal**: toda excepción temporal exige fecha de retiro (`YYYY-MM-DD`) desde el primer PR.
+2. **Cambio de estado nuevo**: todo cambio de estado nuevo debe declarar owner de escritura + categoría de verdad única (`runtime`, `save`, `derived`, `cache`).
+3. **Fallback temporal**: toda excepción/fallback temporal exige fecha de retiro (`YYYY-MM-DD`) desde el primer PR y no puede declararse sin expiración explícita.
 4. **No reingreso Sprint 1**: los patrones ya corregidos en Sprint 1 no pueden reingresar; si reaparecen, el PR se bloquea.
+5. **Anti-reversión**: el done de cada PR debe garantizar que el flujo normal de PR no pueda volver al estado anterior.
 
 ---
 
@@ -78,11 +82,11 @@ Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`
 - **Señal de detección:** código de telemetría/debug que cambia estado canónico, decide intents o altera ejecución real fuera de un mecanismo formal de configuración gameplay.
 - **Alternativa correcta:** separar estrictamente observación (logs, métricas, trazas) de mutaciones de runtime.
 
-## 6) Fallbacks permanentes sin retiro planificado
+## 6) Fallbacks/excepciones sin expiración obligatoria
 
-- **Severidad:** `advertencia` (sube a **bloqueante** si no hay plan de retiro)
+- **Severidad:** `bloqueante`
 - **Por qué es peligroso:** consolida deuda técnica, perpetúa paths ambiguos y dificulta verificar cuál es el comportamiento canónico.
-- **Señal de detección:** ramas `legacy`, `temporary`, `TODO` o `fallback` sin fecha objetivo, owner responsable ni criterio de eliminación.
+- **Señal de detección:** ramas `legacy`, `temporary`, `TODO` o `fallback` sin fecha objetivo, owner responsable ni criterio de eliminación; o con fecha difusa/no verificable.
 - **Alternativa correcta:** permitir fallback solo temporal con ticket, fecha límite, owner y criterio de retiro verificable.
 
 ---
@@ -98,7 +102,7 @@ Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`
 ## Checklist de revisión (uso obligatorio)
 
 - [ ] No se introducen olores **bloqueantes** de esta blacklist.
-- [ ] Si hubo **advertencias**, existe plan de mitigación + ticket.
+- [ ] Si hubo excepción temporal, existe plan de mitigación + ticket + fecha de retiro.
 - [ ] Todo fallback nuevo incluye owner, fecha límite y criterio de retiro.
 - [ ] Todo cambio nuevo declara owner de decisión y categoría de verdad cuando aplica.
 - [ ] Ningún patrón ya corregido en Sprint 1 reingresa en el PR.
