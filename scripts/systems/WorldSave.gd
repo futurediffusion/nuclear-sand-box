@@ -74,11 +74,16 @@ func apply_save_snapshot(snapshot: Dictionary) -> PackedStringArray:
 	for uid in placed_data_raw.keys():
 		var entity_data = placed_data_raw[uid]
 		placed_entity_data_by_uid[String(uid)] = (entity_data as Dictionary).duplicate(true)
+	_rebuild_placed_entity_chunk_index_from_truth()
 
 	return errors
 
 func _validate_and_sanitize_save_snapshot(snapshot: Dictionary) -> PackedStringArray:
 	var errors: PackedStringArray = []
+	for runtime_key in RUNTIME_ONLY_KEYS:
+		if snapshot.has(runtime_key):
+			errors.append("ignoring runtime-only key '%s' in save snapshot" % runtime_key)
+			snapshot.erase(runtime_key)
 	for key in SAVE_KEYS:
 		if not (snapshot.get(key, {}) is Dictionary):
 			errors.append("WorldSave.%s expected Dictionary in '%s'" % [key, key])
@@ -146,12 +151,11 @@ func add_placed_entity(entry: Dictionary) -> void:
 		ckey = get_chunk_key_for_tile(tx, ty)
 
 	# Si ya existía en otro chunk, borrar la entrada vieja para evitar duplicados.
-	if placed_entity_chunk_by_uid.has(uid):
-		var old_ckey := String(placed_entity_chunk_by_uid[uid])
-		if old_ckey != ckey and placed_entities_by_chunk.has(old_ckey):
-			placed_entities_by_chunk[old_ckey].erase(uid)
-			if placed_entities_by_chunk[old_ckey].is_empty():
-				placed_entities_by_chunk.erase(old_ckey)
+	var old_ckey := _find_chunk_key_for_placed_uid(uid)
+	if old_ckey != "" and old_ckey != ckey and placed_entities_by_chunk.has(old_ckey):
+		placed_entities_by_chunk[old_ckey].erase(uid)
+		if placed_entities_by_chunk[old_ckey].is_empty():
+			placed_entities_by_chunk.erase(old_ckey)
 
 	var final_entry := entry.duplicate(true)
 	final_entry["chunk_key"] = ckey
@@ -164,12 +168,12 @@ func add_placed_entity(entry: Dictionary) -> void:
 	placed_entities_revision += 1
 
 func remove_placed_entity(uid: String) -> void:
-	if not placed_entity_chunk_by_uid.has(uid):
+	var ckey := _find_chunk_key_for_placed_uid(uid)
+	if ckey == "":
 		# Intento de remoción por UID que no existe en el índice.
 		# Podría ser porque no se cargó el índice o el UID es inválido.
 		return
 
-	var ckey := String(placed_entity_chunk_by_uid[uid])
 	if placed_entities_by_chunk.has(ckey):
 		placed_entities_by_chunk[ckey].erase(uid)
 		if placed_entities_by_chunk[ckey].is_empty():
@@ -210,9 +214,11 @@ func has_placed_entity_at_tile(cx: int, cy: int, tile_pos: Vector2i) -> bool:
 	return not get_placed_entity_at_tile(cx, cy, tile_pos).is_empty()
 
 func find_placed_entity(uid: String) -> Dictionary:
-	if not placed_entity_chunk_by_uid.has(uid):
+	if uid == "":
 		return {}
-	var ckey := String(placed_entity_chunk_by_uid[uid])
+	var ckey := _find_chunk_key_for_placed_uid(uid)
+	if ckey == "":
+		return {}
 	if not placed_entities_by_chunk.has(ckey):
 		return {}
 	var dict: Dictionary = placed_entities_by_chunk[ckey]
@@ -242,6 +248,36 @@ func erase_placed_entity_data(uid: String) -> void:
 	if uid == "":
 		return
 	placed_entity_data_by_uid.erase(uid)
+
+
+func _find_chunk_key_for_placed_uid(uid: String) -> String:
+	if uid == "":
+		return ""
+	if placed_entity_chunk_by_uid.has(uid):
+		var indexed_chunk := String(placed_entity_chunk_by_uid[uid])
+		var chunk_dict: Dictionary = placed_entities_by_chunk.get(indexed_chunk, {})
+		if chunk_dict.has(uid):
+			return indexed_chunk
+	var rebuilt_chunk := _scan_chunk_key_for_placed_uid(uid)
+	if rebuilt_chunk != "":
+		placed_entity_chunk_by_uid[uid] = rebuilt_chunk
+	return rebuilt_chunk
+
+
+func _scan_chunk_key_for_placed_uid(uid: String) -> String:
+	for ckey in placed_entities_by_chunk.keys():
+		var chunk_dict: Dictionary = placed_entities_by_chunk[ckey]
+		if chunk_dict.has(uid):
+			return String(ckey)
+	return ""
+
+
+func _rebuild_placed_entity_chunk_index_from_truth() -> void:
+	placed_entity_chunk_by_uid.clear()
+	for ckey in placed_entities_by_chunk.keys():
+		var chunk_dict: Dictionary = placed_entities_by_chunk[ckey]
+		for uid in chunk_dict.keys():
+			placed_entity_chunk_by_uid[String(uid)] = String(ckey)
 
 
 func get_chunk_save(cx: int, cy: int) -> Dictionary:
