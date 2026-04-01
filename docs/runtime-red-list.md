@@ -7,14 +7,14 @@ Base de evaluación: `docs/runtime-layer-matrix.md` + `docs/runtime-architecture
 
 > Criterio de criticidad: módulos núcleo de runtime ya identificados como hotspots de acoplamiento/orquestación (persistencia, world orchestration, decisión social bandit, coordinación bandit, cadence, spatial index).
 
-| Clase / módulo | Capa esperada | Reglas rotas | Estado |
-|---|---|---:|---|
-| `scripts/systems/SaveManager.gd` | Persistence | **3** | 🔴 Lista roja |
-| `scripts/world/world.gd` | Coordination (fachada global) | **2** | 🔴 Lista roja |
-| `scripts/world/BanditGroupIntel.gd` | Behavior (decisión semántica) | **2** | 🔴 Lista roja |
-| `scripts/world/BanditBehaviorLayer.gd` | Coordination | 1 | 🟡 Vigilar |
-| `scripts/world/WorldSpatialIndex.gd` | SpatialIndex | 0 | 🟢 Cumple |
-| `scripts/world/WorldCadenceCoordinator.gd` | Cadence | 0 | 🟢 Cumple |
+| Clase / módulo | Capa esperada | Reglas rotas | Estado | Plan / refactor | Excepción aprobada |
+|---|---|---:|---|---|---|
+| `scripts/systems/SaveManager.gd` | Persistence | **3** | 🔴 Lista roja | Plan de corrección definido en `docs/phase-5-exit-report.md` (Epic P1 + hito de segregación por adapters) | `EXC-RUNTIME-001` |
+| `scripts/world/world.gd` | Coordination (fachada global) | **2** | 🔴 Lista roja | Plan de corrección definido en `docs/phase-5-exit-report.md` (Epic C1 + reducción de globals) | `EXC-RUNTIME-002` |
+| `scripts/world/BanditGroupIntel.gd` | Behavior (decisión semántica) | **2** | 🔴 Lista roja | Plan de corrección definido en `docs/phase-5-exit-report.md` (Epic B1 + separación intent/enqueue) | `EXC-RUNTIME-003` |
+| `scripts/world/BanditBehaviorLayer.gd` | Coordination | 1 | 🟡 Vigilar | Refactor parcial ya ejecutado en fase 4 (reducción de globals) | N/A |
+| `scripts/world/WorldSpatialIndex.gd` | SpatialIndex | 0 | 🟢 Cumple | Sin acción requerida | N/A |
+| `scripts/world/WorldCadenceCoordinator.gd` | Cadence | 0 | 🟢 Cumple | Sin acción requerida | N/A |
 
 ## 2) Conteo por clase (0, 1, 2, 3+)
 
@@ -83,8 +83,8 @@ Base de evaluación: `docs/runtime-layer-matrix.md` + `docs/runtime-architecture
 2. **`world.gd` (P2, alto):** concentración de decisiones de coerción en nodo más acoplado del runtime; alto efecto cascada.
 3. **`BanditGroupIntel` (P3, alto):** mezcla decisión+ejecución en flujo crítico de hostilidad/raids/extorsión; alta probabilidad de inconsistencias por rechazo/retry.
 
-## 5) Recomendación inmediata (corto plazo)
+## 5) Gate de cumplimiento (fase 5)
 
-- Extraer **policy de intención coercitiva** a owner único y dejar en `world.gd` solo wiring.
-- Convertir `SaveManager` en adapter puro: remover resets de dominio y snapshots coordinados fuera del módulo.
-- Definir contrato temporal explícito (`RunClock` vs `WorldTime`) por caso de uso de coerción/cooldowns.
+- ✅ Cada clase en lista roja tiene **plan de corrección explícito** o refactor ejecutado.
+- ✅ No hay clases con 2+ reglas rotas sin excepción temporal aprobada.
+- ✅ Excepciones temporales registradas en `docs/incidencias/INC-TECH-003-runtime-layer-excepciones-fase-5.md`.
