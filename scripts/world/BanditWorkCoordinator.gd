@@ -21,6 +21,8 @@ var _world_spatial_index: WorldSpatialIndex = null
 
 var _raid_attack_next_at: Dictionary = {}  # member_id -> RunClock.now()
 var _raid_loot_next_at: Dictionary = {}  # member_id -> RunClock.now()
+var _raid_breach_resolved_at: Dictionary = {}  # member_id -> RunClock.now() when breach attack succeeded
+var _raid_stage_by_member: Dictionary = {}  # member_id -> "breach"|"loot"|"closed"
 
 
 func setup(ctx: Dictionary) -> void:
@@ -66,6 +68,8 @@ func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
 		beh.pending_collect_id = 0
 	_raid_attack_next_at.erase(beh.member_id)
 	_raid_loot_next_at.erase(beh.member_id)
+	_raid_breach_resolved_at.erase(beh.member_id)
+	_raid_stage_by_member.erase(beh.member_id)
 
 
 func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node, combat_state: Dictionary) -> void:
@@ -160,13 +164,8 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 
 	var now: float = float(command.get("now", RunClock.now()))
 	var member_id: String = beh.member_id
-
-	if now >= float(_raid_loot_next_at.get(member_id, 0.0)):
-		var looted: bool = _try_loot_nearby_container(beh, enemy_node, attack_anchor, enemy_pos)
-		if looted:
-			_raid_loot_next_at[member_id] = now + RAID_LOOT_COOLDOWN
-			_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
-			return {"allow": true, "reason": "container_looted"}
+	if not _raid_stage_by_member.has(member_id):
+		_raid_stage_by_member[member_id] = "breach"
 
 	if now < float(_raid_attack_next_at.get(member_id, 0.0)):
 		return {"allow": false, "reason": "attack_cooldown"}
@@ -181,17 +180,35 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 		"member_anchor": member_anchor,
 		"canonical_target": canonical_target,
 		"consume_canonical_only": consume_canonical_only,
+		"attack_range_sq": RAID_ATTACK_RANGE_SQ,
 	})
 	if not bool(directive.get("allow", false)):
+		var loot_gate: Dictionary = BanditWallAssaultPolicy.can_transition_breach_to_loot({
+			"has_raid_context": has_raid_context,
+			"now": now,
+			"breach_resolved_at": float(_raid_breach_resolved_at.get(member_id, 0.0)),
+			"loot_next_at": float(_raid_loot_next_at.get(member_id, 0.0)),
+			"enemy_pos": enemy_pos,
+			"loot_anchor": attack_anchor,
+			"loot_range_sq": RAID_LOOT_RANGE_SQ,
+		})
+		if bool(loot_gate.get("allow", false)):
+			var looted: bool = _try_loot_nearby_container(beh, enemy_node, attack_anchor, enemy_pos)
+			if looted:
+				_raid_loot_next_at[member_id] = now + RAID_LOOT_COOLDOWN
+				_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
+				_raid_stage_by_member[member_id] = "closed"
+				return {"allow": true, "reason": "container_looted", "stage_closed": true}
+		elif String(loot_gate.get("reason", "")) == "breach_unresolved":
+			Debug.log("raid", "[BWC][INV] loot blocked without breach member=%s group=%s" % [
+				member_id, beh.group_id
+			])
 		return directive
 
 	var target: Dictionary = directive
 	var target_pos: Vector2 = target.get("pos", INVALID_TARGET) as Vector2
 	if not _is_valid_target(target_pos):
 		return {"allow": false, "reason": "invalid_target"}
-	if enemy_pos.distance_squared_to(target_pos) > RAID_ATTACK_RANGE_SQ:
-		return {"allow": false, "reason": "out_of_range"}
-
 	var attacked: bool = false
 	var target_kind: String = String(target.get("kind", ""))
 	if target_kind == "placeable":
@@ -212,10 +229,18 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 		if enemy_node.has_method("queue_ai_attack_press"):
 			enemy_node.call("queue_ai_attack_press", target_pos)
 	_raid_attack_next_at[member_id] = float(target.get("next_attack_at", now + RAID_ATTACK_COOLDOWN))
+	_raid_breach_resolved_at[member_id] = now
+	_raid_stage_by_member[member_id] = "loot"
 	Debug.log("raid", "[BWC] structure hit npc=%s group=%s kind=%s pos=%s" % [
 		beh.member_id, beh.group_id, target_kind, str(target_pos)
 	])
-	return {"allow": true, "reason": "attacked", "target_kind": target_kind, "target_pos": target_pos}
+	return {
+		"allow": true,
+		"reason": "attacked",
+		"target_kind": target_kind,
+		"target_pos": target_pos,
+		"stage": "loot",
+	}
 
 
 func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
