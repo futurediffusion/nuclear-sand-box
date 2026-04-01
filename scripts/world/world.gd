@@ -650,6 +650,19 @@ func _ready() -> void:
 		_bandit_behavior_layer.setup_group_intel({
 			"get_interest_markers_near": Callable(self, "get_interest_markers_near"),
 			"get_detected_bases_near": Callable(self, "get_detected_bases_near"),
+			"extortion_queue_port": {
+				"has_pending_for_group": Callable(ExtortionQueue, "has_pending_for_group"),
+				"get_last_request_time": Callable(ExtortionQueue, "get_last_request_time"),
+				"enqueue": Callable(ExtortionQueue, "enqueue"),
+			},
+			"raid_queue_port": {
+				"has_pending_for_group": Callable(RaidQueue, "has_pending_for_group"),
+				"get_last_raid_time": Callable(RaidQueue, "get_last_raid_time"),
+				"get_last_wall_probe_time": Callable(RaidQueue, "get_last_wall_probe_time"),
+				"enqueue_wall_probe": Callable(RaidQueue, "enqueue_wall_probe"),
+				"enqueue_light_raid": Callable(RaidQueue, "enqueue_light_raid"),
+				"enqueue_raid": Callable(RaidQueue, "enqueue_raid"),
+			},
 			"find_nearest_player_wall_world_pos": Callable(self, "find_nearest_player_wall_world_pos"),
 			"find_player_wall_samples_world_pos": Callable(self, "find_player_wall_samples_world_pos"),
 			"find_nearest_player_workbench_world_pos": Callable(self, "find_nearest_player_workbench_world_pos"),

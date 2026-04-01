@@ -107,10 +107,6 @@ func get_raid_cooldown_remaining(group_id: String, cooldown: float) -> float:
 	return maxf(0.0, cd - elapsed)
 
 
-func is_raid_available(group_id: String, cooldown: float) -> bool:
-	return get_raid_cooldown_remaining(group_id, cooldown) <= 0.0
-
-
 ## Owner-read helper: cooldown restante para probes de pared.
 func get_wall_probe_cooldown_remaining(group_id: String, cooldown: float) -> float:
 	var cd: float = maxf(0.0, cooldown)
@@ -118,10 +114,6 @@ func get_wall_probe_cooldown_remaining(group_id: String, cooldown: float) -> flo
 		return 0.0
 	var elapsed: float = RunClock.now() - get_last_wall_probe_time(group_id)
 	return maxf(0.0, cd - elapsed)
-
-
-func is_wall_probe_available(group_id: String, cooldown: float) -> bool:
-	return get_wall_probe_cooldown_remaining(group_id, cooldown) <= 0.0
 
 
 func has_pending_for_group(group_id: String) -> bool:
