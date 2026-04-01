@@ -12,6 +12,7 @@ const KIND_ITEM_DROP: StringName = &"item_drop"
 const KIND_WORLD_RESOURCE: StringName = &"world_resource"
 const KIND_WORKBENCH: StringName = &"workbench"
 const KIND_STORAGE: StringName = &"storage"
+const PLACEABLE_CACHE_CONSISTENCY_INTERVAL_SEC: float = 10.0
 
 var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
@@ -28,13 +29,28 @@ var _placeables_by_item_id_and_chunk: Dictionary = {}
 
 var _queries_total: int = 0
 var _queries_with_hits: int = 0
+var _consistency_checks_total: int = 0
+var _consistency_checks_failed: int = 0
+var _last_consistency_issue: String = ""
+var _last_consistency_check_msec: int = 0
 
 
 func setup(ctx: Dictionary) -> void:
 	_world_to_tile_cb = ctx.get("world_to_tile", Callable())
 	_tile_to_world_cb = ctx.get("tile_to_world", Callable())
 	_chunk_size = maxi(int(ctx.get("chunk_size", 32)), 1)
+	_last_consistency_check_msec = Time.get_ticks_msec()
 	add_to_group("world_spatial_index")
+	set_process(true)
+
+
+func _process(_delta: float) -> void:
+	var now_msec: int = Time.get_ticks_msec()
+	var elapsed_sec: float = float(now_msec - _last_consistency_check_msec) / 1000.0
+	if elapsed_sec < PLACEABLE_CACHE_CONSISTENCY_INTERVAL_SEC:
+		return
+	_last_consistency_check_msec = now_msec
+	_run_placeables_consistency_check()
 
 
 func register_runtime_node(kind: StringName, node: Node) -> void:
@@ -160,6 +176,26 @@ func get_placeables_in_chunk(cx: int, cy: int, item_ids: Array[String] = []) -> 
 		for entry in chunk_entries:
 			result.append((entry as Dictionary).duplicate(true))
 	return result
+
+
+## Derived cache maintenance API.
+## Only canonical truth changes in WorldSave may alter cache contents.
+func invalidate_placeables_cache(reason: String = "manual") -> void:
+	_placeables_cache_revision = -1
+	_placeables_by_item_id_and_chunk.clear()
+	if reason.strip_edges() != "":
+		print_debug("WorldSpatialIndex.invalidate_placeables_cache reason=%s" % reason)
+
+
+func rebuild_placeables_cache_from_truth(reason: String = "manual") -> void:
+	invalidate_placeables_cache(reason)
+	_ensure_placeables_cache()
+
+
+## Explicitly block domain writes into derived cache.
+func try_write_placeables_cache(_item_id: String, _chunk_key: String, _entries: Array[Dictionary]) -> int:
+	push_warning("WorldSpatialIndex blocks semantic writes to derived placeables cache. Update WorldSave canonical truth instead.")
+	return ERR_UNAUTHORIZED
 
 
 ## Persistent query helper only.
@@ -312,6 +348,25 @@ func _ensure_placeables_cache() -> void:
 			bucket.append(entry.duplicate(true))
 
 
+func _run_placeables_consistency_check() -> void:
+	_consistency_checks_total += 1
+	_ensure_placeables_cache()
+	var truth_total: int = 0
+	for chunk_dict in WorldSave.placed_entities_by_chunk.values():
+		truth_total += (chunk_dict as Dictionary).size()
+	var cache_total: int = 0
+	for by_chunk in _placeables_by_item_id_and_chunk.values():
+		for bucket in (by_chunk as Dictionary).values():
+			cache_total += (bucket as Array).size()
+	if truth_total != cache_total:
+		_consistency_checks_failed += 1
+		_last_consistency_issue = "placeables cache drift detected truth=%d cache=%d revision=%d" % [truth_total, cache_total, _placeables_cache_revision]
+		push_warning(_last_consistency_issue)
+		rebuild_placeables_cache_from_truth("consistency_drift")
+		return
+	_last_consistency_issue = ""
+
+
 func _get_cached_placeables_for_item_in_chunk(item_id: String, chunk_key: String) -> Array:
 	var by_chunk: Dictionary = _placeables_by_item_id_and_chunk.get(item_id, {})
 	return by_chunk.get(chunk_key, [])
@@ -337,6 +392,12 @@ func get_debug_snapshot() -> Dictionary:
 		"persistent_cache_revision": _placeables_cache_revision,
 		"persistent_item_counts": persistent_counts,
 		"persistent_cache_item_ids": _placeables_by_item_id_and_chunk.size(),
+		"persistent_cache_consistency": {
+			"interval_sec": PLACEABLE_CACHE_CONSISTENCY_INTERVAL_SEC,
+			"checks_total": _consistency_checks_total,
+			"checks_failed": _consistency_checks_failed,
+			"last_issue": _last_consistency_issue,
+		},
 		"query_total": _queries_total,
 		"query_hit_rate": float(_queries_with_hits) / float(maxi(_queries_total, 1)),
 	}
