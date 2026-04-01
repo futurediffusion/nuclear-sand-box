@@ -1,6 +1,8 @@
 class_name RaidFlow
 extends Node
 
+signal raid_closed(event: Dictionary)
+
 # Raid lifecycle orchestrator for player-base assaults.
 # Jobs are consumed from RaidQueue and translated into group movement dispatches.
 
@@ -21,6 +23,11 @@ const STRUCTURE_MAX_DURATION: float = 360.0
 const DISPATCH_JITTER_RATIO: float = 0.16
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
+
+const RAID_CLOSE_SUCCESS: String = "success"
+const RAID_CLOSE_HIGH_RISK: String = "high_risk"
+const RAID_CLOSE_NO_BREACH_CAPABILITY: String = "no_breach_capability"
+const RAID_CLOSE_CONTROLLED_TIMEOUT: String = "controlled_timeout"
 
 var _npc_simulator: NpcSimulator = null
 var _find_wall: Callable = Callable()
@@ -164,12 +171,14 @@ func _tick_jobs() -> void:
 				if _tick_attacking(job, gid):
 					done_ids.append(gid)
 	for gid in done_ids:
-		_finish_raid(gid, "retreat")
+		_finish_raid(gid)
 
 
 func _tick_approaching(job: Dictionary, gid: String) -> bool:
 	var total: float = RunClock.now() - float(job.get("started_at", RunClock.now()))
 	if total >= _max_total_for_job(job):
+		job["_close_result"] = RAID_CLOSE_CONTROLLED_TIMEOUT
+		job["_close_reason"] = "approach_safety_cap"
 		return true
 
 	var base_center: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
@@ -199,6 +208,8 @@ func _tick_wall_assault(job: Dictionary, gid: String) -> void:
 	if faction_id != "":
 		var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
 		if not profile.can_damage_walls:
+			job["_close_result"] = RAID_CLOSE_NO_BREACH_CAPABILITY
+			job["_close_reason"] = "walls_blocked_by_profile"
 			return
 
 	var anchor: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
@@ -220,7 +231,13 @@ func _tick_placeable_assault(job: Dictionary, gid: String) -> void:
 		return
 	var faction_id: String = String(job.get("faction_id", ""))
 	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
-	if not profile.can_damage_workbenches:
+	if not profile.can_damage_workbenches and not profile.can_damage_walls:
+		job["_close_result"] = RAID_CLOSE_NO_BREACH_CAPABILITY
+		job["_close_reason"] = "placeables_and_walls_blocked_by_profile"
+		return
+	if not profile.can_damage_workbenches and profile.can_damage_walls:
+		# degraded light raid: wall-only fallback under canonical policy
+		_tick_wall_assault(job, gid)
 		return
 
 	var anchor: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
@@ -316,11 +333,14 @@ func _next_dispatch_at(group_id: String, interval: float) -> float:
 
 
 func _tick_attacking(job: Dictionary, gid: String) -> bool:
+	if String(job.get("_close_result", "")) != "":
+		return true
 	var raid_type: String = String(job.get("raid_type", "full"))
 	if raid_type == "structure_assault":
 		var finish_reason: String = _structure_assault_finish_reason(job)
 		if finish_reason != "":
-			job["_finish_reason"] = finish_reason
+			job["_close_reason"] = finish_reason
+			job["_close_result"] = _canonical_close_result_for_structure_reason(finish_reason)
 			Debug.log("raid", "[RF] structure assault done group=%s reason=%s" % [gid, finish_reason])
 			return true
 		return false
@@ -329,10 +349,16 @@ func _tick_attacking(job: Dictionary, gid: String) -> bool:
 	var total_elapsed: float = RunClock.now() - float(job.get("started_at", RunClock.now()))
 	var max_attack: float = _attack_duration_for_job(job)
 	var max_total: float = _max_total_for_job(job)
-	if attack_elapsed >= max_attack or total_elapsed >= max_total:
+	if attack_elapsed >= max_attack:
+		job["_close_result"] = RAID_CLOSE_SUCCESS
+		job["_close_reason"] = "attack_window_complete"
 		Debug.log("raid", "[RF] attack done group=%s type=%s attack_t=%.0f total_t=%.0f" % [
 			gid, raid_type, attack_elapsed, total_elapsed
 		])
+		return true
+	if total_elapsed >= max_total:
+		job["_close_result"] = RAID_CLOSE_CONTROLLED_TIMEOUT
+		job["_close_reason"] = "total_window_timeout"
 		return true
 	return false
 
@@ -350,19 +376,31 @@ func _structure_assault_finish_reason(job: Dictionary) -> String:
 	return ""
 
 
+func _canonical_close_result_for_structure_reason(reason: String) -> String:
+	match reason:
+		"no_targets_grace":
+			return RAID_CLOSE_SUCCESS
+		"safety_cap":
+			return RAID_CLOSE_CONTROLLED_TIMEOUT
+		_:
+			return RAID_CLOSE_HIGH_RISK
+
+
 func _abort_invalid_jobs() -> void:
 	var abort_ids: Array[String] = []
 	for gid in _active_jobs.keys():
 		var job: Dictionary = _active_jobs[gid] as Dictionary
 		var total: float = RunClock.now() - float(job.get("started_at", RunClock.now()))
 		if total >= _max_total_for_job(job):
-			if String(job.get("raid_type", "")) == "structure_assault":
-				job["_finish_reason"] = "safety_cap"
+			job["_close_result"] = RAID_CLOSE_CONTROLLED_TIMEOUT
+			job["_close_reason"] = "runtime_max_total_guard"
 			abort_ids.append(gid)
 			continue
 
 		var g: Dictionary = BanditGroupMemory.get_group(gid)
 		if g.is_empty():
+			job["_close_result"] = RAID_CLOSE_HIGH_RISK
+			job["_close_reason"] = "group_missing"
 			abort_ids.append(gid)
 			continue
 
@@ -370,26 +408,30 @@ func _abort_invalid_jobs() -> void:
 		if raid_type != "structure_assault":
 			var leader_id: String = String(g.get("leader_id", ""))
 			if leader_id == "":
+				job["_close_result"] = RAID_CLOSE_HIGH_RISK
+				job["_close_reason"] = "leader_missing"
 				abort_ids.append(gid)
 				continue
 			if _npc_simulator != null and _npc_simulator.get_enemy_node(leader_id) == null:
+				job["_close_result"] = RAID_CLOSE_HIGH_RISK
+				job["_close_reason"] = "leader_node_missing"
 				abort_ids.append(gid)
 	for gid in abort_ids:
-		_finish_raid(gid, "abort")
+		_finish_raid(gid)
 
 
-func _finish_raid(gid: String, reason: String) -> void:
+func _finish_raid(gid: String) -> void:
 	if not _active_jobs.has(gid):
 		return
 	var job: Dictionary = _active_jobs[gid] as Dictionary
 	_active_jobs.erase(gid)
 	var raid_type: String = String(job.get("raid_type", "full"))
-	var resolved_reason: String = reason
-	var finish_reason: String = String(job.get("_finish_reason", ""))
-	if finish_reason != "":
-		resolved_reason = finish_reason
+	var close_result: String = String(job.get("_close_result", RAID_CLOSE_HIGH_RISK))
+	var close_reason: String = String(job.get("_close_reason", "unspecified"))
 	if raid_type == "structure_assault":
 		BanditGroupMemory.clear_structure_assault_active(gid)
+
+	_coordinate_return_home(gid, raid_type, close_result, close_reason)
 
 	var social_cd: float
 	match raid_type:
@@ -404,12 +446,13 @@ func _finish_raid(gid: String, reason: String) -> void:
 		_:
 			social_cd = 10.0
 	BanditGroupMemory.push_social_cooldown(gid, social_cd)
-	if resolved_reason == "abort":
+	if close_result == RAID_CLOSE_HIGH_RISK:
 		BanditGroupMemory.reject_execution_intent(gid, "RaidFlow", "raid_aborted_runtime", {
 			"raid_type": raid_type,
+			"close_reason": close_reason,
 		})
 	else:
-		BanditGroupMemory.clear_execution_intent(gid, "raid_finished_%s" % resolved_reason)
+		BanditGroupMemory.clear_execution_intent(gid, "raid_finished_%s" % close_result)
 	BanditGroupMemory.update_intent(gid, "idle")
 
 	var faction_id: String = String(job.get("faction_id", ""))
@@ -418,7 +461,41 @@ func _finish_raid(gid: String, reason: String) -> void:
 			"group_id": gid,
 			"entity_id": gid + ":raid",
 		})
-	Debug.log("raid", "[RF] raid finished group=%s type=%s reason=%s" % [gid, raid_type, resolved_reason])
+	var close_event: Dictionary = {
+		"group_id": gid,
+		"faction_id": faction_id,
+		"raid_type": raid_type,
+		"result": close_result,
+		"reason": close_reason,
+		"started_at": float(job.get("started_at", RunClock.now())),
+		"ended_at": RunClock.now(),
+	}
+	RaidQueue.record_raid_run_summary(close_event)
+	raid_closed.emit(close_event)
+	Debug.log("raid", "[RF] raid closed group=%s type=%s result=%s reason=%s" % [
+		gid, raid_type, close_result, close_reason
+	])
+
+
+func _coordinate_return_home(gid: String, raid_type: String, close_result: String, close_reason: String) -> void:
+	BanditGroupMemory.clear_assault_target(gid)
+	var g: Dictionary = BanditGroupMemory.get_group(gid)
+	if g.is_empty() or _npc_simulator == null:
+		return
+	var redirected: int = 0
+	for raw_mid in g.get("member_ids", []):
+		var node = _npc_simulator.get_enemy_node(String(raw_mid))
+		if node == null:
+			continue
+		var bwb = node.get_node_or_null("WorldBehavior")
+		if bwb == null or not bwb.has_method("force_return_home"):
+			continue
+		bwb.call("force_return_home")
+		redirected += 1
+	if redirected > 0:
+		Debug.log("raid", "[RF] return policy group=%s type=%s result=%s reason=%s redirected=%d" % [
+			gid, raid_type, close_result, close_reason, redirected
+		])
 
 
 func _has_active_job(gid: String) -> bool:
