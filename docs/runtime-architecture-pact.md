@@ -77,3 +77,9 @@ Regla de resolución:
 ## Vigencia
 
 Este pacto entra en vigor desde su fecha de publicación y aplica a cambios nuevos y refactors sobre runtime.
+
+## Política complementaria de revisión de PR
+
+La blacklist obligatoria de olores para revisión vive en `docs/pr-smell-blacklist.md`.
+
+Todo PR debe evaluarse contra esa blacklist además de este pacto. Si hay conflicto interpretativo, prevalece este pacto y se documenta excepción temporal con plan de retiro.
