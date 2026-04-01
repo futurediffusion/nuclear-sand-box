@@ -1,6 +1,7 @@
 extends Node
 
 const SCATTER_MODE_PROP_RADIAL_SHORT := "prop_radial_short"
+const MAX_ITEM_DROPS: int = 80
 const PROP_RADIAL_SHORT_PROFILE := {
 	"scatter_min_distance": 12.0,
 	"scatter_max_distance": 30.0,
@@ -35,6 +36,11 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 		target_parent = get_tree().current_scene
 	if target_parent == null:
 		target_parent = get_tree().root
+
+	var existing_drops: Array[Node] = get_tree().get_nodes_in_group("item_drop")
+	if existing_drops.size() >= MAX_ITEM_DROPS:
+		if is_instance_valid(existing_drops[0]):
+			existing_drops[0].queue_free()
 
 	var drop := scene.instantiate()
 	if drop == null:

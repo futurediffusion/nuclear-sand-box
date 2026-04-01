@@ -504,10 +504,11 @@ func _damage_player_wall_at(world_pos: Vector2) -> bool:
 func _try_wall_slash_strike(enemy_node: Node, world_pos: Vector2) -> bool:
 	if enemy_node == null or not is_instance_valid(enemy_node):
 		return false
+	# Animar primero — así el slash apunta a la pared antes del daño.
 	if enemy_node.has_method("queue_ai_attack_press"):
 		enemy_node.call("queue_ai_attack_press", world_pos)
-	if enemy_node.has_method("is_attacking") and not bool(enemy_node.call("is_attacking")):
-		return false
+	# Daño directo confiable: funciona también en lite-mode donde IronPipeWeapon
+	# no tickea y el slash físico nunca se spawna.
 	return _damage_player_wall_at(world_pos)
 
 

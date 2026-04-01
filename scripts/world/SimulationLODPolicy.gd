@@ -188,7 +188,9 @@ static func get_behavior_tick_debug(ctx: Dictionary) -> Dictionary:
 	var interval: float = clampf(base_interval * multiplier, MIN_BEHAVIOR_TICK_INTERVAL, MAX_BEHAVIOR_TICK_INTERVAL)
 	# Floor de distancia: un NPC a >FAR no puede tickear más rápido que slow,
 	# sin importar intent ni estado de combate — a esa distancia no hay combate real posible.
-	if distance_to_player >= ACTOR_FAR_DISTANCE:
+	# Excepción: raiding activo — los bandits que destruyen paredes deben tickear
+	# a su cadencia normal aunque el jugador esté lejos.
+	if distance_to_player >= ACTOR_FAR_DISTANCE and intent != "raiding":
 		interval = maxf(interval, base_interval * 1.6)
 		reasons.push_front("distance_floor")
 	return {

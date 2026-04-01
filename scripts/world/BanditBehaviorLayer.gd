@@ -51,7 +51,8 @@ const DEBUG_ALERTED_CHASE: bool = true
 const STRUCTURE_ASSAULT_FOCUS_SECONDS: float = 24.0
 const STRUCTURE_MEMBER_QUERY_RADIUS: float = 320.0
 const STRUCTURE_MEMBER_QUERY_RING_RADIUS: float = 96.0
-const STRUCTURE_MEMBER_TARGET_SEPARATION_SQ: float = 88.0 * 88.0
+const STRUCTURE_MEMBER_TARGET_SEPARATION_SQ: float = 96.0 * 96.0
+const STRUCTURE_ASSAULT_STANDBY_DIST: float = 180.0
 const STRUCTURE_MEMBER_CANDIDATE_LIMIT: int = 24
 const STRUCTURE_TARGET_TEAM_SIZE: int = 3
 const STRUCTURE_WALL_SAMPLE_STEP: float = 72.0
@@ -720,14 +721,24 @@ func notify_territory_reaction(_faction_id: String, group_id: String,
 func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size: int = -1) -> int:
 	if _npc_simulator == null:
 		return 0
-	var cap: int = squad_size if squad_size > 0 else 999999
-	var member_ids: Array[String] = _collect_live_structure_dispatch_member_ids(group_id, target_pos, cap)
+	# Colectar miembros de la oleada de ataque (capeado al squad_size real)
+	var g_total: int = (BanditGroupMemory.get_group(group_id).get("member_ids", []) as Array).size()
+	var wave_cap: int = squad_size if squad_size > 0 else g_total
+	var member_ids: Array[String] = _collect_live_structure_dispatch_member_ids(group_id, target_pos, wave_cap)
 	if member_ids.is_empty():
 		BanditGroupMemory.set_assault_target(group_id, target_pos)
 		if _can_emit_dispatch_log(group_id, 0.8):
 			Debug.log("placement_react", "[BBL] dispatch queued (no spawneados) group=%s target=%s" % [
 				group_id, str(target_pos)])
 		return 0
+
+	# Colectar overflow: miembros del grupo con nodo válido que no están en la oleada
+	var overflow_ids: Array[String] = []
+	if member_ids.size() < g_total:
+		overflow_ids = _collect_overflow_ids(group_id, member_ids)
+	# Los overflow van a una zona de espera detrás de la pared para no apiñarse
+	if not overflow_ids.is_empty():
+		_redirect_overflow_to_staging(group_id, overflow_ids, target_pos)
 
 	var target_pool: Array[Vector2] = _build_structure_target_pool_cached(group_id, target_pos)
 	var claimed_targets: Array[Vector2] = []
@@ -1106,6 +1117,24 @@ func _collect_live_structure_dispatch_member_ids(group_id: String, target_pos: V
 	return out
 
 
+## Retorna los IDs del grupo con nodo válido que no están en exclude_ids.
+func _collect_overflow_ids(group_id: String, exclude_ids: Array[String]) -> Array[String]:
+	var exclude: Dictionary = {}
+	for eid in exclude_ids:
+		exclude[eid] = true
+	var out: Array[String] = []
+	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	for mid in g.get("member_ids", []):
+		var mid_str: String = String(mid)
+		if exclude.has(mid_str):
+			continue
+		var node = _npc_simulator.get_enemy_node(mid_str)
+		if node == null or not (node is Node2D):
+			continue
+		out.append(mid_str)
+	return out
+
+
 func _sort_dispatch_rows_by_anchor_dsq(rows: Array[Dictionary]) -> void:
 	for i in range(1, rows.size()):
 		var key: Dictionary = rows[i]
@@ -1391,6 +1420,68 @@ func _update_deposit_pos(group_id: String, barrel_pos: Vector2) -> void:
 		var angle  := (h % DEPOSIT_SLOT_COUNT) * (TAU / DEPOSIT_SLOT_COUNT)
 		var radius := DEPOSIT_SLOT_RADIUS_MIN + float(h % DEPOSIT_SLOT_RADIUS_RANGE)
 		beh.deposit_pos = barrel_pos + Vector2(cos(angle), sin(angle)) * radius
+
+
+# ---------------------------------------------------------------------------
+# Overflow staging — miembros no en la oleada de asalto esperan atrás
+# ---------------------------------------------------------------------------
+
+## Redirige miembros overflow a una zona de espera detrás de la pared.
+## Esto evita que todos se amontonen en la misma baldosa mientras atacan otros.
+func _redirect_overflow_to_staging(group_id: String, overflow_ids: Array[String],
+		target_pos: Vector2) -> void:
+	# Resolver nodos una sola vez para evitar doble get_enemy_node (aquí + en staging center)
+	var resolved: Dictionary = {}
+	for mid in overflow_ids:
+		var beh: BanditWorldBehavior = _behaviors.get(mid) as BanditWorldBehavior
+		if beh != null and beh.group_id == group_id:
+			resolved[mid] = null  # ruta beh — no necesita nodo
+		else:
+			resolved[mid] = _npc_simulator.get_enemy_node(mid)
+
+	var staging_center: Vector2 = _compute_assault_staging_center(resolved, target_pos)
+	for idx in range(overflow_ids.size()):
+		var mid: String = overflow_ids[idx]
+		var staging_pos: Vector2 = _jitter_staging_pos(staging_center, mid, idx)
+		var beh: BanditWorldBehavior = _behaviors.get(mid) as BanditWorldBehavior
+		if beh != null and beh.group_id == group_id:
+			beh.enter_wall_assault(staging_pos)
+			continue
+		var node: Node = resolved.get(mid, null)
+		if node == null:
+			continue
+		var wb: Node = node.get_node_or_null("WorldBehavior")
+		if wb != null and wb.has_method("enter_wall_assault"):
+			wb.call("enter_wall_assault", staging_pos)
+
+
+## Centro de la zona de espera: STRUCTURE_ASSAULT_STANDBY_DIST px en la dirección
+## "grupo → pared" invertida, para que esperen detrás de la línea de ataque.
+func _compute_assault_staging_center(resolved: Dictionary, target_pos: Vector2) -> Vector2:
+	var sum: Vector2 = Vector2.ZERO
+	var count: int = 0
+	for mid in resolved:
+		var node = resolved[mid]
+		if node is Node2D:
+			sum += (node as Node2D).global_position
+			count += 1
+	if count == 0:
+		return target_pos + Vector2(0.0, -STRUCTURE_ASSAULT_STANDBY_DIST)
+	var avg: Vector2 = sum / float(count)
+	var away: Vector2 = avg - target_pos
+	if away.length_squared() < 4.0:
+		away = Vector2(0.0, -1.0)
+	else:
+		away = away.normalized()
+	return target_pos + away * STRUCTURE_ASSAULT_STANDBY_DIST
+
+
+## Desplazamiento por miembro para que no se apilen en el mismo punto de espera.
+func _jitter_staging_pos(center: Vector2, member_id: String, idx: int) -> Vector2:
+	var h: int = absi(hash(member_id))
+	var angle: float = float((h + idx * 7) % 24) * (TAU / 24.0)
+	var radius: float = float(h % 32) + 16.0
+	return center + Vector2(cos(angle), sin(angle)) * radius
 
 
 # ---------------------------------------------------------------------------

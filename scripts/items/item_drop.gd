@@ -67,6 +67,7 @@ func _ready() -> void:
 		call_deferred("_recheck_player_overlap")
 	)
 	magnet_delay.start()
+	get_tree().create_timer(120.0, true).timeout.connect(queue_free)
 
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
@@ -100,6 +101,11 @@ func _resolve_item_data() -> void:
 
 func _process(delta: float) -> void:
 	_update_world_index()
+	if _player != null:
+		var dist_sq: float = global_position.distance_squared_to(_player.global_position)
+		var should_monitor: bool = dist_sq <= 300.0 * 300.0
+		if monitoring != should_monitor:
+			monitoring = should_monitor
 	var carry = get_node_or_null("CarryableComponent")
 	if carry != null and carry._is_carried:
 		# If being carried, don't do any floating/magnet/throw processing

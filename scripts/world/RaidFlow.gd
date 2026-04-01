@@ -263,9 +263,10 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 
 	job["no_target_since"] = 0.0
 	BanditGroupMemory.record_interest(gid, target_pos, "structure_assault_target")
-	var requested: int = int(job.get("probe_squad_size", -1))
-	if requested == 0:
-		requested = -1
+	# Si probe_squad_size fuerza un número fijo (p.ej. wall_probe), respetarlo.
+	# En estructura libre siempre será -1: sortear oleada aleatoria cada dispatch tick.
+	var probe_size: int = int(job.get("probe_squad_size", -1))
+	var requested: int = probe_size if probe_size > 0 else _roll_assault_wave_size(gid)
 	var redirected: int = _dispatch_group(gid, target_pos, requested)
 	job["base_center"] = target_pos
 	job["wall_assault_next_at"] = _next_dispatch_at(gid, BanditTuning.wall_probe_wall_interval())
@@ -464,6 +465,21 @@ func _resolve_structure_target(anchor_pos: Vector2, allow_walls: bool, prefer_st
 
 func _is_valid_target(pos: Vector2) -> bool:
 	return pos.is_finite() and not pos.is_equal_approx(INVALID_TARGET)
+
+
+## Sortea cuántos miembros atacan la pared en este tick.
+## ≤2 miembros → todos siempre.
+## 3+ miembros:
+##   45 % → ~60 % del grupo (min 2) — presión sólida sin apiñarse
+##   55 % → todos (asalto en masa)
+func _roll_assault_wave_size(gid: String) -> int:
+	var g: Dictionary = BanditGroupMemory.get_group(gid)
+	var total: int = (g.get("member_ids", []) as Array).size()
+	if total <= 2:
+		return -1
+	if randf() < 0.45:
+		return maxi(2, int(ceili(float(total) * 0.6)))
+	return -1  # todos
 
 
 func _attack_duration_for_job(job: Dictionary) -> float:
