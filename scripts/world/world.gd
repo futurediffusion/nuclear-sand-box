@@ -350,6 +350,10 @@ func _ready() -> void:
 	WorldSave.chunk_size = chunk_size
 
 	SaveManager.register_world(self)
+	SaveManager.register_runtime_ports({
+		"snapshot_before_save": Callable(self, "_snapshot_entities_for_save"),
+		"reset_runtime_for_new_game": Callable(self, "_reset_runtime_for_new_game"),
+	})
 	var _had_save := SaveManager.load_world_save()
 
 	# Seeds derivados de run_seed — determinísticos y persistentes entre cargas
@@ -2031,6 +2035,23 @@ func _perform_world_save(_reason: String = "manual") -> void:
 	SaveManager.save_world()
 	_last_save_time_msec = Time.get_ticks_msec()
 	_save_count += 1
+
+
+func _snapshot_entities_for_save() -> void:
+	if entity_coordinator != null and entity_coordinator.has_method("snapshot_entities_to_world_save"):
+		entity_coordinator.snapshot_entities_to_world_save()
+
+
+func _reset_runtime_for_new_game() -> void:
+	PlacementSystem.clear_runtime_instances()
+	FactionSystem.reset()
+	SiteSystem.reset()
+	NpcProfileSystem.reset()
+	BanditGroupMemory.reset()
+	ExtortionQueue.reset()
+	RunClock.reset()
+	WorldTime.load_save_data({})
+	FactionHostilityManager.reset()
 
 
 func _get_world_maintenance_debug_snapshot() -> Dictionary:

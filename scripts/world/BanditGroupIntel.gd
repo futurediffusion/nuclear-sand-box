@@ -33,6 +33,7 @@ var _player: Node2D
 var _cadence: WorldCadenceCoordinator = null
 var _extortion_queue_port: Dictionary = {}
 var _raid_queue_port: Dictionary = {}
+var _dispatch_group_action_cb: Callable = Callable()
 const GROUP_SCAN_SLICE_COUNT: int = 4
 
 var _scan_cursor: int = 0
@@ -56,6 +57,7 @@ func setup(ctx: Dictionary) -> void:
 	_cadence          = ctx.get("cadence") as WorldCadenceCoordinator
 	_extortion_queue_port = _resolve_extortion_queue_port(ctx)
 	_raid_queue_port = _resolve_raid_queue_port(ctx)
+	_dispatch_group_action_cb = ctx.get("dispatch_group_action_cb", Callable())
 
 
 func _resolve_extortion_queue_port(ctx: Dictionary) -> Dictionary:
@@ -314,14 +316,15 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 		BanditGroupMemory.set_scout(group_id, "")
 
 	if interest != null and bool(policy.get("can_extort_now", false)):
-		_maybe_enqueue_extortion(group_id, g, interest, score, markers, bases)
+		var extortion_action: Dictionary = _maybe_enqueue_extortion(group_id, g, interest, score, markers, bases)
+		_dispatch_group_action(extortion_action)
 
 	if not bases.is_empty() and bool(policy.get("can_full_raid_now", false)):
-		_maybe_enqueue_raid(group_id, g, bases[0], faction_id)
+		_dispatch_group_action(_maybe_enqueue_raid(group_id, g, bases[0], faction_id))
 	elif not bases.is_empty() and bool(policy.get("can_light_raid_now", false)):
-		_maybe_enqueue_light_raid(group_id, g, bases[0], faction_id)
+		_dispatch_group_action(_maybe_enqueue_light_raid(group_id, g, bases[0], faction_id))
 	elif not bases.is_empty() and bool(policy.get("can_wall_probe_now", false)):
-		_maybe_enqueue_wall_probe(group_id, g, bases[0], faction_id, h_level)
+		_dispatch_group_action(_maybe_enqueue_wall_probe(group_id, g, bases[0], faction_id, h_level))
 
 
 # ---------------------------------------------------------------------------
@@ -419,11 +422,11 @@ func _pick_scout(group_id: String, g: Dictionary) -> String:
 
 func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 		interest: Dictionary, score: float,
-		markers: Array, bases: Array) -> void:
+		markers: Array, bases: Array) -> Dictionary:
 	# Guard 1: already queued for this group
 	if bool(_queue_call(_extortion_queue_port, "has_pending_for_group", [group_id], false)):
 		Debug.log("bandit_intel", "[BGI] extortion pending — skip group=%s" % group_id)
-		return
+		return {}
 
 	var leader_id:  String = String(g.get("leader_id",  ""))
 	var faction_id: String = String(g.get("faction_id", "bandits"))
@@ -445,7 +448,7 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	if cooldown_remaining > 0.0:
 		Debug.log("bandit_intel", "[BGI] extortion cooldown %.0fs left group=%s" % [
 			cooldown_remaining, group_id])
-		return
+		return {}
 
 	# Severity: score base + bonus compliance (saben que paga) + bonus wealth (demandan más)
 	var base_severity: float    = clampf((score - BanditIntentPolicy.EXTORT_SCORE_THRESHOLD) / (W_BASE_DETECTED * 2.0), 0.1, 1.0)
@@ -456,25 +459,23 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	# Causa dominante — decide qué texto verá el jugador en el modal de extorsión
 	var extort_reason: String = _pick_extort_reason(markers, bases, pay_data.compliance_score, w_tier)
 
-	_queue_call(_extortion_queue_port, "enqueue", [{
-		"target_id":     "player",
-		"faction_id":    faction_id,
-		"group_id":      group_id,
-		"source_npc_id": leader_id,
-		"trigger_kind":  interest.kind,
-		"world_pos":     interest.pos,
-		"created_at":    RunClock.now(),
-		"severity":      clampf(severity, 0.0, 1.0),
-		"extort_reason": extort_reason,
-	}])
-	BanditGroupMemory.issue_execution_intent(
-		group_id, "extorting", "BanditGroupIntel", EXECUTION_INTENT_TTL_EXTORT, {"source": "extortion_queue"})
-	BanditGroupMemory.push_social_cooldown(group_id, maxf(4.0, effective_cooldown * 0.15))
-	BanditGroupMemory.update_intent(group_id, "extorting")
-	Debug.log("bandit_intel",
-		"[BGI] extortion enqueued group=%s leader=%s kind=%s sev=%.2f compliance=%.2f wealth=%.0f(t%d)" % [
-		group_id, leader_id, interest.kind, severity, pay_data.compliance_score,
-		pay_data.band_wealth, w_tier])
+	return {
+		"kind": "enqueue_extortion",
+		"group_id": group_id,
+		"payload": {
+			"target_id": "player",
+			"faction_id": faction_id,
+			"group_id": group_id,
+			"source_npc_id": leader_id,
+			"trigger_kind": interest.kind,
+			"world_pos": interest.pos,
+			"created_at": RunClock.now(),
+			"severity": clampf(severity, 0.0, 1.0),
+			"extort_reason": extort_reason,
+		},
+		"social_cooldown": maxf(4.0, effective_cooldown * 0.15),
+		"execution_ttl": EXECUTION_INTENT_TTL_EXTORT,
+	}
 
 
 # ---------------------------------------------------------------------------
@@ -575,13 +576,13 @@ func _pick_extort_reason(markers: Array, bases: Array,
 ## Solo "de vez en cuando": gate triple de cooldown × probabilidad × pendiente.
 ## squad_size y cooldown escalan con el nivel (ver BanditTuning.wall_probe_config).
 func _maybe_enqueue_wall_probe(group_id: String, g: Dictionary,
-		base: Dictionary, faction_id: String, h_level: int) -> void:
+		base: Dictionary, faction_id: String, h_level: int) -> Dictionary:
 	# Guard 1: ya raideando o con raid/probe pendiente
 	var current_intent: String = String(BanditGroupMemory.get_group(group_id).get("current_group_intent", ""))
 	if current_intent == "raiding":
-		return
+		return {}
 	if bool(_queue_call(_raid_queue_port, "has_pending_for_group", [group_id], false)):
-		return
+		return {}
 
 	# Guard 2: cooldown específico de probe (más largo que raids, varía por nivel)
 	var cfg: Dictionary   = BanditTuning.wall_probe_config(h_level)
@@ -593,27 +594,26 @@ func _maybe_enqueue_wall_probe(group_id: String, g: Dictionary,
 		0.0
 	))
 	if probe_cd_remaining > 0.0:
-		return
+		return {}
 
 	# Guard 3: roll de probabilidad — "de vez en cuando", no sistemático
 	var chance: float = float(cfg.get("chance", 0.10))
 	if randf() >= chance:
-		return
+		return {}
 
 	var leader_id: String    = String(g.get("leader_id", ""))
 	var base_center: Vector2 = base.get("center_world_pos", Vector2.ZERO) as Vector2
 	var base_id: String      = String(base.get("id", ""))
 	var squad_size: int      = int(cfg.get("squad_size", 1))
 
-	_queue_call(_raid_queue_port, "enqueue_wall_probe", [faction_id, group_id, leader_id, base_center, base_id, squad_size])
-	BanditGroupMemory.issue_execution_intent(
-		group_id, "raiding", "BanditGroupIntel", EXECUTION_INTENT_TTL_RAID, {"source": "wall_probe"})
-	BanditGroupMemory.push_social_cooldown(group_id, maxf(6.0, probe_cd * 0.10))
-	BanditGroupMemory.update_intent(group_id, "raiding")
-	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
-	Debug.log("bandit_intel",
-		"[BGI] wall probe enqueued group=%s leader=%s base=%s squad=%d lv%d chance=%.2f" % [
-		group_id, leader_id, base_id, squad_size, h_level, chance])
+	return {
+		"kind": "enqueue_wall_probe",
+		"group_id": group_id,
+		"args": [faction_id, group_id, leader_id, base_center, base_id, squad_size],
+		"base_center": base_center,
+		"social_cooldown": maxf(6.0, probe_cd * 0.10),
+		"execution_ttl": EXECUTION_INTENT_TTL_RAID,
+	}
 
 
 # ---------------------------------------------------------------------------
@@ -624,13 +624,13 @@ func _maybe_enqueue_wall_probe(group_id: String, g: Dictionary,
 ## El grupo converge en la base del jugador para sabotear workbenches y storage.
 ## Cooldown independiente: 120s (más frecuente que el raid completo de nivel 10).
 func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
-		base: Dictionary, faction_id: String) -> void:
+		base: Dictionary, faction_id: String) -> Dictionary:
 	# Guard 1: ya raideando o con raid pendiente
 	var current_intent: String = String(BanditGroupMemory.get_group(group_id).get("current_group_intent", ""))
 	if current_intent == "raiding":
-		return
+		return {}
 	if bool(_queue_call(_raid_queue_port, "has_pending_for_group", [group_id], false)):
-		return
+		return {}
 	# Guard 2: cooldown desde el último raid
 	var light_raid_cd_remaining: float = float(_queue_call(
 		_raid_queue_port,
@@ -639,20 +639,20 @@ func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
 		0.0
 	))
 	if light_raid_cd_remaining > 0.0:
-		return
+		return {}
 
 	var leader_id: String    = String(g.get("leader_id", ""))
 	var base_center: Vector2 = base.get("center_world_pos", Vector2.ZERO) as Vector2
 	var base_id: String      = String(base.get("id", ""))
 
-	_queue_call(_raid_queue_port, "enqueue_light_raid", [faction_id, group_id, leader_id, base_center, base_id])
-	BanditGroupMemory.issue_execution_intent(
-		group_id, "raiding", "BanditGroupIntel", EXECUTION_INTENT_TTL_RAID, {"source": "light_raid"})
-	BanditGroupMemory.push_social_cooldown(group_id, maxf(8.0, BanditTuning.raid_cooldown_base() * 0.12))
-	BanditGroupMemory.update_intent(group_id, "raiding")
-	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
-	Debug.log("bandit_intel", "[BGI] light raid enqueued group=%s leader=%s base=%s" % [
-		group_id, leader_id, base_id])
+	return {
+		"kind": "enqueue_light_raid",
+		"group_id": group_id,
+		"args": [faction_id, group_id, leader_id, base_center, base_id],
+		"base_center": base_center,
+		"social_cooldown": maxf(8.0, BanditTuning.raid_cooldown_base() * 0.12),
+		"execution_ttl": EXECUTION_INTENT_TTL_RAID,
+	}
 
 
 # ---------------------------------------------------------------------------
@@ -660,13 +660,13 @@ func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
 # ---------------------------------------------------------------------------
 
 func _maybe_enqueue_raid(group_id: String, g: Dictionary,
-		base: Dictionary, faction_id: String) -> void:
+		base: Dictionary, faction_id: String) -> Dictionary:
 	# Guard 1: ya raideando o con raid pendiente
 	var current_intent: String = String(BanditGroupMemory.get_group(group_id).get("current_group_intent", ""))
 	if current_intent == "raiding":
-		return
+		return {}
 	if bool(_queue_call(_raid_queue_port, "has_pending_for_group", [group_id], false)):
-		return
+		return {}
 	# Guard 2: cooldown desde el último raid, reducido por riqueza de la banda
 	var w_tier_raid: int         = FactionHostilityManager.get_wealth_tier(faction_id)
 	var raid_cd_factor: float    = FactionHostilityManager.WEALTH_RAID_COOLDOWN_FACTOR[w_tier_raid]
@@ -679,20 +679,26 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 	))
 	if raid_cd_remaining > 0.0:
 		Debug.log("bandit_intel", "[BGI] raid cooldown — group=%s" % group_id)
-		return
+		return {}
 
 	var leader_id: String  = String(g.get("leader_id",  ""))
 	var base_center: Vector2 = base.get("center_world_pos", Vector2.ZERO) as Vector2
 	var base_id: String    = String(base.get("id", ""))
 
-	_queue_call(_raid_queue_port, "enqueue_raid", [faction_id, group_id, leader_id, base_center, base_id])
-	BanditGroupMemory.issue_execution_intent(
-		group_id, "raiding", "BanditGroupIntel", EXECUTION_INTENT_TTL_RAID, {"source": "full_raid"})
-	BanditGroupMemory.push_social_cooldown(group_id, maxf(12.0, effective_raid_cd * 0.15))
-	BanditGroupMemory.update_intent(group_id, "raiding")
-	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
-	Debug.log("bandit_intel", "[BGI] raid enqueued group=%s leader=%s base=%s" % [
-		group_id, leader_id, base_id])
+	return {
+		"kind": "enqueue_full_raid",
+		"group_id": group_id,
+		"args": [faction_id, group_id, leader_id, base_center, base_id],
+		"base_center": base_center,
+		"social_cooldown": maxf(12.0, effective_raid_cd * 0.15),
+		"execution_ttl": EXECUTION_INTENT_TTL_RAID,
+	}
+
+
+func _dispatch_group_action(action: Dictionary) -> void:
+	if action.is_empty() or not _dispatch_group_action_cb.is_valid():
+		return
+	_dispatch_group_action_cb.call(action)
 
 
 func _resolve_execution_rejections(group_id: String, current_intent: String) -> void:
