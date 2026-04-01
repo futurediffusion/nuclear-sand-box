@@ -22,8 +22,8 @@ Se publica el presente reporte de salida para el **primer corte vertical de Phas
 | Métrica | Valor |
 |---|---:|
 | Timers/puntos de scheduling inventariados | 17 |
-| Marcados como `MIGRADO_A_CADENCE` | 2 |
-| Marcados como `MIGRAR_A_CADENCE` (pendiente) | 4 |
+| Marcados como `MIGRADO_A_CADENCE` | 3 |
+| Marcados como `MIGRAR_A_CADENCE` (pendiente) | 3 |
 | Marcados como `MANTENER_LOCAL_BY_DESIGN` | 7 |
 | Marcados como `DUDOSO_REVISAR` | 4 |
 
@@ -32,7 +32,7 @@ Se publica el presente reporte de salida para el **primer corte vertical de Phas
 | Métrica mínima solicitada | Valor | Criterio aplicado |
 |---|---:|---|
 | Timers totales inventariados | 17 | Total de filas del inventario de Phase 7 |
-| Migrados a Cadence | 2 | Casos ya migrados y operativos sobre lane Cadence |
+| Migrados a Cadence | 3 | Casos ya migrados y operativos sobre lane Cadence |
 | Locales permitidos | 7 | Casos clasificados como `MANTENER_LOCAL_BY_DESIGN` |
 | Casos dudosos | 4 | Casos clasificados como `DUDOSO_REVISAR` |
 
@@ -61,7 +61,6 @@ Criterio obligatorio de fase: timer local solo con excepción explícita, motivo
 | `AIComponent` (`_lod_timer`, `_warmup_tick_timer`) | `DUDOSO_REVISAR` | Cadencia local de IA por distancia; pendiente definir frontera runtime-vs-actor | 2026-04-08 |
 | `AIComponent::_schedule_sleep_check` (`create_timer`) | `MIGRAR_A_CADENCE` | Sleep/wake hysteresis recursiva por actor sin ownership centralizado | 2026-04-08 |
 | `NpcSimulator::_tick_lite_mode/_tick_data_only` | `DUDOSO_REVISAR` | Loops de simulación por distancia todavía con control local | 2026-04-08 |
-| `SettlementIntel::process` (fallback local) | `MIGRAR_A_CADENCE` | Fallback se mantiene para wiring incompleto; target final = lanes dedicadas únicamente | 2026-04-08 |
 
 **Conclusión de control:** cada timer local activo queda con motivo explícito y fecha de revisión definida en este corte.
 
@@ -95,9 +94,7 @@ Ordenado por impacto en combate/hostilidad/raids/pathing:
    - Objetivo: definir contrato único para repath interval (global cadence o actor policy formal).
 5. **NpcSimulator loops (lite/data-only)**
    - Objetivo: consolidar ticks de distancia en Cadence sin degradar rendimiento.
-6. **SettlementIntel fallback removal**
-   - Objetivo: dejar exclusivamente lanes Cadence para rescans de settlement.
-7. **BanditBehaviorLayer `_tick_timer`**
+6. **BanditBehaviorLayer `_tick_timer`**
    - Objetivo: resolver ownership final (migrar o justificar `LOCAL_TIMER_BY_DESIGN` acotado).
 
 ## 6) Criterio de salida del Cut 1
@@ -105,7 +102,7 @@ Ordenado por impacto en combate/hostilidad/raids/pathing:
 Cut 1 queda **cerrado** con las siguientes condiciones:
 
 - Inventario temporal completo y clasificado (17/17).
-- Dos migraciones efectivas a Cadence ya operativas.
+- Tres migraciones efectivas a Cadence ya operativas.
 - Excepciones/locales activas con motivo explícito y revisión programada.
 - Backlog priorizado y accionable para Cut 2.
 
