@@ -91,6 +91,20 @@ func get_last_request_time(group_id: String) -> float:
 	return float(_last_request_time_by_group.get(group_id, 0.0))
 
 
+## Owner-read helper: centraliza validación de cooldown para nuevas solicitudes.
+## Retorna segundos restantes (0 = disponible).
+func get_cooldown_remaining(group_id: String, cooldown: float) -> float:
+	var cd: float = maxf(0.0, cooldown)
+	if cd <= 0.0:
+		return 0.0
+	var elapsed: float = RunClock.now() - get_last_request_time(group_id)
+	return maxf(0.0, cd - elapsed)
+
+
+func is_request_available(group_id: String, cooldown: float) -> bool:
+	return get_cooldown_remaining(group_id, cooldown) <= 0.0
+
+
 # ---------------------------------------------------------------------------
 # Consume API
 # ---------------------------------------------------------------------------
