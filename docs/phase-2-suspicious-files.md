@@ -205,3 +205,69 @@ Leyenda:
 3. **P2 tercero:** extorsión y mantenimiento territorial incremental.
 
 Criterio aplicado: priorizar mezcla R/D/E en rutas que impactan **territorio, raids, persistencia y pathing** antes de módulos auxiliares.
+
+---
+
+## Fase 2.4 — Checklist de cierre (completitud, evidencia, acciones)
+
+### 1) Cobertura completa de los 9 archivos objetivo
+
+Estado: **✅ Completo (9/9)**.
+
+| Archivo | ¿Tiene scoring 7 señales? | ¿Tiene resumen técnico? | ¿Tiene recomendación concreta? |
+|---|---|---|---|
+| `world.gd` | ✅ | ✅ | ✅ |
+| `BanditBehaviorLayer.gd` | ✅ | ✅ | ✅ |
+| `ExtortionFlow.gd` | ✅ | ✅ | ✅ |
+| `BanditGroupIntel.gd` | ✅ | ✅ | ✅ |
+| `BanditWorkCoordinator.gd` | ✅ | ✅ | ✅ |
+| `SettlementIntel.gd` | ✅ | ✅ | ✅ |
+| `WorldSpatialIndex.gd` | ✅ | ✅ | ✅ |
+| `WorldTerritoryPolicy.gd` | ✅ | ✅ | ✅ |
+| `WorldCadenceCoordinator.gd` | ✅ | ✅ | ✅ |
+
+### 2) Validación de señales de riesgo: puntuadas + justificadas
+
+Estado: **✅ Cumplido**.
+
+- Las **7 señales** (`tamaño`, `métodos públicos`, `dependencias directas`, `singletons/autoloads`, `mezcla R+D+E`, `duplicación checks`, `flags/booleans`) están puntuadas por archivo en el ranking.
+- La justificación técnica breve se apoya en:
+  - métricas objetivas de superficie API (líneas + métodos públicos),
+  - etiquetas R/D/E por método principal,
+  - y observaciones por archivo con foco en acoplamiento, branching y side-effects.
+
+### 3) Recomendaciones concretas por archivo
+
+Estado: **✅ Cumplido** (no solo observaciones).
+
+| Archivo | Recomendación concreta |
+|---|---|
+| `world.gd` | Extraer pipeline `Query → Policy → Executor` para chunks, daño a muros y territorio; limitar API pública a fachada de coordinación. |
+| `BanditBehaviorLayer.gd` | Separar selección de intención (`BehaviorPolicy`) de despacho efectivo (`BehaviorExecutor`) y encapsular flags de contexto en un `BehaviorContext`. |
+| `ExtortionFlow.gd` | Partir el flujo por etapas explícitas (warn/approach/resolve) con transición pura y ejecutor de side-effects aislado. |
+| `BanditGroupIntel.gd` | Dividir `_scan_group` en `fetch_signals`, `derive_intent`, `commit_intent`; persistir memoria de grupo vía puerto dedicado. |
+| `BanditWorkCoordinator.gd` | Implementar `pick_task(ctx)` puro + `execute_task(task)`; reducir checks duplicados con catálogo de precondiciones reutilizable. |
+| `SettlementIntel.gd` | Separar expiración de markers, planificación de scans y commit de resultados; consolidar `scan dirty/base near` en una sola policy. |
+| `WorldSpatialIndex.gd` | Mantener módulo como servicio de query/indexing, pero reducir superficie pública agrupando operaciones de registro en una API de alto nivel. |
+| `WorldTerritoryPolicy.gd` | Unificar validaciones de placement/interés para evitar duplicación entre policy y validadores adyacentes. |
+| `WorldCadenceCoordinator.gd` | Conservar diseño actual; solo agregar tests de contrato para lanes y consumo de pulsos. |
+
+### 4) Versión congelada del diagnóstico
+
+- **Diagnóstico congelado:** `phase-2-suspicious-files`
+- **Versión:** `v1.0`
+- **Fecha de congelamiento (UTC):** `2026-04-01`
+- **Responsable:** `GPT-5.3-Codex (OpenAI)`
+- **Alcance congelado:** scoring + etiquetado R/D/E + casos sospechosos + orden de ataque.
+
+### 5) Regla de entrada obligatoria para Fase 3 (refactor por soberanías)
+
+Estado: **✅ Definido**.
+
+Desde esta versión, toda planificación de Fase 3 debe:
+1. usar este diagnóstico congelado como **input obligatorio**;
+2. mapear cada iniciativa a una soberanía (`territorio`, `raids`, `persistencia`, `pathing`);
+3. preservar prioridad `P0 → P1 → P2`;
+4. declarar explícitamente qué método sospechoso (ID Fase 2.2) descompone y con qué target-state (`Query/Policy/Executor`).
+
+> Si un plan de Fase 3 no referencia esta versión (`phase-2-suspicious-files v1.0, 2026-04-01`), se considera **incompleto**.
