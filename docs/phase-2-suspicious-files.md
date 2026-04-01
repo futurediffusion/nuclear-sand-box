@@ -105,3 +105,103 @@
 - Archivo chico y focalizado, con pocas entradas públicas.
 - Riesgo principal en policy checks que pueden duplicarse con otros validadores de colocación/interés.
 - Carga de estado/contexto baja comparada con otros archivos del dominio.
+
+---
+
+## Fase 2.1 — Etiquetado R/D/E por métodos principales
+
+Leyenda:
+- **L (Lectura):** consulta/obtiene estado sin mutación esperada.
+- **D (Decisión):** aplica reglas, scoring, branching de policy.
+- **E (Ejecución):** muta estado, dispara side-effects, despacha acciones.
+
+### `scripts/world/world.gd`
+- `update_chunks(center)` → **L+D+E** (lee ventana/estado de chunk, decide carga/descarga, ejecuta generación/unload).
+- `place_player_wall_at_tile(tile_pos)` → **D+E** (valida restricciones y persiste/instancia wall).
+- `damage_player_wall_at_world_pos(world_pos)` → **L+D+E** (resuelve tile objetivo, decide impacto válido, aplica daño/feedback).
+- `_mark_walls_dirty_and_refresh_for_tiles(tile_positions)` → **D+E** (marca dirty + dispara refresh inmediato).
+- `_tick_player_territory()` → **L+D+E** (lee workbenches/bases, decide zonas, reconstruye mapa territorial).
+
+### `scripts/world/BanditBehaviorLayer.gd`
+- `_tick_behaviors()` → **L+D+E** (lee NPCs/LOD, decide intención por estado, aplica velocidades/objetivos).
+- `dispatch_group_to_target(group_id, target_pos, squad_size)` → **D+E** (selección de miembros + dispatch efectivo).
+- `_process_pending_structure_dispatches()` → **L+D+E** (lee cola, decide slice, ejecuta asignaciones).
+
+### `scripts/world/ExtortionFlow.gd`
+- `process_flow(delta)` → **L+D+E** (lee jobs/estado, decide transiciones, ejecuta cambios de etapa/aborts).
+- `_resolve_extortion_warn(job)` → **D+E** (policy de warning + side-effects de presión/mensajería).
+- `_tick_warning_strike(job, player_pos, friction_compensation)` → **L+D+E** (lee distancia/clock, decide strike, mueve/ordena NPC).
+
+### `scripts/world/BanditGroupIntel.gd`
+- `tick(delta)` → **L+D+E** (lee grupos/intervalos, decide qué grupos escanear, actualiza elapsed).
+- `_scan_group(group_id, g)` → **L+D+E** (lee markers/bases, calcula score/intent, actualiza memoria y colas raid/extorsión).
+- `_score_activity(markers, bases)` → **L+D** (query agregada + scoring de amenaza).
+
+### `scripts/world/BanditWorkCoordinator.gd`
+- `process_post_behavior(beh, enemy_node, drops_cache)` → **L+D+E** (lee contexto de NPC, decide tarea, ejecuta colección/minado/asalto).
+- `_handle_structure_assault(beh, enemy_node)` → **L+D+E** (resuelve target estructural y ejecuta daño/loot).
+- `_try_local_wall_strike(...)` → **L+D+E** (consulta target local, decide strike válido, ejecuta hit/damage).
+
+### `scripts/world/SettlementIntel.gd`
+- `process(delta)` → **L+D+E** (lee timers/lanes, decide scans, ejecuta expiración/rescan/pulsos base).
+- `record_interest_event(kind, world_pos, meta)` → **L+D+E** (merge/canonicalización + inserción/actualización marker).
+- `_process_pending_base_scan(door_budget)` → **L+D+E** (consume cola de puertas, decide base válida, muta `_bases`).
+
+### `scripts/world/WorldSpatialIndex.gd`
+- `get_placeables_by_item_ids_near(...)` → **L+D** (query + filtro por radio/item).
+- `register_runtime_node(kind, node)` → **D+E** (normaliza entrada y muta índices runtime).
+- `get_blocker_tiles_in_rect(...)` → **L+D** (consulta + filtro de bloqueo por tipo/placeable).
+
+### `scripts/world/WorldTerritoryPolicy.gd`
+- `validate_placement(tile_pos, tavern_chunk)` → **L+D** (consulta contexto + reglas territoriales).
+- `record_interest_event(kind, world_pos)` → **D+E** (adapta evento a capa de intel).
+
+### `scripts/world/WorldCadenceCoordinator.gd`
+- `advance(delta)` → **D+E** (decide pulsos por lane y actualiza estado temporal interno).
+- `consume_lane(name)` → **L+E** (query de pulsos + consumo/mutación de contador).
+
+### Críticos adicionales (raids/persistencia/pathing)
+
+#### `scripts/world/RaidFlow.gd`
+- `process_flow()` → **L+D+E**.
+- `_tick_jobs()` → **L+D+E**.
+- `_resolve_structure_target(anchor_pos, allow_walls, prefer_storage)` → **L+D**.
+
+#### `scripts/world/NpcPathService.gd`
+- `get_next_waypoint(agent_id, current_pos, goal, opts)` → **L+D+E**.
+- `_compute_path(agent_id, start, goal, c)` → **L+D+E**.
+- `has_line_clear(start, goal)` → **L+D**.
+
+#### `scripts/world/WallPersistence.gd`
+- `save_wall(chunk_id, tile, wall_data)` → **D+E**.
+- `load_chunk_walls(chunk_id)` → **L+D**.
+- `serialize_wall_data(wall_data)` → **L+D**.
+
+---
+
+## Fase 2.2 — Casos sospechosos (mezcla 2–3 capas) y target-state
+
+> Identificador: `archivo::método`
+
+| Prioridad | ID | Capas mezcladas | Sistema crítico | Evidencia resumida | Target-state propuesto |
+|---|---|---|---|---|---|
+| **P0** | `scripts/world/world.gd::update_chunks` | L+D+E | **territorio + persistencia** | Decide ventana activa y ejecuta carga/descarga/generación en el mismo método. | Separar en `ChunkQuery.collect_window_diff(center)` (query pura), `ChunkPolicy.plan_chunk_transitions(diff)` (decisión), `ChunkExecutor.apply_plan(plan)` (ejecución). |
+| **P0** | `scripts/world/RaidFlow.gd::_tick_jobs` | L+D+E | **raids** | Evalúa stage, decide transición y ejecuta asalto/retirada dentro del loop principal. | `RaidQuery.snapshot_jobs()`, `RaidDecision.resolve_next_stage(job)`, `RaidExecutor.run_stage(job, stage_decision)`. |
+| **P0** | `scripts/world/BanditGroupIntel.gd::_scan_group` | L+D+E | **raids + territorio** | Lee markers/bases, scorea amenaza, actualiza memoria e inyecta intents (extorsión/raid). | `GroupIntelQuery.fetch_signals(group_id)`, `GroupIntelPolicy.derive_intent(signals)`, `GroupIntelExecutor.commit_intent(group_id, decision)`. |
+| **P0** | `scripts/world/NpcPathService.gd::get_next_waypoint` | L+D+E | **pathing** | Mezcla cache lookup, decisión de repath y cómputo/mutación de waypoints. | `PathQuery.read_agent_cache(agent_id)`, `PathPolicy.should_repath(cache, goal, now)`, `PathExecutor.compute_or_advance(agent_id, decision)`. |
+| **P1** | `scripts/world/SettlementIntel.gd::process` | L+D+E | **territorio** | Expira markers, decide scans de workbench/base y ejecuta job scheduling/pulsos en un bloque. | `SettlementQuery.collect_scan_inputs()`, `SettlementPolicy.plan_scans(inputs)`, `SettlementExecutor.apply_scan_plan(plan)`. |
+| **P1** | `scripts/world/BanditWorkCoordinator.gd::process_post_behavior` | L+D+E | **raids** | Orquesta loot/mining/assault con selección de rama y side-effects directos. | `WorkQuery.build_npc_context()`, `WorkPolicy.pick_task(ctx)`, `WorkExecutor.execute_task(task, ctx)`. |
+| **P1** | `scripts/world/world.gd::damage_player_wall_at_world_pos` | L+D+E | **persistencia** | Resuelve tile, valida objetivo y aplica daño/remoción/feedback inmediatamente. | `WallQuery.resolve_wall_hit(world_pos)`, `WallDamagePolicy.eval_hit(resolved, amount)`, `WallExecutor.apply_damage(result)`. |
+| **P2** | `scripts/world/ExtortionFlow.gd::process_flow` | L+D+E | raids/social | Consume jobs, decide transiciones y ejecuta callbacks/movimiento en la misma pasada. | `ExtortionQuery.active_jobs()`, `ExtortionPolicy.next_transition(job)`, `ExtortionExecutor.apply_transition(job, decision)`. |
+| **P2** | `scripts/world/world.gd::_tick_player_territory` | L+D+E | **territorio** | Lee anchors/bases detectadas y reconstruye mapa territorial en sitio. | `TerritoryQuery.collect_inputs()`, `TerritoryPolicy.build_zone_model(inputs)`, `TerritoryExecutor.publish_map(model)`. |
+| **P2** | `scripts/world/SettlementIntel.gd::_process_pending_base_scan` | L+D+E | **territorio** | Consume puertas candidatas, decide base válida y escribe `_bases` en el mismo loop. | `BaseScanQuery.next_batch()`, `BaseScanPolicy.validate_base_candidate()`, `BaseScanExecutor.upsert_detected_base()`. |
+
+---
+
+## Fase 2.3 — Orden de ataque recomendado
+
+1. **P0 primero:** `world::update_chunks`, `RaidFlow::_tick_jobs`, `BanditGroupIntel::_scan_group`, `NpcPathService::get_next_waypoint`.
+2. **P1 segundo:** `SettlementIntel::process`, `BanditWorkCoordinator::process_post_behavior`, `world::damage_player_wall_at_world_pos`.
+3. **P2 tercero:** extorsión y mantenimiento territorial incremental.
+
+Criterio aplicado: priorizar mezcla R/D/E en rutas que impactan **territorio, raids, persistencia y pathing** antes de módulos auxiliares.
