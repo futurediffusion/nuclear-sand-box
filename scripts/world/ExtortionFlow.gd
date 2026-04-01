@@ -120,8 +120,8 @@ func setup(ctx: Dictionary) -> void:
 # API pública
 # ---------------------------------------------------------------------------
 
-func process_flow(delta: float) -> void:
-	_tick_scheduled_callbacks(delta)
+func process_flow(now: float) -> void:
+	_tick_scheduled_callbacks(now)
 	_abort_invalid_jobs()
 	_check_retaliation()
 	_consume_extortion_queue()
@@ -208,15 +208,13 @@ func on_choice_resolved(option: int, gid: String) -> void:
 
 
 
-func _tick_scheduled_callbacks(delta: float) -> void:
+func _tick_scheduled_callbacks(now: float) -> void:
 	if _scheduled_callbacks.is_empty():
 		return
 	var i: int = 0
 	while i < _scheduled_callbacks.size():
 		var entry: Dictionary = _scheduled_callbacks[i]
-		entry["remaining"] = float(entry.get("remaining", 0.0)) - delta
-		if float(entry.get("remaining", 0.0)) > 0.0:
-			_scheduled_callbacks[i] = entry
+		if float(entry.get("run_at", INF)) > now:
 			i += 1
 			continue
 		var callback: Callable = entry.get("callback", Callable())
@@ -228,8 +226,9 @@ func _tick_scheduled_callbacks(delta: float) -> void:
 func _schedule_callback(delay: float, callback: Callable) -> void:
 	if not callback.is_valid():
 		return
+	var now: float = _domain_ports.now()
 	_scheduled_callbacks.append({
-		"remaining": maxf(0.0, delay),
+		"run_at": now + maxf(0.0, delay),
 		"callback": callback,
 	})
 

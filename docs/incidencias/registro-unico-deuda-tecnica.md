@@ -15,12 +15,12 @@
 ## Excepciones activas
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Estado |
 |---|---|---|---|---|---|---|---|---|---|
-| _Pendiente_ |  |  |  |  |  |  |  |  |  |
+| _Sin excepciones activas_ |  |  |  |  |  |  |  |  |  |
 
 ## Excepciones retiradas
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Fecha retiro efectiva |
 |---|---|---|---|---|---|---|---|---|---|
-| _Sin registros_ |  |  |  |  |  |  |  |  |  |
+| EXC-TIME-EXTORT-001 | 2026-04-01 | N/A (registro histórico) | Timer local recurrente en `ExtortionFlow` | `LOCAL_TIMER_BY_DESIGN` | Scheduler `remaining += delta` reemplazado por `run_at` sobre `RunClock` y consumo exclusivo desde `director_pulse` en Cadence. | Runtime World | 2026-04-01 | 2026-04-01 | 2026-04-01 |
 
 
 ## Revisión semanal obligatoria de excepciones

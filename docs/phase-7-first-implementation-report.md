@@ -12,19 +12,15 @@ Implementación aplicada:
 - `RaidFlow` migró el scheduler de dispatch de asalto desde reloj local por timestamp (`wall_assault_next_at`) a cooldown por **pulsos de director** (cadence-driven), eliminando la dependencia de comparación temporal por `RunClock` para cada dispatch.
 - Se mantiene jitter determinista por grupo, pero convertido a cantidad de pulsos (`wall_assault_pulses_until_dispatch`).
 
-Excepciones locales documentadas (permanecen fuera de cadence por diseño en este corte):
+Excepciones locales documentadas:
 
-1. `BanditBehaviorLayer._tick_timer`  
-   - Categoría: `LOCAL_TIMER_BY_DESIGN` (temporal).  
-   - Motivo: tick interno de integración LOD + costo por NPC; no decide handoff cross-system.  
-   - Revisión: 2026-04-08.
-2. `ExtortionFlow._scheduled_callbacks`  
-   - Categoría: `LOCAL_TIMER_BY_DESIGN` (temporal).  
-   - Motivo: callbacks efímeros cancelables de un único flow; pendiente migración a lanes si se comparte scheduler entre dominios.  
-   - Revisión: 2026-04-08.
-3. `SettlementIntel` fallback sin cadence inyectada  
+1. `SettlementIntel` fallback sin cadence inyectada  
    - **Retirada** en este corte de seguimiento: rescans periódicos ahora dependen solo de lanes Cadence + dirty flags.
    - Estado actual: sin excepción `LOCAL_TIMER_BY_DESIGN` activa para fallback timer.
+2. `BanditBehaviorLayer` fallback local de `director_pulse`  
+   - **Retirada**: directores consumen únicamente lane Cadence.
+3. `ExtortionFlow._scheduled_callbacks`  
+   - **Retirada** como timer local recurrente: callbacks ahora usan `run_at` (`RunClock.now`) y se consumen solo desde `director_pulse`.
 
 ### Corte 2 — Ruta principal única del bandit assault
 
@@ -50,12 +46,13 @@ Implementación aplicada:
 ## KPI A — Timers críticos fuera de cadence
 
 - Antes (baseline): 6.
-- Después inmediato: 4.
-- Variación inmediata: **-33.3%**.
+- Después inmediato: 3.
+- Variación inmediata: **-50.0%**.
 
 Detalle:
 - Sale de la lista crítica el scheduler de dispatch de `RaidFlow` (ahora pulso cadence-driven).
 - Sale también el fallback timer de `SettlementIntel` (solo lanes Cadence + dirty flags).
+- Sale el countdown local por `delta` de `ExtortionFlow` (callbacks diferidos por `run_at`, consumidos en `director_pulse`).
 
 ## KPI B — Rutas de asalto fuera de mainline
 
@@ -70,8 +67,8 @@ Detalle:
 
 ## 3) Riesgo residual y seguimiento
 
-1. `ExtortionFlow` mantiene scheduler local de callbacks (temporal, review 2026-04-08).
-2. `BanditBehaviorLayer._tick_timer` sigue local para LOD interno (temporal, review 2026-04-08).
+1. `AIComponent::_schedule_sleep_check` mantiene timer recursivo por actor (review pendiente).
+2. `NpcPathService` mantiene repath interval local por agente (review pendiente).
 3. Debe completarse medición global consolidada en `docs/architecture-metrics-after.md` en próximo cierre para reflejar este delta incremental.
 
 ## 4) Estado de publicación
