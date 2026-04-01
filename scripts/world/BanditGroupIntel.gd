@@ -64,7 +64,7 @@ func _resolve_extortion_queue_port(ctx: Dictionary) -> Dictionary:
 		return port
 	return {
 		"has_pending_for_group": Callable(ExtortionQueue, "has_pending_for_group"),
-		"get_last_request_time": Callable(ExtortionQueue, "get_last_request_time"),
+		"get_cooldown_remaining": Callable(ExtortionQueue, "get_cooldown_remaining"),
 		"enqueue": Callable(ExtortionQueue, "enqueue"),
 	}
 
@@ -75,8 +75,8 @@ func _resolve_raid_queue_port(ctx: Dictionary) -> Dictionary:
 		return port
 	return {
 		"has_pending_for_group": Callable(RaidQueue, "has_pending_for_group"),
-		"get_last_raid_time": Callable(RaidQueue, "get_last_raid_time"),
-		"get_last_wall_probe_time": Callable(RaidQueue, "get_last_wall_probe_time"),
+		"get_raid_cooldown_remaining": Callable(RaidQueue, "get_raid_cooldown_remaining"),
+		"get_wall_probe_cooldown_remaining": Callable(RaidQueue, "get_wall_probe_cooldown_remaining"),
 		"enqueue_wall_probe": Callable(RaidQueue, "enqueue_wall_probe"),
 		"enqueue_light_raid": Callable(RaidQueue, "enqueue_light_raid"),
 		"enqueue_raid": Callable(RaidQueue, "enqueue_raid"),
@@ -88,13 +88,6 @@ func _queue_call(port: Dictionary, key: String, args: Array = [], fallback: Vari
 	if cb.is_valid():
 		return cb.callv(args)
 	return fallback
-
-
-func _get_cooldown_remaining(last_time: float, cooldown: float) -> float:
-	var clamped_cd: float = maxf(0.0, cooldown)
-	if clamped_cd <= 0.0:
-		return 0.0
-	return maxf(0.0, clamped_cd - (RunClock.now() - last_time))
 
 
 # ---------------------------------------------------------------------------
@@ -443,8 +436,12 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	var compliance_factor: float = 1.0 - pay_data.compliance_score * 0.5
 	var wealth_factor: float     = FactionHostilityManager.WEALTH_EXTORT_COOLDOWN_FACTOR[w_tier]
 	var effective_cooldown: float = BanditTuning.extort_cooldown_base() * compliance_factor * wealth_factor
-	var extortion_last_time: float = float(_queue_call(_extortion_queue_port, "get_last_request_time", [group_id], 0.0))
-	var cooldown_remaining: float = _get_cooldown_remaining(extortion_last_time, effective_cooldown)
+	var cooldown_remaining: float = float(_queue_call(
+		_extortion_queue_port,
+		"get_cooldown_remaining",
+		[group_id, effective_cooldown],
+		0.0
+	))
 	if cooldown_remaining > 0.0:
 		Debug.log("bandit_intel", "[BGI] extortion cooldown %.0fs left group=%s" % [
 			cooldown_remaining, group_id])
@@ -589,8 +586,13 @@ func _maybe_enqueue_wall_probe(group_id: String, g: Dictionary,
 	# Guard 2: cooldown específico de probe (más largo que raids, varía por nivel)
 	var cfg: Dictionary   = BanditTuning.wall_probe_config(h_level)
 	var probe_cd: float   = float(cfg.get("cooldown", 300.0))
-	var last_probe_time: float = float(_queue_call(_raid_queue_port, "get_last_wall_probe_time", [group_id], 0.0))
-	if _get_cooldown_remaining(last_probe_time, probe_cd) > 0.0:
+	var probe_cd_remaining: float = float(_queue_call(
+		_raid_queue_port,
+		"get_wall_probe_cooldown_remaining",
+		[group_id, probe_cd],
+		0.0
+	))
+	if probe_cd_remaining > 0.0:
 		return
 
 	# Guard 3: roll de probabilidad — "de vez en cuando", no sistemático
@@ -630,8 +632,13 @@ func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
 	if bool(_queue_call(_raid_queue_port, "has_pending_for_group", [group_id], false)):
 		return
 	# Guard 2: cooldown desde el último raid
-	var light_raid_last_time: float = float(_queue_call(_raid_queue_port, "get_last_raid_time", [group_id], 0.0))
-	if _get_cooldown_remaining(light_raid_last_time, BanditTuning.raid_cooldown_base()) > 0.0:
+	var light_raid_cd_remaining: float = float(_queue_call(
+		_raid_queue_port,
+		"get_raid_cooldown_remaining",
+		[group_id, BanditTuning.raid_cooldown_base()],
+		0.0
+	))
+	if light_raid_cd_remaining > 0.0:
 		return
 
 	var leader_id: String    = String(g.get("leader_id", ""))
@@ -664,8 +671,13 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 	var w_tier_raid: int         = FactionHostilityManager.get_wealth_tier(faction_id)
 	var raid_cd_factor: float    = FactionHostilityManager.WEALTH_RAID_COOLDOWN_FACTOR[w_tier_raid]
 	var effective_raid_cd: float = BanditTuning.raid_cooldown_base() * raid_cd_factor
-	var raid_last_time: float = float(_queue_call(_raid_queue_port, "get_last_raid_time", [group_id], 0.0))
-	if _get_cooldown_remaining(raid_last_time, effective_raid_cd) > 0.0:
+	var raid_cd_remaining: float = float(_queue_call(
+		_raid_queue_port,
+		"get_raid_cooldown_remaining",
+		[group_id, effective_raid_cd],
+		0.0
+	))
+	if raid_cd_remaining > 0.0:
 		Debug.log("bandit_intel", "[BGI] raid cooldown — group=%s" % group_id)
 		return
 

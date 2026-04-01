@@ -653,13 +653,13 @@ func _ready() -> void:
 			"get_detected_bases_near": Callable(self, "get_detected_bases_near"),
 			"extortion_queue_port": {
 				"has_pending_for_group": Callable(ExtortionQueue, "has_pending_for_group"),
-				"get_last_request_time": Callable(ExtortionQueue, "get_last_request_time"),
+				"get_cooldown_remaining": Callable(ExtortionQueue, "get_cooldown_remaining"),
 				"enqueue": Callable(ExtortionQueue, "enqueue"),
 			},
 			"raid_queue_port": {
 				"has_pending_for_group": Callable(RaidQueue, "has_pending_for_group"),
-				"get_last_raid_time": Callable(RaidQueue, "get_last_raid_time"),
-				"get_last_wall_probe_time": Callable(RaidQueue, "get_last_wall_probe_time"),
+				"get_raid_cooldown_remaining": Callable(RaidQueue, "get_raid_cooldown_remaining"),
+				"get_wall_probe_cooldown_remaining": Callable(RaidQueue, "get_wall_probe_cooldown_remaining"),
 				"enqueue_wall_probe": Callable(RaidQueue, "enqueue_wall_probe"),
 				"enqueue_light_raid": Callable(RaidQueue, "enqueue_light_raid"),
 				"enqueue_raid": Callable(RaidQueue, "enqueue_raid"),
