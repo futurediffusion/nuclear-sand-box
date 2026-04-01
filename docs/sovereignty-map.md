@@ -28,6 +28,17 @@ Fuente base: `docs/system-inventory.md` (9 dominios críticos).
 - World save / persistencia: owner único validado (`SaveManager` + `WorldSave` como única autoridad persistente).
 - Telemetry / debug: owner único validado (`EventLogger` para observabilidad).
 
+## Priorización de conflictos (riesgo)
+
+Escala usada: **Crítico** (impacta economía/combate y puede corromper progresión), **Alto** (puede desincronizar estado canónico entre subsistemas), **Medio** (deuda de autoridad con impacto acotado).
+
+1. **Raids / extortion — CRÍTICO**  
+   Dos dueños efectivos para encounters activos (`ExtortionFlow` y `RaidFlow`) pueden generar resolución duplicada, degradación de hostilidad incongruente y outcomes no deterministas bajo concurrencia de colas.
+2. **Loot / drops / pickups — ALTO**  
+   La frontera `ItemDrop` (runtime) → `InventoryComponent` (estado final) permite escrituras cruzadas fuera de un contrato único, con riesgo de duplicación/perdida de ítems.
+3. **Placement / placeables / walls — ALTO**  
+   `PlacementSystem` valida/crea, pero `PlayerWallSystem` + persistencias de walls consolidan parcialmente el estado; esto abre mutaciones estructurales laterales que pueden romper pathing y guardado.
+
 ## Decisiones de soberanía adoptadas
 
 - **Fecha:** 2026-04-01.
@@ -36,3 +47,47 @@ Fuente base: `docs/system-inventory.md` (9 dominios críticos).
   1. Se definió un owner canónico por cada uno de los 9 dominios del inventario.
   2. Se etiquetaron como **CONFLICTO** los dominios con autoridad fragmentada en runtime/persistencia.
   3. Se explicitó para cada dominio el perímetro de lectura, emisión de eventos y side effects prohibidos para evitar acoplamiento de autoridad.
+  4. Se priorizaron conflictos por riesgo operacional y de corrupción de estado.
+
+## Resolución de conflictos y flujo autorizado
+
+### 1) Raids / extortion (riesgo CRÍTICO)
+
+- **Estado afectado:** lifecycle de encounter activo (creación, transición, resolución y cierre), impacto derivado en hostilidad.
+- **Writer antiguo eliminado:** escrituras laterales directas entre `ExtortionFlow` y `RaidFlow` sobre jobs/estados activos de encounter.
+- **Owner único oficial:** `EncounterFlowCoordinator` (nuevo owner de job activo inter-flujo).
+- **Nuevo flujo autorizado (contrato explícito):**
+  - `BanditGroupMemory`/colas emiten **comandos** `enqueue_extortion` o `enqueue_raid`.
+  - `EncounterFlowCoordinator` decide activación y delega ejecución a `ExtortionFlow` o `RaidFlow`.
+  - Los flows devuelven **eventos** `encounter_step_changed` / `encounter_resolved`.
+  - Solo `EncounterFlowCoordinator` emite comando oficial de ajuste a `FactionHostilityManager`.
+- **Guardas defensivas:**
+  - `ExtortionFlow` y `RaidFlow` rechazan (`assert`/early return + log) cualquier intento de mutar job activo fuera del `coordinator_token`.
+  - `FactionHostilityManager` ignora solicitudes no firmadas como `source=EncounterFlowCoordinator`.
+
+### 2) Loot / drops / pickups (riesgo ALTO)
+
+- **Estado afectado:** transición de ownership de item (drop en mundo → inventario persistente del jugador).
+- **Writer antiguo eliminado:** inserción directa de ítems en `InventoryComponent` desde nodos `ItemDrop` sin comando de dominio.
+- **Owner único oficial:** `InventoryComponent` (owner final de estado de inventario).
+- **Nuevo flujo autorizado (contrato explícito):**
+  - `ItemDrop` emite **evento** `pickup_requested(drop_id, item_id, qty, actor_id)`.
+  - `InventoryPickupService` traduce el evento a **comando** `add_item_if_valid` dirigido a `InventoryComponent`.
+  - `InventoryComponent` confirma con **evento** `item_pickup_committed` y recién entonces `ItemDrop` se consume/despawn.
+- **Guardas defensivas:**
+  - `ItemDrop` no puede ejecutar `inventory.add_*` directo (bloqueado por interfaz restringida).
+  - `InventoryComponent` valida idempotencia por `drop_id` (si ya fue aplicado, rechaza segunda mutación).
+
+### 3) Placement / placeables / walls (riesgo ALTO)
+
+- **Estado afectado:** estado estructural de walls/placeables y su persistencia consistente con pathing.
+- **Writer antiguo eliminado:** mutaciones directas de walls desde `PlayerWallSystem`, `WallPersistence` o `StructuralWallPersistence` fuera del circuito de placement.
+- **Owner único oficial:** `PlacementSystem` (owner de intención + commit estructural).
+- **Nuevo flujo autorizado (contrato explícito):**
+  - Actores (UI/herramientas/sistemas) emiten **comando** `request_structure_change`.
+  - `PlacementSystem` valida reglas (`WorldTerritoryPolicy`, colisiones, path blockers) y ejecuta commit.
+  - `PlacementSystem` emite **evento** `structure_changed` para que persistencias sincronicen snapshot.
+  - Persistencia queda en modo subscriber-only: serializa lo emitido, no decide mutaciones.
+- **Guardas defensivas:**
+  - `PlayerWallSystem` y capas de persistencia marcan APIs de escritura como internas del `PlacementSystem`.
+  - Rechazo explícito de cambios estructurales cuando `origin != PlacementSystem` (log de violación de soberanía).
