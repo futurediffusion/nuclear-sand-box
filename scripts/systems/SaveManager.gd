@@ -7,9 +7,13 @@ var _world: Node = null
 var _pending_player_pos: Vector2 = Vector2.ZERO
 var _pending_player_inv: Array = []
 var _pending_player_gold: int = -1
+var _runtime_ports: Dictionary = {}
 
 func register_world(world: Node) -> void:
 	_world = world
+
+func register_runtime_ports(ports: Dictionary = {}) -> void:
+	_runtime_ports = ports.duplicate(true)
 
 func has_save() -> bool:
 	return FileAccess.file_exists(SAVE_PATH)
@@ -19,10 +23,8 @@ func save_world() -> void:
 		push_warning("SaveManager: no world registered")
 		return
 
-	# Snapshot active entities into WorldSave before serializing
-	var ec = _world.get("entity_coordinator")
-	if ec != null and ec.has_method("snapshot_entities_to_world_save"):
-		ec.snapshot_entities_to_world_save()
+	# Snapshot activo delegado a Coordination (world), no a Persistence.
+	_call_runtime_port("snapshot_before_save")
 
 	var player = _world.get("player")
 	var player_pos := Vector2.ZERO
@@ -189,15 +191,7 @@ func new_game() -> void:
 	WorldSave.player_walls_by_chunk.clear()
 	WorldSave.clear_placed_entities()
 	WorldSave.placed_entity_data_by_uid.clear()
-	PlacementSystem.clear_runtime_instances()
-	FactionSystem.reset()
-	SiteSystem.reset()
-	NpcProfileSystem.reset()
-	BanditGroupMemory.reset()
-	ExtortionQueue.reset()
-	RunClock.reset()
-	WorldTime.load_save_data({})
-	FactionHostilityManager.reset()
+	_call_runtime_port("reset_runtime_for_new_game")
 
 	# Generar semilla aleatoria real, ignorando debug_seed
 	var new_seed := int(Time.get_unix_time_from_system()) % 2147483647
@@ -255,3 +249,9 @@ func _des(val: Variant) -> Variant:
 			out.append(_des(item))
 		return out
 	return val
+
+func _call_runtime_port(name: String, args: Array = []) -> Variant:
+	var cb: Callable = _runtime_ports.get(name, Callable())
+	if cb.is_valid():
+		return cb.callv(args)
+	return null

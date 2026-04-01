@@ -282,6 +282,7 @@ func setup_group_intel(ctx: Dictionary) -> void:
 		"get_detected_bases_near":   ctx.get("get_detected_bases_near",   Callable()),
 		"extortion_queue_port":      ctx.get("extortion_queue_port", {}),
 		"raid_queue_port":           ctx.get("raid_queue_port", {}),
+		"dispatch_group_action_cb":  Callable(self, "_dispatch_group_intel_action"),
 	})
 
 	# Guardar query callables Ã¢ï¿½,ï¿½ï¿½?ï¿½ se pasan al RaidDirector y tambiï¿½fÂ©n al ctx de cada tick
@@ -300,6 +301,55 @@ func setup_group_intel(ctx: Dictionary) -> void:
 			_raid_director.set_storage_query(_find_storage_cb)
 		if _find_placeable_cb.is_valid():
 			_raid_director.set_placeable_query(_find_placeable_cb)
+
+
+func _dispatch_group_intel_action(action: Dictionary) -> void:
+	if action.is_empty():
+		return
+	var group_id: String = String(action.get("group_id", ""))
+	var kind: String = String(action.get("kind", ""))
+	match kind:
+		"enqueue_extortion":
+			var payload: Dictionary = action.get("payload", {}) as Dictionary
+			if not payload.is_empty():
+				ExtortionQueue.enqueue(payload)
+				BanditGroupMemory.issue_execution_intent(
+					group_id, "extorting", "BanditBehaviorLayer",
+					float(action.get("execution_ttl", 120.0)), {"source": "extortion_queue"})
+				BanditGroupMemory.push_social_cooldown(group_id, float(action.get("social_cooldown", 4.0)))
+				BanditGroupMemory.update_intent(group_id, "extorting")
+				Debug.log("bandit_intel", "[BGI→BBL] extortion enqueued group=%s leader=%s kind=%s" % [
+					group_id,
+					String(payload.get("source_npc_id", "")),
+					String(payload.get("trigger_kind", "")),
+				])
+		"enqueue_wall_probe":
+			var probe_args: Array = action.get("args", [])
+			if probe_args.size() >= 6:
+				RaidQueue.enqueue_wall_probe(probe_args[0], probe_args[1], probe_args[2], probe_args[3], probe_args[4], int(probe_args[5]))
+				_finalize_group_raid_dispatch(group_id, action, "wall_probe")
+		"enqueue_light_raid":
+			var light_args: Array = action.get("args", [])
+			if light_args.size() >= 5:
+				RaidQueue.enqueue_light_raid(light_args[0], light_args[1], light_args[2], light_args[3], light_args[4])
+				_finalize_group_raid_dispatch(group_id, action, "light_raid")
+		"enqueue_full_raid":
+			var raid_args: Array = action.get("args", [])
+			if raid_args.size() >= 5:
+				RaidQueue.enqueue_raid(raid_args[0], raid_args[1], raid_args[2], raid_args[3], raid_args[4])
+				_finalize_group_raid_dispatch(group_id, action, "full_raid")
+
+
+func _finalize_group_raid_dispatch(group_id: String, action: Dictionary, source: String) -> void:
+	BanditGroupMemory.issue_execution_intent(
+		group_id, "raiding", "BanditBehaviorLayer",
+		float(action.get("execution_ttl", 240.0)), {"source": source})
+	BanditGroupMemory.push_social_cooldown(group_id, float(action.get("social_cooldown", 8.0)))
+	BanditGroupMemory.update_intent(group_id, "raiding")
+	var base_center: Vector2 = action.get("base_center", Vector2.ZERO) as Vector2
+	if base_center != Vector2.ZERO:
+		BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
+	Debug.log("bandit_intel", "[BGI→BBL] %s enqueued group=%s" % [source, group_id])
 
 
 # ---------------------------------------------------------------------------
