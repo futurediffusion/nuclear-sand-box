@@ -231,6 +231,7 @@ func _ready() -> void:
 	_cadence.configure_lane(&"short_pulse", 0.12, 0.15)
 	_cadence.configure_lane(&"medium_pulse", 0.50, 0.42)
 	_cadence.configure_lane(&"director_pulse", 0.12, 0.67)
+	_cadence.configure_lane(&"bandit_group_scan_slice", BanditTuning.group_scan_interval() / float(maxi(BanditGroupIntel.GROUP_SCAN_SLICE_COUNT, 1)), 0.24)
 	_cadence.configure_lane(&"chunk_pulse", chunk_check_interval, 0.68)
 	_cadence.configure_lane(&"autosave", autosave_interval, 0.31, 1)
 	_cadence.configure_lane(&"settlement_base_scan", SettlementIntel.BASE_RESCAN_INTERVAL, SettlementIntel.BASE_SCAN_PHASE_RATIO, 1)

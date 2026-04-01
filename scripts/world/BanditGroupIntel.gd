@@ -30,6 +30,7 @@ var _get_markers_near: Callable
 var _get_bases_near: Callable
 var _npc_simulator: NpcSimulator
 var _player: Node2D
+var _cadence: WorldCadenceCoordinator = null
 var _extortion_queue_port: Dictionary = {}
 var _raid_queue_port: Dictionary = {}
 const GROUP_SCAN_SLICE_COUNT: int = 4
@@ -53,6 +54,7 @@ func setup(ctx: Dictionary) -> void:
 	_get_bases_near   = ctx.get("get_detected_bases_near",   Callable())
 	_npc_simulator    = ctx.get("npc_simulator")
 	_player           = ctx.get("player") as Node2D
+	_cadence          = ctx.get("cadence") as WorldCadenceCoordinator
 	_extortion_queue_port = _resolve_extortion_queue_port(ctx)
 	_raid_queue_port = _resolve_raid_queue_port(ctx)
 
@@ -105,6 +107,12 @@ func _get_cooldown_remaining(last_time: float, cooldown: float) -> float:
 # ---------------------------------------------------------------------------
 
 func tick(delta: float) -> void:
+	if _cadence != null:
+		var pulses: int = _cadence.consume_lane(&"bandit_group_scan_slice")
+		for _pulse in pulses:
+			_scan_group_slice()
+		return
+	# Temporary adapter fallback while all call-sites adopt cadence injection.
 	var slice_interval: float = BanditTuning.group_scan_interval() / float(maxi(GROUP_SCAN_SLICE_COUNT, 1))
 	_scan_timer += delta
 	if _scan_timer < slice_interval:
