@@ -3,14 +3,26 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 
 - Respuesta timer local injustificado: No
 - Evidencia timer local injustificado:
+- Respuesta lógica nueva en autoload: No
+- Evidencia lógica nueva en autoload:
+- Respuesta lógica global oculta: No
+- Evidencia lógica global oculta:
 - Respuesta decisión duplicada (assault/combat/hostility): No
 - Evidencia decisión duplicada (assault/combat/hostility):
 - Respuesta debug mutando estado: No
 - Evidencia debug mutando estado:
+- Respuesta telemetry/debug fuera de canal controlado mutando estado: No
+- Evidencia telemetry/debug fuera de canal controlado mutando estado:
+- Respuesta cambio de estado nuevo en el PR: No
+- Owner de decisión tocada (obligatorio):
+- Categoría de verdad para datos/campos nuevos: no aplica
+- Owner de escritura para cambio de estado nuevo: no aplica
+- Categoría de verdad del cambio de estado nuevo: no aplica
 - Justificación explícita si NO se usa Cadence en gameplay:
-- Registro de excepción temporal (si aplica):
-- Fecha de retiro obligatoria (YYYY-MM-DD):
-- Criterio de done (sin nueva deuda del mismo tipo): Sí
+- Registro de excepción temporal (si aplica): sin excepción
+- Fecha de retiro obligatoria (YYYY-MM-DD): 2099-12-31
+- Criterio de done Sprint 1 (patrones corregidos no reingresan): Sí
+- Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR): Sí
 
 ## Resumen
 - Describe brevemente el cambio y su impacto.

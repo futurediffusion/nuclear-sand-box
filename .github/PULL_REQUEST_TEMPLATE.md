@@ -5,18 +5,26 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Evidencia timer local injustificado:
 - Respuesta lógica nueva en autoload: No
 - Evidencia lógica nueva en autoload:
+- Respuesta lógica global oculta: No
+- Evidencia lógica global oculta:
 - Respuesta duplicación de heurística crítica: No
 - Evidencia duplicación de heurística crítica:
 - Respuesta decisión duplicada (assault/combat/hostility): No
 - Evidencia decisión duplicada (assault/combat/hostility):
 - Respuesta debug mutando estado: No
 - Evidencia debug mutando estado:
+- Respuesta telemetry/debug fuera de canal controlado mutando estado: No
+- Evidencia telemetry/debug fuera de canal controlado mutando estado:
+- Respuesta cambio de estado nuevo en el PR: No
 - Owner de decisión tocada (obligatorio):
 - Categoría de verdad para datos/campos nuevos: no aplica
+- Owner de escritura para cambio de estado nuevo: no aplica
+- Categoría de verdad del cambio de estado nuevo: no aplica
 - Justificación explícita si NO se usa Cadence en gameplay:
 - Registro de excepción temporal (si aplica): sin excepción
 - Fecha de retiro obligatoria (YYYY-MM-DD): 2099-12-31
 - Criterio de done Sprint 1 (patrones corregidos no reingresan): Sí
+- Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR): Sí
 
 ## Runtime Architecture Review (obligatorio)
 
@@ -82,6 +90,7 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 
 - [ ] Para **cada dato/campo nuevo**, declaré categoría única de verdad: `runtime` / `save` / `derived` / `cache`.
 - [ ] Para **cada dato/campo nuevo**, declaré owner de escritura único (sistema/servicio/capa dueña).
+- [ ] Para **cada cambio de estado nuevo**, declaré owner de escritura único + categoría de verdad única.
 - [ ] Confirmo que ningún dato/campo nuevo queda con doble categoría semántica.
 - [ ] Confirmo que índices/caches nuevos no son autoritativos de gameplay.
 - [ ] Si hubo excepción temporal, quedó registrada con owner, fecha de retiro (`YYYY-MM-DD`) y criterio de cierre.
@@ -103,8 +112,11 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - [ ] **Duplicación de heurística crítica** (`Respuesta duplicación de heurística crítica: Sí`) => **No Ready**.
 - [ ] **Segunda ruta de decisión assault/combat/hostility** (`Respuesta decisión duplicada (assault/combat/hostility): Sí`) => **No Ready**.
 - [ ] **Debug mutando estado real** (`Respuesta debug mutando estado: Sí`) => **No Ready**.
+- [ ] **Lógica global oculta** (`Respuesta lógica global oculta: Sí`) => **No Ready**.
+- [ ] **Telemetry/debug fuera de canal controlado mutando estado** (`Respuesta telemetry/debug fuera de canal controlado mutando estado: Sí`) => **No Ready**.
 - [ ] **Fallback/excepción temporal sin fecha de retiro** => **No Ready**.
 - [ ] **Criterio de done Sprint 1 en No** => **No Ready**.
+- [ ] **Criterio de done anti-reversión en No** => **No Ready**.
 
 ## Declaración de feature (obligatorio para features nuevas)
 
