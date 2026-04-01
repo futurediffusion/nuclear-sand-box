@@ -22,7 +22,7 @@ Fecha de corte: 2026-04-01.
 | 9 | `scripts/components/AIComponent.gd::physics_tick` (`_lod_timer`, `_warmup_tick_timer`) | Cadencia LOD de IA de combate y warmup ticks mínimos. | 0.2s (mid), 0.5–1.0s (far), warmup 0.10–0.20s. | **Combate + pathing local del NPC**. | `DUDOSO_REVISAR` | **P0** |
 | 10 | `scripts/components/AIComponent.gd::_schedule_sleep_check` (`create_timer`) | Timer recurrente para sleep/wake hysteresis por actor. | `owner_entity.SLEEP_CHECK_INTERVAL` (mín 0.05s), reprogramado en callback. | **Combate/pathing** (activa o duerme IA). | `MIGRAR_A_CADENCE` | **P0** |
 | 11 | `scripts/world/NpcSimulator.gd::_tick_lite_mode` / `_tick_data_only` | Loops de simulación por distancia (lite/data-only spawn/despawn). | `lite_check_interval` 0.25s, `sim_check_interval` 0.25s (default). | **Pathing + carga de NPCs + continuidad de combate**. | `DUDOSO_REVISAR` | **P0** |
-| 12 | `scripts/world/SettlementIntel.gd::process` | Rescans de workbench/bases por dirty flag, cadence o timers locales fallback. | 30s workbench, 10s base (o pulses dedicados). | Territorialidad y señales de interés (impacto indirecto en hostilidad/raids). | `MIGRAR_A_CADENCE` (fallback timers) | P1 |
+| 12 | `scripts/world/SettlementIntel.gd::process` | Rescans de workbench/bases por dirty flag y pulsos dedicados de Cadence (sin fallback timer local). | 30s workbench, 10s base vía lanes dedicadas + eventos dirty. | Territorialidad y señales de interés (impacto indirecto en hostilidad/raids). | `MIGRADO_A_CADENCE` | P1 |
 | 13 | `scripts/systems/WorldTime.gd::_process` + `day_passed` | Reloj calendárico (día/noche) y evento de día. | 1 día cada 900s reales. | **Hostilidad** (decay diario) y progresión sistémica. | `MANTENER_LOCAL_BY_DESIGN` | P1 |
 | 14 | `scripts/systems/RunClock.gd::_process` | Reloj monotónico para cooldowns técnicos. | Incremento por frame. | Cooldowns de raids/extorsión/pathing/persistencia. | `MANTENER_LOCAL_BY_DESIGN` | P1 |
 | 15 | `scripts/world/world.gd::autosave lane` + `SaveManager.save_world` | Persistencia periódica de estado global. | `autosave_interval` default 120s vía Cadence lane. | **Persistencia** (riesgo alto de pérdida de progreso). | `MANTENER_LOCAL_BY_DESIGN` | **P0** |
@@ -41,7 +41,6 @@ Fecha de corte: 2026-04-01.
 7. `world.gd` autosave lane (verificar SLA de persistencia y catch-up).
 
 ### Prioridad P1
-- `SettlementIntel` fallback timers cuando no hay Cadence.
 - `WorldTime`/`RunClock` hardening de contrato temporal (sin migración, pero con guardrails de drift/load).
 
 ### Prioridad P2+
@@ -61,9 +60,9 @@ Fecha de corte: 2026-04-01.
    - Eliminar timer fallback de `director_pulse` (0.12) o encapsularlo detrás de contrato de bootstrap/test explícito.  
    - Riesgo actual: dual-path temporal (con y sin Cadence) difícil de validar.
 
-4. **Settlement fallback cleanup (P1 medio)**  
-   - Mantener escaneos de settlement sólo por lanes dedicadas cuando el mundo está fully wired.  
-   - Riesgo actual: duplicación cadence + timer local.
+4. **Settlement cadence hardening (P1 medio)**
+   - Mantener escaneos de settlement gobernados por lanes dedicadas + señales dirty.
+   - Riesgo actual: regressions de wiring en harness sin world completo.
 
 5. **Hardening de persistencia temporal (P1 medio/alto)**  
    - Verificar política de autosave bajo frame drops/catch-up y coherencia con RunClock/WorldTime en load.  

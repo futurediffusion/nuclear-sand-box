@@ -23,9 +23,8 @@ Excepciones locales documentadas (permanecen fuera de cadence por diseño en est
    - Motivo: callbacks efímeros cancelables de un único flow; pendiente migración a lanes si se comparte scheduler entre dominios.  
    - Revisión: 2026-04-08.
 3. `SettlementIntel` fallback sin cadence inyectada  
-   - Categoría: `LOCAL_TIMER_BY_DESIGN` (temporal de bootstrap/test).  
-   - Motivo: compatibilidad en wiring parcial de escena/harness.  
-   - Revisión: 2026-04-08.
+   - **Retirada** en este corte de seguimiento: rescans periódicos ahora dependen solo de lanes Cadence + dirty flags.
+   - Estado actual: sin excepción `LOCAL_TIMER_BY_DESIGN` activa para fallback timer.
 
 ### Corte 2 — Ruta principal única del bandit assault
 
@@ -51,11 +50,12 @@ Implementación aplicada:
 ## KPI A — Timers críticos fuera de cadence
 
 - Antes (baseline): 6.
-- Después inmediato: 5.
-- Variación inmediata: **-16.7%**.
+- Después inmediato: 4.
+- Variación inmediata: **-33.3%**.
 
 Detalle:
 - Sale de la lista crítica el scheduler de dispatch de `RaidFlow` (ahora pulso cadence-driven).
+- Sale también el fallback timer de `SettlementIntel` (solo lanes Cadence + dirty flags).
 
 ## KPI B — Rutas de asalto fuera de mainline
 

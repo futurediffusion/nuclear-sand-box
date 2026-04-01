@@ -42,7 +42,6 @@ func _print_perf_to_console() -> void:
 	var bandit: Dictionary = snapshot.get("bandit_lod", {})
 	var settlement: Dictionary = snapshot.get("settlement", {})
 	var spatial: Dictionary = snapshot.get("spatial_index", {})
-	var timers: Dictionary = settlement.get("timers", {})
 	var npc_ms: float = _npc_sim.process_ms_avg if _npc_sim != null else -1.0
 	var gen_p50: float = _perf_monitor.get_stage_p50(ChunkPerfMonitor.STAGE_GENERATE) if _perf_monitor != null else -1.0
 	var ent_p50: float = _perf_monitor.get_stage_p50(ChunkPerfMonitor.STAGE_ENTITIES) if _perf_monitor != null else -1.0
@@ -68,7 +67,7 @@ func _print_perf_to_console() -> void:
 	Debug.log("perf_telemetry", (
 		"chunk gen=%.2fms ent=%.2fms | npc sim=%.2fms (active=%d data=%d) dist[%s] | "
 		+ "bandits g[%s] npc[%s] top=%s | "
-		+ "settlement wb=%.1f/30s base=%.1f/10s bases=%d | "
+		+ "settlement dirty[wb=%s base=%s] bases=%d | "
 		+ "spatial hit=%d%% (%d q)"
 	) % [
 		gen_p50, ent_p50,
@@ -79,8 +78,8 @@ func _print_perf_to_console() -> void:
 		_format_bucket_counts(g_counts),
 		_format_bucket_counts(npc_counts),
 		top_reason,
-		float(timers.get("workbench_rescan_timer", 0.0)),
-		float(timers.get("base_rescan_timer", 0.0)),
+		str(bool(settlement.get("interest_scan_dirty", false))),
+		str(bool(settlement.get("base_scan_dirty", false))),
 		int(settlement.get("bases_detected", 0)),
 		hit_pct, q_total,
 	])

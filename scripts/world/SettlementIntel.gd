@@ -32,13 +32,11 @@ const _CARDINALS: Array[Vector2i] = [
 # --- Interest marker state ---
 var _markers: Array[Dictionary] = []
 var _elapsed: float = 0.0
-var _rescan_timer: float = 0.0
 var _dirty: bool = false
 
 # --- Base detection state ---
 var _bases: Array[Dictionary] = []
 var _base_scan_dirty: bool = false
-var _base_rescan_timer: float = 0.0
 var _pending_base_scan: Dictionary = {}
 
 var _world_to_tile_cb: Callable
@@ -56,9 +54,8 @@ func setup(ctx: Dictionary) -> void:
 	_tile_to_world_cb  = ctx.get("tile_to_world",    Callable())
 	_player_pos_getter = ctx.get("player_pos_getter", Callable())
 	_cadence = ctx.get("cadence") as WorldCadenceCoordinator
-	# Cadence only schedules when expensive rescans run.
+	# Cadence is the single scheduler for periodic settlement rescans.
 	# The data boundary stays the same: runtime markers here, persistence in WorldSave.
-	# Without cadence, fall back to local timers.
 
 	if PlacementSystem != null \
 			and not PlacementSystem.placement_completed.is_connected(_on_placement_completed):
@@ -79,9 +76,6 @@ func setup(ctx: Dictionary) -> void:
 func process(delta: float) -> void:
 	_elapsed += delta
 	var use_world_cadence: bool = _cadence != null
-	if not use_world_cadence:
-		_rescan_timer += delta
-	_base_rescan_timer += delta
 
 	# --- TTL expiry ---
 	var i := _markers.size() - 1
@@ -95,14 +89,12 @@ func process(delta: float) -> void:
 		i -= 1
 
 	var workbench_pulses: int = _cadence.consume_lane(&"settlement_workbench_scan") if use_world_cadence else 0
-	if _dirty or workbench_pulses > 0 or _rescan_timer >= WORKBENCH_RESCAN_INTERVAL:
-		_rescan_timer = 0.0
+	if _dirty or workbench_pulses > 0:
 		_dirty = false
 		_scan_workbenches()
 
 	var base_scan_pulses: int = _cadence.consume_lane(&"settlement_base_scan") if use_world_cadence else 0
-	if _player_pos_getter.is_valid() and (_base_scan_dirty or base_scan_pulses > 0 or _base_rescan_timer >= BASE_RESCAN_INTERVAL):
-		_base_rescan_timer = 0.0
+	if _player_pos_getter.is_valid() and (_base_scan_dirty or base_scan_pulses > 0):
 		_base_scan_dirty = false
 		_ensure_base_scan_job(_player_pos_getter.call(), BASE_SCAN_RADIUS_DEFAULT)
 
@@ -517,7 +509,7 @@ func get_debug_snapshot() -> Dictionary:
 		"bases_detected": _bases.size(),
 		"timers": {
 			"elapsed": snappedf(_elapsed, 0.01),
-			"workbench_rescan_timer": snappedf(_rescan_timer, 0.01),
-			"base_rescan_timer": snappedf(_base_rescan_timer, 0.01),
+			"workbench_rescan_timer": 0.0,
+			"base_rescan_timer": 0.0,
 		},
 	}
