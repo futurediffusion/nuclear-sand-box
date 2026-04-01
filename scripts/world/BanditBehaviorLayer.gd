@@ -450,7 +450,7 @@ func _process(delta: float) -> void:
 		push_warning("BanditBehaviorLayer has no cadence or director pulse adapter; directors are paused until a scheduler is injected.")
 	for _pulse in director_pulses:
 		if _extortion_director != null:
-			_extortion_director.process_extortion(0.12)
+			_extortion_director.process_extortion(now)
 		if _raid_director != null:
 			_raid_director.process_raid()
 	_process_pending_structure_dispatches()

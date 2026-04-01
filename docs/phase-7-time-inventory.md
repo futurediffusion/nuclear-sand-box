@@ -13,11 +13,11 @@ Fecha de corte: 2026-04-01.
 |---|---|---|---|---|---|---|
 | 1 | `scripts/world/world.gd::_ready` + `WorldCadenceCoordinator.configure_lane` | Define lanes globales (`short_pulse`, `medium_pulse`, `director_pulse`, `chunk_pulse`, `autosave`, scans de settlement). | 0.12s, 0.50s, `chunk_check_interval`, `autosave_interval`, 10s/30s por lane. | Orquestación central de mundo (chunks, raids/extorsión vía director, territorio, persistencia). | `MANTENER_LOCAL_BY_DESIGN` | **P0 (base)** |
 | 2 | `scripts/world/world.gd::_process` (`consume_lane`) | Consume pulsos y ejecuta territorio, wall refresh, autosave y chunk update gating. | Por frame + pulsos due de Cadence. | Alto: afecta simulación de mundo + persistencia. | `MANTENER_LOCAL_BY_DESIGN` | **P0** |
-| 3 | `scripts/world/BanditBehaviorLayer.gd::_process` (`director_pulse`) | Corre directors de extorsión/raid con lane de Cadence; fallback reemplazado por adaptador temporal explícito (`consume_director_pulses_cb`). | Cadence `director_pulse` (0.12s). Adapter solo para bootstrap/tests sin world completo. | **Combate/hostilidad/raids** directos. | `MIGRADO_A_CADENCE` | **P0** |
-| 4 | `scripts/world/BanditBehaviorLayer.gd::_tick_timer` + `BanditTuning.behavior_tick_interval` | Tick de behaviors de bandidos (scan drops/recursos, intents de ejecución, movement intents). | 0.5s base, con sub-intervalos por NPC vía LOD interno. | **Combate/pathing/hostilidad** (NPC runtime principal). | `DUDOSO_REVISAR` | **P0** |
+| 3 | `scripts/world/BanditBehaviorLayer.gd::_process` (`director_pulse`) | Corre directors de extorsión/raid con lane única de Cadence (sin fallback local activo). | Cadence `director_pulse` (0.12s). | **Combate/hostilidad/raids** directos. | `MIGRADO_A_CADENCE` | **P0** |
+| 4 | `scripts/world/BanditBehaviorLayer.gd::_process` (`bandit_behavior_tick`) + `BanditTuning.behavior_tick_interval` | Tick de behaviors de bandidos (scan drops/recursos, intents de ejecución, movement intents). | 0.5s base por lane, con sub-intervalos por NPC vía LOD interno. | **Combate/pathing/hostilidad** (NPC runtime principal). | `MIGRADO_A_CADENCE` | **P0** |
 | 5 | `scripts/world/BanditGroupIntel.gd::tick` (`bandit_group_scan_slice` + `_scan_accumulator_by_group`) | Escaneo social por grupo y disparo de extorsión/raids/probes con cooldowns. | Lane `bandit_group_scan_slice` (8.0 / `GROUP_SCAN_SLICE_COUNT`) + fallback local temporal si no hay Cadence inyectado. | **Hostilidad + raids** (decisión de intents). | `MIGRADO_A_CADENCE` (adapter temporal) | **P0** |
 | 6 | `scripts/world/RaidFlow.gd::_tick_jobs` (`wall_assault_next_at`) | Ciclo de jobs de raid y dispatch periódico contra walls/placeables. | Ventanas 2.5s (wall probe) / 6.0s (wall assault) + jitter por grupo. | **Raids + combate estructural**. | `MIGRAR_A_CADENCE` | **P0** |
-| 7 | `scripts/world/ExtortionFlow.gd::_tick_scheduled_callbacks` / `_schedule_callback` | Scheduler local de callbacks diferidos (reenable de AI, secuencias del job). | Countdown por `delta`; delays variables por evento. | **Hostilidad + combate** (warning strike/retaliation). | `MIGRAR_A_CADENCE` | **P0** |
+| 7 | `scripts/world/ExtortionFlow.gd::_tick_scheduled_callbacks` / `_schedule_callback` | Cola local de callbacks diferidos consumida por pulso Cadence del director (sin countdown local por `delta`). | Trigger por `director_pulse`; ejecución por `run_at` (`RunClock.now()`). | **Hostilidad + combate** (warning strike/retaliation). | `MANTENER_LOCAL_BY_DESIGN` | **P1** |
 | 8 | `scripts/world/NpcPathService.gd::get_next_waypoint` | Repath interval cacheado por agente. | Default 1.5s, chase override 0.5s. | **Pathing** y respuesta de persecución. | `DUDOSO_REVISAR` | **P0** |
 | 9 | `scripts/components/AIComponent.gd::physics_tick` (`_lod_timer`, `_warmup_tick_timer`) | Cadencia LOD de IA de combate y warmup ticks mínimos. | 0.2s (mid), 0.5–1.0s (far), warmup 0.10–0.20s. | **Combate + pathing local del NPC**. | `DUDOSO_REVISAR` | **P0** |
 | 10 | `scripts/components/AIComponent.gd::_schedule_sleep_check` (`create_timer`) | Timer recurrente para sleep/wake hysteresis por actor. | `owner_entity.SLEEP_CHECK_INTERVAL` (mín 0.05s), reprogramado en callback. | **Combate/pathing** (activa o duerme IA). | `MIGRAR_A_CADENCE` | **P0** |
@@ -34,11 +34,9 @@ Fecha de corte: 2026-04-01.
 ### Prioridad P0 inmediata
 1. `BanditGroupIntel` scan scheduler (intents de extorsión/raid/probe).
 2. `RaidFlow` dispatch scheduling (`wall_assault_next_at`, jitter y ventanas).
-3. `ExtortionFlow` deferred callbacks scheduler.
-4. `AIComponent` sleep-check recurrente por `create_timer`.
-5. `NpcPathService` repath interval ownership.
-6. `BanditBehaviorLayer` fallback `director_pulse` local.
-7. `world.gd` autosave lane (verificar SLA de persistencia y catch-up).
+3. `AIComponent` sleep-check recurrente por `create_timer`.
+4. `NpcPathService` repath interval ownership.
+5. `world.gd` autosave lane (verificar SLA de persistencia y catch-up).
 
 ### Prioridad P1
 - `WorldTime`/`RunClock` hardening de contrato temporal (sin migración, pero con guardrails de drift/load).
@@ -48,27 +46,19 @@ Fecha de corte: 2026-04-01.
 
 ## Backlog de migración ordenado por riesgo + impacto
 
-1. **Extorsión/Raid scheduling unificado (P0 crítico)**  
-   - Consolidar en lanes Cadence: scan social, lifecycle de raid, callbacks diferidos de extorsión.  
-   - Riesgo actual: decisiones de combate repartidas en múltiples relojes locales.
-
-2. **Pathing/AI wake scheduling (P0 crítico)**  
+1. **Pathing/AI wake scheduling (P0 crítico)**  
    - Definir ownership único para repath interval y sleep-check de IA.  
    - Riesgo actual: latencias inconsistentes por actor + reprogramación local recursiva.
 
-3. **Fallback removal en behavior layer (P0 alto)**  
-   - Eliminar timer fallback de `director_pulse` (0.12) o encapsularlo detrás de contrato de bootstrap/test explícito.  
-   - Riesgo actual: dual-path temporal (con y sin Cadence) difícil de validar.
-
-4. **Settlement cadence hardening (P1 medio)**
+2. **Settlement cadence hardening (P1 medio)**
    - Mantener escaneos de settlement gobernados por lanes dedicadas + señales dirty.
    - Riesgo actual: regressions de wiring en harness sin world completo.
 
-5. **Hardening de persistencia temporal (P1 medio/alto)**  
+3. **Hardening de persistencia temporal (P1 medio/alto)**  
    - Verificar política de autosave bajo frame drops/catch-up y coherencia con RunClock/WorldTime en load.  
    - Riesgo actual: pérdida de progreso o drift en cooldowns tras restore.
 
-6. **Documentación y etiquetado de excepciones locales (P2/P3)**  
+4. **Documentación y etiquetado de excepciones locales (P2/P3)**  
    - Añadir/normalizar `LOCAL_TIMER_BY_DESIGN` en timers visuales y limpieza efímera.  
    - Riesgo actual: deuda de governance, no de gameplay autoritativo.
 
@@ -77,7 +67,6 @@ Fecha de corte: 2026-04-01.
 ### A) `BanditBehaviorLayer` directors (`director_pulse`)
 - **Antes:** doble scheduling para directors (Cadence + fallback local de 0.12s dentro de `_process`).
 - **Después:** consumo único desde `WorldCadenceCoordinator` (`director_pulse`); fallback local eliminado.
-- **Adaptador temporal:** `consume_director_pulses_cb` opcional para bootstrap/tests sin world wiring completo.
 - **Motivo:** quitar dual-path temporal en flujo de extorsión/raid y evitar drift entre escenas.
 - **Riesgos mitigados:** disparos duplicados/desfasados de directors, divergencia entre runtime de producción y harness de pruebas.
 
@@ -87,3 +76,9 @@ Fecha de corte: 2026-04-01.
 - **Adaptador temporal:** si no hay Cadence inyectado, mantiene fallback local acotado para no romper escenas/harness legacy.
 - **Motivo:** centralizar ownership temporal del scanner social de alto impacto (intents de raid/extorsión).
 - **Riesgos mitigados:** competencia de relojes paralelos, cadence inconsistente al pausar/reanudar mundo, variación difícil de testear.
+
+### C) `ExtortionFlow` callbacks diferidos
+- **Antes:** scheduler local por `delta` (`remaining`) dentro del flow.
+- **Después:** callbacks diferidos se ejecutan por `run_at` usando `RunClock.now()` y se consumen solo cuando llega `director_pulse`.
+- **Motivo:** eliminar timer local recurrente y consolidar el punto de scheduling en Cadence (director world-owned).
+- **Riesgos mitigados:** drift por framerate, duplicación de ownership temporal entre flow y runtime world.
