@@ -60,6 +60,7 @@ func save_world() -> void:
 		"npc_profile_system":   NpcProfileSystem.serialize(),
 		"bandit_group_memory":  BanditGroupMemory.serialize(),
 		"extortion_queue":      ExtortionQueue.serialize(),
+		"raid_run_summary":     RaidQueue.get_run_summary_save_data(),
 		"run_clock":            RunClock.get_save_data(),
 		"world_time":           WorldTime.get_save_data(),
 		"faction_hostility":    FactionHostilityManager.serialize(),
@@ -126,6 +127,10 @@ func load_world_save() -> bool:
 	var eq = data.get("extortion_queue")
 	if eq is Dictionary or eq is Array:
 		ExtortionQueue.deserialize(eq)
+
+	var raid_summary = data.get("raid_run_summary", {})
+	if raid_summary is Dictionary:
+		RaidQueue.load_run_summary_save_data(raid_summary)
 
 	var rc = data.get("run_clock", {})
 	if rc is Dictionary:

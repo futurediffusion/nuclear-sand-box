@@ -18,6 +18,9 @@ var _intents: Array = []
 var _last_raid_time_by_group: Dictionary = {}        # group_id → RunClock.now()
 var _last_wall_probe_time_by_group: Dictionary = {}  # group_id → RunClock.now()
 
+var _run_summary: Array = []  # cierre canónico de raids (telemetría persistible, no gameplay)
+const RUN_SUMMARY_LIMIT: int = 64
+
 
 func enqueue_raid(faction_id: String, group_id: String, leader_id: String,
 		base_center: Vector2, base_id: String) -> void:
@@ -147,7 +150,34 @@ func get_last_raid_time(group_id: String) -> float:
 	return float(_last_raid_time_by_group.get(group_id, 0.0))
 
 
+func record_raid_run_summary(summary: Dictionary) -> void:
+	if summary.is_empty():
+		return
+	_run_summary.append(summary.duplicate(true))
+	while _run_summary.size() > RUN_SUMMARY_LIMIT:
+		_run_summary.remove_at(0)
+
+
+func get_run_summary_save_data() -> Dictionary:
+	return {
+		"entries": _run_summary.duplicate(true),
+	}
+
+
+func load_run_summary_save_data(data: Dictionary) -> void:
+	_run_summary.clear()
+	if data.is_empty():
+		return
+	var entries: Array = data.get("entries", [])
+	for e in entries:
+		if e is Dictionary:
+			_run_summary.append((e as Dictionary).duplicate(true))
+	while _run_summary.size() > RUN_SUMMARY_LIMIT:
+		_run_summary.remove_at(0)
+
+
 func clear_all() -> void:
 	_intents.clear()
 	_last_raid_time_by_group.clear()
 	_last_wall_probe_time_by_group.clear()
+	_run_summary.clear()

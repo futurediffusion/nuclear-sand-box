@@ -945,10 +945,8 @@ func apply_execution_feedback(command: Dictionary, result: Dictionary = {}) -> v
 		return
 	var reason: String = String(result.get("reason", ""))
 	if reason == "container_looted":
-		if bool(result.get("stage_closed", false)):
-			force_return_home()
-		else:
-			Debug.log("raid", "[BWB][INV] skip return_home without stage closure member=%s group=%s" % [
+		if not bool(result.get("stage_closed", false)):
+			Debug.log("raid", "[BWB][INV] skip close without stage closure member=%s group=%s" % [
 				member_id, group_id
 			])
 		return

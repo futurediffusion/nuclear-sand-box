@@ -1,6 +1,8 @@
 extends Node
 class_name BanditRaidDirector
 
+signal raid_closed(event: Dictionary)
+
 ## Coordinador de raids. No contiene lógica de juego propia.
 ## Instancia y conecta RaidFlow.
 ##
@@ -18,6 +20,8 @@ func setup(ctx: Dictionary) -> void:
 	_flow.name = "RaidFlow"
 	add_child(_flow)
 	_flow.setup(ctx)
+	if not _flow.raid_closed.is_connected(_on_flow_raid_closed):
+		_flow.raid_closed.connect(_on_flow_raid_closed)
 
 
 func set_wall_query(cb: Callable) -> void:
@@ -41,3 +45,7 @@ func set_placeable_query(cb: Callable) -> void:
 func process_raid() -> void:
 	if _flow != null:
 		_flow.process_flow()
+
+
+func _on_flow_raid_closed(event: Dictionary) -> void:
+	raid_closed.emit(event)
