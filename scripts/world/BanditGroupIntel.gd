@@ -24,7 +24,7 @@ const W_MINE: float           =  3.0
 const W_CHOP: float           =  2.0
 
 const SimulationLODPolicyScript := preload("res://scripts/world/SimulationLODPolicy.gd")
-const AIComponentScript         := preload("res://scripts/components/AIComponent.gd")
+const CombatStateServiceScript  := preload("res://scripts/world/CombatStateService.gd")
 
 var _get_markers_near: Callable
 var _get_bases_near: Callable
@@ -148,27 +148,27 @@ func _get_group_scan_interval(group_id: String, g: Dictionary) -> float:
 
 
 func _get_group_lod_signals(leader: Node, current_intent: String, g: Dictionary) -> Dictionary:
-	var _let: Variant = leader.get("last_engaged_time") if leader != null else null
-	var last_engaged_time: float = float(_let) if _let != null else 0.0
-	var was_recently_engaged: bool = SimulationLODPolicyScript.was_recently_engaged(last_engaged_time)
-	var ai_comp = leader.get("ai_component") if leader != null else null
-	var current_state: int = int(ai_comp.get("current_state")) if ai_comp != null else -1
-	var current_target = ai_comp.get_current_target() if ai_comp != null and ai_comp.has_method("get_current_target") else null
-	var has_active_target: bool = current_target != null and is_instance_valid(current_target)
-	var is_in_direct_combat: bool = current_state == AIComponentScript.AIState.CHASE \
-			or current_state == AIComponentScript.AIState.ATTACK \
-			or has_active_target
+	var combat_state: Dictionary = CombatStateServiceScript.read_actor_state(leader)
+	if leader != null and is_instance_valid(leader):
+		var _let: Variant = leader.get("last_engaged_time")
+		var ai_comp = leader.get("ai_component")
+		var current_state: int = int(ai_comp.get("current_state")) if ai_comp != null else -1
+		var current_target = ai_comp.get_current_target() if ai_comp != null and ai_comp.has_method("get_current_target") else null
+		var has_active_target: bool = current_target != null and is_instance_valid(current_target)
+		combat_state = CombatStateServiceScript.update_actor_state(leader, {
+			"current_state": current_state,
+			"has_active_target": has_active_target,
+			"is_world_behavior_eligible": bool(leader.has_method("is_world_behavior_eligible") and leader.is_world_behavior_eligible()),
+			"last_engaged_time": float(_let) if _let != null else 0.0,
+		})
 	var is_alerted_to_player_activity: bool = current_intent != "idle" or String(g.get("last_interest_kind", "")) != ""
 	var is_pursuing_pressure: bool = current_intent == "hunting" or current_intent == "raiding" or current_intent == "extorting"
-	var is_runtime_busy_but_not_combat: bool = false
-	if leader != null and not is_in_direct_combat:
-		is_runtime_busy_but_not_combat = bool(leader.has_method("is_world_behavior_eligible") and not leader.is_world_behavior_eligible())
 	return {
-		"is_in_direct_combat": is_in_direct_combat,
-		"was_recently_engaged": was_recently_engaged,
+		"is_in_direct_combat": bool(combat_state.get("is_in_direct_combat", false)),
+		"was_recently_engaged": bool(combat_state.get("was_recently_engaged", false)),
 		"is_alerted_to_player_activity": is_alerted_to_player_activity,
 		"is_pursuing_pressure": is_pursuing_pressure,
-		"is_runtime_busy_but_not_combat": is_runtime_busy_but_not_combat,
+		"is_runtime_busy_but_not_combat": bool(combat_state.get("is_runtime_busy_but_not_combat", false)),
 	}
 
 
