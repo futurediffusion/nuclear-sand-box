@@ -35,7 +35,6 @@ var _extortion_queue_port: Dictionary = {}
 var _raid_queue_port: Dictionary = {}
 const GROUP_SCAN_SLICE_COUNT: int = 4
 
-var _scan_timer: float = BanditTuning.group_scan_interval() * 0.37
 var _scan_cursor: int = 0
 var _intent_policy := BanditIntentPolicy.new()
 var _scan_accumulator_by_group: Dictionary = {}
@@ -100,25 +99,17 @@ func _get_cooldown_remaining(last_time: float, cooldown: float) -> float:
 
 # ---------------------------------------------------------------------------
 # Tick — called from BanditBehaviorLayer._process()
-# This scan slice remains intentionally local: it is an internal fairness loop
-# over bandit groups, not a shared world-maintenance pulse. The coordinator
-# governs when the outer bandit layer/directors wake up; this class governs how
-# it amortizes its own per-group scan budget once awake.
+# The cadence coordinator decides *when* a scan slice is allowed to run.
+# This class keeps ownership of *how* each slice amortizes work across groups.
 # ---------------------------------------------------------------------------
 
-func tick(delta: float) -> void:
+func tick(_delta: float) -> void:
 	if _cadence != null:
 		var pulses: int = _cadence.consume_lane(&"bandit_group_scan_slice")
 		for _pulse in pulses:
 			_scan_group_slice()
 		return
-	# Temporary adapter fallback while all call-sites adopt cadence injection.
-	var slice_interval: float = BanditTuning.group_scan_interval() / float(maxi(GROUP_SCAN_SLICE_COUNT, 1))
-	_scan_timer += delta
-	if _scan_timer < slice_interval:
-		return
-	_scan_timer -= slice_interval
-	_scan_group_slice()
+	push_warning("BanditGroupIntel.tick skipped: missing cadence injection for bandit_group_scan_slice lane.")
 
 
 # ---------------------------------------------------------------------------

@@ -225,12 +225,12 @@ func _ready() -> void:
 	_wall_refresh_queue = WallRefreshQueueScript.new()
 	_cadence = WorldCadenceCoordinatorScript.new()
 	# WorldCadenceCoordinator governs shared world pulses only: cross-system
-	# maintenance, chunk/autosave work, and directors that coordinate multiple
-	# systems. Specialized inner loops can still keep local clocks when their
-	# timing is inherently private/incremental.
+	# maintenance, chunk/autosave work, and high-impact gameplay loops
+	# (hostility/raid/behavior directors) that must avoid duplicated local timers.
 	_cadence.configure_lane(&"short_pulse", 0.12, 0.15)
 	_cadence.configure_lane(&"medium_pulse", 0.50, 0.42)
 	_cadence.configure_lane(&"director_pulse", 0.12, 0.67)
+	_cadence.configure_lane(&"bandit_behavior_tick", BanditTuning.behavior_tick_interval(), 0.35)
 	_cadence.configure_lane(&"bandit_group_scan_slice", BanditTuning.group_scan_interval() / float(maxi(BanditGroupIntel.GROUP_SCAN_SLICE_COUNT, 1)), 0.24)
 	_cadence.configure_lane(&"chunk_pulse", chunk_check_interval, 0.68)
 	_cadence.configure_lane(&"autosave", autosave_interval, 0.31, 1)
