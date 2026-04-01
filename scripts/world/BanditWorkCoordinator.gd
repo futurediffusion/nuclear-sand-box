@@ -187,10 +187,8 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 		for fallback_pos in fallback_positions:
 			if fallback_pos != enemy_pos and enemy_pos.distance_squared_to(fallback_pos) > RAID_ANCHOR_FALLBACK_HIT_RANGE_SQ:
 				continue
-			if not _damage_player_wall_at(fallback_pos):
+			if not _try_wall_slash_strike(enemy_node, fallback_pos):
 				continue
-			if enemy_node.has_method("queue_ai_attack_press"):
-				enemy_node.call("queue_ai_attack_press", fallback_pos)
 			_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
 			fallback_hit = true
 			Debug.log("raid", "[BWC] structure fallback wall hit npc=%s group=%s pos=%s" % [
@@ -226,10 +224,12 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 		var node: Node = target.get("node") as Node
 		if node != null and is_instance_valid(node) and not node.is_queued_for_deletion() \
 				and node.has_method("hit"):
+			if enemy_node.has_method("queue_ai_attack_press"):
+				enemy_node.call("queue_ai_attack_press", target_pos)
 			node.call("hit", enemy_node)
 			attacked = true
 	elif target_kind == "wall":
-		attacked = _damage_player_wall_at(target_pos)
+		attacked = _try_wall_slash_strike(enemy_node, target_pos)
 
 	if not attacked:
 		if target_kind == "wall":
@@ -244,8 +244,9 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 			)
 		return
 
-	if enemy_node.has_method("queue_ai_attack_press"):
-		enemy_node.call("queue_ai_attack_press", target_pos)
+	if target_kind != "wall":
+		if enemy_node.has_method("queue_ai_attack_press"):
+			enemy_node.call("queue_ai_attack_press", target_pos)
 	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
 	Debug.log("raid", "[BWC] structure hit npc=%s group=%s kind=%s pos=%s" % [
 		beh.member_id, beh.group_id, target_kind, str(target_pos)
@@ -500,6 +501,16 @@ func _damage_player_wall_at(world_pos: Vector2) -> bool:
 	return false
 
 
+func _try_wall_slash_strike(enemy_node: Node, world_pos: Vector2) -> bool:
+	if enemy_node == null or not is_instance_valid(enemy_node):
+		return false
+	if enemy_node.has_method("queue_ai_attack_press"):
+		enemy_node.call("queue_ai_attack_press", world_pos)
+	if enemy_node.has_method("is_attacking") and not bool(enemy_node.call("is_attacking")):
+		return false
+	return _damage_player_wall_at(world_pos)
+
+
 func _is_valid_target(pos: Vector2) -> bool:
 	return pos.is_finite() and not pos.is_equal_approx(INVALID_TARGET)
 
@@ -536,11 +547,9 @@ func _try_local_wall_strike(beh: BanditWorldBehavior, enemy_node: Node, enemy_po
 		return false
 	if best_dsq > RAID_LOCAL_WALL_STRIKE_RANGE_SQ:
 		return false
-	if not _damage_player_wall_at(best_wall):
+	if not _try_wall_slash_strike(enemy_node, best_wall):
 		return false
 
-	if enemy_node.has_method("queue_ai_attack_press"):
-		enemy_node.call("queue_ai_attack_press", best_wall)
 	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
 	Debug.log("raid", "[BWC] local wall strike npc=%s group=%s wall=%s" % [
 		beh.member_id, beh.group_id, str(best_wall)
