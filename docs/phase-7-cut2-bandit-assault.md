@@ -137,6 +137,38 @@ stateDiagram-v2
     RetiradaRetornoCampamento --> [*]
 ```
 
+
+## Gate de PR obligatorio para Bandit Assault Pipeline
+
+Todo PR que toque etapas, transiciones o contratos de handoff de este pipeline debe declarar explícitamente:
+
+- etapa(s) afectada(s),
+- owner(es) afectados (decisión y/o ejecución),
+- evidencia de que no crea bifurcación fuera del diagrama canónico.
+
+Checklist obligatoria de revisión:
+
+- ¿introduce ruta alternativa?
+- ¿duplica decisión ya definida?
+- ¿corrige intención a mitad de pipeline?
+
+### Regla de bloqueo de merge
+
+Se bloquea el merge cuando:
+
+1. el cambio crea una bifurcación no documentada en el diagrama canónico de este documento;
+2. no declara etapa y owner afectados por cada cambio de pipeline;
+3. introduce cualquiera de los tres casos de checklist sin mitigación/excepción aprobada.
+
+### Excepciones temporales
+
+Cuando una excepción temporal sea imprescindible:
+
+- registrar en `docs/incidencias/registro-unico-deuda-tecnica.md`,
+- incluir responsable,
+- incluir fecha de retiro (`YYYY-MM-DD`),
+- mantener revisión semanal hasta retiro efectivo.
+
 ## Criterio de aceptación del documento
 - Existe una sola ruta principal obligatoria con orden explícito.
 - Cada etapa define owner de decisión y owner de ejecución.

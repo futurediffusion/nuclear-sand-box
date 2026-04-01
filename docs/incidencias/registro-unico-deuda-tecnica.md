@@ -19,3 +19,12 @@
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Fecha retiro efectiva |
 |---|---|---|---|---|---|---|---|---|---|
 | _Sin registros_ |  |  |  |  |  |  |  |  |  |
+
+
+## Revisión semanal obligatoria de excepciones
+
+- Cadencia: semanal (mínimo 1 vez por semana).
+- Objetivo: confirmar retiro en fecha comprometida y evitar permanencia silenciosa.
+- Responsable: owner registrado en cada excepción activa.
+- Resultado esperado por revisión: `seguir`, `retirar ahora` o `escalar` (si la fecha de retiro fue superada).
+- Regla: una excepción activa sin revisión semanal actualizada se considera incumplimiento del gate de PR.
