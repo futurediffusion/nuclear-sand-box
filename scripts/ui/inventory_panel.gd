@@ -45,6 +45,14 @@ var _external_drop_handler: Callable = Callable()
 var _external_quick_transfer_handler: Callable = Callable()
 var _external_quick_transfer_on_primary_click: bool = false
 
+func _shop_port() -> Variant:
+	var shop_service := get_node_or_null("/root/ShopService")
+	if shop_service == null:
+		return null
+	if shop_service.has_method("get_port"):
+		return shop_service.get_port()
+	return shop_service
+
 
 func _process(_delta: float) -> void:
 	if not dragging:
@@ -307,9 +315,12 @@ func _is_slot_blocked(slot_index: int, item_id: String) -> bool:
 		return false
 
 	var slot_meta := get_slot_meta(slot_index)
+	var shop_port := _shop_port()
 	match _shop_mode:
 		"BUY":
-			var buy_check := ShopService.can_buy_from_meta(_shop_vendor, _shop_player_inv, slot_meta, 1)
+			if shop_port == null:
+				return false
+			var buy_check := shop_port.can_buy_from_meta(_shop_vendor, _shop_player_inv, slot_meta, 1)
 			if OS.is_debug_build():
 				var price := int(_price_resolver.call(item_id)) if _price_resolver.is_valid() else 0
 				print("[SHOP] can_buy slot=%d id=%s price=%d money=%d has_space=%s offer_index=%s" % [
@@ -322,7 +333,9 @@ func _is_slot_blocked(slot_index: int, item_id: String) -> bool:
 				])
 			return not bool(buy_check.get("ok", false))
 		"SELL":
-			var sell_check := ShopService.can_sell(_shop_vendor, _shop_player_inv, item_id, 1)
+			if shop_port == null:
+				return false
+			var sell_check := shop_port.can_sell(_shop_vendor, _shop_player_inv, item_id, 1)
 			return not bool(sell_check.get("ok", false))
 		_:
 			return false
