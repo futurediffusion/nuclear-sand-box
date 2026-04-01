@@ -8,6 +8,16 @@ var _pending_player_pos: Vector2 = Vector2.ZERO
 var _pending_player_inv: Array = []
 var _pending_player_gold: int = -1
 
+const WORLD_SAVE_KEYS: Array[String] = [
+	"worldsave_chunks",
+	"worldsave_enemy_state",
+	"worldsave_enemy_spawns",
+	"worldsave_global_flags",
+	"worldsave_player_walls",
+	"placed_entities_by_chunk",
+	"placed_entity_data_by_uid",
+]
+
 func register_world(world: Node) -> void:
 	_world = world
 
@@ -42,13 +52,9 @@ func save_world() -> void:
 		"player_inv": _ser(player_inv),
 		"player_gold": player_gold,
 		"chunk_save": _ser(_world.chunk_save),
-		"worldsave_chunks": _ser(WorldSave.chunks),
-		"worldsave_enemy_state": _ser(WorldSave.enemy_state_by_chunk),
-		"worldsave_enemy_spawns": _ser(WorldSave.enemy_spawns_by_chunk),
-		"worldsave_global_flags": _ser(WorldSave.global_flags),
-		"worldsave_player_walls": _ser(WorldSave.player_walls_by_chunk),
-		"placed_entities_by_chunk": _ser(WorldSave.placed_entities_by_chunk),
-		"placed_entity_data_by_uid": _ser(WorldSave.placed_entity_data_by_uid),
+	}
+	data.merge(_capture_world_save_payload(), true)
+	data.merge({
 		"faction_system":       FactionSystem.serialize(),
 		"site_system":          SiteSystem.serialize(),
 		"npc_profile_system":   NpcProfileSystem.serialize(),
@@ -57,7 +63,7 @@ func save_world() -> void:
 		"run_clock":            RunClock.get_save_data(),
 		"world_time":           WorldTime.get_save_data(),
 		"faction_hostility":    FactionHostilityManager.serialize(),
-	}
+	}, true)
 
 	var json_str: String = JSON.stringify(data)
 	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -100,60 +106,7 @@ func load_world_save() -> bool:
 	_pending_player_inv = _des(data.get("player_inv", []))
 	_pending_player_gold = int(data.get("player_gold", -1))
 
-	# Restore WorldSave state
-	var ws_chunks = _des(data.get("worldsave_chunks", {}))
-	if ws_chunks is Dictionary:
-		WorldSave.chunks = ws_chunks
-
-	var ws_enemy_state = _des(data.get("worldsave_enemy_state", {}))
-	if ws_enemy_state is Dictionary:
-		WorldSave.enemy_state_by_chunk = ws_enemy_state
-
-	var ws_enemy_spawns = _des(data.get("worldsave_enemy_spawns", {}))
-	if ws_enemy_spawns is Dictionary:
-		WorldSave.enemy_spawns_by_chunk = ws_enemy_spawns
-
-	var ws_global_flags = _des(data.get("worldsave_global_flags", {}))
-	if ws_global_flags is Dictionary:
-		WorldSave.global_flags = ws_global_flags
-
-	var ws_player_walls = _des(data.get("worldsave_player_walls", {}))
-	if ws_player_walls is Dictionary:
-		WorldSave.player_walls_by_chunk = ws_player_walls
-
-	# --- Migration / Loading of placed entities ---
-	WorldSave.clear_placed_entities()
-
-	# Try loading the new chunk-based format first
-	var placed_chunk_raw = _des(data.get("placed_entities_by_chunk", {}))
-	if placed_chunk_raw is Dictionary and not placed_chunk_raw.is_empty():
-		WorldSave.placed_entities_by_chunk = placed_chunk_raw
-		# Rebuild index UID -> Chunk
-		WorldSave.placed_entity_chunk_by_uid.clear()
-		for ckey in WorldSave.placed_entities_by_chunk:
-			var dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
-			for uid in dict:
-				WorldSave.placed_entity_chunk_by_uid[uid] = ckey
-	else:
-		# FALLBACK / MIGRATION: detect legacy 'placed_entities' array
-		var placed_legacy = _des(data.get("placed_entities", []))
-		if placed_legacy is Array:
-			for entry in placed_legacy:
-				if entry is Dictionary:
-					# add_placed_entity will automatically resolve chunk_key and update indices
-					WorldSave.add_placed_entity(entry)
-			if not placed_legacy.is_empty():
-				Debug.log("save", "Migration: Converted %d legacy placed entities to chunk-based storage." % placed_legacy.size())
-
-	# Restore placed entity data by uid (backward-compatible: defaults to empty dictionary)
-	var placed_data_raw = _des(data.get("placed_entity_data_by_uid", {}))
-	WorldSave.placed_entity_data_by_uid.clear()
-	if placed_data_raw is Dictionary:
-		for uid in placed_data_raw.keys():
-			var uid_str := String(uid)
-			var entity_data = placed_data_raw[uid]
-			if entity_data is Dictionary:
-				WorldSave.placed_entity_data_by_uid[uid_str] = (entity_data as Dictionary).duplicate(true)
+	_restore_world_save_payload(data)
 
 	# Restore Faction / Site / NpcProfile systems (backward-compatible: get with empty default)
 	var fs = data.get("faction_system", {})
@@ -196,6 +149,105 @@ func load_world_save() -> bool:
 
 	Debug.log("save", "World loaded from %s" % SAVE_PATH)
 	return true
+
+func _capture_world_save_payload() -> Dictionary:
+	var payload: Dictionary = {}
+	payload["worldsave_chunks"] = _ser(WorldSave.chunks)
+	payload["worldsave_enemy_state"] = _ser(WorldSave.enemy_state_by_chunk)
+	payload["worldsave_enemy_spawns"] = _ser(WorldSave.enemy_spawns_by_chunk)
+	payload["worldsave_global_flags"] = _ser(WorldSave.global_flags)
+	payload["worldsave_player_walls"] = _ser(WorldSave.player_walls_by_chunk)
+	payload["placed_entities_by_chunk"] = _ser(WorldSave.placed_entities_by_chunk)
+	payload["placed_entity_data_by_uid"] = _ser(WorldSave.placed_entity_data_by_uid)
+	return payload
+
+func _restore_world_save_payload(data: Dictionary) -> void:
+	var restore_payload: Dictionary = {}
+	for key in WORLD_SAVE_KEYS:
+		restore_payload[key] = _des(data.get(key, {}))
+	var legacy_placed = _des(data.get("placed_entities", []))
+	if legacy_placed is Array:
+		restore_payload["placed_entities_legacy"] = legacy_placed
+
+	var integrity_errors: PackedStringArray = _validate_world_save_payload(restore_payload)
+	if not integrity_errors.is_empty():
+		for err in integrity_errors:
+			push_warning("SaveManager integrity warning: %s" % err)
+
+	WorldSave.chunks = restore_payload.get("worldsave_chunks", {})
+	WorldSave.enemy_state_by_chunk = restore_payload.get("worldsave_enemy_state", {})
+	WorldSave.enemy_spawns_by_chunk = restore_payload.get("worldsave_enemy_spawns", {})
+	WorldSave.global_flags = restore_payload.get("worldsave_global_flags", {})
+	WorldSave.player_walls_by_chunk = restore_payload.get("worldsave_player_walls", {})
+
+	WorldSave.clear_placed_entities()
+	var placed_chunk_raw: Dictionary = restore_payload.get("placed_entities_by_chunk", {})
+	if not placed_chunk_raw.is_empty():
+		WorldSave.placed_entities_by_chunk = placed_chunk_raw
+		WorldSave.placed_entity_chunk_by_uid.clear()
+		for ckey in WorldSave.placed_entities_by_chunk:
+			var dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
+			for uid in dict:
+				WorldSave.placed_entity_chunk_by_uid[String(uid)] = String(ckey)
+	else:
+		var placed_legacy: Array = restore_payload.get("placed_entities_legacy", [])
+		for entry in placed_legacy:
+			if entry is Dictionary:
+				WorldSave.add_placed_entity(entry as Dictionary)
+		if not placed_legacy.is_empty():
+			Debug.log("save", "Migration: Converted %d legacy placed entities to chunk-based storage." % placed_legacy.size())
+
+	WorldSave.placed_entity_data_by_uid.clear()
+	var placed_data_raw: Dictionary = restore_payload.get("placed_entity_data_by_uid", {})
+	for uid in placed_data_raw.keys():
+		var entity_data = placed_data_raw[uid]
+		WorldSave.placed_entity_data_by_uid[String(uid)] = (entity_data as Dictionary).duplicate(true)
+
+func _validate_world_save_payload(payload: Dictionary) -> PackedStringArray:
+	var errors: PackedStringArray = []
+	var dict_fields: Dictionary = {
+		"worldsave_chunks": "WorldSave.chunks",
+		"worldsave_enemy_state": "WorldSave.enemy_state_by_chunk",
+		"worldsave_enemy_spawns": "WorldSave.enemy_spawns_by_chunk",
+		"worldsave_global_flags": "WorldSave.global_flags",
+		"worldsave_player_walls": "WorldSave.player_walls_by_chunk",
+		"placed_entities_by_chunk": "WorldSave.placed_entities_by_chunk",
+		"placed_entity_data_by_uid": "WorldSave.placed_entity_data_by_uid",
+	}
+	for key in dict_fields.keys():
+		if not (payload.get(key, {}) is Dictionary):
+			errors.append("%s expected Dictionary in '%s'" % [dict_fields[key], key])
+			payload[key] = {}
+
+	var placed_legacy: Variant = payload.get("placed_entities_legacy", [])
+	if not (placed_legacy is Array):
+		errors.append("Legacy placed_entities expected Array")
+		payload["placed_entities_legacy"] = []
+
+	var placed_chunk: Dictionary = payload.get("placed_entities_by_chunk", {})
+	for ckey in placed_chunk.keys():
+		var entries: Variant = placed_chunk[ckey]
+		if not (entries is Dictionary):
+			errors.append("placed_entities_by_chunk[%s] must be Dictionary" % String(ckey))
+			placed_chunk[ckey] = {}
+			continue
+		var sanitized_entries: Dictionary = {}
+		for uid in (entries as Dictionary).keys():
+			var raw_entry: Variant = (entries as Dictionary)[uid]
+			if raw_entry is Dictionary:
+				sanitized_entries[String(uid)] = (raw_entry as Dictionary).duplicate(true)
+			else:
+				errors.append("placed entity '%s' in chunk '%s' is not Dictionary" % [String(uid), String(ckey)])
+		placed_chunk[ckey] = sanitized_entries
+	payload["placed_entities_by_chunk"] = placed_chunk
+
+	var placed_data: Dictionary = payload.get("placed_entity_data_by_uid", {})
+	for uid in placed_data.keys():
+		if not (placed_data[uid] is Dictionary):
+			errors.append("placed_entity_data_by_uid['%s'] must be Dictionary" % String(uid))
+			placed_data[uid] = {}
+	payload["placed_entity_data_by_uid"] = placed_data
+	return errors
 
 func delete_save() -> void:
 	DirAccess.remove_absolute(SAVE_PATH)

@@ -5,10 +5,10 @@ const WALL_HP_KEY: String = "hp"
 
 func save_wall(chunk_id: Vector2i, tile: Vector2i, wall_data: Dictionary) -> void:
 	var serialized: Dictionary = serialize_wall_data(wall_data)
-	var hp: int = int(serialized.get(WALL_HP_KEY, 0))
-	if hp <= 0:
-		remove_wall(chunk_id, tile)
+	if serialized.is_empty():
+		push_warning("WallPersistence.save_wall: rejected payload for chunk=%s tile=%s" % [str(chunk_id), str(tile)])
 		return
+	var hp: int = int(serialized.get(WALL_HP_KEY, 0))
 	WorldSave.set_player_wall(chunk_id.x, chunk_id.y, tile, hp)
 
 func remove_wall(chunk_id: Vector2i, tile: Vector2i) -> void:
@@ -57,6 +57,8 @@ func get_wall(chunk_id: Vector2i, tile: Vector2i) -> Dictionary:
 	return deserialize_wall_data(raw)
 
 func serialize_wall_data(wall_data: Dictionary) -> Dictionary:
+	if not wall_data.has(WALL_HP_KEY):
+		return {}
 	var hp: int = int(wall_data.get(WALL_HP_KEY, 0))
 	if hp <= 0:
 		return {}
