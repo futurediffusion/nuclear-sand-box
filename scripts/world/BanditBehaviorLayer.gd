@@ -549,14 +549,13 @@ func _build_res_info(node_pos: Vector2, all_resources: Array) -> Array:
 
 
 func _get_all_drop_nodes() -> Array:
-	if _world_spatial_index != null:
-		return _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_ITEM_DROP)
+	# Runtime truth for tactical loot decisions is the live scene tree.
+	# Spatial index remains an optimization, never the semantic owner.
 	return get_tree().get_nodes_in_group("item_drop")
 
 
 func _get_all_resource_nodes() -> Array:
-	if _world_spatial_index != null:
-		return _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORLD_RESOURCE)
+	# Runtime truth for resource watch is the live world_resource group.
 	return get_tree().get_nodes_in_group("world_resource")
 
 
