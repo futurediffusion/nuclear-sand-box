@@ -143,3 +143,26 @@ stateDiagram-v2
 - Cada transición tiene contrato de handoff verificable.
 - Se establece prohibición explícita de rutas alternativas silenciosas.
 - Se incluye diagrama con estados y transiciones permitidas.
+
+---
+
+## Mapa de módulos con re-decisión detectada durante el recorrido
+
+| Tipo de decisión | Owner canónico | Módulos observados en pipeline | Estado |
+|---|---|---|---|
+| targeting | `BanditBehaviorLayer.dispatch_group_to_target` | `BanditBehaviorLayer`, `BanditWorldBehavior._build_structure_assault_intent`, `BanditWorkCoordinator._handle_structure_assault_command`, `BanditWallAssaultPolicy.evaluate_structure_directive` | `DUP_DECISION_IN_PIPELINE` |
+| engage | `BanditWallAssaultPolicy.evaluate_structure_directive` | `RaidFlow._tick_approaching` + `BanditWallAssaultPolicy` (doble gate de acercamiento) | `DUP_DECISION_IN_PIPELINE` |
+| breach | `BanditWorkCoordinator._handle_structure_assault_command` (consume directiva) | `BanditWallAssaultPolicy` + `BanditWorkCoordinator` (validación + ejecución) | `CANONICAL_SINGLE_OWNER` |
+| loot | `BanditWorkCoordinator._try_loot_nearby_container` | `BanditWorldBehavior` (gating), `BanditWorkCoordinator` (extracción) | `CANONICAL_SINGLE_OWNER` |
+| retreat | `RaidFlow._finish_raid` / `BanditWorldBehavior.force_return_home` por evento explícito | `RaidFlow`, `BanditWorldBehavior.apply_execution_feedback` | `CANONICAL_SINGLE_OWNER` |
+
+### Ajuste aplicado en este cut (anti re-decisión)
+
+1. **Targeting canónico por etapa previa**
+   - `BanditWorldBehavior` ahora entrega `canonical_target` + `consume_canonical_only=true` en el handoff de ejecución para asalto de estructura.
+   - `BanditWorkCoordinator` pasa ese target canónico a `BanditWallAssaultPolicy`.
+   - `BanditWallAssaultPolicy` consume primero `canonical_target`; cuando `consume_canonical_only=true`, no re-decide con búsquedas/fallbacks alternativos.
+
+2. **Sin correcciones tardías “por si acaso”**
+   - Se removió la corrección tardía que forzaba `return_home` cuando `no_attack_target` y había cargo, porque alteraba la ruta principal sin evento de transición declarado.
+   - La retirada sigue permitida por eventos explícitos (`container_looted`, fin de raid, timeouts, etc.).

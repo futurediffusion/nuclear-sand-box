@@ -152,6 +152,8 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 	var has_raid_context: bool = bool(command.get("has_raid_context", false))
 	var group_anchor: Vector2 = command.get("group_anchor", INVALID_TARGET) as Vector2
 	var member_anchor: Vector2 = command.get("member_anchor", INVALID_TARGET) as Vector2
+	var canonical_target: Vector2 = command.get("canonical_target", INVALID_TARGET) as Vector2
+	var consume_canonical_only: bool = bool(command.get("consume_canonical_only", false))
 	var attack_anchor: Vector2 = member_anchor if _is_valid_target(member_anchor) else group_anchor
 
 	var enemy_pos: Vector2 = command.get("node_pos", (enemy_node as Node2D).global_position) as Vector2
@@ -177,6 +179,8 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 		"enemy_pos": enemy_pos,
 		"group_anchor": group_anchor,
 		"member_anchor": member_anchor,
+		"canonical_target": canonical_target,
+		"consume_canonical_only": consume_canonical_only,
 	})
 	if not bool(directive.get("allow", false)):
 		return directive

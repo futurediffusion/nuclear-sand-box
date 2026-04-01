@@ -947,11 +947,6 @@ func apply_execution_feedback(command: Dictionary, result: Dictionary = {}) -> v
 	if reason == "container_looted":
 		force_return_home()
 		return
-	if reason == "no_attack_target" and cargo_count > 0:
-		force_return_home()
-		Debug.log("raid", "[BWB] structure no-target -> return home with cargo npc=%s group=%s cargo=%d" % [
-			member_id, group_id, cargo_count
-		])
 
 
 func _build_structure_assault_intent(node_pos: Vector2, now: float) -> Dictionary:
@@ -970,6 +965,7 @@ func _build_structure_assault_intent(node_pos: Vector2, now: float) -> Dictionar
 
 	var group_anchor: Vector2 = _resolve_structure_assault_anchor(group_id, g)
 	var member_anchor: Vector2 = _resolve_structure_member_anchor(group_anchor)
+	var canonical_target: Vector2 = member_anchor if _is_valid_world_target(member_anchor) else group_anchor
 	return {
 		"intent": EXEC_INTENT_STRUCTURE_ASSAULT,
 		"node_pos": node_pos,
@@ -977,6 +973,8 @@ func _build_structure_assault_intent(node_pos: Vector2, now: float) -> Dictionar
 		"has_raid_context": has_raid_context,
 		"group_anchor": group_anchor,
 		"member_anchor": member_anchor,
+		"canonical_target": canonical_target,
+		"consume_canonical_only": true,
 		"attack_next_at": 0.0,
 	}
 
