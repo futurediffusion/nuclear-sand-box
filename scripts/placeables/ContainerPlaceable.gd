@@ -51,6 +51,10 @@ var _civil_incident_reporter: Callable = Callable()
 ## Hooks de persistencia por UID (contenido interno serializable).
 var stored_slots: Array = []
 var _world_spatial_index: WorldSpatialIndex = null
+const _STORAGE_ITEM_IDS: Dictionary = {
+	"chest": true,
+	"barrel": true,
+}
 
 
 func _ready() -> void:
@@ -541,7 +545,7 @@ func _resolve_sound_panel() -> SoundPanel:
 
 func _register_in_world_index() -> void:
 	_world_spatial_index = get_tree().get_first_node_in_group("world_spatial_index") as WorldSpatialIndex
-	if _world_spatial_index != null and _world_spatial_index.is_storage_item_id(drop_item_id):
+	if _world_spatial_index != null and _STORAGE_ITEM_IDS.has(String(drop_item_id).strip_edges()):
 		_world_spatial_index.register_runtime_node(WorldSpatialIndex.KIND_STORAGE, self)
 
 

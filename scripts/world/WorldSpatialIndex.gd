@@ -1,7 +1,8 @@
 class_name WorldSpatialIndex
 extends Node
 
-# Small, pragmatic spatial helper for common world queries.
+# Spatial interface boundary: "where/query".
+# Small, pragmatic helper for common world queries and retrieval.
 # Runtime world entities (drops/resources/loaded workbenches/storage) are indexed
 # by chunk with live node references.
 # Persistent placeables still live canonically in WorldSave. This class only
@@ -11,16 +12,6 @@ const KIND_ITEM_DROP: StringName = &"item_drop"
 const KIND_WORLD_RESOURCE: StringName = &"world_resource"
 const KIND_WORKBENCH: StringName = &"workbench"
 const KIND_STORAGE: StringName = &"storage"
-
-const STORAGE_ITEM_IDS: Dictionary = {
-	"chest": true,
-	"barrel": true,
-}
-
-const BLOCKING_EXCLUDED_ITEM_IDS: Dictionary = {
-	"floorwood": true,
-	"woodfloor": true,
-}
 
 var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
@@ -186,17 +177,6 @@ func get_all_placeables_by_item_id(item_id: String) -> Array[Dictionary]:
 	return result
 
 
-func get_blocker_tiles_in_rect(min_x: int, min_y: int, w: int, h: int) -> Dictionary:
-	var blockers: Dictionary = {}
-	for entry in get_placeables_in_tile_rect(min_x, min_y, w, h):
-		var item_id := String(entry.get("item_id", "")).strip_edges()
-		var uid := String(entry.get("uid", ""))
-		if not placeable_blocks_movement(item_id, uid):
-			continue
-		blockers[Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))] = true
-	return blockers
-
-
 func get_placeables_in_tile_rect(min_x: int, min_y: int, w: int, h: int, item_ids: Array[String] = []) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var max_x: int = min_x + w - 1
@@ -232,21 +212,6 @@ func find_nearest_runtime_node(kind: StringName, world_pos: Vector2, radius: flo
 			best_dsq = dsq
 			best = node
 	return best
-
-
-func placeable_blocks_movement(item_id: String, uid: String = "") -> bool:
-	if item_id == "":
-		return false
-	if BLOCKING_EXCLUDED_ITEM_IDS.has(item_id):
-		return false
-	if item_id == "doorwood":
-		var data: Dictionary = WorldSave.get_placed_entity_data(uid)
-		return not bool(data.get("is_open", false))
-	return true
-
-
-func is_storage_item_id(item_id: String) -> bool:
-	return STORAGE_ITEM_IDS.has(item_id)
 
 
 func _ensure_runtime_kind(kind: StringName) -> Dictionary:
