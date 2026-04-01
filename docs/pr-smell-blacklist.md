@@ -1,12 +1,22 @@
 # PR Smell Blacklist (fuente de verdad obligatoria)
 
 Fecha: 2026-04-01  
-Estado: **vigente y obligatorio para revisión de PR**
+Estado: **política permanente, vigente y obligatoria para revisión de PR**
 
 ## Objetivo
 
 Esta blacklist define olores arquitectónicos prohibidos en cambios de runtime.  
 Se usa como **fuente de verdad obligatoria** para aprobar o rechazar PR.
+
+## Permanencia de la política
+
+Esta política se declara **permanente**: no se limita a una fase puntual ni a un freeze temporal.
+
+Racional de permanencia:
+
+- Evitar el patrón de fragmentación de cambios conocido como **"40 mini por si acaso"**.
+- Mantener un umbral estable de calidad arquitectónica en todos los PR nuevos.
+- Forzar decisiones explícitas (mitigación o excepción temporal) cuando aparezcan riesgos reales.
 
 ## Regla de severidad y gate de rechazo
 

@@ -4,6 +4,8 @@
 ## Checklist obligatoria — olores prohibidos (bloqueante)
 Marca cada ítem con `Sí` o `No` y agrega evidencia.
 
+Fuente de verdad: [`docs/pr-smell-blacklist.md`](../docs/pr-smell-blacklist.md).
+
 > **Regla de merge:** cualquier respuesta **“Sí”** sin justificación aprobada y sin excepción registrada bloquea el merge.
 
 - [ ] **¿introduce timer local pudiendo usar cadence?**
@@ -22,6 +24,7 @@ Marca cada ítem con `Sí` o `No` y agrega evidencia.
 ## Evidencia global obligatoria
 - [ ] Incluí evidencia para todos los puntos (ruta de código o nota de arquitectura).
 - [ ] Si hubo excepciones, quedaron registradas en `docs/incidencias/registro-unico-deuda-tecnica.md` con fecha de retiro.
+- [ ] Acepto criterio de bloqueo: cualquier “Sí” sin excepción temporal aprobada deja este PR en **No Ready**.
 
 ## Excepciones (solo si aplica)
 Si marcaste algún **“Sí”**, completa:
