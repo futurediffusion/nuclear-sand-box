@@ -302,8 +302,6 @@ func _is_blocked(tile: Vector2i, placed_blockers: Dictionary) -> bool:
 ## All placeables are solid EXCEPT: floorwood/woodfloor (no collision shape)
 ## and doorwood when open (collision shape disabled while open).
 func _placeable_blocks_movement(item_id: String, uid: String) -> bool:
-	if _world_spatial_index != null:
-		return _world_spatial_index.placeable_blocks_movement(item_id, uid)
 	if item_id == "":
 		return false
 	if item_id in PASSABLE_ITEM_IDS:
@@ -318,25 +316,30 @@ func _placeable_blocks_movement(item_id: String, uid: String) -> bool:
 ## inside the given tile-coordinate window [min_x..min_x+w, min_y..min_y+h].
 ## Called once per A* solve — O(entities in affected chunks).
 func _collect_placed_blockers(min_x: int, min_y: int, w: int, h: int) -> Dictionary:
-	if _world_spatial_index != null:
-		return _world_spatial_index.get_blocker_tiles_in_rect(min_x, min_y, w, h)
 	var blockers: Dictionary = {}
-	var min_cx: int = int(floor(float(min_x) / CHUNK_SIZE))
-	var max_cx: int = int(floor(float(min_x + w - 1) / CHUNK_SIZE))
-	var min_cy: int = int(floor(float(min_y) / CHUNK_SIZE))
-	var max_cy: int = int(floor(float(min_y + h - 1) / CHUNK_SIZE))
-
-	for cx in range(min_cx, max_cx + 1):
-		for cy in range(min_cy, max_cy + 1):
-			for entry in WorldSave.get_placed_entities_in_chunk(cx, cy):
-				var tx: int = int(entry.get("tile_pos_x", 0))
-				var ty: int = int(entry.get("tile_pos_y", 0))
-				if tx < min_x or tx >= min_x + w or ty < min_y or ty >= min_y + h:
-					continue
-				var item_id: String = String(entry.get("item_id", ""))
-				var uid: String     = String(entry.get("uid", ""))
-				if _placeable_blocks_movement(item_id, uid):
-					blockers[Vector2i(tx, ty)] = true
+	var entries: Array[Dictionary] = []
+	if _world_spatial_index != null:
+		entries = _world_spatial_index.get_placeables_in_tile_rect(min_x, min_y, w, h)
+	else:
+		var min_cx: int = int(floor(float(min_x) / CHUNK_SIZE))
+		var max_cx: int = int(floor(float(min_x + w - 1) / CHUNK_SIZE))
+		var min_cy: int = int(floor(float(min_y) / CHUNK_SIZE))
+		var max_cy: int = int(floor(float(min_y + h - 1) / CHUNK_SIZE))
+		for cx in range(min_cx, max_cx + 1):
+			for cy in range(min_cy, max_cy + 1):
+				for entry in WorldSave.get_placed_entities_in_chunk(cx, cy):
+					var tx: int = int(entry.get("tile_pos_x", 0))
+					var ty: int = int(entry.get("tile_pos_y", 0))
+					if tx < min_x or tx >= min_x + w or ty < min_y or ty >= min_y + h:
+						continue
+					entries.append(entry)
+	for entry in entries:
+		var tx: int = int(entry.get("tile_pos_x", 0))
+		var ty: int = int(entry.get("tile_pos_y", 0))
+		var item_id: String = String(entry.get("item_id", ""))
+		var uid: String = String(entry.get("uid", ""))
+		if _placeable_blocks_movement(item_id, uid):
+			blockers[Vector2i(tx, ty)] = true
 	return blockers
 
 

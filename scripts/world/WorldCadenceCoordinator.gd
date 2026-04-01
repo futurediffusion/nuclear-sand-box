@@ -80,10 +80,22 @@ func consume_lane(name: StringName) -> int:
 	_lanes[name] = lane
 	return due
 
+## Cadence interface boundary: "when to run".
+## Returns how many pulses should run now for this lane and consumes them.
+func when_to_run(name: StringName) -> int:
+	return consume_lane(name)
+
+
 func lane_due(name: StringName) -> int:
 	if not _lanes.has(name):
 		return 0
 	return int(_lanes[name].get("due", 0))
+
+
+## Cadence interface boundary: "when to run".
+## Non-consuming peek for due pulses in the lane.
+func when_due(name: StringName) -> int:
+	return lane_due(name)
 
 
 func get_debug_snapshot() -> Dictionary:
