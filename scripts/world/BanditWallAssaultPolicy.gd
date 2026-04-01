@@ -10,6 +10,8 @@ const RAID_ENGAGE_RADIUS_SQ: float = 260.0 * 260.0
 const RAID_TARGET_SEARCH_RADIUS: float = 180.0
 const RAID_LOCAL_WALL_PROBE_RADIUS: float = 180.0
 const RAID_LOCAL_WALL_STRIKE_RANGE_SQ: float = 164.0 * 164.0
+const STRUCTURE_TARGET_VALIDATION_RADIUS: float = 72.0
+const STRUCTURE_WALL_TARGET_VALIDATION_RADIUS: float = 42.0
 
 const STRUCTURE_ATTACK_COOLDOWN: float = 0.45
 const OPPORTUNISTIC_WALL_COOLDOWN: float = 20.0
@@ -40,6 +42,8 @@ static func evaluate_structure_directive(ctx: Dictionary) -> Dictionary:
 	var attack_anchor: Vector2 = member_anchor if is_valid_target(member_anchor) else group_anchor
 	if not is_valid_target(attack_anchor):
 		attack_anchor = enemy_pos
+	var canonical_target: Vector2 = ctx.get("canonical_target", INVALID_TARGET) as Vector2
+	var consume_canonical_only: bool = bool(ctx.get("consume_canonical_only", false))
 
 	var engaged_by_group: bool = is_valid_target(group_anchor) \
 			and enemy_pos.distance_squared_to(group_anchor) <= RAID_ENGAGE_RADIUS_SQ
@@ -48,12 +52,21 @@ static func evaluate_structure_directive(ctx: Dictionary) -> Dictionary:
 	if not engaged_by_group and not engaged_by_member:
 		return {"allow": false, "reason": "out_of_engage_radius"}
 
-	var target: Dictionary = _resolve_raid_priority_target(world_node, attack_anchor, enemy_pos)
+	var target: Dictionary = {}
+	if is_valid_target(canonical_target):
+		target = _resolve_canonical_target(world_node, canonical_target, enemy_pos)
+		if target.is_empty() and consume_canonical_only:
+			return {"allow": false, "reason": "canonical_target_missing"}
+	else:
+		target = _resolve_raid_priority_target(world_node, attack_anchor, enemy_pos)
 	if not target.is_empty():
 		target["allow"] = true
 		target["reason"] = "target_resolved"
 		target["next_attack_at"] = now + STRUCTURE_ATTACK_COOLDOWN
 		return target
+
+	if consume_canonical_only:
+		return {"allow": false, "reason": "canonical_target_missing"}
 
 	var fallback_wall: Vector2 = _resolve_local_wall_fallback(world_node, enemy_pos, attack_anchor, group_anchor)
 	if is_valid_target(fallback_wall):
@@ -66,6 +79,36 @@ static func evaluate_structure_directive(ctx: Dictionary) -> Dictionary:
 		}
 
 	return {"allow": false, "reason": "no_attack_target"}
+
+
+static func _resolve_canonical_target(world_node: Node, target_hint: Vector2, enemy_pos: Vector2) -> Dictionary:
+	var placeable_node: Node2D = _find_nearest_player_structure_node(world_node, enemy_pos, target_hint)
+	var placeable_pos: Vector2 = placeable_node.global_position if placeable_node != null else INVALID_TARGET
+
+	var wall_pos: Vector2 = INVALID_TARGET
+	if world_node.has_method("find_nearest_player_wall_world_pos"):
+		wall_pos = world_node.call("find_nearest_player_wall_world_pos", target_hint, STRUCTURE_TARGET_VALIDATION_RADIUS) as Vector2
+
+	var has_placeable: bool = placeable_node != null \
+			and is_instance_valid(placeable_node) \
+			and not placeable_node.is_queued_for_deletion() \
+			and is_valid_target(placeable_pos) \
+			and placeable_pos.distance_squared_to(target_hint) <= STRUCTURE_TARGET_VALIDATION_RADIUS * STRUCTURE_TARGET_VALIDATION_RADIUS
+	var has_wall: bool = is_valid_target(wall_pos) \
+			and wall_pos.distance_squared_to(target_hint) <= STRUCTURE_WALL_TARGET_VALIDATION_RADIUS * STRUCTURE_WALL_TARGET_VALIDATION_RADIUS
+
+	if not has_placeable and not has_wall:
+		return {}
+	if has_placeable and not has_wall:
+		return {"kind": "placeable", "pos": placeable_pos, "node": placeable_node}
+	if has_wall and not has_placeable:
+		return {"kind": "wall", "pos": wall_pos}
+
+	var d_placeable: float = enemy_pos.distance_squared_to(placeable_pos)
+	var d_wall: float = enemy_pos.distance_squared_to(wall_pos)
+	if d_placeable <= d_wall:
+		return {"kind": "placeable", "pos": placeable_pos, "node": placeable_node}
+	return {"kind": "wall", "pos": wall_pos}
 
 
 static func evaluate_opportunistic_wall_order(ctx: Dictionary) -> Dictionary:
