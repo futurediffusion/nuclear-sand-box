@@ -430,7 +430,8 @@ func _tick_behaviors() -> void:
 		if node == null or not node.has_method("is_world_behavior_eligible") \
 				or not node.is_world_behavior_eligible():
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, _get_runtime_lod_signals(node))
+				var cmd_idle: Dictionary = beh.issue_execution_intent({"now": RunClock.now()})
+				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, cmd_idle, _get_runtime_lod_signals(node))
 			continue
 
 		var node_pos: Vector2 = node.global_position
@@ -439,7 +440,11 @@ func _tick_behaviors() -> void:
 		_behavior_elapsed[enemy_id] = elapsed
 		if elapsed < tick_interval:
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, _get_runtime_lod_signals(node))
+				var cmd_slow: Dictionary = beh.issue_execution_intent({
+					"node_pos": node_pos,
+					"now": RunClock.now(),
+				})
+				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, cmd_slow, _get_runtime_lod_signals(node))
 			continue
 		# Resetear a 0 en vez de acumular residual para evitar que elapsed crezca
 		# indefinidamente cuando tick_interval es corto (ej. 0.25s con jugador cerca).
@@ -473,7 +478,11 @@ func _tick_behaviors() -> void:
 			save_state_ref["world_behavior"] = beh.export_state()
 
 		if _work_coordinator != null:
-			_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, _get_runtime_lod_signals(node))
+			var cmd: Dictionary = beh.issue_execution_intent({
+				"node_pos": node_pos,
+				"now": RunClock.now(),
+			})
+			_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, cmd, _get_runtime_lod_signals(node))
 
 
 # ---------------------------------------------------------------------------
