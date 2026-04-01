@@ -48,7 +48,9 @@ const DEPOSIT_SLOT_RADIUS_MIN:   float = 32.0    # px mï¿½fÂ­nimo desde el 
 const DEPOSIT_SLOT_RADIUS_RANGE: int   = 20      # varianza adicional (hash % N)
 const DEPOSIT_REASSIGN_GUARD_SQ: float = 72.0 * 72.0  # no reasignar si ya estï¿½fÂ¡ cerca
 
-const DEBUG_ALERTED_CHASE: bool = true
+signal debug_observation_emitted(channel: StringName, payload: Dictionary)
+
+const DEBUG_ALERTED_CHASE_OBSERVATION: bool = true
 const STRUCTURE_ASSAULT_FOCUS_SECONDS: float = 24.0
 const STRUCTURE_MEMBER_QUERY_RADIUS: float = 320.0
 const STRUCTURE_MEMBER_QUERY_RING_RADIUS: float = 96.0
@@ -347,8 +349,8 @@ func _physics_process(_delta: float) -> void:
 	if _extortion_director != null:
 		_extortion_director.apply_extortion_movement(BanditTuningScript.friction_compensation())
 
-	# Debug: alerted scout sigue al player
-	if DEBUG_ALERTED_CHASE and _player != null and is_instance_valid(_player):
+	# Debug observation only: never mutate runtime velocity from telemetry/debug.
+	if DEBUG_ALERTED_CHASE_OBSERVATION and _player != null and is_instance_valid(_player):
 		var ap: Vector2 = _player.global_position
 		for gid in _domain_ports.bandit_group_memory().get_all_group_ids():
 			var g: Dictionary = _domain_ports.bandit_group_memory().get_group(gid)
@@ -363,8 +365,17 @@ func _physics_process(_delta: float) -> void:
 				continue
 			var to_p: Vector2 = ap - snode.global_position
 			if to_p.length() > 1.0:
-				snode.velocity = to_p.normalized() * (
+				var suggested_speed: float = (
 					BanditTuningScript.alerted_scout_chase_speed(gid) + BanditTuningScript.friction_compensation()
+				)
+				debug_observation_emitted.emit(
+					&"alerted_scout_chase_candidate",
+					{
+						"group_id": gid,
+						"scout_id": scout_id,
+						"distance_to_player": to_p.length(),
+						"suggested_speed": suggested_speed,
+					}
 				)
 
 
