@@ -1873,8 +1873,6 @@ func _is_group_hostile_for_structure_assault(group_data: Dictionary) -> bool:
 	var faction_id: String = String(group_data.get("faction_id", ""))
 	if faction_id == "":
 		return false
-	if _is_faction_baseline_hostile_to_player(faction_id):
-		return true
 	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
 	return profile.can_attack_punitively \
 		or profile.can_probe_walls \
@@ -1882,29 +1880,6 @@ func _is_group_hostile_for_structure_assault(group_data: Dictionary) -> bool:
 		or profile.can_damage_storage \
 		or profile.can_damage_walls \
 		or profile.can_raid_base
-
-
-func _is_faction_baseline_hostile_to_player(faction_id: String) -> bool:
-	var fid: String = faction_id.strip_edges().to_lower()
-	if fid == "":
-		return false
-	var aliases: Array[String] = [fid]
-	if fid.ends_with("s"):
-		var singular: String = fid.substr(0, fid.length() - 1)
-		if singular != "":
-			aliases.append(singular)
-	else:
-		aliases.append(fid + "s")
-	for raw_alias in aliases:
-		var alias: String = String(raw_alias)
-		var faction_data: Dictionary = FactionSystem.get_faction(alias)
-		if faction_data.is_empty():
-			continue
-		if float(faction_data.get("hostility_to_player", 0.0)) > 0.0:
-			return true
-	# Fallback defensivo para facciones hostiles no registradas aún en FactionSystem.
-	return fid.find("bandit") >= 0 or fid.find("goblin") >= 0 or fid.find("raider") >= 0
-
 
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
 	if kind == "enemy" and uid != "":
@@ -1923,7 +1898,7 @@ func _tick_player_territory() -> void:
 	if not _player_territory_dirty or _player_territory == null or _settlement_intel == null:
 		return
 	_player_territory_dirty = false
-	var wb_nodes: Array = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH) if _world_spatial_index != null else get_tree().get_nodes_in_group("workbench")
+	var wb_nodes: Array = get_tree().get_nodes_in_group("workbench")
 	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_near(Vector2.ZERO, 999999.0)
 	_player_territory.rebuild(wb_nodes, bases)
 
