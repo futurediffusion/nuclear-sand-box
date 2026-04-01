@@ -342,7 +342,9 @@ func _find_nearest_raidable_container(enemy_pos: Vector2, assault_anchor: Vector
 	if enemy_pos.distance_squared_to(assault_anchor) > 1.0:
 		search_centers.append(enemy_pos)
 
-	var runtime_nodes: Array = []
+	# Canonical runtime truth: live interactable nodes in scene tree.
+	# Spatial index is derived and may lag, so it can only add candidates.
+	var runtime_nodes: Array = get_tree().get_nodes_in_group("interactable")
 	if _world_spatial_index != null:
 		for center in search_centers:
 			if not _is_valid_target(center):
@@ -352,24 +354,15 @@ func _find_nearest_raidable_container(enemy_pos: Vector2, assault_anchor: Vector
 				center,
 				RAID_TARGET_SEARCH_RADIUS
 			))
+	var seen_containers: Dictionary = {}
 	for raw_node in runtime_nodes:
 		var container := raw_node as ContainerPlaceable
 		if container == null:
 			continue
-		if not _is_valid_raid_container(container):
+		var iid: int = container.get_instance_id()
+		if seen_containers.has(iid):
 			continue
-		var dsq: float = enemy_pos.distance_squared_to(container.global_position)
-		if dsq < best_dsq:
-			best_dsq = dsq
-			best = container
-
-	if best != null:
-		return best
-
-	for raw_node in get_tree().get_nodes_in_group("interactable"):
-		var container := raw_node as ContainerPlaceable
-		if container == null:
-			continue
+		seen_containers[iid] = true
 		if not _is_valid_raid_container(container):
 			continue
 		var near_any_center: bool = false
