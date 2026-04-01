@@ -31,6 +31,7 @@ const RAID_STAGE_CLOSED: String = "closed"
 const RAID_RESULT_SUCCESS: String = "success"
 const RAID_RESULT_ABORT: String = "abort"
 const RAID_RESULT_RETREAT: String = "retreat"
+const TEMP_LEGACY_WALL_DAMAGE_FALLBACK_REMOVE_ON: String = "2026-04-15"
 
 
 func setup(ctx: Dictionary) -> void:
@@ -181,15 +182,11 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 	if stage == RAID_STAGE_CLOSED:
 		return {"allow": false, "reason": "stage_closed", "stage": RAID_STAGE_CLOSED, "result": String(_raid_run_result_by_member.get(member_id, RAID_RESULT_ABORT))}
 	if not has_raid_context:
-		return _enter_retreat_or_abort(beh, member_id, now, "raid_context_lost")
-	if stage == RAID_STAGE_RETREAT:
-		return _handle_raid_retreat_stage(beh, member_id, now)
-	if stage == RAID_STAGE_ENGAGE:
-		if not _transition_raid_stage(member_id, RAID_STAGE_ENGAGE, RAID_STAGE_BREACH):
-			return _close_raid_run(member_id, RAID_RESULT_ABORT, "invalid_transition_engage", now)
-		return {"allow": false, "reason": "engage_confirmed", "stage": RAID_STAGE_BREACH}
-	if stage == RAID_STAGE_LOOT:
-		return _handle_raid_loot_stage(beh, enemy_node, member_id, now, attack_anchor, enemy_pos)
+		return _enter_raid_retreat(beh, member_id, now, "raid_context_lost")
+
+	var stage_result: Dictionary = _execute_raid_stage(beh, enemy_node, member_id, stage, now, attack_anchor, enemy_pos)
+	if not stage_result.is_empty():
+		return stage_result
 
 	var directive: Dictionary = BanditWallAssaultPolicy.evaluate_structure_directive({
 		"world_node": _world_node,
@@ -206,7 +203,7 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 	if not bool(directive.get("allow", false)):
 		var deny_reason: String = String(directive.get("reason", "attack_blocked"))
 		if _should_retreat_on_attack_deny(deny_reason):
-			return _enter_retreat_or_abort(beh, member_id, now, deny_reason)
+			return _enter_raid_retreat(beh, member_id, now, deny_reason)
 		directive["stage"] = RAID_STAGE_BREACH
 		return directive
 
@@ -263,7 +260,7 @@ func _handle_raid_loot_stage(beh: BanditWorldBehavior, enemy_node: Node, member_
 	if not bool(loot_gate.get("allow", false)):
 		var deny_reason: String = String(loot_gate.get("reason", "loot_blocked"))
 		if _should_retreat_on_loot_deny(deny_reason):
-			return _enter_retreat_or_abort(beh, member_id, now, deny_reason)
+			return _enter_raid_retreat(beh, member_id, now, deny_reason)
 		return {
 			"allow": false,
 			"reason": deny_reason,
@@ -300,7 +297,22 @@ func _handle_raid_retreat_stage(beh: BanditWorldBehavior, member_id: String, now
 	return _close_raid_run(member_id, result, "return_home", now)
 
 
-func _enter_retreat_or_abort(beh: BanditWorldBehavior, member_id: String, now: float, reason: String) -> Dictionary:
+func _execute_raid_stage(beh: BanditWorldBehavior, enemy_node: Node, member_id: String,
+		stage: String, now: float, attack_anchor: Vector2, enemy_pos: Vector2) -> Dictionary:
+	match stage:
+		RAID_STAGE_ENGAGE:
+			if not _transition_raid_stage(member_id, RAID_STAGE_ENGAGE, RAID_STAGE_BREACH):
+				return _close_raid_run(member_id, RAID_RESULT_ABORT, "invalid_transition_engage", now)
+			return {"allow": false, "reason": "engage_confirmed", "stage": RAID_STAGE_BREACH}
+		RAID_STAGE_LOOT:
+			return _handle_raid_loot_stage(beh, enemy_node, member_id, now, attack_anchor, enemy_pos)
+		RAID_STAGE_RETREAT:
+			return _handle_raid_retreat_stage(beh, member_id, now)
+		_:
+			return {}
+
+
+func _enter_raid_retreat(beh: BanditWorldBehavior, member_id: String, now: float, reason: String) -> Dictionary:
 	var stage: String = String(_raid_stage_by_member.get(member_id, RAID_STAGE_ENGAGE))
 	if stage == RAID_STAGE_CLOSED:
 		return _close_raid_run(member_id, RAID_RESULT_ABORT, reason, now)
@@ -465,7 +477,9 @@ func _damage_player_wall_at(world_pos: Vector2) -> bool:
 		return false
 	if _world_node.has_method("hit_wall_at_world_pos"):
 		return bool(_world_node.call("hit_wall_at_world_pos", world_pos, 1, 24.0, true))
+	# TEMP EXCEPTION (remove on 2026-04-15): legacy worlds still exposing old API.
 	if _world_node.has_method("damage_player_wall_at_world_pos"):
+		Debug.log("raid", "[BWC][temp-exception remove_on=%s] using legacy wall damage fallback" % TEMP_LEGACY_WALL_DAMAGE_FALLBACK_REMOVE_ON)
 		return bool(_world_node.call("damage_player_wall_at_world_pos", world_pos, 1))
 	return false
 
