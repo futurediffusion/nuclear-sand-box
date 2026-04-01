@@ -101,24 +101,6 @@ func get_last_wall_probe_time(group_id: String) -> float:
 	return float(_last_wall_probe_time_by_group.get(group_id, 0.0))
 
 
-## Owner-read helper: cooldown restante para raids (light/full/shared).
-func get_raid_cooldown_remaining(group_id: String, cooldown: float) -> float:
-	var cd: float = maxf(0.0, cooldown)
-	if cd <= 0.0:
-		return 0.0
-	var elapsed: float = RunClock.now() - get_last_raid_time(group_id)
-	return maxf(0.0, cd - elapsed)
-
-
-## Owner-read helper: cooldown restante para probes de pared.
-func get_wall_probe_cooldown_remaining(group_id: String, cooldown: float) -> float:
-	var cd: float = maxf(0.0, cooldown)
-	if cd <= 0.0:
-		return 0.0
-	var elapsed: float = RunClock.now() - get_last_wall_probe_time(group_id)
-	return maxf(0.0, cd - elapsed)
-
-
 func has_pending_for_group(group_id: String) -> bool:
 	for i in _intents:
 		if String(i.get("group_id", "")) == group_id:

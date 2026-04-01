@@ -163,6 +163,8 @@ const _PLACEMENT_REACT_EVENT_MIN_INTERVAL: float = 0.20
 ## Empty filter = query all player placeables from WorldSpatialIndex persistent cache.
 const _PLAYER_RAID_PLACEABLE_ITEM_IDS: Array[String] = []
 var _placement_react_last_event_at: float = -9999.0
+var _raid_queue_port: Dictionary = {}
+var _extortion_queue_port: Dictionary = {}
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -651,23 +653,27 @@ func _ready() -> void:
 	})
 
 	# Wire SettlementIntel into BanditGroupIntel (must be after _settlement_intel is ready)
+	_extortion_queue_port = {
+		"has_pending_for_group": Callable(ExtortionQueue, "has_pending_for_group"),
+		"get_last_request_time": Callable(ExtortionQueue, "get_last_request_time"),
+		"enqueue": Callable(ExtortionQueue, "enqueue"),
+	}
+	_raid_queue_port = {
+		"has_pending_for_group": Callable(RaidQueue, "has_pending_for_group"),
+		"has_structure_assault_for_group": Callable(RaidQueue, "has_structure_assault_for_group"),
+		"get_last_raid_time": Callable(RaidQueue, "get_last_raid_time"),
+		"get_last_wall_probe_time": Callable(RaidQueue, "get_last_wall_probe_time"),
+		"enqueue_wall_probe": Callable(RaidQueue, "enqueue_wall_probe"),
+		"enqueue_light_raid": Callable(RaidQueue, "enqueue_light_raid"),
+		"enqueue_raid": Callable(RaidQueue, "enqueue_raid"),
+		"enqueue_structure_assault": Callable(RaidQueue, "enqueue_structure_assault"),
+	}
 	if _bandit_behavior_layer != null:
 		_bandit_behavior_layer.setup_group_intel({
 			"get_interest_markers_near": Callable(self, "get_interest_markers_near"),
 			"get_detected_bases_near": Callable(self, "get_detected_bases_near"),
-			"extortion_queue_port": {
-				"has_pending_for_group": Callable(ExtortionQueue, "has_pending_for_group"),
-				"get_cooldown_remaining": Callable(ExtortionQueue, "get_cooldown_remaining"),
-				"enqueue": Callable(ExtortionQueue, "enqueue"),
-			},
-			"raid_queue_port": {
-				"has_pending_for_group": Callable(RaidQueue, "has_pending_for_group"),
-				"get_raid_cooldown_remaining": Callable(RaidQueue, "get_raid_cooldown_remaining"),
-				"get_wall_probe_cooldown_remaining": Callable(RaidQueue, "get_wall_probe_cooldown_remaining"),
-				"enqueue_wall_probe": Callable(RaidQueue, "enqueue_wall_probe"),
-				"enqueue_light_raid": Callable(RaidQueue, "enqueue_light_raid"),
-				"enqueue_raid": Callable(RaidQueue, "enqueue_raid"),
-			},
+			"extortion_queue_port": _extortion_queue_port,
+			"raid_queue_port": _raid_queue_port,
 			"find_nearest_player_wall_world_pos": Callable(self, "find_nearest_player_wall_world_pos"),
 			"find_player_wall_samples_world_pos": Callable(self, "find_player_wall_samples_world_pos"),
 			"find_nearest_player_workbench_world_pos": Callable(self, "find_nearest_player_workbench_world_pos"),
@@ -1840,17 +1846,23 @@ func _trigger_placement_react(target_pos: Vector2) -> void:
 		BanditGroupMemory.record_interest(gid, target_pos, "structure_placed")
 		BanditGroupMemory.set_placement_react_lock(gid, _PLACEMENT_REACT_INTENT_LOCK_SECONDS)
 		var enqueued_now: bool = false
-		if not RaidQueue.has_structure_assault_for_group(gid):
-			RaidQueue.enqueue_structure_assault(
-				faction_id,
-				gid,
-				leader_id,
-				target_pos,
-				"placed_structure",
-				_PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
-			)
-			queued += 1
-			enqueued_now = true
+		var has_assault: bool = false
+		var has_assault_cb: Callable = _raid_queue_port.get("has_structure_assault_for_group", Callable())
+		if has_assault_cb.is_valid():
+			has_assault = bool(has_assault_cb.call(gid))
+		if not has_assault:
+			var enqueue_assault_cb: Callable = _raid_queue_port.get("enqueue_structure_assault", Callable())
+			if enqueue_assault_cb.is_valid():
+				enqueue_assault_cb.call(
+					faction_id,
+					gid,
+					leader_id,
+					target_pos,
+					"placed_structure",
+					_PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
+				)
+				queued += 1
+				enqueued_now = true
 		var redirected: int = 0
 		if _bandit_behavior_layer != null:
 			redirected = _bandit_behavior_layer.dispatch_group_to_target(
