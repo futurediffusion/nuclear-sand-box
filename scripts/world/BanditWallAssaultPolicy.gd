@@ -14,6 +14,7 @@ const STRUCTURE_TARGET_VALIDATION_RADIUS: float = 72.0
 const STRUCTURE_WALL_TARGET_VALIDATION_RADIUS: float = 42.0
 
 const STRUCTURE_ATTACK_COOLDOWN: float = 0.45
+const BREACH_TO_LOOT_DELAY: float = 0.05
 const OPPORTUNISTIC_WALL_COOLDOWN: float = 20.0
 const PROPERTY_SABOTAGE_COOLDOWN: float = 35.0
 
@@ -60,6 +61,11 @@ static func evaluate_structure_directive(ctx: Dictionary) -> Dictionary:
 	else:
 		target = _resolve_raid_priority_target(world_node, attack_anchor, enemy_pos)
 	if not target.is_empty():
+		var attack_range_sq: float = float(ctx.get("attack_range_sq", 0.0))
+		if attack_range_sq > 0.0:
+			var target_pos: Vector2 = target.get("pos", INVALID_TARGET) as Vector2
+			if enemy_pos.distance_squared_to(target_pos) > attack_range_sq:
+				return {"allow": false, "reason": "out_of_range"}
 		target["allow"] = true
 		target["reason"] = "target_resolved"
 		target["next_attack_at"] = now + STRUCTURE_ATTACK_COOLDOWN
@@ -79,6 +85,34 @@ static func evaluate_structure_directive(ctx: Dictionary) -> Dictionary:
 		}
 
 	return {"allow": false, "reason": "no_attack_target"}
+
+
+static func can_transition_breach_to_loot(ctx: Dictionary) -> Dictionary:
+	var has_raid_context: bool = bool(ctx.get("has_raid_context", false))
+	if not has_raid_context:
+		return {"allow": false, "reason": "no_raid_context"}
+
+	var now: float = float(ctx.get("now", 0.0))
+	var breach_resolved_at: float = float(ctx.get("breach_resolved_at", 0.0))
+	if breach_resolved_at <= 0.0:
+		return {"allow": false, "reason": "breach_unresolved"}
+	if now < breach_resolved_at + BREACH_TO_LOOT_DELAY:
+		return {"allow": false, "reason": "breach_settling"}
+
+	var loot_next_at: float = float(ctx.get("loot_next_at", 0.0))
+	if now < loot_next_at:
+		return {"allow": false, "reason": "loot_cooldown"}
+
+	var enemy_pos: Vector2 = ctx.get("enemy_pos", INVALID_TARGET) as Vector2
+	var loot_anchor: Vector2 = ctx.get("loot_anchor", INVALID_TARGET) as Vector2
+	if not is_valid_target(enemy_pos) or not is_valid_target(loot_anchor):
+		return {"allow": false, "reason": "invalid_loot_anchor"}
+
+	var loot_range_sq: float = float(ctx.get("loot_range_sq", 0.0))
+	if loot_range_sq > 0.0 and enemy_pos.distance_squared_to(loot_anchor) > loot_range_sq:
+		return {"allow": false, "reason": "loot_out_of_range"}
+
+	return {"allow": true, "reason": "breach_resolved"}
 
 
 static func _resolve_canonical_target(world_node: Node, target_hint: Vector2, enemy_pos: Vector2) -> Dictionary:
