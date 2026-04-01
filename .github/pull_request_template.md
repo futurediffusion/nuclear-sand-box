@@ -1,31 +1,39 @@
 ## Resumen
 - Describe brevemente el cambio y su impacto.
 
-## Checklist obligatoria — olores prohibidos (bloqueante)
+## Checklist obligatoria — anti-olores + arquitectura (bloqueante)
 Marca cada ítem con `Sí` o `No` y agrega evidencia.
 
 Fuentes de verdad:
 - [`docs/pr-smell-blacklist.md`](../docs/pr-smell-blacklist.md)
 - [`docs/phase-7-cut1-time-scheduling.md`](../docs/phase-7-cut1-time-scheduling.md)
+- [`docs/runtime-layer-matrix.md`](../docs/runtime-layer-matrix.md)
 
 > **Regla de merge:** cualquier respuesta **“Sí”** sin justificación aprobada y sin excepción registrada bloquea el merge.
 > **Regla adicional (Bandit Assault Pipeline):** se bloquea merge si el cambio crea bifurcación no documentada en el diagrama canónico de `docs/phase-7-cut2-bandit-assault.md`.
 
-
+- [ ] **¿Declaraste owner de cada decisión de arquitectura tocada (dominio + owner canónico)?**
+  - Respuesta:
+  - Owner(es):
+  - Evidencia:
 - [ ] **¿Este PR añade timer local explícito (`Timer`, `create_timer`, contador temporal en `_process` / `_physics_process`)?**
   - Respuesta:
   - Evidencia (ruta de código o nota de arquitectura):
-- [ ] **Si añade timer local: ¿la categoría permitida es `LOCAL_TIMER_BY_DESIGN` y la excepción incluye fecha de revisión (`YYYY-MM-DD`)?**
+- [ ] **Si añade timer local: ¿incluye justificación de por qué no aplica Cadence + owner responsable + categoría `LOCAL_TIMER_BY_DESIGN`?**
   - Respuesta:
-  - Categoría / Fecha de revisión:
+  - Justificación / Owner / Categoría:
   - Evidencia (ruta de código o nota de arquitectura):
 - [ ] **¿Este caso debería usar Cadence según `phase-7-cut1-time-scheduling.md`?**
   - Respuesta:
   - Evidencia (ruta de código o nota de arquitectura):
-- [ ] **Si debería usar Cadence, ¿existe excepción temporal aprobada y registrada?**
+- [ ] **Si debería usar Cadence, ¿existe excepción temporal aprobada y registrada con fecha de retiro obligatoria (`YYYY-MM-DD`)?**
   - Respuesta:
   - ID / enlace de aprobación:
   - Registro en deuda temporal (fila):
+- [ ] **¿Para cada dato/campo nuevo declaraste categoría única de verdad (`runtime` / `save` / `derived` / `cache`) y owner de escritura?**
+  - Respuesta:
+  - Dato/campo → categoría + owner:
+  - Evidencia (ruta de código o nota de arquitectura):
 - [ ] **¿agrega comportamiento en autoload que debería vivir en un owner de dominio?**
   - Respuesta:
   - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
@@ -35,7 +43,6 @@ Fuentes de verdad:
 - [ ] **¿mezcla debug con mutación?**
   - Respuesta:
   - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
-
 
 - [ ] **¿introduce ruta alternativa en Bandit Assault Pipeline?**
   - Respuesta:
@@ -55,6 +62,11 @@ Fuentes de verdad:
 - [ ] **¿declara explícitamente etapa y owner afectados en cada cambio de pipeline?**
   - Respuesta:
   - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
+
+## Reglas de bloqueo (sin excepción aprobada)
+- [ ] Acepto que toda violación bloqueante sin excepción aprobada deja este PR en **No Ready**.
+- [ ] Si hubo excepción temporal, quedó registrada en `docs/incidencias/registro-unico-deuda-tecnica.md`.
+- [ ] Confirmo que cada excepción temporal usada tiene fecha de retiro comprometida (`YYYY-MM-DD`).
 
 ## Evidencia global obligatoria
 - [ ] Incluí evidencia para todos los puntos (ruta de código o nota de arquitectura).

@@ -3,10 +3,32 @@
 - [ ] Revisé `docs/runtime-layer-matrix.md` y confirmé que el cambio respeta fronteras de capa.
 - [ ] Revisé `docs/runtime-architecture-pact.md` y declaré la regla que este cambio respeta.
 - [ ] Revisé [`docs/pr-smell-blacklist.md`](../docs/pr-smell-blacklist.md) y [`docs/phase-7-cut1-time-scheduling.md`](../docs/phase-7-cut1-time-scheduling.md).
+- [ ] Declaro el **owner de cada decisión de arquitectura tocada** (dominio + owner canónico).
 - [ ] Confirmo explícitamente si este PR añade timer local (`Timer`, `create_timer`, contadores en `_process`/`_physics_process`).
 - [ ] Si añade timer local: adjunté justificación aprobada con categoría `LOCAL_TIMER_BY_DESIGN` y fecha de revisión (`YYYY-MM-DD`).
 - [ ] Si el caso debía usar Cadence: existe excepción temporal aprobada y registrada en `docs/incidencias/registro-unico-deuda-tecnica.md`.
 - [ ] Acepto el criterio de bloqueo: cualquier “Sí” sin excepción aprobada deja el PR en **No Ready**.
+
+
+## Checklist anti-olores (bloqueante)
+
+> Contestar cada punto con evidencia (ruta de código, nota de arquitectura o link a decisión).
+
+- [ ] ¿El PR introduce mutación fuera del owner de dominio declarado?
+  - Respuesta:
+  - Owner de decisión tocada:
+  - Evidencia:
+- [ ] ¿El PR duplica una decisión/heurística ya definida en documentos canónicos?
+  - Respuesta:
+  - Decisión canónica referenciada:
+  - Evidencia:
+- [ ] ¿El PR mezcla debug/telemetry con mutación autoritativa de gameplay?
+  - Respuesta:
+  - Evidencia:
+- [ ] ¿El PR introduce side-effects prohibidos por `docs/side-effects-policy.md`?
+  - Respuesta:
+  - Dominio afectado:
+  - Evidencia:
 
 
 ## Checklist específica — Bandit Assault Pipeline (obligatoria cuando aplica)
@@ -34,22 +56,37 @@
 > Si existe excepción temporal aprobada, debe registrarse en `docs/incidencias/registro-unico-deuda-tecnica.md` con responsable y fecha de retiro (`YYYY-MM-DD`).
 
 
-## Declaración de campos nuevos (bloqueante)
+## Declaración de datos/campos nuevos (bloqueante)
 
 > Completar esta sección si el PR agrega o modifica campos de estado/datos de dominio.
 
-- [ ] Para **cada campo nuevo**, declaré categoría única: `runtime` / `save` / `derived` / `cache`.
-- [ ] Para **cada campo nuevo**, declaré owner de escritura único (sistema/servicio/capa dueña).
-- [ ] Confirmo que ningún campo nuevo queda con doble categoría semántica.
+- [ ] Para **cada dato/campo nuevo**, declaré categoría única de verdad: `runtime` / `save` / `derived` / `cache`.
+- [ ] Para **cada dato/campo nuevo**, declaré owner de escritura único (sistema/servicio/capa dueña).
+- [ ] Confirmo que ningún dato/campo nuevo queda con doble categoría semántica.
 - [ ] Confirmo que índices/caches nuevos no son autoritativos de gameplay.
 - [ ] Si hubo excepción temporal, quedó registrada con owner, fecha de retiro (`YYYY-MM-DD`) y criterio de cierre.
 
-> **Regla de merge (bloqueante):** si un campo nuevo no declara categoría y owner, el PR queda en **No Ready**.
+> **Regla de merge (bloqueante):** si un dato/campo nuevo no declara categoría de verdad y owner, el PR queda en **No Ready**.
+
+## Declaración de timer local (bloqueante cuando aplica)
+
+- [ ] Si hay timer local, declaré por qué **no aplica Cadence** en este caso.
+- [ ] Si hay timer local, declaré owner responsable y plan de retiro/migración.
+- [ ] Si hay timer local, registré excepción temporal aprobada con fecha de retiro obligatoria.
+
+> **Regla de merge (bloqueante):** timer local sin justificación + owner + excepción aprobada => **No Ready**.
+
+## Reglas de bloqueo (sin excepción aprobada)
+
+- [ ] Sin excepción aprobada, cualquier violación bloqueante de esta plantilla deja el PR en **No Ready**.
+- [ ] Confirmo que toda excepción temporal usada quedó registrada en `docs/incidencias/registro-unico-deuda-tecnica.md`.
+- [ ] Confirmo que ninguna excepción temporal queda sin fecha de retiro comprometida (`YYYY-MM-DD`).
 
 ## Declaración de feature (obligatorio para features nuevas)
 
 - **Capa responsable**: <!-- Behavior / Coordination / Persistence / Debug-Telemetry / Cadence / SpatialIndex -->
 - **Regla del pacto respetada**: <!-- Ej: R-Co2, R-B1, R-P3, etc -->
+- **Owner de decisión tocada**: <!-- dominio + owner canónico -->
 - **Evidencia de validación**: <!-- archivo(s), test(s), checklist -->
 
 > Si este PR agrega una nueva feature y no completa los campos anteriores, se considera **No Ready** para merge.
