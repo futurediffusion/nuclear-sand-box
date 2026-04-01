@@ -24,6 +24,11 @@ var _raid_loot_next_at: Dictionary = {}  # member_id -> RunClock.now()
 var _raid_breach_resolved_at: Dictionary = {}  # member_id -> RunClock.now() when breach attack succeeded
 var _raid_stage_by_member: Dictionary = {}  # member_id -> "breach"|"loot"|"closed"
 
+const RAID_STAGE_BREACH: String = "breach"
+const RAID_STAGE_LOOT: String = "loot"
+const RAID_STAGE_RETURN: String = "return"
+const RAID_STAGE_CLOSED: String = "closed"
+
 
 func setup(ctx: Dictionary) -> void:
 	_stash = ctx.get("stash") as BanditCampStashSystem
@@ -165,10 +170,17 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 	var now: float = float(command.get("now", RunClock.now()))
 	var member_id: String = beh.member_id
 	if not _raid_stage_by_member.has(member_id):
-		_raid_stage_by_member[member_id] = "breach"
+		_raid_stage_by_member[member_id] = RAID_STAGE_BREACH
+	var stage: String = String(_raid_stage_by_member.get(member_id, RAID_STAGE_BREACH))
 
+	if stage == RAID_STAGE_CLOSED:
+		return {"allow": false, "reason": "stage_closed", "stage": RAID_STAGE_CLOSED}
+	if stage == RAID_STAGE_RETURN:
+		return _handle_raid_return_stage(beh, member_id, now)
+	if stage == RAID_STAGE_LOOT:
+		return _handle_raid_loot_stage(beh, enemy_node, member_id, now, attack_anchor, enemy_pos)
 	if now < float(_raid_attack_next_at.get(member_id, 0.0)):
-		return {"allow": false, "reason": "attack_cooldown"}
+		return {"allow": false, "reason": "attack_cooldown", "stage": stage}
 
 	var directive: Dictionary = BanditWallAssaultPolicy.evaluate_structure_directive({
 		"world_node": _world_node,
@@ -183,26 +195,7 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 		"attack_range_sq": RAID_ATTACK_RANGE_SQ,
 	})
 	if not bool(directive.get("allow", false)):
-		var loot_gate: Dictionary = BanditWallAssaultPolicy.can_transition_breach_to_loot({
-			"has_raid_context": has_raid_context,
-			"now": now,
-			"breach_resolved_at": float(_raid_breach_resolved_at.get(member_id, 0.0)),
-			"loot_next_at": float(_raid_loot_next_at.get(member_id, 0.0)),
-			"enemy_pos": enemy_pos,
-			"loot_anchor": attack_anchor,
-			"loot_range_sq": RAID_LOOT_RANGE_SQ,
-		})
-		if bool(loot_gate.get("allow", false)):
-			var looted: bool = _try_loot_nearby_container(beh, enemy_node, attack_anchor, enemy_pos)
-			if looted:
-				_raid_loot_next_at[member_id] = now + RAID_LOOT_COOLDOWN
-				_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
-				_raid_stage_by_member[member_id] = "closed"
-				return {"allow": true, "reason": "container_looted", "stage_closed": true}
-		elif String(loot_gate.get("reason", "")) == "breach_unresolved":
-			Debug.log("raid", "[BWC][INV] loot blocked without breach member=%s group=%s" % [
-				member_id, beh.group_id
-			])
+		directive["stage"] = RAID_STAGE_BREACH
 		return directive
 
 	var target: Dictionary = directive
@@ -230,7 +223,7 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 			enemy_node.call("queue_ai_attack_press", target_pos)
 	_raid_attack_next_at[member_id] = float(target.get("next_attack_at", now + RAID_ATTACK_COOLDOWN))
 	_raid_breach_resolved_at[member_id] = now
-	_raid_stage_by_member[member_id] = "loot"
+	_raid_stage_by_member[member_id] = RAID_STAGE_LOOT
 	Debug.log("raid", "[BWC] structure hit npc=%s group=%s kind=%s pos=%s" % [
 		beh.member_id, beh.group_id, target_kind, str(target_pos)
 	])
@@ -239,7 +232,55 @@ func _handle_structure_assault_command(beh: BanditWorldBehavior, enemy_node: Nod
 		"reason": "attacked",
 		"target_kind": target_kind,
 		"target_pos": target_pos,
-		"stage": "loot",
+		"stage": RAID_STAGE_LOOT,
+	}
+
+
+func _handle_raid_loot_stage(beh: BanditWorldBehavior, enemy_node: Node, member_id: String,
+		now: float, attack_anchor: Vector2, enemy_pos: Vector2) -> Dictionary:
+	var loot_gate: Dictionary = BanditWallAssaultPolicy.can_transition_breach_to_loot({
+		"has_raid_context": true,
+		"now": now,
+		"breach_resolved_at": float(_raid_breach_resolved_at.get(member_id, 0.0)),
+		"loot_next_at": float(_raid_loot_next_at.get(member_id, 0.0)),
+		"enemy_pos": enemy_pos,
+		"loot_anchor": attack_anchor,
+		"loot_range_sq": RAID_LOOT_RANGE_SQ,
+	})
+	if not bool(loot_gate.get("allow", false)):
+		return {
+			"allow": false,
+			"reason": String(loot_gate.get("reason", "loot_blocked")),
+			"stage": RAID_STAGE_LOOT,
+		}
+
+	var looted: bool = _try_loot_nearby_container(beh, enemy_node, attack_anchor, enemy_pos)
+	_raid_loot_next_at[member_id] = now + RAID_LOOT_COOLDOWN
+	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
+	_raid_stage_by_member[member_id] = RAID_STAGE_RETURN
+	if looted:
+		return {
+			"allow": true,
+			"reason": "container_looted",
+			"stage": RAID_STAGE_RETURN,
+		}
+	return {
+		"allow": true,
+		"reason": "loot_empty_or_unavailable",
+		"stage": RAID_STAGE_RETURN,
+	}
+
+
+func _handle_raid_return_stage(beh: BanditWorldBehavior, member_id: String, now: float) -> Dictionary:
+	if beh.has_method("force_return_home"):
+		beh.call("force_return_home")
+	_raid_stage_by_member[member_id] = RAID_STAGE_CLOSED
+	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
+	return {
+		"allow": true,
+		"reason": "return_home",
+		"stage": RAID_STAGE_CLOSED,
+		"stage_closed": true,
 	}
 
 
