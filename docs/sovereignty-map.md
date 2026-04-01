@@ -18,15 +18,19 @@ Fuente base: `docs/system-inventory.md` (9 dominios críticos).
 
 ## Validación de owner único por fila
 
-- Tiempo del mundo: owner único validado (`WorldTime`).
-- Bandit AI: owner único validado (`BanditGroupMemory`).
-- Territorialidad / hostilidad: owner único validado (`FactionHostilityManager`).
-- Coerción bandida (extorsión e incursión): **CONFLICTO** — en la práctica hay dos owners paralelos de jobs activos (`ExtortionFlow` y `RaidFlow`), separados por dominio de flujo pero sin un agregador único de encounters.
-- Botín e inventario: **CONFLICTO** — `ItemDrop` decide pickup runtime, pero el estado final de items vive en `InventoryComponent`; existe frontera de autoridad compartida en la transición pickup→inventario.
-- Construcción y estructuras: **CONFLICTO** — `PlacementSystem` decide colocación, mientras `PlayerWallSystem`/`WallPersistence`/`StructuralWallPersistence` consolidan estado de paredes, generando autoridad fragmentada en walls.
-- Pathing: owner único validado (`NpcPathService`).
-- World save / persistencia: owner único validado (`SaveManager` + `WorldSave` como única autoridad persistente).
-- Telemetry / debug: owner único validado (`EventLogger` para observabilidad).
+Estado de validación al 2026-04-01: **9/9 sistemas críticos con fila completa y decisión registrada**.
+
+- Tiempo del mundo: owner único validado (`WorldTime`) — decisión `SOV-001`.
+- Bandit AI: owner único validado (`BanditGroupMemory`) — decisión `SOV-002`.
+- Territorialidad / hostilidad: owner único validado (`FactionHostilityManager`) — decisión `SOV-003`.
+- Coerción bandida (extorsión e incursión): conflicto identificado y **resuelto con decisión registrada** hacia `EncounterFlowCoordinator` como owner único de encounter activo — decisión `SOV-004`.
+- Botín e inventario: conflicto identificado y **resuelto con decisión registrada** estableciendo owner final en `InventoryComponent` y handoff formal desde `ItemDrop` — decisión `SOV-005`.
+- Construcción y estructuras: conflicto identificado y **resuelto con decisión registrada** estableciendo `PlacementSystem` como único writer estructural — decisión `SOV-006`.
+- Pathing: owner único validado (`NpcPathService`) — decisión `SOV-007`.
+- World save / persistencia: owner único validado (`SaveManager` + `WorldSave` como única autoridad persistente) — decisión `SOV-008`.
+- Telemetry / debug: owner único validado (`EventLogger` para observabilidad) — decisión `SOV-009`.
+
+No quedan entradas marcadas como **CONFLICTO** sin una decisión explícita asociada.
 
 ## Priorización de conflictos (riesgo)
 
@@ -45,7 +49,7 @@ Escala usada: **Crítico** (impacta economía/combate y puede corromper progresi
 - **Responsable técnico:** GPT-5.3-Codex (agente técnico).
 - **Decisiones:**
   1. Se definió un owner canónico por cada uno de los 9 dominios del inventario.
-  2. Se etiquetaron como **CONFLICTO** los dominios con autoridad fragmentada en runtime/persistencia.
+  2. Los dominios que nacieron con etiqueta **CONFLICTO** quedaron con decisión de resolución registrada (`SOV-004` a `SOV-006`).
   3. Se explicitó para cada dominio el perímetro de lectura, emisión de eventos y side effects prohibidos para evitar acoplamiento de autoridad.
   4. Se priorizaron conflictos por riesgo operacional y de corrupción de estado.
 
