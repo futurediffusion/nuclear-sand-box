@@ -69,6 +69,13 @@ func _consume_raid_queue() -> void:
 		var force_consume: bool = RaidQueue.has_structure_assault_for_group(gid)
 		if not intent_ok and not force_consume:
 			continue
+		var execution_intent: Dictionary = BanditGroupMemory.get_execution_intent(gid)
+		if not force_consume and (execution_intent.is_empty() or String(execution_intent.get("intent", "")) != "raiding"):
+			BanditGroupMemory.reject_execution_intent(gid, "RaidFlow", "execution_intent_missing_or_mismatch", {
+				"expected_intent": "raiding",
+				"current_group_intent": String(g.get("current_group_intent", "")),
+			})
+			continue
 		var intents: Array = RaidQueue.consume_for_group(gid)
 		if intents.is_empty():
 			continue
@@ -397,6 +404,12 @@ func _finish_raid(gid: String, reason: String) -> void:
 		_:
 			social_cd = 10.0
 	BanditGroupMemory.push_social_cooldown(gid, social_cd)
+	if resolved_reason == "abort":
+		BanditGroupMemory.reject_execution_intent(gid, "RaidFlow", "raid_aborted_runtime", {
+			"raid_type": raid_type,
+		})
+	else:
+		BanditGroupMemory.clear_execution_intent(gid, "raid_finished_%s" % resolved_reason)
 	BanditGroupMemory.update_intent(gid, "idle")
 
 	var faction_id: String = String(job.get("faction_id", ""))

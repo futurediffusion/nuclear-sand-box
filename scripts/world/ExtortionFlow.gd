@@ -301,8 +301,10 @@ func _abort_job(gid: String, job: ExtortionJob, reason: String) -> void:
 	if _close_choice_ui.is_valid():
 		_close_choice_ui.call(gid)
 	var group_data: Dictionary = BanditGroupMemory.get_group(gid)
-	if String(group_data.get("current_group_intent", "idle")) == "extorting":
-		BanditGroupMemory.update_intent(gid, "idle")
+	BanditGroupMemory.reject_execution_intent(gid, "ExtortionFlow", reason, {
+		"active_job": true,
+		"current_intent": String(group_data.get("current_group_intent", "idle")),
+	})
 	# Feedback visual según el motivo del abort
 	_show_abort_feedback(job, reason, group_data)
 	Debug.log("extortion", "[EXTORT ABORT] group=%s reason=%s" % [gid, reason])
@@ -380,6 +382,13 @@ func _consume_extortion_queue() -> void:
 		var group_data: Dictionary = BanditGroupMemory.get_group(gid)
 		if String(group_data.get("current_group_intent", "")) != "extorting":
 			continue
+		var execution_intent: Dictionary = BanditGroupMemory.get_execution_intent(gid)
+		if execution_intent.is_empty() or String(execution_intent.get("intent", "")) != "extorting":
+			BanditGroupMemory.reject_execution_intent(gid, "ExtortionFlow", "execution_intent_missing_or_mismatch", {
+				"expected_intent": "extorting",
+				"current_group_intent": String(group_data.get("current_group_intent", "")),
+			})
+			continue
 		var intents: Array = ExtortionQueue.consume_for_group(gid)
 		if intents.is_empty():
 			continue
@@ -454,6 +463,7 @@ func _check_retaliation() -> void:
 
 func _resolve_extortion_idle(job: ExtortionJob) -> void:
 	job.mark_resolved()
+	BanditGroupMemory.clear_execution_intent(job.group_id, "extortion_resolved_idle")
 	BanditGroupMemory.update_intent(job.group_id, "idle")
 	for aid: String in job.assigned_ids:
 		var behavior: BanditWorldBehavior = _behavior_for_enemy(aid)
@@ -509,6 +519,7 @@ func _tick_warning_strike(job: ExtortionJob, player_pos: Vector2, friction_compe
 		if speaker.has_method("begin_scripted_melee_action"):
 			speaker.begin_scripted_melee_action(player_pos, reenable_delay)
 		job.mark_resolved()
+		BanditGroupMemory.clear_execution_intent(job.group_id, "extortion_warn_delivered")
 		BanditGroupMemory.update_intent(job.group_id, "idle")
 		var ids_warn: Array[String] = job.assigned_ids.duplicate()
 		var gid_warn: String        = job.group_id

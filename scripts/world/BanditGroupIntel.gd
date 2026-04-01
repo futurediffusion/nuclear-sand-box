@@ -38,6 +38,8 @@ var _intent_policy := BanditIntentPolicy.new()
 var _scan_accumulator_by_group: Dictionary = {}
 var _lod_debug_last_group: Dictionary = {}
 var _lod_debug_group_counts: Dictionary = {"fast": 0, "medium": 0, "slow": 0}
+const EXECUTION_INTENT_TTL_EXTORT: float = 120.0
+const EXECUTION_INTENT_TTL_RAID: float = 240.0
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +243,9 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var h_level: int = profile.hostility_level
 	var w_tier: int = FactionHostilityManager.get_wealth_tier(faction_id)
 	var current_intent: String = String(g.get("current_group_intent", "idle"))
+	_resolve_execution_rejections(group_id, current_intent)
+	g = BanditGroupMemory.get_group(group_id)
+	current_intent = String(g.get("current_group_intent", "idle"))
 	var intent_time: float = BanditGroupMemory.get_intent_time(group_id)
 	var internal_cd: float = BanditGroupMemory.get_internal_social_cooldown_remaining(group_id)
 	var policy: Dictionary = _intent_policy.evaluate(score, profile, w_tier, current_intent, intent_time, internal_cd)
@@ -422,6 +427,8 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 		"severity":      clampf(severity, 0.0, 1.0),
 		"extort_reason": extort_reason,
 	})
+	BanditGroupMemory.issue_execution_intent(
+		group_id, "extorting", "BanditGroupIntel", EXECUTION_INTENT_TTL_EXTORT, {"source": "extortion_queue"})
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(4.0, effective_cooldown * 0.15))
 	BanditGroupMemory.update_intent(group_id, "extorting")
 	Debug.log("bandit_intel",
@@ -553,6 +560,8 @@ func _maybe_enqueue_wall_probe(group_id: String, g: Dictionary,
 	var squad_size: int      = int(cfg.get("squad_size", 1))
 
 	RaidQueue.enqueue_wall_probe(faction_id, group_id, leader_id, base_center, base_id, squad_size)
+	BanditGroupMemory.issue_execution_intent(
+		group_id, "raiding", "BanditGroupIntel", EXECUTION_INTENT_TTL_RAID, {"source": "wall_probe"})
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(6.0, probe_cd * 0.10))
 	BanditGroupMemory.update_intent(group_id, "raiding")
 	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
@@ -585,6 +594,8 @@ func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
 	var base_id: String      = String(base.get("id", ""))
 
 	RaidQueue.enqueue_light_raid(faction_id, group_id, leader_id, base_center, base_id)
+	BanditGroupMemory.issue_execution_intent(
+		group_id, "raiding", "BanditGroupIntel", EXECUTION_INTENT_TTL_RAID, {"source": "light_raid"})
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(8.0, BanditTuning.raid_cooldown_base() * 0.12))
 	BanditGroupMemory.update_intent(group_id, "raiding")
 	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
@@ -617,8 +628,33 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 	var base_id: String    = String(base.get("id", ""))
 
 	RaidQueue.enqueue_raid(faction_id, group_id, leader_id, base_center, base_id)
+	BanditGroupMemory.issue_execution_intent(
+		group_id, "raiding", "BanditGroupIntel", EXECUTION_INTENT_TTL_RAID, {"source": "full_raid"})
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(12.0, effective_raid_cd * 0.15))
 	BanditGroupMemory.update_intent(group_id, "raiding")
 	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
 	Debug.log("bandit_intel", "[BGI] raid enqueued group=%s leader=%s base=%s" % [
 		group_id, leader_id, base_id])
+
+
+func _resolve_execution_rejections(group_id: String, current_intent: String) -> void:
+	var events: Array = BanditGroupMemory.consume_execution_rejections(group_id)
+	if events.is_empty():
+		return
+	var should_reset: bool = false
+	for raw_event in events:
+		if not (raw_event is Dictionary):
+			continue
+		var event: Dictionary = raw_event as Dictionary
+		var rejected_intent: String = String(event.get("intent", ""))
+		Debug.log("bandit_intel", "[BGI] execution rejection observed group=%s intent=%s source=%s reason=%s owner=%s" % [
+			group_id,
+			rejected_intent,
+			String(event.get("source", "")),
+			String(event.get("reason", "")),
+			String(event.get("owner", "")),
+		])
+		if rejected_intent == current_intent:
+			should_reset = true
+	if should_reset and current_intent != "idle":
+		BanditGroupMemory.update_intent(group_id, "idle")
