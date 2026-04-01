@@ -30,6 +30,8 @@ var _get_markers_near: Callable
 var _get_bases_near: Callable
 var _npc_simulator: NpcSimulator
 var _player: Node2D
+var _extortion_queue_port: Dictionary = {}
+var _raid_queue_port: Dictionary = {}
 const GROUP_SCAN_SLICE_COUNT: int = 4
 
 var _scan_timer: float = BanditTuning.group_scan_interval() * 0.37
@@ -51,6 +53,47 @@ func setup(ctx: Dictionary) -> void:
 	_get_bases_near   = ctx.get("get_detected_bases_near",   Callable())
 	_npc_simulator    = ctx.get("npc_simulator")
 	_player           = ctx.get("player") as Node2D
+	_extortion_queue_port = _resolve_extortion_queue_port(ctx)
+	_raid_queue_port = _resolve_raid_queue_port(ctx)
+
+
+func _resolve_extortion_queue_port(ctx: Dictionary) -> Dictionary:
+	var port: Dictionary = ctx.get("extortion_queue_port", {})
+	if not port.is_empty():
+		return port
+	return {
+		"has_pending_for_group": Callable(ExtortionQueue, "has_pending_for_group"),
+		"get_last_request_time": Callable(ExtortionQueue, "get_last_request_time"),
+		"enqueue": Callable(ExtortionQueue, "enqueue"),
+	}
+
+
+func _resolve_raid_queue_port(ctx: Dictionary) -> Dictionary:
+	var port: Dictionary = ctx.get("raid_queue_port", {})
+	if not port.is_empty():
+		return port
+	return {
+		"has_pending_for_group": Callable(RaidQueue, "has_pending_for_group"),
+		"get_last_raid_time": Callable(RaidQueue, "get_last_raid_time"),
+		"get_last_wall_probe_time": Callable(RaidQueue, "get_last_wall_probe_time"),
+		"enqueue_wall_probe": Callable(RaidQueue, "enqueue_wall_probe"),
+		"enqueue_light_raid": Callable(RaidQueue, "enqueue_light_raid"),
+		"enqueue_raid": Callable(RaidQueue, "enqueue_raid"),
+	}
+
+
+func _queue_call(port: Dictionary, key: String, args: Array = [], fallback: Variant = null) -> Variant:
+	var cb: Callable = port.get(key, Callable())
+	if cb.is_valid():
+		return cb.callv(args)
+	return fallback
+
+
+func _get_cooldown_remaining(last_time: float, cooldown: float) -> float:
+	var clamped_cd: float = maxf(0.0, cooldown)
+	if clamped_cd <= 0.0:
+		return 0.0
+	return maxf(0.0, clamped_cd - (RunClock.now() - last_time))
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +429,7 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 		interest: Dictionary, score: float,
 		markers: Array, bases: Array) -> void:
 	# Guard 1: already queued for this group
-	if ExtortionQueue.has_pending_for_group(group_id):
+	if bool(_queue_call(_extortion_queue_port, "has_pending_for_group", [group_id], false)):
 		Debug.log("bandit_intel", "[BGI] extortion pending — skip group=%s" % group_id)
 		return
 
@@ -401,7 +444,8 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	var compliance_factor: float = 1.0 - pay_data.compliance_score * 0.5
 	var wealth_factor: float     = FactionHostilityManager.WEALTH_EXTORT_COOLDOWN_FACTOR[w_tier]
 	var effective_cooldown: float = BanditTuning.extort_cooldown_base() * compliance_factor * wealth_factor
-	var cooldown_remaining: float = ExtortionQueue.get_cooldown_remaining(group_id, effective_cooldown)
+	var extortion_last_time: float = float(_queue_call(_extortion_queue_port, "get_last_request_time", [group_id], 0.0))
+	var cooldown_remaining: float = _get_cooldown_remaining(extortion_last_time, effective_cooldown)
 	if cooldown_remaining > 0.0:
 		Debug.log("bandit_intel", "[BGI] extortion cooldown %.0fs left group=%s" % [
 			cooldown_remaining, group_id])
@@ -416,7 +460,7 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	# Causa dominante — decide qué texto verá el jugador en el modal de extorsión
 	var extort_reason: String = _pick_extort_reason(markers, bases, pay_data.compliance_score, w_tier)
 
-	ExtortionQueue.enqueue({
+	_queue_call(_extortion_queue_port, "enqueue", [{
 		"target_id":     "player",
 		"faction_id":    faction_id,
 		"group_id":      group_id,
@@ -426,7 +470,7 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 		"created_at":    RunClock.now(),
 		"severity":      clampf(severity, 0.0, 1.0),
 		"extort_reason": extort_reason,
-	})
+	}])
 	BanditGroupMemory.issue_execution_intent(
 		group_id, "extorting", "BanditGroupIntel", EXECUTION_INTENT_TTL_EXTORT, {"source": "extortion_queue"})
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(4.0, effective_cooldown * 0.15))
@@ -540,13 +584,14 @@ func _maybe_enqueue_wall_probe(group_id: String, g: Dictionary,
 	var current_intent: String = String(BanditGroupMemory.get_group(group_id).get("current_group_intent", ""))
 	if current_intent == "raiding":
 		return
-	if RaidQueue.has_pending_for_group(group_id):
+	if bool(_queue_call(_raid_queue_port, "has_pending_for_group", [group_id], false)):
 		return
 
 	# Guard 2: cooldown específico de probe (más largo que raids, varía por nivel)
 	var cfg: Dictionary   = BanditTuning.wall_probe_config(h_level)
 	var probe_cd: float   = float(cfg.get("cooldown", 300.0))
-	if not RaidQueue.is_wall_probe_available(group_id, probe_cd):
+	var last_probe_time: float = float(_queue_call(_raid_queue_port, "get_last_wall_probe_time", [group_id], 0.0))
+	if _get_cooldown_remaining(last_probe_time, probe_cd) > 0.0:
 		return
 
 	# Guard 3: roll de probabilidad — "de vez en cuando", no sistemático
@@ -559,7 +604,7 @@ func _maybe_enqueue_wall_probe(group_id: String, g: Dictionary,
 	var base_id: String      = String(base.get("id", ""))
 	var squad_size: int      = int(cfg.get("squad_size", 1))
 
-	RaidQueue.enqueue_wall_probe(faction_id, group_id, leader_id, base_center, base_id, squad_size)
+	_queue_call(_raid_queue_port, "enqueue_wall_probe", [faction_id, group_id, leader_id, base_center, base_id, squad_size])
 	BanditGroupMemory.issue_execution_intent(
 		group_id, "raiding", "BanditGroupIntel", EXECUTION_INTENT_TTL_RAID, {"source": "wall_probe"})
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(6.0, probe_cd * 0.10))
@@ -583,17 +628,18 @@ func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
 	var current_intent: String = String(BanditGroupMemory.get_group(group_id).get("current_group_intent", ""))
 	if current_intent == "raiding":
 		return
-	if RaidQueue.has_pending_for_group(group_id):
+	if bool(_queue_call(_raid_queue_port, "has_pending_for_group", [group_id], false)):
 		return
 	# Guard 2: cooldown desde el último raid
-	if not RaidQueue.is_raid_available(group_id, BanditTuning.raid_cooldown_base()):
+	var light_raid_last_time: float = float(_queue_call(_raid_queue_port, "get_last_raid_time", [group_id], 0.0))
+	if _get_cooldown_remaining(light_raid_last_time, BanditTuning.raid_cooldown_base()) > 0.0:
 		return
 
 	var leader_id: String    = String(g.get("leader_id", ""))
 	var base_center: Vector2 = base.get("center_world_pos", Vector2.ZERO) as Vector2
 	var base_id: String      = String(base.get("id", ""))
 
-	RaidQueue.enqueue_light_raid(faction_id, group_id, leader_id, base_center, base_id)
+	_queue_call(_raid_queue_port, "enqueue_light_raid", [faction_id, group_id, leader_id, base_center, base_id])
 	BanditGroupMemory.issue_execution_intent(
 		group_id, "raiding", "BanditGroupIntel", EXECUTION_INTENT_TTL_RAID, {"source": "light_raid"})
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(8.0, BanditTuning.raid_cooldown_base() * 0.12))
@@ -613,13 +659,14 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 	var current_intent: String = String(BanditGroupMemory.get_group(group_id).get("current_group_intent", ""))
 	if current_intent == "raiding":
 		return
-	if RaidQueue.has_pending_for_group(group_id):
+	if bool(_queue_call(_raid_queue_port, "has_pending_for_group", [group_id], false)):
 		return
 	# Guard 2: cooldown desde el último raid, reducido por riqueza de la banda
 	var w_tier_raid: int         = FactionHostilityManager.get_wealth_tier(faction_id)
 	var raid_cd_factor: float    = FactionHostilityManager.WEALTH_RAID_COOLDOWN_FACTOR[w_tier_raid]
 	var effective_raid_cd: float = BanditTuning.raid_cooldown_base() * raid_cd_factor
-	if not RaidQueue.is_raid_available(group_id, effective_raid_cd):
+	var raid_last_time: float = float(_queue_call(_raid_queue_port, "get_last_raid_time", [group_id], 0.0))
+	if _get_cooldown_remaining(raid_last_time, effective_raid_cd) > 0.0:
 		Debug.log("bandit_intel", "[BGI] raid cooldown — group=%s" % group_id)
 		return
 
@@ -627,7 +674,7 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 	var base_center: Vector2 = base.get("center_world_pos", Vector2.ZERO) as Vector2
 	var base_id: String    = String(base.get("id", ""))
 
-	RaidQueue.enqueue_raid(faction_id, group_id, leader_id, base_center, base_id)
+	_queue_call(_raid_queue_port, "enqueue_raid", [faction_id, group_id, leader_id, base_center, base_id])
 	BanditGroupMemory.issue_execution_intent(
 		group_id, "raiding", "BanditGroupIntel", EXECUTION_INTENT_TTL_RAID, {"source": "full_raid"})
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(12.0, effective_raid_cd * 0.15))

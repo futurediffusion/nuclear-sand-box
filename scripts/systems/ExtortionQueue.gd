@@ -101,10 +101,6 @@ func get_cooldown_remaining(group_id: String, cooldown: float) -> float:
 	return maxf(0.0, cd - elapsed)
 
 
-func is_request_available(group_id: String, cooldown: float) -> bool:
-	return get_cooldown_remaining(group_id, cooldown) <= 0.0
-
-
 # ---------------------------------------------------------------------------
 # Consume API
 # ---------------------------------------------------------------------------

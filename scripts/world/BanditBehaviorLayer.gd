@@ -271,6 +271,8 @@ func setup_group_intel(ctx: Dictionary) -> void:
 		"player":                    _player,
 		"get_interest_markers_near": ctx.get("get_interest_markers_near", Callable()),
 		"get_detected_bases_near":   ctx.get("get_detected_bases_near",   Callable()),
+		"extortion_queue_port":      ctx.get("extortion_queue_port", {}),
+		"raid_queue_port":           ctx.get("raid_queue_port", {}),
 	})
 
 	# Guardar query callables Ã¢ï¿½,ï¿½ï¿½?ï¿½ se pasan al RaidDirector y tambiï¿½fÂ©n al ctx de cada tick
