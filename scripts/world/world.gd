@@ -159,6 +159,14 @@ var _runtime_reset_coordinator: RuntimeResetCoordinator
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
+var _cadence_facade
+var _tavern_authority_facade
+var _settlement_wiring_facade
+var _pathing_facade
+var _player_territory_facade
+var _placement_reaction_facade
+var _telemetry_facade
+var _chunk_pipeline_facade
 
 # === [DOMAIN: HIGH-LEVEL REACTION DISPATCH] ===================================
 # Placement reaction
@@ -217,6 +225,14 @@ const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd
 const WorldCadenceCoordinatorScript := preload("res://scripts/world/WorldCadenceCoordinator.gd")
 const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.gd")
 const RuntimeResetCoordinatorScript := preload("res://scripts/world/RuntimeResetCoordinator.gd")
+const WorldCadenceFacadeScript := preload("res://scripts/world/WorldCadenceFacade.gd")
+const TavernAuthorityFacadeScript := preload("res://scripts/world/TavernAuthorityFacade.gd")
+const SettlementWiringFacadeScript := preload("res://scripts/world/SettlementWiringFacade.gd")
+const WorldPathingFacadeScript := preload("res://scripts/world/WorldPathingFacade.gd")
+const PlayerTerritoryFacadeScript := preload("res://scripts/world/PlayerTerritoryFacade.gd")
+const PlacementReactionFacadeScript := preload("res://scripts/world/PlacementReactionFacade.gd")
+const WorldTelemetryFacadeScript := preload("res://scripts/world/WorldTelemetryFacade.gd")
+const ChunkPipelineFacadeScript := preload("res://scripts/world/ChunkPipelineFacade.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -236,19 +252,12 @@ const BIOME_ID_DENSE_GRASS: int = 2
 # === [DOMAIN: LIFECYCLE + BOOTSTRAP ORCHESTRATION] ============================
 func _ready() -> void:
 	_wall_refresh_queue = WallRefreshQueueScript.new()
-	_cadence = WorldCadenceCoordinatorScript.new()
-	# WorldCadenceCoordinator governs shared world pulses only: cross-system
-	# maintenance, chunk/autosave work, and high-impact gameplay loops
-	# (hostility/raid/behavior directors) that must avoid duplicated local timers.
-	_cadence.configure_lane(&"short_pulse", 0.12, 0.15)
-	_cadence.configure_lane(&"medium_pulse", 0.50, 0.42)
-	_cadence.configure_lane(&"director_pulse", 0.12, 0.67)
-	_cadence.configure_lane(&"bandit_behavior_tick", BanditTuning.behavior_tick_interval(), 0.35)
-	_cadence.configure_lane(&"bandit_group_scan_slice", BanditTuning.group_scan_interval() / float(maxi(BanditGroupIntel.GROUP_SCAN_SLICE_COUNT, 1)), 0.24)
-	_cadence.configure_lane(&"chunk_pulse", chunk_check_interval, 0.68)
-	_cadence.configure_lane(&"autosave", autosave_interval, 0.31, 1)
-	_cadence.configure_lane(&"settlement_base_scan", SettlementIntel.BASE_RESCAN_INTERVAL, SettlementIntel.BASE_SCAN_PHASE_RATIO, 1)
-	_cadence.configure_lane(&"settlement_workbench_scan", SettlementIntel.WORKBENCH_RESCAN_INTERVAL, SettlementIntel.WORKBENCH_SCAN_PHASE_RATIO, 1)
+	_cadence_facade = WorldCadenceFacadeScript.new()
+	_cadence = _cadence_facade.setup({
+		"cadence": WorldCadenceCoordinatorScript.new(),
+		"chunk_check_interval": chunk_check_interval,
+		"autosave_interval": autosave_interval,
+	})
 	_chunk_wall_collider_cache = ChunkWallColliderCacheScript.new()
 	_chunk_wall_collider_cache.setup({
 		"walls_tilemap": walls_tilemap,
@@ -412,6 +421,7 @@ func _ready() -> void:
 	entity_coordinator.name = "EntitySpawnCoordinator"
 	add_child(entity_coordinator)
 
+	_chunk_pipeline_facade = ChunkPipelineFacadeScript.new()
 	pipeline = ChunkPipeline.new()
 	pipeline.name = "ChunkPipeline"
 	add_child(pipeline)
@@ -576,61 +586,38 @@ func _ready() -> void:
 
 	WorldSave.wall_tile_blocker_fn = _has_wall_tile_between
 
-	_settlement_intel = SettlementIntelScript.new()
-	_settlement_intel.setup({
+	_settlement_wiring_facade = SettlementWiringFacadeScript.new()
+	var settlement_ports: Dictionary = _settlement_wiring_facade.setup({
 		"cadence": _cadence,
-		"world_to_tile":    Callable(self, "_world_to_tile"),
-		"tile_to_world":    Callable(self, "_tile_to_world"),
+		"world_to_tile": Callable(self, "_world_to_tile"),
+		"tile_to_world": Callable(self, "_tile_to_world"),
 		"player_pos_getter": Callable(self, "_get_player_world_pos"),
 		"world_spatial_index": _world_spatial_index,
 	})
-	_player_territory = PlayerTerritoryMap.new()
-	_player_territory_dirty = true
-	_tavern_memory   = TavernLocalMemory.new()
-	_tavern_policy   = TavernAuthorityPolicy.new()
-	_tavern_policy.setup({"memory": _tavern_memory})
-	_tavern_director = TavernSanctionDirector.new()
-	_tavern_director.setup({
-		"get_keeper":          Callable(self, "_get_tavern_keeper_node"),
-		"get_sentinels":       func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
-		"memory_deny_service": Callable(_tavern_memory, "deny_service_for"),
-		"tavern_site_id":      "tavern_main",
-	})
-	_tavern_presence_monitor = TavernPresenceMonitor.new()
-	_tavern_presence_monitor.setup({
+	_settlement_intel = settlement_ports.get("settlement_intel")
+	_player_territory = settlement_ports.get("player_territory")
+	_player_territory_dirty = bool(settlement_ports.get("player_territory_dirty", true))
+	_tavern_authority_facade = TavernAuthorityFacadeScript.new()
+	var tavern_ports: Dictionary = _tavern_authority_facade.setup({
+		"get_keeper": Callable(self, "_get_tavern_keeper_node"),
+		"get_sentinels": func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
 		"incident_reporter": Callable(self, "report_tavern_incident"),
-		"get_candidates": Callable(self, "_get_tavern_presence_candidates"),
-		"interior_bounds": Callable(self, "get_tavern_inner_bounds_world"),
-	})
-	_tavern_garrison_monitor = TavernGarrisonMonitor.new()
-	_tavern_garrison_monitor.setup({
-		"get_sentinels":  func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
-		"tavern_site_id": "tavern_main",
-	})
-	_tavern_brawl = TavernPerimeterBrawl.new()
-	_tavern_brawl.setup({
-		"get_sentinels":     func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
+		"get_presence_candidates": Callable(self, "_get_tavern_presence_candidates"),
+		"get_tavern_inner_bounds_world": Callable(self, "get_tavern_inner_bounds_world"),
 		"get_nearby_enemies": Callable(self, "_get_enemies_near_runtime"),
 		"get_tavern_center": func() -> Vector2:
 			var b: Rect2 = get_tavern_inner_bounds_world()
 			return b.get_center() if b.size != Vector2.ZERO else Vector2.ZERO,
-	})
-	_tavern_authority_orchestrator = TavernAuthorityOrchestrator.new()
-	_tavern_authority_orchestrator.setup({
-		"memory": _tavern_memory,
-		"policy": _tavern_policy,
-		"director": _tavern_director,
-		"presence_monitor": _tavern_presence_monitor,
-		"get_tavern_inner_bounds_world": Callable(self, "get_tavern_inner_bounds_world"),
-		"get_tavern_sentinels": func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
 		"find_nearest_player": Callable(self, "_find_nearest_player"),
 	})
-	_local_social_ports = LocalSocialAuthorityPortsScript.new()
-	_local_social_ports.setup({
-		"local_authority_policy":  Callable(_tavern_policy,  "evaluate"),
-		"local_memory_source":     Callable(_tavern_memory,  "get_snapshot"),
-		"local_sanction_director": Callable(_tavern_director, "dispatch"),
-	})
+	_tavern_memory = tavern_ports.get("memory")
+	_tavern_policy = tavern_ports.get("policy")
+	_tavern_director = tavern_ports.get("director")
+	_tavern_presence_monitor = tavern_ports.get("presence_monitor")
+	_tavern_garrison_monitor = tavern_ports.get("garrison_monitor")
+	_tavern_brawl = tavern_ports.get("brawl")
+	_tavern_authority_orchestrator = tavern_ports.get("orchestrator")
+	_local_social_ports = tavern_ports.get("local_social_ports")
 	_world_territory_policy = WorldTerritoryPolicy.new()
 	_world_territory_policy.setup({
 		"tile_to_world": Callable(self, "_tile_to_world"),
@@ -638,13 +625,15 @@ func _ready() -> void:
 		"react_to_bandit_territory_intrusion": Callable(self, "_on_bandit_territory_intrusion"),
 		"local_social_ports": _local_social_ports,
 	})
+
 	PlacementSystem.register_placement_validator(Callable(self, "_validate_placement_restrictions"))
 
-	NpcPathService.setup({
-		"cliffs_tilemap":  cliffs_tilemap,
-		"walls_tilemap":   walls_tilemap,
-		"world_to_tile":   Callable(self, "_world_to_tile"),
-		"tile_to_world":   Callable(self, "_tile_to_world"),
+	_pathing_facade = WorldPathingFacadeScript.new()
+	_pathing_facade.setup({
+		"cliffs_tilemap": cliffs_tilemap,
+		"walls_tilemap": walls_tilemap,
+		"world_to_tile": Callable(self, "_world_to_tile"),
+		"tile_to_world": Callable(self, "_tile_to_world"),
 		"world_tile_rect": Rect2i(0, 0, width, height),
 		"world_spatial_index": _world_spatial_index,
 	})
@@ -652,8 +641,8 @@ func _ready() -> void:
 			and not _player_wall_system.player_wall_drop.is_connected(_on_wall_drop_for_intel):
 		_player_wall_system.player_wall_drop.connect(_on_wall_drop_for_intel)
 
-	_world_sim_telemetry = WorldSimTelemetryScript.new()
-	_world_sim_telemetry.setup({
+	_telemetry_facade = WorldTelemetryFacadeScript.new()
+	_world_sim_telemetry = _telemetry_facade.setup({
 		"enabled": debug_world_sim_telemetry_enabled,
 		"world": self,
 		"cadence": _cadence,
@@ -664,6 +653,9 @@ func _ready() -> void:
 		"npc_sim": npc_simulator,
 		"perf_monitor": _perf_monitor,
 	})
+
+	_player_territory_facade = PlayerTerritoryFacadeScript.new()
+	_placement_reaction_facade = PlacementReactionFacadeScript.new()
 
 	# Wire SettlementIntel into BanditGroupIntel (must be after _settlement_intel is ready)
 	_extortion_queue_port = {
@@ -816,6 +808,14 @@ func _is_chunk_in_active_window(chunk_pos: Vector2i, center: Vector2i) -> bool:
 	return abs(chunk_pos.x - center.x) <= active_radius and abs(chunk_pos.y - center.y) <= active_radius
 
 func update_chunks(center: Vector2i) -> void:
+	if _chunk_pipeline_facade != null:
+		await _chunk_pipeline_facade.update_chunks({
+			"update_callable": Callable(self, "_update_chunks_impl"),
+		}, center)
+		return
+	await _update_chunks_impl(center)
+
+func _update_chunks_impl(center: Vector2i) -> void:
 	if pipeline.is_updating:
 		return
 	Debug.log("boot", "ChunkManager load begin center=%s" % center)
@@ -1613,70 +1613,15 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 
 
 func _trigger_placement_react(target_pos: Vector2) -> void:
-	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
-	Debug.log("placement_react", "--- placement react target=%s groups_total=%d ---" % [
-		str(target_pos), all_ids.size()])
-	if all_ids.is_empty():
-		Debug.log("placement_react", "  SKIP: no hay grupos registrados en BanditGroupMemory")
+	if _placement_reaction_facade == null:
 		return
-	var queued: int = 0
-	var dispatched_groups: int = 0
-	var pending_groups: int = 0
-	var total_redirected: int = 0
-	for gid in all_ids:
-		var g: Dictionary = BanditGroupMemory.get_group(gid)
-		var faction_id: String = String(g.get("faction_id", ""))
-		var eradicated: bool = bool(g.get("eradicated", false))
-		var members: Array = g.get("member_ids", []) as Array
-		if eradicated:
-			continue
-		if members.is_empty():
-			continue
-		if not _is_group_hostile_for_structure_assault(g):
-			Debug.log("placement_react", "  group=%s faction=%s skipped (not hostile for structures)" % [
-				gid, faction_id])
-			continue
-		var leader_id: String = String(g.get("leader_id", ""))
-		if leader_id == "" and not members.is_empty():
-			leader_id = String(members[0])
-		if leader_id == "":
-			continue
-		BanditGroupMemory.record_interest(gid, target_pos, "structure_placed")
-		BanditGroupMemory.set_placement_react_lock(gid, _PLACEMENT_REACT_INTENT_LOCK_SECONDS)
-		var enqueued_now: bool = false
-		var has_assault: bool = false
-		var has_assault_cb: Callable = _raid_queue_port.get("has_structure_assault_for_group", Callable())
-		if has_assault_cb.is_valid():
-			has_assault = bool(has_assault_cb.call(gid))
-		if not has_assault:
-			var enqueue_assault_cb: Callable = _raid_queue_port.get("enqueue_structure_assault", Callable())
-			if enqueue_assault_cb.is_valid():
-				enqueue_assault_cb.call(
-					faction_id,
-					gid,
-					leader_id,
-					target_pos,
-					"placed_structure",
-					_PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
-				)
-				queued += 1
-				enqueued_now = true
-		var redirected: int = 0
-		if _bandit_behavior_layer != null:
-			redirected = _bandit_behavior_layer.dispatch_group_to_target(
-				gid,
-				target_pos,
-				_PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
-			)
-		if redirected > 0:
-			dispatched_groups += 1
-			total_redirected += redirected
-		else:
-			pending_groups += 1
-		Debug.log("placement_react", "  group=%s faction=%s redirected=%d queued_now=%s" % [
-			gid, faction_id, redirected, str(enqueued_now)])
-	Debug.log("placement_react", "  SUMMARY queued=%d dispatched_groups=%d pending_groups=%d redirected_total=%d" % [
-		queued, dispatched_groups, pending_groups, total_redirected])
+	_placement_reaction_facade.trigger(target_pos, {
+		"raid_queue_port": _raid_queue_port,
+		"intent_lock_seconds": _PLACEMENT_REACT_INTENT_LOCK_SECONDS,
+		"struct_assault_squad": _PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD,
+		"is_hostile_cb": Callable(self, "_is_group_hostile_for_structure_assault"),
+		"bandit_behavior_layer": _bandit_behavior_layer,
+	})
 
 
 func _is_group_hostile_for_structure_assault(group_data: Dictionary) -> bool:
@@ -1706,17 +1651,15 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.
 ## PlayerTerritoryMap — territorio del jugador
 func _tick_player_territory() -> void:
-	if not _player_territory_dirty or _player_territory == null or _settlement_intel == null:
+	if _player_territory_facade == null:
 		return
-	_player_territory_dirty = false
-	var wb_nodes: Array = []
-	if _world_spatial_index != null:
-		wb_nodes = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH)
-	else:
-		wb_nodes = get_tree().get_nodes_in_group("workbench")
-	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_near(Vector2.ZERO, 999999.0)
-	_player_territory.rebuild(wb_nodes, bases)
-
+	_player_territory_dirty = _player_territory_facade.tick({
+		"player_territory_dirty": _player_territory_dirty,
+		"player_territory": _player_territory,
+		"settlement_intel": _settlement_intel,
+		"world_spatial_index": _world_spatial_index,
+		"tree": get_tree(),
+	})
 
 ## Group-scan audit notes (world.gd):
 ## - "tavern_sentinel"/"tavern_keeper" stays live-tree by design (site-local authority roles).
@@ -1760,14 +1703,14 @@ func _get_live_player_nodes() -> Array:
 	return get_tree().get_nodes_in_group("player")
 
 func is_in_player_territory(world_pos: Vector2) -> bool:
-	if _player_territory == null:
+	if _player_territory_facade == null:
 		return false
-	return _player_territory.is_in_player_territory(world_pos)
+	return _player_territory_facade.is_in_player_territory(_player_territory, world_pos)
 
 func get_player_territory_zones() -> Array[Dictionary]:
-	if _player_territory == null:
+	if _player_territory_facade == null:
 		return []
-	return _player_territory.get_zones()
+	return _player_territory_facade.get_player_territory_zones(_player_territory)
 
 
 # ---------------------------------------------------------------------------
@@ -1846,21 +1789,21 @@ func _paint_outer_ground_band() -> void:
 
 
 func get_debug_snapshot() -> Dictionary:
-	if _world_sim_telemetry == null:
+	if _telemetry_facade == null:
 		return {"enabled": false}
-	return _world_sim_telemetry.get_debug_snapshot()
+	return _telemetry_facade.get_debug_snapshot()
 
 
 func dump_debug_summary() -> String:
-	if _world_sim_telemetry == null:
+	if _telemetry_facade == null:
 		return "WORLD SIM\n- telemetry: unavailable"
-	return _world_sim_telemetry.dump_debug_summary()
+	return _telemetry_facade.dump_debug_summary()
 
 
 func build_overlay_lines() -> PackedStringArray:
-	if _world_sim_telemetry == null:
+	if _telemetry_facade == null:
 		return PackedStringArray()
-	return _world_sim_telemetry.build_overlay_lines()
+	return _telemetry_facade.build_overlay_lines()
 
 
 func _perform_world_save(_reason: String = "manual") -> void:
