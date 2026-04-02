@@ -172,6 +172,8 @@ var _telemetry_facade
 var _chunk_pipeline_facade
 var _runtime_group_index
 var _runtime_ports_facade
+var _chunk_maintenance: WorldChunkMaintenanceCoordinator
+var _chunk_perf_budget_facade: ChunkPerfBudgetFacade
 
 # === [DOMAIN: HIGH-LEVEL REACTION DISPATCH] ===================================
 # Placement reaction
@@ -247,6 +249,8 @@ const WorldTelemetryFacadeScript := preload("res://scripts/world/WorldTelemetryF
 const ChunkPipelineFacadeScript := preload("res://scripts/world/ChunkPipelineFacade.gd")
 const RuntimeGroupIndexScript := preload("res://scripts/world/RuntimeGroupIndex.gd")
 const WorldRuntimePortsFacadeScript := preload("res://scripts/world/WorldRuntimePortsFacade.gd")
+const WorldChunkMaintenanceCoordinatorScript := preload("res://scripts/world/WorldChunkMaintenanceCoordinator.gd")
+const ChunkPerfBudgetFacadeScript := preload("res://scripts/world/ChunkPerfBudgetFacade.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -266,6 +270,7 @@ const BIOME_ID_DENSE_GRASS: int = 2
 # === [DOMAIN: LIFECYCLE + BOOTSTRAP ORCHESTRATION] ============================
 func _ready() -> void:
 	_wall_refresh_queue = WallRefreshQueueScript.new()
+	_chunk_maintenance = WorldChunkMaintenanceCoordinatorScript.new()
 	_cadence_facade = WorldCadenceFacadeScript.new()
 	_cadence = _cadence_facade.setup({
 		"cadence": WorldCadenceCoordinatorScript.new(),
@@ -381,16 +386,14 @@ func _ready() -> void:
 	cliffs_tilemap.material = cliff_mat
 	call_deferred("_init_cliff_screen_size")
 	tilemap.set_layer_enabled(LAYER_GROUND, false)
-	_perf_monitor.enabled = debug_chunk_perf_enabled
-	_perf_monitor.window_size = debug_chunk_perf_window_size
-	_perf_monitor.auto_print = debug_chunk_perf_auto_print
-	_perf_monitor.print_interval = debug_chunk_perf_print_interval
-	_perf_monitor.auto_calibrate = debug_chunk_perf_auto_calibrate_runtime
-	_perf_monitor.alert_generate_ms = debug_chunk_perf_ring0_alert_generate_ms
-	_perf_monitor.alert_ground_connect_ms = debug_chunk_perf_ring0_alert_ground_connect_ms
-	_perf_monitor.alert_wall_connect_ms = debug_chunk_perf_ring0_alert_wall_connect_ms
-	_perf_monitor.alert_collider_ms = debug_chunk_perf_ring0_alert_collider_ms
-	_perf_monitor.alert_entities_ms = debug_chunk_perf_ring0_alert_entities_ms
+	_chunk_maintenance.setup({
+		"wall_refresh_queue": _wall_refresh_queue,
+		"loaded_chunks": loaded_chunks,
+		"pending_tile_erases": _pending_tile_erases,
+		"ensure_chunk_wall_collision": Callable(self, "_ensure_chunk_wall_collision"),
+		"unload_chunk": Callable(self, "unload_chunk"),
+	})
+	_chunk_perf_budget_facade = ChunkPerfBudgetFacadeScript.new()
 
 	WorldSave.chunk_size = chunk_size
 
@@ -448,6 +451,23 @@ func _ready() -> void:
 	pipeline = ChunkPipeline.new()
 	pipeline.name = "ChunkPipeline"
 	add_child(pipeline)
+
+	_chunk_perf_budget_facade.setup({
+		"perf_monitor": _perf_monitor,
+		"pipeline": pipeline,
+	})
+	_chunk_perf_budget_facade.configure({
+		"enabled": debug_chunk_perf_enabled,
+		"window_size": debug_chunk_perf_window_size,
+		"auto_print": debug_chunk_perf_auto_print,
+		"print_interval": debug_chunk_perf_print_interval,
+		"auto_calibrate": debug_chunk_perf_auto_calibrate_runtime,
+		"alert_generate_ms": debug_chunk_perf_ring0_alert_generate_ms,
+		"alert_ground_connect_ms": debug_chunk_perf_ring0_alert_ground_connect_ms,
+		"alert_wall_connect_ms": debug_chunk_perf_ring0_alert_wall_connect_ms,
+		"alert_collider_ms": debug_chunk_perf_ring0_alert_collider_ms,
+		"alert_entities_ms": debug_chunk_perf_ring0_alert_entities_ms,
+	})
 
 	entity_coordinator.setup({
 		"prop_spawner": prop_spawner,
@@ -750,34 +770,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		SaveManager.new_game()
 		get_tree().reload_current_scene()
 
-func _process_tile_erase_queue() -> void:
-	var budget := 2
-	while budget > 0 and not _pending_tile_erases.is_empty():
-		var cpos: Vector2i = _pending_tile_erases.pop_front()
-		if loaded_chunks.has(cpos):
-			continue  # el chunk volvió al rango antes de que borráramos — saltar
-		unload_chunk(cpos)
-		budget -= 1
-
-func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
-	if _wall_refresh_queue == null:
-		return
-	var rebuild_budget: int = maxi(0, max_rebuilds_per_frame)
-	while rebuild_budget > 0:
-		var result: Dictionary = _wall_refresh_queue.try_pop_next()
-		if not result.ok:
-			break
-
-		var chunk_pos: Vector2i = result.chunk_pos
-		if not loaded_chunks.has(chunk_pos):
-			if _wall_refresh_queue != null:
-				_wall_refresh_queue.purge_chunk(chunk_pos)
-			continue
-
-		_ensure_chunk_wall_collision(chunk_pos)
-		_wall_refresh_queue.confirm_rebuild(chunk_pos, result.revision)
-		rebuild_budget -= 1
-
 func _process(delta: float) -> void:
 	_process_world_scheduler(delta)
 	_dispatch_player_chunk_updates()
@@ -802,12 +794,13 @@ func _process_world_scheduler(delta: float) -> void:
 	var short_pulses: int = _cadence.consume_lane(&"short_pulse") if _cadence != null else 1
 	_chunk_short_pulse_budget = max(1, short_pulses)
 	for _pulse in short_pulses:
-		_process_wall_refresh_queue(1)
-		_process_tile_erase_queue()
+		if _chunk_maintenance != null:
+			_chunk_maintenance.process_queues(1, 2)
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
 	_update_cliff_occlusion()
-	_process_chunk_perf_debug(delta)
+	if _chunk_perf_budget_facade != null:
+		_chunk_perf_budget_facade.process(delta)
 	if _world_sim_telemetry != null:
 		_world_sim_telemetry.tick(delta)
 	if _cadence != null and _cadence.consume_lane(&"autosave") > 0:
@@ -985,7 +978,8 @@ func _run_unload_stage(state: Dictionary, short_pulse_budget: int) -> bool:
 		entity_coordinator.unload_entities(chunk_pos)
 		pipeline.on_chunk_unloaded(chunk_pos)
 		_ground_terrain_painted_chunks.erase(_chunk_key(chunk_pos))
-		_pending_tile_erases.append(chunk_pos)
+		if _chunk_maintenance != null:
+			_chunk_maintenance.enqueue_tile_erase(chunk_pos)
 		budget -= 1
 	state["unload_index"] = idx
 	return idx >= unload_keys.size()
@@ -1025,28 +1019,16 @@ func _update_chunks_impl(center: Vector2i) -> void:
 
 
 func _record_chunk_stage_time(stage: String, chunk_pos: Vector2i, elapsed_ms: float) -> void:
-	_perf_monitor.record(stage, chunk_pos, current_player_chunk, elapsed_ms)
+	if _chunk_perf_budget_facade != null:
+		_chunk_perf_budget_facade.record(stage, chunk_pos, current_player_chunk, elapsed_ms)
 
 func debug_print_chunk_stage_percentiles() -> void:
-	_perf_monitor.print_percentiles()
-	_apply_calibrated_perf_budgets()
-
-func _process_chunk_perf_debug(delta: float) -> void:
-	if _perf_monitor.tick(delta):
-		_apply_calibrated_perf_budgets()
-
-func _apply_calibrated_perf_budgets() -> void:
-	var budgets := _perf_monitor.get_calibrated_budgets()
-	if budgets.has("terrain_paint_ms_budget"):
-		pipeline.terrain_paint_ms_budget = budgets["terrain_paint_ms_budget"]
-	if budgets.has("wall_collider_chunks_per_tick"):
-		pipeline.wall_collider_chunks_per_tick = budgets["wall_collider_chunks_per_tick"]
-	if budgets.has("cliff_paint_chunks_per_tick"):
-		pipeline.cliff_paint_chunks_per_tick = budgets["cliff_paint_chunks_per_tick"]
+	if _chunk_perf_budget_facade != null:
+		_chunk_perf_budget_facade.debug_print_percentiles()
 
 func unload_chunk(chunk_pos: Vector2i) -> void:
-	if _wall_refresh_queue != null:
-		_wall_refresh_queue.purge_chunk(chunk_pos)
+	if _chunk_maintenance != null:
+		_chunk_maintenance.purge_wall_refresh_for_chunk(chunk_pos)
 	_vegetation_root.unload_chunk(chunk_pos)
 	# Borrar suelo del WorldTileMap
 	_tile_painter.erase_chunk_region(tilemap, chunk_pos, chunk_size, [LAYER_GROUND, LAYER_FLOOR])
@@ -1351,10 +1333,8 @@ func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) ->
 		chunks_to_refresh[cpos] = true
 	for cpos in chunks_to_refresh.keys():
 		var chunk_pos: Vector2i = cpos as Vector2i
-		if _wall_refresh_queue != null:
-			_wall_refresh_queue.record_activity(chunk_pos)
-			if loaded_chunks.has(chunk_pos):
-				_wall_refresh_queue.enqueue(chunk_pos)
+		if _chunk_maintenance != null:
+			_chunk_maintenance.record_wall_activity_and_enqueue(chunk_pos, loaded_chunks.has(chunk_pos))
 	if _settlement_intel != null and not tile_positions.is_empty():
 		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_positions[0]))
 	_player_territory_dirty = true
@@ -1686,9 +1666,9 @@ func _find_nearest_player(world_pos: Vector2) -> CharacterBody2D:
 
 
 func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
-	if _wall_refresh_queue != null:
+	if _chunk_maintenance != null:
 		var cpos: Vector2i = _tile_to_chunk(tile_pos)
-		_wall_refresh_queue.record_activity(cpos)
+		_chunk_maintenance.record_wall_activity_and_enqueue(cpos, false)
 	# Comparar en coordenadas de tile (enteras) para evitar ambigüedad de float.
 	# has_point en world-space fallaba en tiles exactamente en el borde del bounds
 	# (norte/este dependiendo del offset de map_to_local).
@@ -1977,12 +1957,12 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 	if _last_save_time_msec >= 0:
 		last_save_age = float(Time.get_ticks_msec() - _last_save_time_msec) / 1000.0
 	return {
-		"pending_tile_erases": _pending_tile_erases.size(),
+		"pending_tile_erases": _chunk_maintenance.get_pending_tile_erases_count() if _chunk_maintenance != null else _pending_tile_erases.size(),
 		"loaded_chunks": loaded_count,
 		"generated_chunks": generated_count,
 		"terrain_paint_ring0_pending": terrain_pending,
 		"spawn_queue": _spawn_queue.debug_dump() if _spawn_queue != null else {},
-		"wall_refresh": _wall_refresh_queue.get_debug_snapshot() if _wall_refresh_queue != null else {},
+		"wall_refresh": _chunk_maintenance.get_wall_refresh_debug_snapshot() if _chunk_maintenance != null else {},
 		"autosave": {
 			"interval": autosave_interval,
 			"due": autosave_due,
