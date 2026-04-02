@@ -68,7 +68,7 @@ var _world_spatial_index: WorldSpatialIndex = null
 
 func _ready() -> void:
 	add_to_group("world_resource")
-	_register_in_world_index()
+	call_deferred("_register_in_world_index")
 	collision_layer = CollisionLayers.WORLD_WALL_LAYER_MASK | CollisionLayers.RESOURCES_LAYER_MASK
 	collision_mask = 0
 	_base_pos = trunk_sprite.position
