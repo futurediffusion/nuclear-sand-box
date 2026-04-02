@@ -155,7 +155,7 @@ var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
 var _world_sim_telemetry: WorldSimTelemetry
-var _runtime_reset_coordinator: RuntimeResetCoordinator
+var _runtime_reset: RuntimeResetCoordinator
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
@@ -372,7 +372,7 @@ func _ready() -> void:
 
 	WorldSave.chunk_size = chunk_size
 
-	_runtime_reset_coordinator = RuntimeResetCoordinatorScript.new()
+	_runtime_reset = RuntimeResetCoordinatorScript.new()
 
 	SaveManager.register_world(self)
 	SaveManager.register_runtime_ports({
@@ -1849,14 +1849,9 @@ func _snapshot_entities_for_save() -> void:
 
 
 func _trigger_runtime_reset_for_new_game() -> void:
-	_reset_runtime_for_new_game()
-
-
-## World facade: no detailed reset knowledge here.
-func _reset_runtime_for_new_game() -> void:
-	if _runtime_reset_coordinator == null:
-		_runtime_reset_coordinator = RuntimeResetCoordinatorScript.new()
-	_runtime_reset_coordinator.reset_new_game()
+	if _runtime_reset == null:
+		_runtime_reset = RuntimeResetCoordinatorScript.new()
+	_runtime_reset.reset_new_game()
 
 
 func _get_world_maintenance_debug_snapshot() -> Dictionary:
