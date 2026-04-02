@@ -51,6 +51,7 @@ const DEPOSIT_REASSIGN_GUARD_SQ: float = 72.0 * 72.0  # no reasignar si ya estï
 signal debug_observation_emitted(channel: StringName, payload: Dictionary)
 
 const DEBUG_ALERTED_CHASE_OBSERVATION: bool = true
+const DEBUG_ALLY_SEP_COMPARISONS: bool = false
 const STRUCTURE_ASSAULT_FOCUS_SECONDS: float = 24.0
 const STRUCTURE_MEMBER_QUERY_RADIUS: float = 320.0
 const STRUCTURE_MEMBER_QUERY_RING_RADIUS: float = 96.0
@@ -198,6 +199,7 @@ var _dispatch_log_next_at: Dictionary            = {}
 var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
 var _domain_ports: BanditDomainPorts             = null
+var _ally_sep_debug_last_comparisons: int        = 0
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +379,7 @@ func _finalize_group_raid_dispatch(group_id: String, action: Dictionary, source:
 func _physics_process(_delta: float) -> void:
 	if _npc_simulator == null:
 		return
+	_ally_sep_debug_last_comparisons = 0
 
 	# Pass 1: apply desired velocities + collect per-group node positions
 	var group_nodes: Dictionary = {}
@@ -399,19 +402,13 @@ func _physics_process(_delta: float) -> void:
 		var members: Array = group_nodes[gid]
 		if members.size() < 2:
 			continue
-		for i in members.size():
-			var a: Dictionary = members[i]
-			var sep: Vector2 = Vector2.ZERO
-			for j in members.size():
-				if i == j:
-					continue
-				var diff: Vector2 = (a["pos"] as Vector2) - (members[j]["pos"] as Vector2)
-				var d: float = diff.length()
-				if d < BanditTuningScript.ally_sep_radius() and d > 0.5:
-					sep += diff.normalized() * (BanditTuningScript.ally_sep_radius() - d) \
-						/ BanditTuningScript.ally_sep_radius() * BanditTuningScript.ally_sep_force()
-			if sep.length_squared() > 0.01:
-				a["node"].velocity += sep
+		_apply_group_ally_separation(members)
+
+	if DEBUG_ALLY_SEP_COMPARISONS:
+		debug_observation_emitted.emit(
+			&"ally_sep_grid_debug",
+			{"comparisons": _ally_sep_debug_last_comparisons}
+		)
 
 	if _extortion_director != null:
 		_extortion_director.apply_extortion_movement(BanditTuningScript.friction_compensation())
@@ -444,6 +441,45 @@ func _physics_process(_delta: float) -> void:
 						"suggested_speed": suggested_speed,
 					}
 				)
+
+
+func _apply_group_ally_separation(members: Array) -> void:
+	var sep_radius: float = BanditTuningScript.ally_sep_radius()
+	if sep_radius <= 0.0:
+		return
+	var sep_force: float = BanditTuningScript.ally_sep_force()
+	var cell_size: float = sep_radius
+	var grid: Dictionary = {}
+	for idx in members.size():
+		var pos: Vector2 = members[idx]["pos"] as Vector2
+		var cell: Vector2i = _ally_sep_grid_cell(pos, cell_size)
+		if not grid.has(cell):
+			grid[cell] = []
+		grid[cell].append(idx)
+
+	for i in members.size():
+		var a: Dictionary = members[i]
+		var a_pos: Vector2 = a["pos"] as Vector2
+		var a_cell: Vector2i = _ally_sep_grid_cell(a_pos, cell_size)
+		var sep: Vector2 = Vector2.ZERO
+		for oy in range(-1, 2):
+			for ox in range(-1, 2):
+				var neigh_cell := Vector2i(a_cell.x + ox, a_cell.y + oy)
+				var bucket: Array = grid.get(neigh_cell, [])
+				for j in bucket:
+					if i == j:
+						continue
+					_ally_sep_debug_last_comparisons += 1
+					var diff: Vector2 = a_pos - (members[j]["pos"] as Vector2)
+					var d: float = diff.length()
+					if d < sep_radius and d > 0.5:
+						sep += diff.normalized() * (sep_radius - d) / sep_radius * sep_force
+		if sep.length_squared() > 0.01:
+			a["node"].velocity += sep
+
+
+func _ally_sep_grid_cell(pos: Vector2, cell_size: float) -> Vector2i:
+	return Vector2i(floori(pos.x / cell_size), floori(pos.y / cell_size))
 
 
 # ---------------------------------------------------------------------------
