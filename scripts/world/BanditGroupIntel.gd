@@ -50,6 +50,7 @@ var _intent_policy := BanditIntentPolicy.new()
 var _scan_accumulator_by_group: Dictionary = {}
 var _lod_debug_last_group: Dictionary = {}
 var _lod_debug_group_counts: Dictionary = {"fast": 0, "medium": 0, "slow": 0}
+var _lod_mode_perf: Dictionary = {}
 var _group_lod_signals: GroupLodSignals = GroupLodSignals.new()
 var _scan_work_buffers: ScanWorkBuffers = ScanWorkBuffers.new()
 
@@ -112,7 +113,13 @@ func _scan_group_slice() -> void:
 		var interval: float = _get_group_scan_interval(group_id, g)
 		if elapsed < interval:
 			continue
+		var lod_entry: Dictionary = _lod_debug_last_group.get(group_id, {})
+		var mode_name: StringName = StringName(String(lod_entry.get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))))
+		var reaction_latency: float = maxf(elapsed - interval, 0.0)
+		var scan_start_usec: int = Time.get_ticks_usec()
 		_scan_group(group_id, g)
+		var scan_elapsed_ms: float = float(Time.get_ticks_usec() - scan_start_usec) / 1000.0
+		_record_mode_group_scan_perf(mode_name, reaction_latency, scan_elapsed_ms)
 		_scan_accumulator_by_group[group_id] = maxf(elapsed - interval, 0.0)
 
 
@@ -156,6 +163,7 @@ func _get_group_scan_interval(group_id: String, g: Dictionary) -> float:
 		"recently_engaged": group_signals.was_recently_engaged,
 		"has_player_signal": group_signals.is_alerted_to_player_activity,
 		"has_base_signal": String(g.get("last_interest_kind", "")) == "base_detected",
+		"mode_signals": _get_global_lod_mode_signals(),
 	})
 	_record_group_lod_debug(group_id, current_intent, lod_debug, group_signals)
 	return float(lod_debug.get("interval", BanditTuning.group_scan_interval()))
@@ -188,6 +196,7 @@ func _record_group_lod_debug(group_id: String, current_intent: String, lod_debug
 		"interval": float(lod_debug.get("interval", BanditTuning.group_scan_interval())),
 		"bucket": bucket,
 		"dominant_reason": String(lod_debug.get("dominant_reason", "baseline")),
+		"mode": String(lod_debug.get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))),
 		"is_in_direct_combat": group_signals.is_in_direct_combat,
 		"was_recently_engaged": group_signals.was_recently_engaged,
 		"is_alerted_to_player_activity": group_signals.is_alerted_to_player_activity,
@@ -217,11 +226,37 @@ func get_lod_debug_snapshot() -> Dictionary:
 	return {
 		"group_counts": _lod_debug_group_counts.duplicate(true),
 		"group_intervals": _lod_debug_last_group.duplicate(true),
+		"mode_perf": _lod_mode_perf.duplicate(true),
 	}
 
 
 func _is_lod_debug_logging_enabled() -> bool:
 	return Debug.is_enabled("ai") and Debug.is_enabled("bandit_lod")
+
+
+func _get_global_lod_mode_signals() -> Dictionary:
+	if GameEvents == null or not GameEvents.has_method("get_simulation_lod_mode_signals"):
+		return {}
+	return GameEvents.get_simulation_lod_mode_signals()
+
+
+func _record_mode_group_scan_perf(mode: StringName, reaction_latency: float, frame_time_ms: float) -> void:
+	var key: String = String(mode)
+	var entry: Dictionary = _lod_mode_perf.get(key, {
+		"scan_samples": 0,
+		"scan_time_total_ms": 0.0,
+		"scan_time_avg_ms": 0.0,
+		"reaction_samples": 0,
+		"reaction_latency_total_s": 0.0,
+		"reaction_latency_avg_s": 0.0,
+	})
+	entry["scan_samples"] = int(entry.get("scan_samples", 0)) + 1
+	entry["scan_time_total_ms"] = float(entry.get("scan_time_total_ms", 0.0)) + maxf(frame_time_ms, 0.0)
+	entry["scan_time_avg_ms"] = float(entry.get("scan_time_total_ms", 0.0)) / float(maxi(int(entry.get("scan_samples", 0)), 1))
+	entry["reaction_samples"] = int(entry.get("reaction_samples", 0)) + 1
+	entry["reaction_latency_total_s"] = float(entry.get("reaction_latency_total_s", 0.0)) + maxf(reaction_latency, 0.0)
+	entry["reaction_latency_avg_s"] = float(entry.get("reaction_latency_total_s", 0.0)) / float(maxi(int(entry.get("reaction_samples", 0)), 1))
+	_lod_mode_perf[key] = entry
 
 func _scan_group(group_id: String, g: Dictionary) -> void:
 	# Only react if the group has a live leader node

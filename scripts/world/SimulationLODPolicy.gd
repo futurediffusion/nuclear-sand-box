@@ -33,6 +33,15 @@ const MIN_GROUP_SCAN_INTERVAL: float = 2.0
 const MAX_GROUP_SCAN_INTERVAL: float = 16.0
 const MIN_BEHAVIOR_TICK_INTERVAL: float = 0.25
 const MAX_BEHAVIOR_TICK_INTERVAL: float = 1.5
+const MODE_CONTEXTUAL: StringName = &"contextual"
+const MODE_EXPLORATION_NORMAL: StringName = &"exploration_normal"
+const MODE_COMBAT_CLOSE: StringName = &"combat_close"
+const MODE_RAID_ACTIVE: StringName = &"raid_active"
+const MODE_INTERVAL_PRESETS: Dictionary = {
+	MODE_EXPLORATION_NORMAL: {"group": 1.15, "npc": 1.10},
+	MODE_COMBAT_CLOSE: {"group": 0.72, "npc": 0.68},
+	MODE_RAID_ACTIVE: {"group": 0.58, "npc": 0.62},
+}
 
 static func get_bandit_group_scan_interval(ctx: Dictionary) -> float:
 	return float(get_bandit_group_scan_debug(ctx).get("interval", BanditTuning.group_scan_interval()))
@@ -100,10 +109,16 @@ static func get_bandit_group_scan_debug(ctx: Dictionary) -> Dictionary:
 		multiplier *= 1.25
 		reasons.append("idle_far_bias")
 
-	var interval: float = clampf(base_interval * multiplier, MIN_GROUP_SCAN_INTERVAL, MAX_GROUP_SCAN_INTERVAL)
+	var mode: StringName = resolve_interval_mode(ctx)
+	var mode_multiplier: float = _get_mode_multiplier(mode, "group")
+	var interval: float = clampf(base_interval * multiplier * mode_multiplier, MIN_GROUP_SCAN_INTERVAL, MAX_GROUP_SCAN_INTERVAL)
+	if mode != MODE_CONTEXTUAL:
+		reasons.push_front("mode_%s" % String(mode))
 	return {
 		"interval": interval,
 		"multiplier": multiplier,
+		"mode_multiplier": mode_multiplier,
+		"mode": String(mode),
 		"dominant_reason": reasons[0] if not reasons.is_empty() else "baseline",
 		"reasons": reasons,
 		"bucket": _classify_bucket(interval, base_interval),
@@ -185,15 +200,21 @@ static func get_behavior_tick_debug(ctx: Dictionary) -> Dictionary:
 		multiplier *= 1.15
 		reasons.append("idle_far_sleep_bias")
 
-	var interval: float = clampf(base_interval * multiplier, MIN_BEHAVIOR_TICK_INTERVAL, MAX_BEHAVIOR_TICK_INTERVAL)
+	var mode: StringName = resolve_interval_mode(ctx)
+	var mode_multiplier: float = _get_mode_multiplier(mode, "npc")
+	var interval: float = clampf(base_interval * multiplier * mode_multiplier, MIN_BEHAVIOR_TICK_INTERVAL, MAX_BEHAVIOR_TICK_INTERVAL)
 	# Floor de distancia: un NPC a >FAR no puede tickear más rápido que slow,
 	# sin importar intent ni estado de combate — a esa distancia no hay combate real posible.
 	if distance_to_player >= ACTOR_FAR_DISTANCE:
 		interval = maxf(interval, base_interval * 1.6)
 		reasons.push_front("distance_floor")
+	if mode != MODE_CONTEXTUAL:
+		reasons.push_front("mode_%s" % String(mode))
 	return {
 		"interval": interval,
 		"multiplier": multiplier,
+		"mode_multiplier": mode_multiplier,
+		"mode": String(mode),
 		"dominant_reason": reasons[0] if not reasons.is_empty() else "baseline",
 		"reasons": reasons,
 		"bucket": _classify_bucket(interval, base_interval),
@@ -212,3 +233,19 @@ static func _classify_bucket(interval: float, base_interval: float) -> String:
 	if interval <= base_interval * 1.15:
 		return "medium"
 	return "slow"
+
+
+static func resolve_interval_mode(ctx: Dictionary) -> StringName:
+	var mode_signals: Dictionary = ctx.get("mode_signals", {})
+	if bool(mode_signals.get(MODE_RAID_ACTIVE, false)) or bool(mode_signals.get(String(MODE_RAID_ACTIVE), false)):
+		return MODE_RAID_ACTIVE
+	if bool(mode_signals.get(MODE_COMBAT_CLOSE, false)) or bool(mode_signals.get(String(MODE_COMBAT_CLOSE), false)):
+		return MODE_COMBAT_CLOSE
+	if bool(mode_signals.get(MODE_EXPLORATION_NORMAL, false)) or bool(mode_signals.get(String(MODE_EXPLORATION_NORMAL), false)):
+		return MODE_EXPLORATION_NORMAL
+	return MODE_CONTEXTUAL
+
+
+static func _get_mode_multiplier(mode: StringName, lane: String) -> float:
+	var preset: Dictionary = MODE_INTERVAL_PRESETS.get(mode, {})
+	return maxf(float(preset.get(lane, 1.0)), 0.2)

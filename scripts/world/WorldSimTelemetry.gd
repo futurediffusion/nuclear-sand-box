@@ -51,6 +51,8 @@ func _print_perf_to_console() -> void:
 	var g_counts: Dictionary = _nested_dict(bandit, ["group_scan", "group_counts"])
 	var npc_counts: Dictionary = bandit.get("npc_counts", {})
 	var npc_reasons: Dictionary = bandit.get("npc_dominant_reasons", {})
+	var npc_mode_perf: Dictionary = bandit.get("mode_perf", {})
+	var group_mode_perf: Dictionary = _nested_dict(bandit, ["group_scan", "mode_perf"], {})
 	var dist_stats: Dictionary = _npc_sim.get_active_distance_stats() if _npc_sim != null else {}
 	var dist_str: String = "n/a"
 	if int(dist_stats.get("count", 0)) > 0:
@@ -68,6 +70,7 @@ func _print_perf_to_console() -> void:
 	Debug.log("perf_telemetry", (
 		"chunk gen=%.2fms ent=%.2fms | npc sim=%.2fms (active=%d data=%d) dist[%s] | "
 		+ "bandits g[%s] npc[%s] top=%s | "
+		+ "lod-mode npc[%s] group[%s] | "
 		+ "settlement wb=%.1f/30s base=%.1f/10s bases=%d | "
 		+ "spatial hit=%d%% (%d q)"
 	) % [
@@ -79,6 +82,8 @@ func _print_perf_to_console() -> void:
 		_format_bucket_counts(g_counts),
 		_format_bucket_counts(npc_counts),
 		top_reason,
+		_format_mode_perf_summary(npc_mode_perf),
+		_format_mode_perf_summary(group_mode_perf),
 		float(timers.get("workbench_rescan_timer", 0.0)),
 		float(timers.get("base_rescan_timer", 0.0)),
 		int(settlement.get("bases_detected", 0)),
@@ -243,3 +248,17 @@ func _summarize_lane_activity(lanes: Dictionary) -> Dictionary:
 		"almost_inactive": almost_inactive,
 		"very_active": very_active,
 	}
+
+
+func _format_mode_perf_summary(mode_perf: Dictionary) -> String:
+	var ordered_modes: Array[String] = ["contextual", "exploration_normal", "combat_close", "raid_active"]
+	var parts: Array[String] = []
+	for mode in ordered_modes:
+		if not mode_perf.has(mode):
+			continue
+		var entry: Dictionary = mode_perf.get(mode, {})
+		var frame_ms: float = float(entry.get("frame_time_avg_ms", entry.get("scan_time_avg_ms", -1.0)))
+		var react_ms: float = float(entry.get("reaction_latency_avg_s", 0.0)) * 1000.0
+		var samples: int = int(entry.get("reaction_samples", 0))
+		parts.append("%s %.2fms/%.1fms n=%d" % [mode, frame_ms, react_ms, samples])
+	return "n/a" if parts.is_empty() else ", ".join(parts)

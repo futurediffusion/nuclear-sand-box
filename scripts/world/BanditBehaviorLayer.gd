@@ -210,6 +210,7 @@ var _structure_cache_gc_at: float                = 0.0
 var _dispatch_log_next_at: Dictionary            = {}
 var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
+var _lod_mode_perf: Dictionary = {}
 var _tick_scan_buffers: TickScanBuffers          = TickScanBuffers.new()
 var _structure_work_buffers: StructureWorkBuffers = StructureWorkBuffers.new()
 var _method_caps: MethodCapabilityCache          = MethodCapabilityCacheScript.new()
@@ -414,7 +415,14 @@ func _process(delta: float) -> void:
 
 	_ensure_behaviors_for_active_enemies()
 	_stash.ensure_barrels()
+	var mode_signals: Dictionary = _get_global_lod_mode_signals()
+	var active_mode: StringName = SimulationLODPolicyScript.resolve_interval_mode({
+		"mode_signals": mode_signals,
+	})
+	var behavior_start_usec: int = Time.get_ticks_usec()
 	_tick_behaviors()
+	var behavior_elapsed_ms: float = float(Time.get_ticks_usec() - behavior_start_usec) / 1000.0
+	_record_mode_frame_time(active_mode, behavior_elapsed_ms)
 	_prune_behaviors()
 
 
@@ -458,6 +466,7 @@ func _tick_behaviors() -> void:
 		# Un elapsed creciente pasado a beh.tick() como delta hace que _stuck_timer
 		# supere STUCK_CHECK_INTERVAL en el primer tick de PATROL, antes de que el
 		# NPC haya movido, disparando stuck detection de forma falsa.
+		var reaction_latency: float = maxf(elapsed - tick_interval, 0.0)
 		_behavior_elapsed[enemy_id] = 0.0
 
 		_fill_drops_info_buffer(node_pos, drop_nodes_snapshot, _tick_scan_buffers.drops)
@@ -477,6 +486,8 @@ func _tick_behaviors() -> void:
 		# Pasar tick_interval como delta (tiempo real desde ï¿½fÂºltimo tick),
 		# no elapsed que puede ser mayor que tick_interval.
 		beh.tick(tick_interval, ctx)
+		var lod_mode: StringName = StringName(String(_lod_debug_last_npc.get(beh.member_id, {}).get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))))
+		_record_mode_reaction_latency(lod_mode, reaction_latency)
 		_maybe_show_recognition_bubble(beh, node, node_pos)
 		_maybe_show_idle_chat(beh, node, node_pos)
 
@@ -1521,6 +1532,7 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 		"is_sleeping": bool(node.has_method("is_sleeping") and node.is_sleeping()),
 		"in_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
 		"recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
+		"mode_signals": _get_global_lod_mode_signals(),
 	})
 	_record_npc_lod_debug(beh, node, lod_debug, runtime_signals)
 	return float(lod_debug.get("interval", BanditTuningScript.behavior_tick_interval()))
@@ -1559,6 +1571,7 @@ func _record_npc_lod_debug(beh: BanditWorldBehavior, node: Node, lod_debug: Dict
 		"interval": float(lod_debug.get("interval", BanditTuningScript.behavior_tick_interval())),
 		"bucket": bucket,
 		"dominant_reason": String(lod_debug.get("dominant_reason", "baseline")),
+		"mode": String(lod_debug.get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))),
 		"is_in_direct_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
 		"was_recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
 		"is_runtime_busy_but_not_combat": bool(runtime_signals.get("is_runtime_busy_but_not_combat", false)),
@@ -1581,9 +1594,50 @@ func get_lod_debug_snapshot() -> Dictionary:
 	return {
 		"npc_counts": _lod_debug_npc_counts.duplicate(true),
 		"npc_intervals": _lod_debug_last_npc.duplicate(true),
+		"mode_perf": _snapshot_mode_perf(),
 		"group_scan": _group_intel.get_lod_debug_snapshot() if _group_intel != null else {},
 	}
 
 
 func _is_lod_debug_logging_enabled() -> bool:
 	return Debug.is_enabled("ai") and Debug.is_enabled("bandit_lod")
+
+
+func _get_global_lod_mode_signals() -> Dictionary:
+	if GameEvents == null or not GameEvents.has_method("get_simulation_lod_mode_signals"):
+		return {}
+	return GameEvents.get_simulation_lod_mode_signals()
+
+
+func _ensure_mode_perf_entry(mode: StringName) -> Dictionary:
+	var mode_key: String = String(mode)
+	if not _lod_mode_perf.has(mode_key):
+		_lod_mode_perf[mode_key] = {
+			"frame_samples": 0,
+			"frame_time_total_ms": 0.0,
+			"frame_time_avg_ms": 0.0,
+			"reaction_samples": 0,
+			"reaction_latency_total_s": 0.0,
+			"reaction_latency_avg_s": 0.0,
+		}
+	return _lod_mode_perf[mode_key]
+
+
+func _record_mode_frame_time(mode: StringName, elapsed_ms: float) -> void:
+	var entry: Dictionary = _ensure_mode_perf_entry(mode)
+	entry["frame_samples"] = int(entry.get("frame_samples", 0)) + 1
+	entry["frame_time_total_ms"] = float(entry.get("frame_time_total_ms", 0.0)) + maxf(elapsed_ms, 0.0)
+	entry["frame_time_avg_ms"] = float(entry.get("frame_time_total_ms", 0.0)) / float(maxi(int(entry.get("frame_samples", 0)), 1))
+	_lod_mode_perf[String(mode)] = entry
+
+
+func _record_mode_reaction_latency(mode: StringName, latency_s: float) -> void:
+	var entry: Dictionary = _ensure_mode_perf_entry(mode)
+	entry["reaction_samples"] = int(entry.get("reaction_samples", 0)) + 1
+	entry["reaction_latency_total_s"] = float(entry.get("reaction_latency_total_s", 0.0)) + maxf(latency_s, 0.0)
+	entry["reaction_latency_avg_s"] = float(entry.get("reaction_latency_total_s", 0.0)) / float(maxi(int(entry.get("reaction_samples", 0)), 1))
+	_lod_mode_perf[String(mode)] = entry
+
+
+func _snapshot_mode_perf() -> Dictionary:
+	return _lod_mode_perf.duplicate(true)
