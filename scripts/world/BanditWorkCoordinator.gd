@@ -49,45 +49,92 @@ var _raid_loot_next_at: Dictionary = {}  # member_id -> RunClock.now()
 var _state_lost_after_hit_count: int = 0
 var _full_cycles_by_member: Dictionary = {}  # member_id -> completed_cycle_count
 var _work_tick_seq: int = 0
-
-
-func _pipeline_log_enabled() -> bool:
-	return Debug.is_enabled("bandit_pipeline")
+var _active_work_cycle_by_member: Dictionary = {}  # member_id -> work_cycle_id
+var _next_work_cycle_seq: int = 1
+var _log_worker_event_cb: Callable = Callable()
+var _is_worker_instrumentation_enabled_cb: Callable = Callable()
+var _instrumentation_enabled: bool = true
 
 
 func _fmt_pos(value: Vector2) -> String:
 	return "%.2f,%.2f" % [value.x, value.y]
 
 
-func _pipeline_log_event(event_name: String, beh: BanditWorldBehavior,
-		used_pos: Vector2, target_id: String, extra := {}) -> void:
-	if not _pipeline_log_enabled():
+func _is_worker_event_logging_enabled() -> bool:
+	if not _instrumentation_enabled:
+		return false
+	if _is_worker_instrumentation_enabled_cb.is_valid():
+		return bool(_is_worker_instrumentation_enabled_cb.call())
+	return Debug.is_enabled("bandit_pipeline")
+
+
+func _current_work_cycle_id(beh: BanditWorldBehavior) -> String:
+	if beh == null:
+		return ""
+	return String(_active_work_cycle_by_member.get(beh.member_id, ""))
+
+
+func _ensure_work_cycle_id(beh: BanditWorldBehavior) -> String:
+	if beh == null:
+		return ""
+	var member_id: String = beh.member_id
+	var existing: String = String(_active_work_cycle_by_member.get(member_id, ""))
+	if existing != "":
+		return existing
+	var cycle_id: String = "%s-%06d" % [member_id, _next_work_cycle_seq]
+	_next_work_cycle_seq += 1
+	_active_work_cycle_by_member[member_id] = cycle_id
+	return cycle_id
+
+
+func _complete_work_cycle(beh: BanditWorldBehavior) -> void:
+	if beh == null:
 		return
+	_active_work_cycle_by_member.erase(beh.member_id)
+
+
+func _emit_worker_event(event_name: String, beh: BanditWorldBehavior,
+		used_pos: Vector2, target_id: String, extra := {}, ensure_cycle: bool = false) -> void:
+	if not _is_worker_event_logging_enabled():
+		return
+	var work_cycle_id: String = _current_work_cycle_id(beh)
+	if ensure_cycle:
+		work_cycle_id = _ensure_work_cycle_id(beh)
 	var payload := {
-		"event": event_name,
 		"npc_id": beh.member_id if beh != null else "unknown",
+		"group_id": beh.group_id if beh != null else "unknown",
 		"camp_id": beh.group_id if beh != null else "unknown",
-		"pos": _fmt_pos(used_pos),
+		"position_used": _fmt_pos(used_pos),
 		"target_id": target_id,
 		"state": str(int(beh.state)) if beh != null else "unknown",
 		"tick": _work_tick_seq,
+		"work_cycle_id": work_cycle_id,
 	}
 	for key in extra.keys():
 		payload[key] = extra[key]
-	var parts: Array[String] = []
-	for key in ["event", "npc_id", "camp_id", "pos", "target_id", "state", "tick"]:
-		parts.append("%s=%s" % [key, str(payload.get(key, ""))])
-	for key in payload.keys():
-		if key in ["event", "npc_id", "camp_id", "pos", "target_id", "state", "tick"]:
-			continue
-		parts.append("%s=%s" % [str(key), str(payload[key])])
-	Debug.log("bandit_pipeline", "[BWC_PIPE] %s" % " ".join(parts))
+	if _log_worker_event_cb.is_valid():
+		_log_worker_event_cb.call(event_name, payload)
+		return
+	var fallback := payload.duplicate()
+	fallback["event"] = event_name
+	Debug.log("bandit_pipeline", "[BWC_PIPE] %s" % JSON.stringify(fallback))
 
 
 func setup(ctx: Dictionary) -> void:
 	_stash = ctx.get("stash") as BanditCampStashSystem
 	_world_node = ctx.get("world_node")
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
+	_log_worker_event_cb = ctx.get("log_worker_event_cb", Callable())
+	_is_worker_instrumentation_enabled_cb = ctx.get("is_worker_instrumentation_enabled_cb", Callable())
+	_instrumentation_enabled = bool(ctx.get("worker_instrumentation_enabled", true))
+
+
+func get_work_tick_seq() -> int:
+	return _work_tick_seq
+
+
+func get_work_cycle_id_for_member(member_id: String) -> String:
+	return String(_active_work_cycle_by_member.get(member_id, ""))
 
 
 func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array) -> void:
@@ -116,6 +163,7 @@ func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
 		beh.pending_collect_id = 0
 	_raid_attack_next_at.erase(beh.member_id)
 	_raid_loot_next_at.erase(beh.member_id)
+	_active_work_cycle_by_member.erase(beh.member_id)
 
 
 func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
@@ -141,7 +189,7 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 			member_pos, drops_cache)
 
 	if beh.cargo_count > cargo_before_work:
-		_pipeline_log_event("cargo_updated", beh, member_pos, "", {
+		_emit_worker_event("cargo_updated", beh, member_pos, "", {
 			"cargo_before": cargo_before_work,
 			"cargo_after": beh.cargo_count,
 		})
@@ -154,9 +202,10 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 	if had_cargo_before_deposit and beh.cargo_count <= 0:
 		var current: int = int(_full_cycles_by_member.get(beh.member_id, 0))
 		_full_cycles_by_member[beh.member_id] = current + 1
-		_pipeline_log_event("work_cycle_resumed", beh, member_pos, "", {
+		_emit_worker_event("work_cycle_resumed", beh, member_pos, "", {
 			"cycle_count": current + 1,
 		})
+		_complete_work_cycle(beh)
 
 
 func _resolve_resource_center(beh: BanditWorldBehavior, enemy_node: Node) -> Vector2:
@@ -164,14 +213,14 @@ func _resolve_resource_center(beh: BanditWorldBehavior, enemy_node: Node) -> Vec
 	if beh._resource_node_id == 0 or not is_instance_id_valid(beh._resource_node_id):
 		if beh._resource_node_id != 0:
 			beh._resource_node_id = 0
-		_pipeline_log_event("resource_index_missing", beh, fallback, "", {
+		_emit_worker_event("resource_index_missing", beh, fallback, "", {
 			"stage": "resolve_resource_center",
 		})
 		return fallback
 	var res := instance_from_id(beh._resource_node_id) as Node2D
 	if res == null or not is_instance_valid(res) or res.is_queued_for_deletion():
 		beh._resource_node_id = 0
-		_pipeline_log_event("resource_index_missing", beh, fallback, "", {
+		_emit_worker_event("resource_index_missing", beh, fallback, "", {
 			"stage": "resolve_resource_center_invalid",
 		})
 		return fallback
@@ -182,13 +231,13 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var mine_id: int = beh.pending_mine_id
 	if mine_id == 0:
 		return
-	_pipeline_log_event("resource_acquired", beh, _node_pos_for_work(enemy_node), str(mine_id), {
+	_emit_worker_event("resource_acquired", beh, _node_pos_for_work(enemy_node), str(mine_id), {
 		"stage": "mining_pending",
-	})
+	}, true)
 	beh.pending_mine_id = 0
 	if not is_instance_id_valid(mine_id):
 		beh._resource_node_id = 0
-		_pipeline_log_event("resource_index_missing", beh, _node_pos_for_work(enemy_node), str(mine_id), {
+		_emit_worker_event("resource_index_missing", beh, _node_pos_for_work(enemy_node), str(mine_id), {
 			"stage": "pending_mine_invalid",
 		})
 		return
@@ -196,7 +245,7 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var res_node: Node = instance_from_id(mine_id) as Node
 	if res_node == null or not is_instance_valid(res_node) or res_node.is_queued_for_deletion():
 		beh._resource_node_id = 0
-		_pipeline_log_event("resource_index_missing", beh, _node_pos_for_work(enemy_node), str(mine_id), {
+		_emit_worker_event("resource_index_missing", beh, _node_pos_for_work(enemy_node), str(mine_id), {
 			"stage": "resource_node_missing",
 		})
 		return
@@ -206,7 +255,7 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	if enemy_pos.distance_squared_to(res_pos) > BanditTuningScript.mine_range_sq():
 		_restore_mine_intent_if_still_watching(beh, mine_id)
 		return
-	_pipeline_log_event("resource_in_range", beh, enemy_pos, str(mine_id), {
+	_emit_worker_event("resource_in_range", beh, enemy_pos, str(mine_id), {
 		"resource_pos": _fmt_pos(res_pos),
 	})
 
@@ -220,7 +269,7 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		return
 
 	res_node.hit(enemy_node)
-	_pipeline_log_event("resource_hit", beh, enemy_pos, str(mine_id), {
+	_emit_worker_event("resource_hit", beh, enemy_pos, str(mine_id), {
 		"resource_pos": _fmt_pos(res_pos),
 	})
 	_preserve_cycle_after_hit(beh, mine_id)
@@ -519,7 +568,7 @@ func _request_return_home(beh: BanditWorldBehavior, reason: String) -> bool:
 		# Priority rule: carrying cargo should preempt HOLD_POSITION unless another
 		# stronger block exists.
 		if block_reason != "holding_position_with_cargo":
-			_pipeline_log_event("cargo_not_returning", beh, beh.home_pos, "", {
+			_emit_worker_event("cargo_not_returning", beh, beh.home_pos, "", {
 				"reason": reason,
 				"block": block_reason,
 			})
@@ -529,12 +578,12 @@ func _request_return_home(beh: BanditWorldBehavior, reason: String) -> bool:
 	if block_reason != "":
 		return false
 	beh.force_return_home()
-	_pipeline_log_event("return_home_triggered", beh, beh.home_pos, "", {
+	_emit_worker_event("return_home_triggered", beh, beh.home_pos, "", {
 		"reason": reason,
 		"cargo": beh.cargo_count,
 	})
 	if beh.state != NpcWorldBehavior.State.RETURN_HOME:
-		_pipeline_log_event("cargo_not_returning", beh, beh.home_pos, "", {
+		_emit_worker_event("cargo_not_returning", beh, beh.home_pos, "", {
 			"reason": reason,
 			"post_state": str(int(beh.state)),
 		})
@@ -568,7 +617,7 @@ func _preserve_cycle_after_hit(beh: BanditWorldBehavior, mine_id: int) -> void:
 	Debug.log("bandit_ai", "[BWC] state_lost_after_hit guard npc=%s mine_id=%d count=%d" % [
 		beh.member_id, mine_id, _state_lost_after_hit_count
 	])
-	_pipeline_log_event("state_lost_after_hit", beh, _resolve_resource_center(beh, null), str(mine_id), {
+	_emit_worker_event("state_lost_after_hit", beh, _resolve_resource_center(beh, null), str(mine_id), {
 		"count": _state_lost_after_hit_count,
 	})
 

@@ -41,42 +41,75 @@ var _method_caps: MethodCapabilityCache = MethodCapabilityCacheScript.new()
 # Callable(group_id: String, barrel_pos: Vector2) -> void
 # Implementado por BanditBehaviorLayer para propagar deposit_pos a los behaviors.
 var _update_deposit_pos_cb: Callable = Callable()
-
-
-func _pipeline_log_enabled() -> bool:
-	return Debug.is_enabled("bandit_pipeline")
+var _log_worker_event_cb: Callable = Callable()
+var _is_worker_instrumentation_enabled_cb: Callable = Callable()
+var _get_work_tick_cb: Callable = Callable()
+var _get_work_cycle_id_cb: Callable = Callable()
+var _instrumentation_enabled: bool = true
 
 
 func _fmt_pos(value: Vector2) -> String:
 	return "%.2f,%.2f" % [value.x, value.y]
 
 
-func _pipeline_log_event(event_name: String, beh: BanditWorldBehavior,
+func _is_worker_event_logging_enabled() -> bool:
+	if not _instrumentation_enabled:
+		return false
+	if _is_worker_instrumentation_enabled_cb.is_valid():
+		return bool(_is_worker_instrumentation_enabled_cb.call())
+	return Debug.is_enabled("bandit_pipeline")
+
+
+func _current_tick() -> int:
+	if _get_work_tick_cb.is_valid():
+		return int(_get_work_tick_cb.call())
+	return 0
+
+
+func _current_work_cycle_id(beh: BanditWorldBehavior) -> String:
+	if beh == null:
+		return ""
+	if _get_work_cycle_id_cb.is_valid():
+		return String(_get_work_cycle_id_cb.call(beh.member_id))
+	return ""
+
+
+func _emit_worker_event(event_name: String, beh: BanditWorldBehavior,
 		used_pos: Vector2, target_id: String, extra := {}) -> void:
-	if not _pipeline_log_enabled():
+	if not _is_worker_event_logging_enabled():
 		return
 	var payload := {
-		"event": event_name,
 		"npc_id": beh.member_id if beh != null else "unknown",
+		"group_id": beh.group_id if beh != null else "unknown",
 		"camp_id": beh.group_id if beh != null else "unknown",
-		"pos": _fmt_pos(used_pos),
+		"position_used": _fmt_pos(used_pos),
 		"target_id": target_id,
 		"state": str(int(beh.state)) if beh != null else "unknown",
+		"tick": _current_tick(),
+		"work_cycle_id": _current_work_cycle_id(beh),
 	}
 	for key in extra.keys():
 		payload[key] = extra[key]
-	var parts: Array[String] = []
-	for key in ["event", "npc_id", "camp_id", "pos", "target_id", "state"]:
-		parts.append("%s=%s" % [key, str(payload.get(key, ""))])
-	for key in payload.keys():
-		if key in ["event", "npc_id", "camp_id", "pos", "target_id", "state"]:
-			continue
-		parts.append("%s=%s" % [str(key), str(payload[key])])
-	Debug.log("bandit_pipeline", "[CAMP_PIPE] %s" % " ".join(parts))
+	if _log_worker_event_cb.is_valid():
+		_log_worker_event_cb.call(event_name, payload)
+		return
+	var fallback := payload.duplicate()
+	fallback["event"] = event_name
+	Debug.log("bandit_pipeline", "[CAMP_PIPE] %s" % JSON.stringify(fallback))
 
 
 func setup(ctx: Dictionary) -> void:
 	_update_deposit_pos_cb = ctx.get("update_deposit_pos_cb", Callable())
+	_log_worker_event_cb = ctx.get("log_worker_event_cb", Callable())
+	_is_worker_instrumentation_enabled_cb = ctx.get("is_worker_instrumentation_enabled_cb", Callable())
+	_get_work_tick_cb = ctx.get("get_work_tick_cb", Callable())
+	_get_work_cycle_id_cb = ctx.get("get_work_cycle_id_cb", Callable())
+	_instrumentation_enabled = bool(ctx.get("worker_instrumentation_enabled", true))
+
+
+func set_work_context(ctx: Dictionary) -> void:
+	_get_work_tick_cb = ctx.get("get_work_tick_cb", _get_work_tick_cb)
+	_get_work_cycle_id_cb = ctx.get("get_work_cycle_id_cb", _get_work_cycle_id_cb)
 
 
 # ---------------------------------------------------------------------------
@@ -150,12 +183,12 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 				_camp_barrels[beh.group_id] = fallback_barrel.get_instance_id()
 				_notify_deposit_pos(beh.group_id, fallback_barrel.global_position)
 
-	_pipeline_log_event("deposit_attempt", beh, spawn_pos, "", {
+	_emit_worker_event("deposit_attempt", beh, spawn_pos, "", {
 		"cargo": beh.cargo_count,
 		"source": target_source,
 	})
 	if chest == null:
-		_pipeline_log_event("deposit_target_missing", beh, spawn_pos, "", {
+		_emit_worker_event("deposit_target_missing", beh, spawn_pos, "", {
 			"cause": missing_cause,
 		})
 
@@ -218,7 +251,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 					return
 				var inserted := int(chest.call("try_insert_item", cap_item_id, cap_amount))
 				if inserted > 0:
-					_pipeline_log_event("deposit_success", beh, spawn_pos, cap_item_id, {
+					_emit_worker_event("deposit_success", beh, spawn_pos, cap_item_id, {
 						"amount": inserted,
 						"source": target_source,
 					})
@@ -432,14 +465,14 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 			continue
 		found_candidate = true
 		beh.pending_collect_id = drop_node.get_instance_id()
-		_pipeline_log_event("drop_detected", beh, check_pos, str(beh.pending_collect_id), {
+		_emit_worker_event("drop_detected", beh, check_pos, str(beh.pending_collect_id), {
 			"drop_pos": _fmt_pos(drop_node.global_position),
 			"radius_sq": snappedf(radius_sq, 0.01),
 		})
 		_handle_collection(beh, enemy_node, sound_idx * BanditTuningScript.cargo_sfx_stagger())
 		sound_idx += 1
 	if not found_candidate:
-		_pipeline_log_event("pickup_candidates_empty", beh, check_pos, "", {
+		_emit_worker_event("pickup_candidates_empty", beh, check_pos, "", {
 			"radius_sq": snappedf(radius_sq, 0.01),
 			"cache_size": drops_cache.size(),
 		})
@@ -451,22 +484,22 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 	beh.pending_collect_id = 0
 
 	if drop_id == 0 or not is_instance_id_valid(drop_id):
-		_pipeline_log_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
+		_emit_worker_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
 			"reason": "invalid_instance_id",
 		})
 		return
-	_pipeline_log_event("drop_pickup_attempt", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
+	_emit_worker_event("drop_pickup_attempt", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
 		"cargo": "%d/%d" % [beh.cargo_count, beh.cargo_capacity],
 	})
 	var drop_obj: Object = instance_from_id(drop_id)
 	if drop_obj == null or not is_instance_valid(drop_obj):
-		_pipeline_log_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
+		_emit_worker_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
 			"reason": "drop_object_missing",
 		})
 		return
 	var drop_node: Node2D = drop_obj as Node2D
 	if drop_node == null or drop_node.is_queued_for_deletion():
-		_pipeline_log_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
+		_emit_worker_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
 			"reason": "drop_node_deleted",
 		})
 		return
@@ -509,7 +542,7 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 
 	var prev: int = beh.cargo_count
 	beh.cargo_count = mini(beh.cargo_count + collected_amount, beh.cargo_capacity)
-	_pipeline_log_event("drop_pickup_success", beh, drop_pos, str(drop_id), {
+	_emit_worker_event("drop_pickup_success", beh, drop_pos, str(drop_id), {
 		"item_id": item_id,
 		"amount": collected_amount,
 		"cargo_before": prev,
