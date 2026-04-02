@@ -34,6 +34,10 @@ class GroupLodSignals:
 	var is_pursuing_pressure: bool = false
 	var is_runtime_busy_but_not_combat: bool = false
 
+class ScanWorkBuffers:
+	var markers: Array[Dictionary] = []
+	var bases: Array[Dictionary] = []
+
 var _get_markers_near: Callable
 var _get_bases_near: Callable
 var _npc_simulator: NpcSimulator
@@ -47,6 +51,7 @@ var _scan_accumulator_by_group: Dictionary = {}
 var _lod_debug_last_group: Dictionary = {}
 var _lod_debug_group_counts: Dictionary = {"fast": 0, "medium": 0, "slow": 0}
 var _group_lod_signals: GroupLodSignals = GroupLodSignals.new()
+var _scan_work_buffers: ScanWorkBuffers = ScanWorkBuffers.new()
 
 
 # ---------------------------------------------------------------------------
@@ -229,12 +234,14 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var home_pos: Vector2 = g.get("home_world_pos", Vector2.ZERO)
 
 	# Query SettlementIntel
-	var markers: Array[Dictionary] = []
-	var bases: Array[Dictionary]   = []
+	var markers: Array[Dictionary] = _scan_work_buffers.markers
+	var bases: Array[Dictionary]   = _scan_work_buffers.bases
+	markers.clear()
+	bases.clear()
 	if _get_markers_near.is_valid():
-		markers = _get_markers_near.call(home_pos, BanditTuning.group_territory_radius())
+		_copy_dictionary_array(_get_markers_near.call(home_pos, BanditTuning.group_territory_radius()), markers)
 	if _get_bases_near.is_valid():
-		bases = _get_bases_near.call(home_pos, BanditTuning.group_territory_radius())
+		_copy_dictionary_array(_get_bases_near.call(home_pos, BanditTuning.group_territory_radius()), bases)
 
 	var score: float = _score_activity(markers, bases)
 
@@ -292,6 +299,15 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 		_maybe_enqueue_light_raid(group_id, g, bases[0], faction_id)
 	elif not bases.is_empty() and bool(policy.get("can_wall_probe_now", false)):
 		_maybe_enqueue_wall_probe(group_id, g, bases[0], faction_id, h_level)
+
+
+func _copy_dictionary_array(raw: Variant, out: Array[Dictionary]) -> void:
+	out.clear()
+	if not (raw is Array):
+		return
+	for item in raw as Array:
+		if item is Dictionary:
+			out.append(item as Dictionary)
 
 
 # ---------------------------------------------------------------------------
