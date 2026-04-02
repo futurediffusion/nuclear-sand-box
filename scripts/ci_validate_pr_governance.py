@@ -39,6 +39,7 @@ required_labels = [
     "Respuesta debug mutando estado:",
     "Respuesta telemetry/debug fuera de canal controlado mutando estado:",
     "Respuesta nueva decisión semántica en world.gd:",
+    "Respuesta ¿agregaste lógica de negocio en world.gd?:",
     "Respuesta nuevas responsabilidades de dominio en BanditWorkCoordinator:",
     "Respuesta cambio de estado nuevo en el PR:",
     "Owner de decisión tocada (obligatorio):",
@@ -72,6 +73,7 @@ blocker_by_violation = {
     "debug_mutando_estado": "respuesta debug mutando estado: sí",
     "telemetry_debug_fuera_de_canal_controlado": "respuesta telemetry/debug fuera de canal controlado mutando estado: sí",
     "nueva_decision_semantica_en_world_gd": "respuesta nueva decisión semántica en world.gd: sí",
+    "logica_de_negocio_en_world_gd": "respuesta ¿agregaste lógica de negocio en world.gd?: sí",
     "nuevas_responsabilidades_en_bandit_work_coordinator": "respuesta nuevas responsabilidades de dominio en banditworkcoordinator: sí",
 }
 
@@ -176,6 +178,9 @@ if "respuesta telemetry/debug fuera de canal controlado mutando estado: sí" in 
 
 if "respuesta nueva decisión semántica en world.gd: sí" in lower:
     fail("Merge bloqueado: no se permiten decisiones semánticas nuevas en world.gd.")
+
+if "respuesta ¿agregaste lógica de negocio en world.gd?: sí" in lower:
+    fail("Merge bloqueado: no se permite agregar lógica de negocio en world.gd.")
 
 if "respuesta nuevas responsabilidades de dominio en banditworkcoordinator: sí" in lower:
     fail("Merge bloqueado: BanditWorkCoordinator no puede crecer en responsabilidades de dominio.")

@@ -92,6 +92,18 @@ No es un módulo de reglas de negocio.
 - `SaveManager.save_world/new_game/has_save`
 - `WorldSimTelemetry.*`
 
+
+## Regla de gobernanza (obligatoria)
+
+- **Prohibido** añadir reglas de negocio nuevas en `scripts/world/world.gd`.
+- Todo comportamiento nuevo debe implementarse en facade o módulo de dominio y `world.gd` solo puede orquestar/delegar.
+
+## Excepciones temporales explícitas
+
+- Excepciones de `*.reset()` (si existen): `docs/world-gd-reset-exceptions.md` (incluyen fecha de retiro obligatoria).
+- Excepciones de patrones de lógica de negocio (si existen): `docs/world-gd-business-rule-exceptions.md` (incluyen fecha de retiro obligatoria).
+- Estado actual: **sin excepciones activas**.
+
 ## Regla operativa para PRs
 
 Si un cambio en `world.gd` introduce lógica no allowlisted, se debe mover a un servicio/orquestador/puerto de dominio antes de merge.

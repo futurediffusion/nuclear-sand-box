@@ -8,6 +8,7 @@ on:
       - scripts/ci_guard_world_boundary.py
       - docs/world-gd-boundary.md
       - docs/world-gd-reset-exceptions.md
+      - docs/world-gd-business-rule-exceptions.md
       - docs/runtime-architecture-pact.md
       - .github/workflows/world-boundary-guard.yml
 
