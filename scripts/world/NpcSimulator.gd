@@ -35,14 +35,13 @@ var _spawn_queue: Node = null        # SpawnBudgetQueue
 var _loaded_chunks: Dictionary = {}  # referencia al dict de World
 var _chunk_save: Dictionary = {}     # referencia al dict de World
 var _tile_to_world: Callable
-var _chunk_key_fn: Callable
 var _cliff_gen: CliffGenerator = null
 var _world_to_tile: Callable
 var _entity_root: Node2D = null
 
 # Estado propio
 var active_enemies: Dictionary = {}      # enemy_id -> Node
-var active_enemy_chunk: Dictionary = {}  # enemy_id -> chunk_key String
+var active_enemy_chunk: Dictionary = {}  # enemy_id -> chunk_pos(Vector2i)
 var spawning_enemy_ids: Dictionary = {}  # enemy_id -> true
 
 var _lite_timer: float = 0.0
@@ -57,7 +56,7 @@ var process_ms_avg: float = 0.0
 # BanditBehaviorLayer owns behaviors for enemies that DO have an active node.
 # Never both at once for the same enemy_id.
 var _data_behaviors: Dictionary = {}   # enemy_id -> BanditWorldBehavior
-var _prewarmed_chunks: Dictionary = {} # chunk_key -> true (per session)
+var _prewarmed_chunks: Dictionary = {} # chunk_pos(Vector2i) -> true (per session)
 var _world_w_tiles: int = 64
 var _world_h_tiles: int = 64
 
@@ -110,15 +109,21 @@ func get_enemy_node(enemy_id: String) -> Node:
 		return null
 	return node
 
+func get_enemy_chunk_pos(enemy_id: String) -> Vector2i:
+	return Vector2i(active_enemy_chunk.get(enemy_id, Vector2i(-999999, -999999)))
+
 func get_enemy_chunk_key(enemy_id: String) -> String:
-	return String(active_enemy_chunk.get(enemy_id, ""))
+	var chunk_pos: Vector2i = get_enemy_chunk_pos(enemy_id)
+	if chunk_pos.x <= -999999:
+		return ""
+	return WorldSave.chunk_key_from_pos(chunk_pos)
 
 func has_enemy_node(enemy_id: String) -> bool:
 	return get_enemy_node(enemy_id) != null
 
-func _register_active_enemy(enemy_id: String, chunk_key: String, node: Node) -> void:
+func _register_active_enemy(enemy_id: String, chunk_pos: Vector2i, node: Node) -> void:
 	active_enemies[enemy_id] = node
-	active_enemy_chunk[enemy_id] = chunk_key
+	active_enemy_chunk[enemy_id] = chunk_pos
 	spawning_enemy_ids.erase(enemy_id)
 
 
@@ -129,7 +134,6 @@ func setup(ctx: Dictionary) -> void:
 	_loaded_chunks = ctx["loaded_chunks"]
 	_chunk_save = ctx["chunk_save"]
 	_tile_to_world = ctx["tile_to_world"]
-	_chunk_key_fn = ctx["chunk_key"]
 	_cliff_gen = ctx.get("cliff_generator")
 	_world_to_tile = ctx.get("world_to_tile", Callable())
 	_entity_root = ctx.get("entity_root")
@@ -201,9 +205,8 @@ func _tick_data_only(delta: float) -> void:
 	for cpos in _loaded_chunks.keys():
 		var chunk_pos: Vector2i = cpos
 		_ensure_spawn_records(chunk_pos)
-		var chunk_key: String = _chunk_key_fn.call(chunk_pos)
-		for enemy_id in WorldSave.iter_enemy_ids_in_chunk(chunk_key):
-			var state_v = WorldSave.get_enemy_state(chunk_key, enemy_id)
+		for enemy_id in WorldSave.iter_enemy_ids_in_chunk_pos(chunk_pos):
+			var state_v = WorldSave.get_enemy_state_at_chunk_pos(chunk_pos, enemy_id)
 			if state_v == null:
 				continue
 			var state: Dictionary = state_v
@@ -237,7 +240,7 @@ func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary, sta
 	if _data_behaviors.has(enemy_id):
 		state["world_behavior"] = (_data_behaviors[enemy_id] as BanditWorldBehavior).export_state()
 		_remove_data_behavior(enemy_id)
-	var chunk_key: String = _chunk_key_fn.call(chunk_pos)
+	var chunk_key: String = WorldSave.chunk_key_from_pos(chunk_pos)
 	spawning_enemy_ids[enemy_id] = true
 	var ring: int = max(abs(chunk_pos.x - current_player_chunk.x), abs(chunk_pos.y - current_player_chunk.y))
 	var job: Dictionary = {
@@ -259,7 +262,7 @@ func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary, sta
 
 func despawn_enemy(enemy_id: String) -> void:
 	var node := get_enemy_node(enemy_id)
-	var chunk_key := get_enemy_chunk_key(enemy_id)
+	var chunk_pos: Vector2i = get_enemy_chunk_pos(enemy_id)
 	if node != null:
 		if node.has_method("capture_save_state"):
 			var state: Dictionary = node.call("capture_save_state")
@@ -267,8 +270,8 @@ func despawn_enemy(enemy_id: String) -> void:
 				var downed := node.get_node("DownedComponent")
 				if downed.has_method("get_save_data"):
 					state.merge(downed.call("get_save_data"), true)
-			if chunk_key != "":
-				WorldSave.set_enemy_state(chunk_key, enemy_id, state)
+			if chunk_pos.x > -999999:
+				WorldSave.set_enemy_state_at_chunk_pos(chunk_pos, enemy_id, state)
 		if node.has_node("AIComponent"):
 			var ai := node.get_node_or_null("AIComponent")
 			if ai != null and ai.has_method("on_owner_exit_tree"):
@@ -285,7 +288,7 @@ func despawn_enemy(enemy_id: String) -> void:
 # Llamado desde World._on_spawn_queue_job_spawned cuando kind == "enemy"
 func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 	var enemy_id: String = String(job.get("uid", ""))
-	_register_active_enemy(enemy_id, String(job.get("chunk_key", "")), node)
+	_register_active_enemy(enemy_id, WorldSave.chunk_pos_from_key(String(job.get("chunk_key", ""))), node)
 
 	var save_state: Dictionary = job.get("init_data", {}).get("save_state", {})
 	if node.has_node("DownedComponent"):
@@ -353,12 +356,12 @@ func on_enemy_job_skipped(job: Dictionary) -> void:
 
 # Llamado desde World._on_entity_died
 func on_entity_died(uid: String) -> void:
-	var chunk_key := get_enemy_chunk_key(uid)
-	if chunk_key != "":
-		WorldSave.mark_enemy_dead(chunk_key, uid)
+	var chunk_pos: Vector2i = get_enemy_chunk_pos(uid)
+	if chunk_pos.x > -999999:
+		WorldSave.mark_enemy_dead_at_chunk_pos(chunk_pos, uid)
 		# We do not clear tracking here to allow the corpse to persist if enabled.
 		# despawn_enemy() will handle full cleanup when the chunk is unloaded or out of range.
-		var dead_state = WorldSave.get_enemy_state(chunk_key, uid)
+		var dead_state = WorldSave.get_enemy_state_at_chunk_pos(chunk_pos, uid)
 		if dead_state != null:
 			var gid: String = String((dead_state as Dictionary).get("group_id", ""))
 			if gid != "":
@@ -378,9 +381,10 @@ func on_entity_died(uid: String) -> void:
 
 # Llamado desde World.unload_chunk_entities
 func on_chunk_unloaded(chunk_key: String) -> void:
+	var target_chunk_pos: Vector2i = WorldSave.chunk_pos_from_key(chunk_key)
 	var ids_to_despawn: Array[String] = []
 	for enemy_id in active_enemy_chunk.keys():
-		if get_enemy_chunk_key(String(enemy_id)) == chunk_key:
+		if get_enemy_chunk_pos(String(enemy_id)) == target_chunk_pos:
 			ids_to_despawn.append(String(enemy_id))
 	for enemy_id in ids_to_despawn:
 		despawn_enemy(enemy_id)
@@ -397,14 +401,14 @@ func on_chunk_unloaded(chunk_key: String) -> void:
 # ---------------------------------------------------------------------------
 
 func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
-	var chunk_key: String = _chunk_key_fn.call(chunk_pos)
+	var chunk_key: String = WorldSave.chunk_key_from_pos(chunk_pos)
 	if not WorldSave.get_chunk_enemy_spawns(chunk_key).is_empty():
 		if _cliff_gen == null or not _world_to_tile.is_valid():
 			return
 		var stale := false
 		var all_dead := true
-		for eid in WorldSave.iter_enemy_ids_in_chunk(chunk_key):
-			var st = WorldSave.get_enemy_state(chunk_key, eid)
+		for eid in WorldSave.iter_enemy_ids_in_chunk_pos(chunk_pos):
+			var st = WorldSave.get_enemy_state_at_chunk_pos(chunk_pos, eid)
 			if st == null:
 				continue
 			if not bool((st as Dictionary).get("is_dead", false)):
@@ -494,9 +498,9 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 			camp_member_index += 1
 	WorldSave.ensure_chunk_enemy_spawns(chunk_key, records)
 	# Prewarm fresh records once per session to disperse scavengers from camp center
-	if not _prewarmed_chunks.has(chunk_key):
-		_prewarmed_chunks[chunk_key] = true
-		_prewarm_chunk(chunk_key)
+	if not _prewarmed_chunks.has(chunk_pos):
+		_prewarmed_chunks[chunk_pos] = true
+		_prewarm_chunk(chunk_pos)
 
 func _can_despawn(node: Node, state: Dictionary) -> bool:
 	if node == null or not is_instance_valid(node):
@@ -627,13 +631,14 @@ func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float, 
 				state["ai_last_seen_time"]       = RunClock.now()
 
 
-func _prewarm_chunk(chunk_key: String) -> void:
+func _prewarm_chunk(chunk_pos: Vector2i) -> void:
+	var chunk_key: String = WorldSave.chunk_key_from_pos(chunk_pos)
 	const PREWARM_SECONDS: float = 20.0
 	const PREWARM_STEP:    float = 1.0
 	var steps: int = int(round(PREWARM_SECONDS / PREWARM_STEP))
 	var prewarmed: int = 0
-	for enemy_id in WorldSave.iter_enemy_ids_in_chunk(chunk_key):
-		var state_v = WorldSave.get_enemy_state(chunk_key, enemy_id)
+	for enemy_id in WorldSave.iter_enemy_ids_in_chunk_pos(chunk_pos):
+		var state_v = WorldSave.get_enemy_state_at_chunk_pos(chunk_pos, enemy_id)
 		if state_v == null:
 			continue
 		var state: Dictionary = state_v

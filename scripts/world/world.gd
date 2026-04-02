@@ -1054,13 +1054,10 @@ func _get_current_player_chunk() -> Vector2i:
 	return current_player_chunk
 
 func _chunk_key(chunk_pos: Vector2i) -> String:
-	return "%d,%d" % [chunk_pos.x, chunk_pos.y]
+	return WorldSave.chunk_key_from_pos(chunk_pos)
 
 func _chunk_from_key(chunk_key: String) -> Vector2i:
-	var parts: PackedStringArray = chunk_key.split(",")
-	if parts.size() != 2:
-		return Vector2i(-99999, -99999)
-	return Vector2i(int(parts[0]), int(parts[1]))
+	return WorldSave.chunk_pos_from_key(chunk_key)
 
 func _get_extra_wall_support_lookup_for_chunk(chunk_pos: Vector2i) -> Dictionary:
 	var out: Dictionary = {}

@@ -14,12 +14,25 @@ var player_walls_by_chunk: Dictionary = {}  # chunk_key(String) -> tile_key(Stri
 var chunk_size: int = 32
 
 func chunk_key(cx: int, cy: int) -> String:
-	return "%d,%d" % [cx, cy]
+	return chunk_key_from_pos(Vector2i(cx, cy))
+
+func chunk_key_from_pos(chunk_pos: Vector2i) -> String:
+	return "%d,%d" % [chunk_pos.x, chunk_pos.y]
+
+func chunk_pos_from_key(chunk_key_value: String) -> Vector2i:
+	var parts: PackedStringArray = chunk_key_value.split(",")
+	if parts.size() != 2:
+		return Vector2i(-999999, -999999)
+	return Vector2i(int(parts[0]), int(parts[1]))
 
 func get_chunk_key_for_tile(tx: int, ty: int) -> String:
-	var cx := int(floor(float(tx) / float(chunk_size)))
-	var cy := int(floor(float(ty) / float(chunk_size)))
-	return chunk_key(cx, cy)
+	return chunk_key_from_pos(chunk_pos_for_tile(tx, ty))
+
+func chunk_pos_for_tile(tx: int, ty: int) -> Vector2i:
+	return Vector2i(
+		int(floor(float(tx) / float(chunk_size))),
+		int(floor(float(ty) / float(chunk_size)))
+	)
 
 ## Entidades colocadas manualmente por el player en mundo (mesas, etc.)
 ## Almacenamiento canónico por chunk: chunk_key -> { uid -> entry }
@@ -259,6 +272,9 @@ func get_enemy_state(chunk_key: String, enemy_id: String):
 		return null
 	return enemy_state_by_chunk[chunk_key].get(enemy_id, null)
 
+func get_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String):
+	return get_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id)
+
 func set_enemy_state(chunk_key: String, enemy_id: String, state: Dictionary) -> void:
 	if chunk_key == "" or enemy_id == "":
 		return
@@ -271,10 +287,16 @@ func set_enemy_state(chunk_key: String, enemy_id: String, state: Dictionary) -> 
 		copy["version"] = 1
 	enemy_state_by_chunk[chunk_key][enemy_id] = copy
 
+func set_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> void:
+	set_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id, state)
+
 func has_enemy_state(chunk_key: String, enemy_id: String) -> bool:
 	if chunk_key == "" or enemy_id == "":
 		return false
 	return enemy_state_by_chunk.has(chunk_key) and enemy_state_by_chunk[chunk_key].has(enemy_id)
+
+func has_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String) -> bool:
+	return has_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id)
 
 func remove_enemy_state(chunk_key: String, enemy_id: String) -> void:
 	if not enemy_state_by_chunk.has(chunk_key):
@@ -282,6 +304,9 @@ func remove_enemy_state(chunk_key: String, enemy_id: String) -> void:
 	enemy_state_by_chunk[chunk_key].erase(enemy_id)
 	if enemy_state_by_chunk[chunk_key].is_empty():
 		enemy_state_by_chunk.erase(chunk_key)
+
+func remove_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String) -> void:
+	remove_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id)
 
 func iter_enemy_ids_in_chunk(chunk_key: String) -> Array[String]:
 	if not enemy_state_by_chunk.has(chunk_key):
@@ -292,6 +317,9 @@ func iter_enemy_ids_in_chunk(chunk_key: String) -> Array[String]:
 	ids.sort()
 	return ids
 
+func iter_enemy_ids_in_chunk_pos(chunk_pos: Vector2i) -> Array[String]:
+	return iter_enemy_ids_in_chunk(chunk_key_from_pos(chunk_pos))
+
 func mark_enemy_dead(chunk_key: String, enemy_id: String) -> void:
 	var state = get_enemy_state(chunk_key, enemy_id)
 	if state == null:
@@ -301,6 +329,9 @@ func mark_enemy_dead(chunk_key: String, enemy_id: String) -> void:
 	copy["is_downed"] = false
 	copy["last_active_time"] = RunClock.now()
 	set_enemy_state(chunk_key, enemy_id, copy)
+
+func mark_enemy_dead_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String) -> void:
+	mark_enemy_dead(chunk_key_from_pos(chunk_pos), enemy_id)
 
 func mark_enemy_downed(chunk_key: String, enemy_id: String, resolve_at: float, entered_at: float = -1.0) -> void:
 	var state = get_enemy_state(chunk_key, enemy_id)
@@ -314,6 +345,9 @@ func mark_enemy_downed(chunk_key: String, enemy_id: String, resolve_at: float, e
 	copy["last_active_time"] = RunClock.now()
 	set_enemy_state(chunk_key, enemy_id, copy)
 
+func mark_enemy_downed_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String, resolve_at: float, entered_at: float = -1.0) -> void:
+	mark_enemy_downed(chunk_key_from_pos(chunk_pos), enemy_id, resolve_at, entered_at)
+
 func get_or_create_enemy_state(chunk_key: String, enemy_id: String, default_state: Dictionary) -> Dictionary:
 	var existing = get_enemy_state(chunk_key, enemy_id)
 	if existing != null:
@@ -326,10 +360,16 @@ func get_or_create_enemy_state(chunk_key: String, enemy_id: String, default_stat
 	set_enemy_state(chunk_key, enemy_id, created)
 	return created.duplicate(true)
 
+func get_or_create_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String, default_state: Dictionary) -> Dictionary:
+	return get_or_create_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id, default_state)
+
 func get_enemy_count_in_chunk(chunk_key: String) -> int:
 	if not enemy_state_by_chunk.has(chunk_key):
 		return 0
 	return enemy_state_by_chunk[chunk_key].size()
+
+func get_enemy_count_in_chunk_pos(chunk_pos: Vector2i) -> int:
+	return get_enemy_count_in_chunk(chunk_key_from_pos(chunk_pos))
 
 func ensure_chunk_enemy_spawns(chunk_key: String, records: Array) -> void:
 	if chunk_key == "":

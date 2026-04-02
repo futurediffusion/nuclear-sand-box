@@ -26,9 +26,9 @@ var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
 var _chunk_size: int = 32
 
-# kind -> chunk_key -> {instance_id: Node}
+# kind -> chunk_pos(Vector2i) -> {instance_id: Node}
 var _runtime_nodes_by_kind: Dictionary = {}
-# instance_id -> {"kind": StringName, "chunk_key": String, "node": Node}
+# instance_id -> {"kind": StringName, "chunk_pos": Vector2i, "node": Node}
 var _runtime_meta_by_id: Dictionary = {}
 # Derived persistent view: item_id -> chunk_key -> Array[Dictionary].
 # This is rebuilt from WorldSave when its structural revision changes.
@@ -54,15 +54,15 @@ func register_runtime_node(kind: StringName, node: Node) -> void:
 		return
 	var iid: int = node.get_instance_id()
 	_unregister_runtime_id(iid)
-	var chunk_key := _world_to_chunk_key(node2d.global_position)
+	var chunk_pos := _world_to_chunk_pos(node2d.global_position)
 	var by_chunk: Dictionary = _ensure_runtime_kind(kind)
-	if not by_chunk.has(chunk_key):
-		by_chunk[chunk_key] = {}
-	var chunk_bucket: Dictionary = by_chunk[chunk_key]
+	if not by_chunk.has(chunk_pos):
+		by_chunk[chunk_pos] = {}
+	var chunk_bucket: Dictionary = by_chunk[chunk_pos]
 	chunk_bucket[iid] = node
 	_runtime_meta_by_id[iid] = {
 		"kind": kind,
-		"chunk_key": chunk_key,
+		"chunk_pos": chunk_pos,
 		"node": node,
 	}
 
@@ -80,12 +80,12 @@ func update_runtime_node(kind: StringName, node: Node) -> void:
 	var node2d := node as Node2D
 	if node2d == null:
 		return
-	var next_chunk_key := _world_to_chunk_key(node2d.global_position)
+	var next_chunk_pos := _world_to_chunk_pos(node2d.global_position)
 	var meta: Dictionary = _runtime_meta_by_id.get(iid, {})
 	if meta.is_empty():
 		register_runtime_node(kind, node)
 		return
-	if StringName(meta.get("kind", &"")) != kind or String(meta.get("chunk_key", "")) != next_chunk_key:
+	if StringName(meta.get("kind", &"")) != kind or Vector2i(meta.get("chunk_pos", Vector2i(-999999, -999999))) != next_chunk_pos:
 		register_runtime_node(kind, node)
 
 
@@ -93,8 +93,8 @@ func get_runtime_nodes_near(kind: StringName, world_pos: Vector2, radius: float)
 	_queries_total += 1
 	var result: Array = []
 	var r2: float = radius * radius
-	for chunk_key in _get_chunk_keys_for_radius(world_pos, radius):
-		var bucket: Dictionary = _get_runtime_bucket(kind, chunk_key)
+	for chunk_pos in _get_chunk_positions_for_radius(world_pos, radius):
+		var bucket: Dictionary = _get_runtime_bucket(kind, chunk_pos)
 		if bucket.is_empty():
 			continue
 		var stale_ids: Array[int] = []
@@ -104,8 +104,8 @@ func get_runtime_nodes_near(kind: StringName, world_pos: Vector2, radius: float)
 			if node == null or not is_instance_valid(node) or node2d == null or node.is_queued_for_deletion():
 				stale_ids.append(int(iid))
 				continue
-			var actual_chunk_key := _world_to_chunk_key(node2d.global_position)
-			if actual_chunk_key != chunk_key:
+			var actual_chunk_pos := _world_to_chunk_pos(node2d.global_position)
+			if actual_chunk_pos != chunk_pos:
 				register_runtime_node(kind, node)
 				continue
 			if node2d.global_position.distance_squared_to(world_pos) <= r2:
@@ -139,8 +139,8 @@ func get_placeables_by_item_ids_near(world_pos: Vector2, radius: float, item_ids
 	var result: Array[Dictionary] = []
 	var filter: Dictionary = _array_to_string_set(item_ids)
 	var r2: float = radius * radius
-	for chunk_key in _get_chunk_keys_for_radius(world_pos, radius):
-		var entries: Array[Dictionary] = get_placeables_in_chunk_key(chunk_key, item_ids)
+	for chunk_pos in _get_chunk_positions_for_radius(world_pos, radius):
+		var entries: Array[Dictionary] = get_placeables_in_chunk(chunk_pos.x, chunk_pos.y, item_ids)
 		for entry in entries:
 			var item_id := String(entry.get("item_id", "")).strip_edges()
 			if not filter.is_empty() and not filter.has(item_id):
@@ -152,10 +152,10 @@ func get_placeables_by_item_ids_near(world_pos: Vector2, radius: float, item_ids
 
 
 func get_placeables_in_chunk_key(chunk_key: String, item_ids: Array[String] = []) -> Array[Dictionary]:
-	var parts := chunk_key.split(",")
-	if parts.size() != 2:
+	var chunk_pos: Vector2i = WorldSave.chunk_pos_from_key(chunk_key)
+	if chunk_pos.x <= -999999:
 		return []
-	return get_placeables_in_chunk(int(parts[0]), int(parts[1]), item_ids)
+	return get_placeables_in_chunk(chunk_pos.x, chunk_pos.y, item_ids)
 
 
 func get_placeables_in_chunk(cx: int, cy: int, item_ids: Array[String] = []) -> Array[Dictionary]:
@@ -165,7 +165,7 @@ func get_placeables_in_chunk(cx: int, cy: int, item_ids: Array[String] = []) -> 
 	var filter: Dictionary = _array_to_string_set(item_ids)
 	var result: Array[Dictionary] = []
 	for item_id in filter.keys():
-		var chunk_entries: Array = _get_cached_placeables_for_item_in_chunk(String(item_id), WorldSave.chunk_key(cx, cy))
+		var chunk_entries: Array = _get_cached_placeables_for_item_in_chunk(String(item_id), WorldSave.chunk_key_from_pos(Vector2i(cx, cy)))
 		for entry in chunk_entries:
 			result.append((entry as Dictionary).duplicate(true))
 	return result
@@ -255,9 +255,9 @@ func _ensure_runtime_kind(kind: StringName) -> Dictionary:
 	return _runtime_nodes_by_kind[kind]
 
 
-func _get_runtime_bucket(kind: StringName, chunk_key: String) -> Dictionary:
+func _get_runtime_bucket(kind: StringName, chunk_pos: Vector2i) -> Dictionary:
 	var by_chunk: Dictionary = _runtime_nodes_by_kind.get(kind, {})
-	return by_chunk.get(chunk_key, {})
+	return by_chunk.get(chunk_pos, {})
 
 
 func _unregister_runtime_id(iid: int) -> void:
@@ -265,32 +265,31 @@ func _unregister_runtime_id(iid: int) -> void:
 	if meta.is_empty():
 		return
 	var kind: StringName = meta.get("kind", &"")
-	var chunk_key: String = String(meta.get("chunk_key", ""))
+	var chunk_pos: Vector2i = Vector2i(meta.get("chunk_pos", Vector2i(-999999, -999999)))
 	var by_chunk: Dictionary = _runtime_nodes_by_kind.get(kind, {})
-	if by_chunk.has(chunk_key):
-		var bucket: Dictionary = by_chunk[chunk_key]
+	if by_chunk.has(chunk_pos):
+		var bucket: Dictionary = by_chunk[chunk_pos]
 		bucket.erase(iid)
 		if bucket.is_empty():
-			by_chunk.erase(chunk_key)
+			by_chunk.erase(chunk_pos)
 	_runtime_meta_by_id.erase(iid)
 
 
-func _get_chunk_keys_for_radius(world_pos: Vector2, radius: float) -> Array[String]:
+func _get_chunk_positions_for_radius(world_pos: Vector2, radius: float) -> Array[Vector2i]:
 	var min_world := world_pos - Vector2(radius, radius)
 	var max_world := world_pos + Vector2(radius, radius)
 	var min_chunk := _world_to_chunk(_world_to_tile(min_world))
 	var max_chunk := _world_to_chunk(_world_to_tile(max_world))
-	var result: Array[String] = []
+	var result: Array[Vector2i] = []
 	for cy in range(min_chunk.y, max_chunk.y + 1):
 		for cx in range(min_chunk.x, max_chunk.x + 1):
-			result.append("%d,%d" % [cx, cy])
+			result.append(Vector2i(cx, cy))
 	return result
 
 
-func _world_to_chunk_key(world_pos: Vector2) -> String:
+func _world_to_chunk_pos(world_pos: Vector2) -> Vector2i:
 	var tile := _world_to_tile(world_pos)
-	var chunk := _world_to_chunk(tile)
-	return "%d,%d" % [chunk.x, chunk.y]
+	return _world_to_chunk(tile)
 
 
 func _world_to_chunk(tile_pos: Vector2i) -> Vector2i:
