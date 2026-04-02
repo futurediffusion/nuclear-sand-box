@@ -43,6 +43,13 @@ var _placeables_full_rebuild_calls: int = 0
 var _placeables_full_rebuild_usec_total: int = 0
 var _placeables_sanity_interval_msec: int = 90000
 var _next_placeables_sanity_check_msec: int = 0
+var _placeables_revision_poll_interval_msec: int = 1500
+var _next_placeables_revision_poll_msec: int = 0
+var _placeables_sync_pending: bool = true
+var _pending_placeables_changed_chunks: Dictionary = {}
+var _pending_placeables_changed_item_ids: Dictionary = {}
+var _event_driven_invalidation_hits: int = 0
+var _revision_poll_invalidations: int = 0
 
 var _queries_total: int = 0
 var _queries_with_hits: int = 0
@@ -57,6 +64,9 @@ func setup(ctx: Dictionary) -> void:
 	_tile_to_world_cb = ctx.get("tile_to_world", Callable())
 	_chunk_size = maxi(int(ctx.get("chunk_size", 32)), 1)
 	add_to_group("world_spatial_index")
+	if PlacementSystem != null \
+			and not PlacementSystem.placement_completed.is_connected(_on_placement_completed):
+		PlacementSystem.placement_completed.connect(_on_placement_completed)
 
 
 func register_runtime_node(kind: StringName, node: Node) -> void:
@@ -417,9 +427,20 @@ func _array_to_string_set(values: Array) -> Dictionary:
 
 func _ensure_placeables_cache() -> void:
 	var now_msec: int = Time.get_ticks_msec()
+	if now_msec >= _next_placeables_revision_poll_msec:
+		_next_placeables_revision_poll_msec = now_msec + maxi(_placeables_revision_poll_interval_msec, 250)
+		if int(WorldSave.placed_entities_revision) != _placeables_cache_revision:
+			_placeables_sync_pending = true
+			_revision_poll_invalidations += 1
+	if not _placeables_sync_pending and _placeables_cache_revision >= 0:
+		if now_msec >= _next_placeables_sanity_check_msec:
+			_run_placeables_sanity_check()
+			_schedule_next_placeables_sanity(now_msec)
+		return
 	var revision: int = int(WorldSave.placed_entities_revision)
 	if _placeables_cache_revision < 0:
 		_rebuild_placeables_cache_full()
+		_placeables_sync_pending = false
 		_schedule_next_placeables_sanity(now_msec)
 		return
 	if revision != _placeables_cache_revision:
@@ -436,6 +457,9 @@ func _ensure_placeables_cache() -> void:
 		_last_applied_placeables_change_serial = int(delta.get("latest_serial", _last_applied_placeables_change_serial))
 		_placeables_incremental_apply_calls += 1
 		_placeables_incremental_apply_usec_total += Time.get_ticks_usec() - t0
+	_placeables_sync_pending = false
+	_pending_placeables_changed_chunks.clear()
+	_pending_placeables_changed_item_ids.clear()
 	if now_msec >= _next_placeables_sanity_check_msec:
 		_run_placeables_sanity_check()
 		_schedule_next_placeables_sanity(now_msec)
@@ -477,6 +501,9 @@ func _rebuild_placeables_cache_full() -> void:
 	_last_applied_placeables_change_serial = int(WorldSave.placed_entities_change_serial)
 	_placeables_full_rebuild_calls += 1
 	_placeables_full_rebuild_usec_total += Time.get_ticks_usec() - t0
+	_placeables_sync_pending = false
+	_pending_placeables_changed_chunks.clear()
+	_pending_placeables_changed_item_ids.clear()
 
 
 func _apply_placeables_cache_change(change: Dictionary) -> void:
@@ -582,6 +609,11 @@ func get_debug_snapshot() -> Dictionary:
 		"persistent_incremental_apply_avg_usec": float(_placeables_incremental_apply_usec_total) / float(maxi(_placeables_incremental_apply_calls, 1)),
 		"persistent_full_rebuild_calls": _placeables_full_rebuild_calls,
 		"persistent_full_rebuild_avg_usec": float(_placeables_full_rebuild_usec_total) / float(maxi(_placeables_full_rebuild_calls, 1)),
+		"persistent_sync_pending": _placeables_sync_pending,
+		"pending_changed_chunks": _pending_placeables_changed_chunks.size(),
+		"pending_changed_item_ids": _pending_placeables_changed_item_ids.size(),
+		"event_driven_invalidation_hits": _event_driven_invalidation_hits,
+		"revision_poll_invalidations": _revision_poll_invalidations,
 		"query_total": _queries_total,
 		"query_hit_rate": float(_queries_with_hits) / float(maxi(_queries_total, 1)),
 		"chunk_query_calls": _chunk_query_calls,
@@ -590,3 +622,17 @@ func get_debug_snapshot() -> Dictionary:
 		"nearest_candidates_avg": float(_nearest_candidates_evaluated_total) / float(maxi(_nearest_query_calls, 1)),
 		"worldsave_chunk_key_codec": WorldSave.get_chunk_key_codec_metrics(),
 	}
+
+
+func notify_placeables_changed(item_id: String, tile_pos: Vector2i) -> void:
+	_placeables_sync_pending = true
+	var item_key: String = item_id.strip_edges()
+	if item_key != "":
+		_pending_placeables_changed_item_ids[item_key] = true
+	var chunk_pos: Vector2i = _world_to_chunk(tile_pos)
+	_pending_placeables_changed_chunks[chunk_pos] = true
+	_event_driven_invalidation_hits += 1
+
+
+func _on_placement_completed(item_id: String, tile_pos: Vector2i) -> void:
+	notify_placeables_changed(item_id, tile_pos)

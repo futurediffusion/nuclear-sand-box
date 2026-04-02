@@ -179,6 +179,9 @@ class StructureWorkBuffers:
 	var member_query_centers: Array[Vector2] = []
 	var member_candidates: Array[Vector2] = []
 
+class DispatchWorkBuffers:
+	var prune_ids: Array[String] = []
+
 var _npc_simulator:  NpcSimulator             = null
 var _group_intel:    BanditGroupIntel         = null
 var _player:         Node2D                   = null
@@ -213,6 +216,7 @@ var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slo
 var _lod_mode_perf: Dictionary = {}
 var _tick_scan_buffers: TickScanBuffers          = TickScanBuffers.new()
 var _structure_work_buffers: StructureWorkBuffers = StructureWorkBuffers.new()
+var _dispatch_work_buffers: DispatchWorkBuffers  = DispatchWorkBuffers.new()
 var _method_caps: MethodCapabilityCache          = MethodCapabilityCacheScript.new()
 
 
@@ -669,10 +673,11 @@ func _ensure_behaviors_for_active_enemies() -> void:
 # ---------------------------------------------------------------------------
 
 func _prune_behaviors() -> void:
-	var to_remove: Array = []
+	var to_remove: Array[String] = _dispatch_work_buffers.prune_ids
+	to_remove.clear()
 	for enemy_id in _behaviors:
 		if _npc_simulator.get_enemy_node(enemy_id) == null:
-			to_remove.append(enemy_id)
+			to_remove.append(String(enemy_id))
 	for enemy_id in to_remove:
 		_behaviors.erase(enemy_id)
 		_behavior_elapsed.erase(enemy_id)

@@ -24,6 +24,7 @@ const BASE_SCAN_DOOR_BUDGET_PER_PULSE: int = 4
 const BASE_SCAN_PHASE_RATIO: float = 0.28
 const WORKBENCH_SCAN_PHASE_RATIO: float = 0.61
 const INTEL_LOG_SAMPLE_HEAVY: int = 8
+const BASE_SCAN_CHUNK_RADIUS_MULT: float = 1.75
 
 # Cardinal directions used in flood fill and adjacency checks
 const _CARDINALS: Array[Vector2i] = [
@@ -53,6 +54,13 @@ var _cadence: WorldCadenceCoordinator
 var _world_spatial_index: WorldSpatialIndex
 var _flood_result: FloodFillResult = FloodFillResult.new()
 var _last_placeables_change_serial: int = 0
+var _dirty_workbench_chunks: Dictionary = {}
+var _dirty_base_chunks: Dictionary = {}
+var _pending_base_scan_jobs: Array[Dictionary] = []
+var _partial_workbench_rescans: int = 0
+var _full_workbench_rescans: int = 0
+var _partial_base_scan_jobs_enqueued: int = 0
+var _global_scan_fallbacks: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -107,20 +115,26 @@ func process(delta: float) -> void:
 
 	var next_placeable_serial: int = int(WorldSave.placed_entities_change_serial)
 	if next_placeable_serial != _last_placeables_change_serial:
-		_last_placeables_change_serial = next_placeable_serial
-		_dirty = true
+		_collect_placeable_chunk_deltas(next_placeable_serial)
 
 	var workbench_pulses: int = _cadence.consume_lane(&"settlement_workbench_scan") if use_world_cadence else 0
-	if _dirty or workbench_pulses > 0 or _rescan_timer >= WORKBENCH_RESCAN_INTERVAL:
+	var rescan_interval_elapsed: bool = _rescan_timer >= WORKBENCH_RESCAN_INTERVAL
+	if _dirty or not _dirty_workbench_chunks.is_empty() or workbench_pulses > 0 or rescan_interval_elapsed:
 		_rescan_timer = 0.0
+		var force_full: bool = _dirty or rescan_interval_elapsed
+		var changed_chunks: Array[Vector2i] = _collect_dirty_chunk_keys(_dirty_workbench_chunks)
 		_dirty = false
-		_scan_workbenches()
+		_scan_workbenches(changed_chunks, force_full)
+		_dirty_workbench_chunks.clear()
 
 	var base_scan_pulses: int = _cadence.consume_lane(&"settlement_base_scan") if use_world_cadence else 0
 	if _player_pos_getter.is_valid() and (_base_scan_dirty or base_scan_pulses > 0 or _base_rescan_timer >= BASE_RESCAN_INTERVAL):
 		_base_rescan_timer = 0.0
 		_base_scan_dirty = false
+		_pending_base_scan_jobs.clear()
 		_ensure_base_scan_job(_player_pos_getter.call(), BASE_SCAN_RADIUS_DEFAULT)
+	elif not _dirty_base_chunks.is_empty():
+		_enqueue_base_scans_for_dirty_chunks()
 
 	_process_pending_base_scan(BASE_SCAN_DOOR_BUDGET_PER_PULSE)
 
@@ -224,21 +238,34 @@ func mark_base_scan_dirty_near(_world_pos: Vector2) -> void:
 # Interest marker internals
 # ---------------------------------------------------------------------------
 
-func _scan_workbenches() -> void:
+func _scan_workbenches(changed_chunks: Array[Vector2i] = [], force_full: bool = false) -> void:
+	if changed_chunks.is_empty():
+		force_full = true
 	var live_uids: Dictionary = {}
-	if _world_spatial_index != null:
+	if force_full and _world_spatial_index != null:
 		# Honest boundary: workbench persistence is still canonical in WorldSave.
 		# WorldSpatialIndex only gives us a derived item-id view so we do not walk every chunk here.
 		for entry in _world_spatial_index.get_all_placeables_by_item_id("workbench"):
 			var uid := String(entry.get("uid", ""))
 			if uid != "":
 				live_uids[uid] = entry
-	else:
+	elif force_full:
 		for ckey in WorldSave.placed_entities_by_chunk:
 			var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
 			for uid in chunk_dict:
 				var entry: Dictionary = chunk_dict[uid]
 				if String(entry.get("item_id", "")).strip_edges() == "workbench":
+					live_uids[uid] = entry
+	else:
+		for chunk_pos in changed_chunks:
+			var entries: Array[Dictionary] = []
+			if _world_spatial_index != null:
+				entries = _world_spatial_index.get_placeables_in_chunk(chunk_pos.x, chunk_pos.y, ["workbench"])
+			else:
+				entries = _get_worldsave_placeables_in_chunk(chunk_pos.x, chunk_pos.y, "workbench")
+			for entry in entries:
+				var uid := String(entry.get("uid", ""))
+				if uid != "":
 					live_uids[uid] = entry
 
 	# Remove stale workbench markers
@@ -248,7 +275,10 @@ func _scan_workbenches() -> void:
 		if m.get("kind", "") == "workbench":
 			var metadata_variant: Variant = m.get("metadata", null)
 			var uid: String = String((metadata_variant as Dictionary).get("uid", "")) if metadata_variant is Dictionary else ""
-			if uid != "" and not live_uids.has(uid):
+			var marker_tile: Vector2i = m.get("tile_pos", Vector2i.ZERO)
+			var marker_chunk: Vector2i = _tile_to_chunk(marker_tile)
+			var should_consider: bool = force_full or _contains_chunk(changed_chunks, marker_chunk)
+			if should_consider and uid != "" and not live_uids.has(uid):
 				if _can_log_intel():
 					Debug.log("intel", "[MARKER] persistent removed kind=workbench uid=%s" % uid)
 				_markers.remove_at(i)
@@ -281,6 +311,10 @@ func _scan_workbenches() -> void:
 			"persistent": true,
 			"metadata":   {"uid": uid},
 		})
+	if force_full:
+		_full_workbench_rescans += 1
+	else:
+		_partial_workbench_rescans += 1
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +360,13 @@ func _collect_candidate_doors(center: Vector2, radius: float) -> Array[Vector2i]
 
 
 func _process_pending_base_scan(door_budget: int) -> void:
+	if _pending_base_scan.is_empty() and not _pending_base_scan_jobs.is_empty():
+		var next_job: Dictionary = _pending_base_scan_jobs.pop_front()
+		_ensure_base_scan_job(
+			next_job.get("center", Vector2.ZERO),
+			float(next_job.get("radius", BASE_SCAN_RADIUS_DEFAULT)),
+			true
+		)
 	if _pending_base_scan.is_empty():
 		return
 	var doors: Array[Vector2i] = _pending_base_scan.get("doors", [])
@@ -500,6 +541,11 @@ func _on_resource_harvested(kind: String, world_pos: Vector2) -> void:
 
 func _on_placement_completed(item_id: String, tile_pos: Vector2i) -> void:
 	var wpos := _tile_to_world(tile_pos)
+	var chunk_pos: Vector2i = _tile_to_chunk(tile_pos)
+	_dirty_workbench_chunks[chunk_pos] = true
+	_dirty_base_chunks[chunk_pos] = true
+	if _world_spatial_index != null:
+		_world_spatial_index.notify_placeables_changed(item_id, tile_pos)
 	# Workbench: trigger workbench scan
 	if item_id == "workbench":
 		_dirty = true
@@ -507,6 +553,87 @@ func _on_placement_completed(item_id: String, tile_pos: Vector2i) -> void:
 	if item_id == "doorwood" or item_id == "wallwood":
 		_base_scan_dirty = true
 	record_interest_event("structure_placed", wpos, {"item_id": item_id})
+
+
+func _collect_placeable_chunk_deltas(next_serial: int) -> void:
+	var delta: Dictionary = WorldSave.get_placed_entities_changes_since(_last_placeables_change_serial)
+	_last_placeables_change_serial = next_serial
+	var overflow: bool = bool(delta.get("overflow", true))
+	if overflow:
+		_dirty = true
+		_base_scan_dirty = true
+		_global_scan_fallbacks += 1
+		return
+	for raw_change in delta.get("changes", []):
+		var change: Dictionary = raw_change as Dictionary
+		var op: String = String(change.get("op", "")).strip_edges()
+		if op == "clear":
+			_dirty = true
+			_base_scan_dirty = true
+			_global_scan_fallbacks += 1
+			continue
+		_mark_dirty_chunk_for_entry(change.get("entry", {}))
+		_mark_dirty_chunk_for_entry(change.get("prev_entry", {}))
+
+
+func _mark_dirty_chunk_for_entry(entry: Dictionary) -> void:
+	if entry.is_empty():
+		return
+	var item_id: String = String(entry.get("item_id", "")).strip_edges()
+	var chunk_pos := Vector2i(
+		int(floor(float(int(entry.get("tile_pos_x", 0))) / float(maxi(WorldSave.chunk_size, 1)))),
+		int(floor(float(int(entry.get("tile_pos_y", 0))) / float(maxi(WorldSave.chunk_size, 1))))
+	)
+	if item_id == "workbench":
+		_dirty_workbench_chunks[chunk_pos] = true
+	if item_id == "doorwood" or item_id == "wallwood":
+		_dirty_base_chunks[chunk_pos] = true
+
+
+func _collect_dirty_chunk_keys(source: Dictionary) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for key in source.keys():
+		out.append(key as Vector2i)
+	return out
+
+
+func _contains_chunk(chunks: Array[Vector2i], chunk_pos: Vector2i) -> bool:
+	for test_pos in chunks:
+		if test_pos == chunk_pos:
+			return true
+	return false
+
+
+func _get_worldsave_placeables_in_chunk(cx: int, cy: int, item_id: String) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for entry in WorldSave.get_placed_entities_in_chunk(cx, cy):
+		if String(entry.get("item_id", "")).strip_edges() == item_id:
+			out.append(entry)
+	return out
+
+
+func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
+	var cs: int = maxi(WorldSave.chunk_size, 1)
+	return Vector2i(
+		int(floor(float(tile_pos.x) / float(cs))),
+		int(floor(float(tile_pos.y) / float(cs)))
+	)
+
+
+func _enqueue_base_scans_for_dirty_chunks() -> void:
+	if not _pending_base_scan.is_empty() or not _pending_base_scan_jobs.is_empty():
+		return
+	var cs: int = maxi(WorldSave.chunk_size, 1)
+	var radius: float = float(cs) * 32.0 * BASE_SCAN_CHUNK_RADIUS_MULT
+	for key in _dirty_base_chunks.keys():
+		var chunk_pos: Vector2i = key as Vector2i
+		var center_tile := Vector2i(chunk_pos.x * cs + int(cs / 2), chunk_pos.y * cs + int(cs / 2))
+		_pending_base_scan_jobs.append({
+			"center": _tile_to_world(center_tile),
+			"radius": radius,
+		})
+	_partial_base_scan_jobs_enqueued += _pending_base_scan_jobs.size()
+	_dirty_base_chunks.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -542,12 +669,21 @@ func get_debug_snapshot() -> Dictionary:
 		"interest_scan_dirty": _dirty,
 		"base_scan_dirty": _base_scan_dirty,
 		"base_scan_running": not _pending_base_scan.is_empty(),
+		"pending_base_scan_jobs": _pending_base_scan_jobs.size(),
 		"base_scan_progress": {
 			"processed": base_cursor,
 			"pending": maxi(pending_doors.size() - base_cursor, 0),
 			"total": pending_doors.size(),
 		},
 		"bases_detected": _bases.size(),
+		"chunk_invalidations": {
+			"dirty_workbench_chunks": _dirty_workbench_chunks.size(),
+			"dirty_base_chunks": _dirty_base_chunks.size(),
+			"partial_workbench_rescans": _partial_workbench_rescans,
+			"full_workbench_rescans": _full_workbench_rescans,
+			"partial_base_scan_jobs_enqueued": _partial_base_scan_jobs_enqueued,
+			"global_scan_fallbacks": _global_scan_fallbacks,
+		},
 		"timers": {
 			"elapsed": snappedf(_elapsed, 0.01),
 			"workbench_rescan_timer": snappedf(_rescan_timer, 0.01),
