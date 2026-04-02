@@ -17,6 +17,8 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Evidencia telemetry/debug fuera de canal controlado mutando estado:
 - Respuesta nueva decisión semántica en world.gd: No
 - Evidencia nueva decisión semántica en world.gd:
+- Respuesta reset semántico directo reintroducido en world.gd: No
+- Evidencia reset semántico directo reintroducido en world.gd:
 - Respuesta ¿agregaste lógica de negocio en world.gd?: No
 - Evidencia ¿agregaste lógica de negocio en world.gd?:
 - Respuesta nuevas responsabilidades de dominio en BanditWorkCoordinator: No
@@ -36,6 +38,7 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Criterio de done Sprint 1 (patrones corregidos no reingresan): Sí
 - Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR): Sí
 - Criterio continuidad checklist obligatoria (hasta completar 2 sprints sin recaídas): Sí
+- Cierre 2 sprints consecutivos sin violaciones de estas reglas: Sí
 
 ## Resumen
 - Describe brevemente el cambio y su impacto.
@@ -74,6 +77,9 @@ Fuentes de verdad:
   - Dato/campo → categoría + owner:
   - Evidencia (ruta de código o nota de arquitectura):
 - [ ] **¿Se evita agregar decisiones semánticas nuevas en `scripts/world/world.gd`?**
+  - Respuesta:
+  - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
+- [ ] **¿Se evita reintroducir resets semánticos directos en `scripts/world/world.gd`?**
   - Respuesta:
   - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
 - [ ] **¿`BanditWorkCoordinator` se mantiene sin nuevas responsabilidades de dominio?**
@@ -116,6 +122,7 @@ Fuentes de verdad:
 - [ ] Confirmo que decisión semántica nueva en `world.gd` deja el PR en **No Ready**.
 - [ ] Confirmo que nuevas responsabilidades de dominio en `BanditWorkCoordinator` dejan el PR en **No Ready**.
 - [ ] Confirmo que la checklist obligatoria se mantiene hasta completar 2 sprints sin recaídas.
+- [ ] Confirmo que el cierre exige 2 sprints consecutivos sin violaciones de estas reglas.
 
 ## Evidencia global obligatoria
 - [ ] Incluí evidencia para todos los puntos (ruta de código o nota de arquitectura).

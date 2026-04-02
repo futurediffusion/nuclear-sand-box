@@ -34,10 +34,12 @@ Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`
 | Fallback temporal sin fecha de retiro | Bloqueante | `No Ready` |
 | Compat/fallback nuevo sin fecha de retiro | Bloqueante | `No Ready` |
 | Decisión semántica nueva agregada en `world.gd` | Bloqueante | `No Ready` |
+| Reintroducción de reset semántico directo en `world.gd` | Bloqueante | `No Ready` |
 | `BanditWorkCoordinator` creciendo en responsabilidades de dominio | Bloqueante | `No Ready` |
 | Criterio de done Sprint 1 en `No` (reingreso de patrón corregido) | Bloqueante | `No Ready` |
 | Criterio de done anti-reversión en `No` | Bloqueante | `No Ready` |
 | Criterio continuidad checklist obligatoria en `No` (hasta 2 sprints sin recaídas) | Bloqueante | `No Ready` |
+| Cierre 2 sprints consecutivos sin violaciones en `No` | Bloqueante | `No Ready` |
 
 ### Reglas transversales obligatorias
 
@@ -46,10 +48,11 @@ Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`
 3. **Dato/campo nuevo**: todo dato/campo nuevo debe declarar categoría de verdad única (`runtime`, `save`, `derived`, `cache`) y owner de escritura si muta estado.
 4. **Fallback/compat temporal**: toda excepción/fallback/compat temporal exige fecha de retiro (`YYYY-MM-DD`) desde el primer PR y no puede declararse sin expiración explícita.
 5. **No decisión semántica en `world.gd`**: nuevas decisiones de dominio deben vivir en owner canónico fuera de `world.gd`.
-6. **No expansión de dominio en `BanditWorkCoordinator`**: no se permiten nuevas responsabilidades de dominio; solo coordinación.
-7. **Checklist obligatoria sostenida**: la checklist anti-olores permanece obligatoria hasta completar 2 sprints consecutivos sin recaídas.
-8. **No reingreso Sprint 1**: los patrones ya corregidos en Sprint 1 no pueden reingresar; si reaparecen, el PR se bloquea.
-9. **Anti-reversión**: el done de cada PR debe garantizar que el flujo normal de PR no pueda volver al estado anterior.
+6. **No reset semántico directo en `world.gd`**: no se permite reintroducir resets semánticos directos en `world.gd`; deben vivir en owners canónicos.
+7. **No expansión de dominio en `BanditWorkCoordinator`**: no se permiten nuevas responsabilidades de dominio; solo coordinación.
+8. **Checklist obligatoria sostenida**: la checklist anti-olores permanece obligatoria hasta completar 2 sprints consecutivos sin recaídas.
+9. **No reingreso Sprint 1**: los patrones ya corregidos en Sprint 1 no pueden reingresar; si reaparecen, el PR se bloquea.
+10. **Anti-reversión**: el done de cada PR debe garantizar que el flujo normal de PR no pueda volver al estado anterior.
 
 ---
 
@@ -128,10 +131,12 @@ Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`
 - [ ] Si hubo excepción temporal, existe plan de mitigación + ticket + fecha de retiro.
 - [ ] Todo fallback/compat nuevo incluye owner, fecha límite y criterio de retiro.
 - [ ] Ningún cambio nuevo mete decisión semántica en `world.gd`.
+- [ ] Ningún cambio nuevo reintroduce resets semánticos directos en `world.gd`.
 - [ ] `BanditWorkCoordinator` no suma responsabilidades de dominio.
 - [ ] Todo cambio nuevo declara owner de decisión (uno por decisión) y categoría de verdad para cada dato/campo nuevo cuando aplica.
 - [ ] Ningún patrón ya corregido en Sprint 1 reingresa en el PR.
 - [ ] Se mantiene checklist obligatoria hasta completar 2 sprints sin recaídas.
+- [ ] Cierre operativo: 2 sprints consecutivos sin violaciones de estas reglas.
 
 ## Referencias normativas
 

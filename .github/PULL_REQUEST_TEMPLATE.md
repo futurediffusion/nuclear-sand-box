@@ -17,6 +17,8 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Evidencia telemetry/debug fuera de canal controlado mutando estado:
 - Respuesta nueva decisión semántica en world.gd: No
 - Evidencia nueva decisión semántica en world.gd:
+- Respuesta reset semántico directo reintroducido en world.gd: No
+- Evidencia reset semántico directo reintroducido en world.gd:
 - Respuesta ¿agregaste lógica de negocio en world.gd?: No
 - Evidencia ¿agregaste lógica de negocio en world.gd?:
 - Respuesta nuevas responsabilidades de dominio en BanditWorkCoordinator: No
@@ -36,6 +38,7 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Criterio de done Sprint 1 (patrones corregidos no reingresan): Sí
 - Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR): Sí
 - Criterio continuidad checklist obligatoria (hasta completar 2 sprints sin recaídas): Sí
+- Cierre 2 sprints consecutivos sin violaciones de estas reglas: Sí
 
 ## Runtime Architecture Review (obligatorio)
 
@@ -48,8 +51,10 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - [ ] Si el caso debía usar Cadence: existe excepción temporal aprobada y registrada en `docs/incidencias/registro-unico-deuda-tecnica.md`.
 - [ ] Acepto el criterio de bloqueo: cualquier “Sí” sin excepción aprobada deja el PR en **No Ready**.
 - [ ] Confirmo que no agregué decisiones semánticas nuevas en `scripts/world/world.gd`.
+- [ ] Confirmo que no reintroduje resets semánticos directos en `scripts/world/world.gd`.
 - [ ] Confirmo que `BanditWorkCoordinator` no crece en responsabilidades de dominio.
 - [ ] Confirmo que la checklist obligatoria se mantiene hasta completar 2 sprints sin recaídas.
+- [ ] Confirmo que el cierre exige 2 sprints consecutivos sin violaciones de estas reglas.
 
 
 ## Checklist anti-olores (bloqueante)
@@ -132,10 +137,12 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - [ ] **Compat/fallback/wrapper nuevo sin fecha de retiro** => **No Ready**.
 - [ ] **Temporal/fallback/wrapper nuevo sin owner + fecha límite + condición verificable** => **No Ready**.
 - [ ] **Decisión semántica nueva en `world.gd`** => **No Ready**.
+- [ ] **Reset semántico directo reintroducido en `world.gd`** => **No Ready**.
 - [ ] **Nuevas responsabilidades de dominio en `BanditWorkCoordinator`** => **No Ready**.
 - [ ] **Criterio de done Sprint 1 en No** => **No Ready**.
 - [ ] **Criterio de done anti-reversión en No** => **No Ready**.
 - [ ] **Criterio continuidad checklist obligatoria en No (hasta 2 sprints sin recaídas)** => **No Ready**.
+- [ ] **Cierre 2 sprints consecutivos sin violaciones en No** => **No Ready**.
 
 ## Declaración de feature (obligatorio para features nuevas)
 
