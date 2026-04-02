@@ -15,7 +15,7 @@ Fecha de corte: 2026-04-01.
 | 2 | `scripts/world/world.gd::_process` (`consume_lane`) | Consume pulsos y ejecuta territorio, wall refresh, autosave y chunk update gating. | Por frame + pulsos due de Cadence. | Alto: afecta simulación de mundo + persistencia. | `MANTENER_LOCAL_BY_DESIGN` | **P0** |
 | 3 | `scripts/world/BanditBehaviorLayer.gd::_process` (`director_pulse`) | Corre directors de extorsión/raid con lane única de Cadence (sin fallback local activo). | Cadence `director_pulse` (0.12s). | **Combate/hostilidad/raids** directos. | `MIGRADO_A_CADENCE` | **P0** |
 | 4 | `scripts/world/BanditBehaviorLayer.gd::_process` (`bandit_behavior_tick`) + `BanditTuning.behavior_tick_interval` | Tick de behaviors de bandidos (scan drops/recursos, intents de ejecución, movement intents). | 0.5s base por lane, con sub-intervalos por NPC vía LOD interno. | **Combate/pathing/hostilidad** (NPC runtime principal). | `MIGRADO_A_CADENCE` | **P0** |
-| 5 | `scripts/world/BanditGroupIntel.gd::tick` (`bandit_group_scan_slice` + `_scan_accumulator_by_group`) | Escaneo social por grupo y disparo de extorsión/raids/probes con cooldowns. | Lane `bandit_group_scan_slice` (8.0 / `GROUP_SCAN_SLICE_COUNT`) + fallback local temporal si no hay Cadence inyectado. | **Hostilidad + raids** (decisión de intents). | `MIGRADO_A_CADENCE` (adapter temporal) | **P0** |
+| 5 | `scripts/world/BanditGroupIntel.gd::tick` (`bandit_group_scan_slice` + `_scan_accumulator_by_group`) | Escaneo social por grupo y disparo de extorsión/raids/probes con cooldowns. | Lane `bandit_group_scan_slice` (8.0 / `GROUP_SCAN_SLICE_COUNT`), sin fallback local de scheduling; si falta inyección emite warning y no ejecuta scan. | **Hostilidad + raids** (decisión de intents). | `MIGRADO_A_CADENCE` | **P0** |
 | 6 | `scripts/world/RaidFlow.gd::_tick_jobs` (`wall_assault_next_at`) | Ciclo de jobs de raid y dispatch periódico contra walls/placeables. | Ventanas 2.5s (wall probe) / 6.0s (wall assault) + jitter por grupo. | **Raids + combate estructural**. | `MIGRAR_A_CADENCE` | **P0** |
 | 7 | `scripts/world/ExtortionFlow.gd::_tick_scheduled_callbacks` / `_schedule_callback` | Cola local de callbacks diferidos consumida por pulso Cadence del director (sin countdown local por `delta`). | Trigger por `director_pulse`; ejecución por `run_at` (`RunClock.now()`). | **Hostilidad + combate** (warning strike/retaliation). | `MANTENER_LOCAL_BY_DESIGN` | **P1** |
 | 8 | `scripts/world/NpcPathService.gd::get_next_waypoint` | Repath interval cacheado por agente. | Default 1.5s, chase override 0.5s. | **Pathing** y respuesta de persecución. | `DUDOSO_REVISAR` | **P0** |
@@ -73,7 +73,7 @@ Fecha de corte: 2026-04-01.
 ### B) `BanditGroupIntel` social scan slices
 - **Antes:** timer local `_scan_timer` gobernaba el “cuándo” del scan por slices.
 - **Después:** lane dedicada `bandit_group_scan_slice` en Cadence gobierna el pulso global del scanner.
-- **Adaptador temporal:** si no hay Cadence inyectado, mantiene fallback local acotado para no romper escenas/harness legacy.
+- **Estado actual:** sin fallback local de scheduling; ante wiring incompleto se registra warning explícito.
 - **Motivo:** centralizar ownership temporal del scanner social de alto impacto (intents de raid/extorsión).
 - **Riesgos mitigados:** competencia de relojes paralelos, cadence inconsistente al pausar/reanudar mundo, variación difícil de testear.
 
