@@ -36,6 +36,7 @@ const BanditTerritoryResponseScript := preload("res://scripts/world/BanditTerrit
 const BanditWorkCoordinatorScript   := preload("res://scripts/world/BanditWorkCoordinator.gd")
 const SimulationLODPolicyScript     := preload("res://scripts/world/SimulationLODPolicy.gd")
 const AIComponentScript             := preload("res://scripts/components/AIComponent.gd")
+const MethodCapabilityCacheScript   := preload("res://scripts/utils/MethodCapabilityCache.gd")
 
 # ---------------------------------------------------------------------------
 # Camp layout constants Ã¢ï¿½,ï¿½ï¿½?ï¿½ local geometry, not cross-system gameplay tuning.
@@ -202,6 +203,7 @@ var _dispatch_log_next_at: Dictionary            = {}
 var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
 var _tick_scan_buffers: TickScanBuffers          = TickScanBuffers.new()
+var _method_caps: MethodCapabilityCache          = MethodCapabilityCacheScript.new()
 
 
 # ---------------------------------------------------------------------------
@@ -313,8 +315,7 @@ func _physics_process(_delta: float) -> void:
 	for enemy_id in _behaviors:
 		var behavior: BanditWorldBehavior = _behaviors[enemy_id]
 		var node = _npc_simulator.get_enemy_node(enemy_id)
-		if node == null or not node.has_method("is_world_behavior_eligible") \
-				or not node.is_world_behavior_eligible():
+		if not _is_world_behavior_eligible(node):
 			continue
 		var vel: Vector2 = behavior.get_desired_velocity()
 		if vel.length_squared() > 0.01:
@@ -364,8 +365,7 @@ func _physics_process(_delta: float) -> void:
 			if scout_id == "":
 				continue
 			var snode = _npc_simulator.get_enemy_node(scout_id)
-			if snode == null or not snode.has_method("is_world_behavior_eligible") \
-					or not snode.is_world_behavior_eligible():
+			if not _is_world_behavior_eligible(snode):
 				continue
 			var to_p: Vector2 = ap - snode.global_position
 			if to_p.length() > 1.0:
@@ -431,8 +431,7 @@ func _tick_behaviors() -> void:
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
 		var node = _npc_simulator.get_enemy_node(enemy_id)
-		if node == null or not node.has_method("is_world_behavior_eligible") \
-				or not node.is_world_behavior_eligible():
+		if not _is_world_behavior_eligible(node):
 			if _work_coordinator != null:
 				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
 			continue
@@ -618,8 +617,7 @@ func _ensure_behaviors_for_active_enemies() -> void:
 		if _behaviors.has(enemy_id_str):
 			continue
 		var node = _npc_simulator.get_enemy_node(enemy_id_str)
-		if node == null or not node.has_method("is_world_behavior_eligible") \
-				or not node.is_world_behavior_eligible():
+		if not _is_world_behavior_eligible(node):
 			continue
 		var beh: BanditWorldBehavior = _ensure_behavior_for_enemy(enemy_id_str, node, false)
 		if beh == null:
@@ -648,6 +646,14 @@ func _prune_behaviors() -> void:
 		if NpcPathService.is_ready():
 			NpcPathService.clear_agent(enemy_id)
 		Debug.log("bandit_ai", "[BanditBL] behavior pruned id=%s" % enemy_id)
+
+
+func _is_world_behavior_eligible(node: Node) -> bool:
+	if node == null:
+		return false
+	if not _method_caps.has_method_cached(node, &"is_world_behavior_eligible"):
+		return false
+	return node.is_world_behavior_eligible()
 
 
 # ---------------------------------------------------------------------------
