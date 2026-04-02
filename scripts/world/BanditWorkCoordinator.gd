@@ -271,6 +271,12 @@ func _resolve_member_assault_anchor(beh: BanditWorldBehavior, group_anchor: Vect
 
 
 func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector2) -> Dictionary:
+	var query_ctx: Dictionary = {
+		"intent": "raiding",
+		"stage": "assault_member_target",
+		"enough_threshold": 1,
+		"max_candidates_eval": 32,
+	}
 	var search_centers: Array[Vector2] = [assault_anchor]
 	if enemy_pos.distance_squared_to(assault_anchor) > 1.0:
 		search_centers.append(enemy_pos)
@@ -287,7 +293,7 @@ func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector
 		for center in search_centers:
 			if not _is_valid_target(center):
 				continue
-			placeable_pos = _world_node.call("find_nearest_player_placeable_world_pos", center, RAID_TARGET_SEARCH_RADIUS) as Vector2
+			placeable_pos = _world_node.call("find_nearest_player_placeable_world_pos", center, RAID_TARGET_SEARCH_RADIUS, query_ctx) as Vector2
 			if _is_valid_target(placeable_pos):
 				break
 
@@ -380,6 +386,12 @@ func _find_nearest_raidable_container(enemy_pos: Vector2, assault_anchor: Vector
 		search_centers.append(enemy_pos)
 
 	var runtime_nodes: Array = []
+	var query_ctx: Dictionary = {
+		"intent": "raiding",
+		"stage": "assault_member_target",
+		"enough_threshold": 3,
+		"max_candidates_eval": 36,
+	}
 	if _world_spatial_index != null:
 		for center in search_centers:
 			if not _is_valid_target(center):
@@ -387,7 +399,8 @@ func _find_nearest_raidable_container(enemy_pos: Vector2, assault_anchor: Vector
 			runtime_nodes.append_array(_world_spatial_index.get_runtime_nodes_near(
 				WorldSpatialIndex.KIND_STORAGE,
 				center,
-				RAID_TARGET_SEARCH_RADIUS
+				RAID_TARGET_SEARCH_RADIUS,
+				query_ctx
 			))
 	for raw_node in runtime_nodes:
 		var container := raw_node as ContainerPlaceable
@@ -441,11 +454,17 @@ func _find_nearest_player_structure_node(enemy_pos: Vector2, assault_anchor: Vec
 	var max_search_sq: float = RAID_TARGET_SEARCH_RADIUS * RAID_TARGET_SEARCH_RADIUS
 
 	var runtime_nodes: Array = []
+	var query_ctx: Dictionary = {
+		"intent": "raiding",
+		"stage": "assault_member_target",
+		"enough_threshold": 4,
+		"max_candidates_eval": 40,
+	}
 	if _world_spatial_index != null:
 		runtime_nodes.append_array(_world_spatial_index.get_runtime_nodes_near(
-			WorldSpatialIndex.KIND_STORAGE, assault_anchor, RAID_TARGET_SEARCH_RADIUS))
+			WorldSpatialIndex.KIND_STORAGE, assault_anchor, RAID_TARGET_SEARCH_RADIUS, query_ctx))
 		runtime_nodes.append_array(_world_spatial_index.get_runtime_nodes_near(
-			WorldSpatialIndex.KIND_WORKBENCH, assault_anchor, RAID_TARGET_SEARCH_RADIUS))
+			WorldSpatialIndex.KIND_WORKBENCH, assault_anchor, RAID_TARGET_SEARCH_RADIUS, query_ctx))
 
 	for raw_node in runtime_nodes:
 		var node2d := raw_node as Node2D

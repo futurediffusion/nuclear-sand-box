@@ -512,8 +512,21 @@ func _fill_drops_info_buffer(node_pos: Vector2, all_drops: Array, out: Array[Dic
 
 func _fill_res_info_buffer(node_pos: Vector2, all_resources: Array, out: Array[Dictionary]) -> void:
 	var r2: float = BanditTuningScript.resource_scan_radius_sq()
+	var resources_source: Array = all_resources
+	if _world_spatial_index != null:
+		resources_source = _world_spatial_index.get_runtime_nodes_near(
+			WorldSpatialIndex.KIND_WORLD_RESOURCE,
+			node_pos,
+			sqrt(r2),
+			{
+				"intent": "idle",
+				"stage": "resource_scan",
+				"enough_threshold": 14,
+				"max_candidates_eval": 48,
+			}
+		)
 	var write_idx: int = 0
-	for res in all_resources:
+	for res in resources_source:
 		var res_node := res as Node2D
 		if res_node == null or not is_instance_valid(res_node) \
 				or res_node.is_queued_for_deletion():
