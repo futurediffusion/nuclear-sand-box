@@ -1850,15 +1850,14 @@ func _snapshot_entities_for_save() -> void:
 
 
 func _trigger_runtime_reset_for_new_game() -> void:
+	_reset_runtime_for_new_game()
+
+
+## World facade: no detailed reset knowledge here.
+func _reset_runtime_for_new_game() -> void:
 	if _runtime_reset_coordinator == null:
 		_runtime_reset_coordinator = RuntimeResetCoordinatorScript.new()
-	_runtime_reset_coordinator.reset_for_new_game()
-
-
-## Temporary compatibility shim for legacy internal callers.
-## Remove when all callsites migrate to _trigger_runtime_reset_for_new_game.
-func _reset_runtime_for_new_game() -> void:
-	_trigger_runtime_reset_for_new_game()
+	_runtime_reset_coordinator.reset_new_game()
 
 
 func _get_world_maintenance_debug_snapshot() -> Dictionary:
