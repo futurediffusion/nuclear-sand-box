@@ -1601,6 +1601,7 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 	var ai_state_name: String = ""
 	if beh.state >= 0 and beh.state < NpcWorldBehavior.State.size():
 		ai_state_name = NpcWorldBehavior.State.keys()[beh.state]
+	var worker_cycle_active: bool = is_worker_cycle_active(beh)
 	var runtime_signals: Dictionary = _get_runtime_lod_signals(node)
 	var lod_debug: Dictionary = SimulationLODPolicyScript.get_behavior_tick_debug({
 		"base_interval": BanditTuningScript.behavior_tick_interval(),
@@ -1614,9 +1615,23 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 		"in_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
 		"recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
 		"mode_signals": _get_global_lod_mode_signals(),
+		"is_worker_cycle_active": worker_cycle_active,
 	})
 	_record_npc_lod_debug(beh, node, lod_debug, runtime_signals)
 	return float(lod_debug.get("interval", BanditTuningScript.behavior_tick_interval()))
+
+
+func is_worker_cycle_active(npc: BanditWorldBehavior) -> bool:
+	if npc == null:
+		return false
+	var state_name: String = ""
+	if npc.state >= 0 and npc.state < NpcWorldBehavior.State.size():
+		state_name = NpcWorldBehavior.State.keys()[npc.state]
+	return state_name == "RESOURCE_WATCH" \
+			or state_name == "RETURN_HOME" \
+			or String(npc.pending_mine_id) != "" \
+			or String(npc.pending_collect_id) != "" \
+			or int(npc.cargo_count) > 0
 
 
 func _get_runtime_lod_signals(node: Node) -> Dictionary:
@@ -1652,19 +1667,22 @@ func _record_npc_lod_debug(beh: BanditWorldBehavior, node: Node, lod_debug: Dict
 		"interval": float(lod_debug.get("interval", BanditTuningScript.behavior_tick_interval())),
 		"bucket": bucket,
 		"dominant_reason": String(lod_debug.get("dominant_reason", "baseline")),
+		"cadence_reason": String(lod_debug.get("dominant_reason", "baseline")),
 		"mode": String(lod_debug.get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))),
+		"is_worker_cycle_active": bool(lod_debug.get("is_worker_cycle_active", false)),
 		"is_in_direct_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
 		"was_recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
 		"is_runtime_busy_but_not_combat": bool(runtime_signals.get("is_runtime_busy_but_not_combat", false)),
 		"is_world_behavior_eligible": bool(node.has_method("is_world_behavior_eligible") and node.is_world_behavior_eligible()),
 	}
 	if _is_lod_debug_logging_enabled():
-		Debug.log("bandit_lod", "[BanditLOD][npc] id=%s group=%s interval=%.2f bucket=%s reason=%s combat=%s engaged=%s busy=%s" % [
+		Debug.log("bandit_lod", "[BanditLOD][npc] id=%s group=%s interval=%.2f bucket=%s cadence_reason=%s worker_active=%s combat=%s engaged=%s busy=%s" % [
 			beh.member_id,
 			beh.group_id,
 			float(lod_debug.get("interval", 0.0)),
 			bucket,
 			String(lod_debug.get("dominant_reason", "baseline")),
+			str(bool(lod_debug.get("is_worker_cycle_active", false))),
 			str(bool(runtime_signals.get("is_in_direct_combat", false))),
 			str(bool(runtime_signals.get("was_recently_engaged", false))),
 			str(bool(runtime_signals.get("is_runtime_busy_but_not_combat", false))),
