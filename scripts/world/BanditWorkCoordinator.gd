@@ -48,6 +48,7 @@ var _raid_attack_next_at: Dictionary = {}  # member_id -> RunClock.now()
 var _raid_loot_next_at: Dictionary = {}  # member_id -> RunClock.now()
 var _state_lost_after_hit_count: int = 0
 var _full_cycles_by_member: Dictionary = {}  # member_id -> completed_cycle_count
+var _work_tick_seq: int = 0
 
 
 func setup(ctx: Dictionary) -> void:
@@ -59,6 +60,7 @@ func setup(ctx: Dictionary) -> void:
 func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array) -> void:
 	if beh == null:
 		return
+	_work_tick_seq += 1
 	if enemy_node == null or not is_instance_valid(enemy_node):
 		_handle_missing_enemy(beh)
 		return
@@ -96,6 +98,7 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 	if _stash == null:
 		return
 
+	var cargo_before_work: int = beh.cargo_count
 	var member_pos: Vector2 = _node_pos_for_work(enemy_node)
 	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH:
 		var res_center := _resolve_resource_center(beh, enemy_node)
@@ -104,7 +107,16 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 		_stash.sweep_collect_arrive(beh, enemy_node,
 			member_pos, drops_cache)
 
-	if beh.cargo_count > 0 and _should_request_return_home(beh):
+	if beh.cargo_count > cargo_before_work:
+		Debug.log("bandit_ai", "[BWC] cargo_updated npc=%s cargo=%d→%d tick=%d state=%s" % [
+			beh.member_id,
+			cargo_before_work,
+			beh.cargo_count,
+			_work_tick_seq,
+			str(int(beh.state)),
+		])
+
+	if beh.cargo_count > 0:
 		_request_return_home(beh, "cargo_loaded")
 
 	var had_cargo_before_deposit: bool = beh.cargo_count > 0
@@ -423,26 +435,50 @@ func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
 	return true
 
 
-func _should_request_return_home(beh: BanditWorldBehavior) -> bool:
+func _return_home_block_reason(beh: BanditWorldBehavior) -> String:
+	if beh == null:
+		return "missing_behavior"
+	match beh.state:
+		NpcWorldBehavior.State.RETURN_HOME:
+			return "already_returning_home"
+		NpcWorldBehavior.State.HOLD_POSITION:
+			if beh.cargo_count > 0:
+				return "holding_position_with_cargo"
+			return "holding_position_no_cargo"
+		_:
+			return ""
+
+
+func _request_return_home(beh: BanditWorldBehavior, reason: String) -> bool:
 	if beh == null:
 		return false
-	match beh.state:
-		NpcWorldBehavior.State.RETURN_HOME, NpcWorldBehavior.State.HOLD_POSITION:
+	var block_reason: String = _return_home_block_reason(beh)
+	if block_reason != "":
+		Debug.log("bandit_ai", "[BWC] return_home_blocked npc=%s reason=%s block=%s cargo=%d state=%s tick=%d" % [
+			beh.member_id,
+			reason,
+			block_reason,
+			beh.cargo_count,
+			str(int(beh.state)),
+			_work_tick_seq,
+		])
+		# Priority rule: carrying cargo should preempt HOLD_POSITION unless another
+		# stronger block exists.
+		if block_reason != "holding_position_with_cargo":
 			return false
-		_:
-			return true
+		block_reason = ""
 
-
-func _request_return_home(beh: BanditWorldBehavior, reason: String) -> void:
-	if beh == null or not _should_request_return_home(beh):
-		return
+	if block_reason != "":
+		return false
 	beh.force_return_home()
-	Debug.log("bandit_ai", "[BWC] return_home_requested npc=%s reason=%s cargo=%d state=%s" % [
+	Debug.log("bandit_ai", "[BWC] return_home_triggered npc=%s reason=%s cargo=%d state=%s tick=%d" % [
 		beh.member_id,
 		reason,
 		beh.cargo_count,
 		str(int(beh.state)),
+		_work_tick_seq,
 	])
+	return true
 
 
 func _restore_mine_intent_if_still_watching(beh: BanditWorldBehavior, mine_id: int) -> void:
