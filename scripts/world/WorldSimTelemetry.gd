@@ -102,13 +102,18 @@ func get_debug_snapshot() -> Dictionary:
 		var group_scan: Dictionary = bandit_snapshot.get("group_scan", {})
 		group_scan["group_dominant_reasons"] = _count_dominant_reasons(group_scan.get("group_intervals", {}))
 		bandit_snapshot["group_scan"] = group_scan
+	var settlement_snapshot: Dictionary = _settlement_intel.get_debug_snapshot() if _settlement_intel != null else {}
+	var spatial_snapshot: Dictionary = _world_spatial_index.get_debug_snapshot() if _world_spatial_index != null else {}
+	var maintenance_snapshot: Dictionary = _maintenance_snapshot_cb.call() if _maintenance_snapshot_cb.is_valid() else {}
+	var kpi_snapshot: Dictionary = _build_explicit_kpi_snapshot(cadence_snapshot, bandit_snapshot, settlement_snapshot)
 	return {
 		"enabled": true,
 		"cadence": cadence_snapshot,
 		"bandit_lod": bandit_snapshot,
-		"settlement": _settlement_intel.get_debug_snapshot() if _settlement_intel != null else {},
-		"spatial_index": _world_spatial_index.get_debug_snapshot() if _world_spatial_index != null else {},
-		"world_maintenance": _maintenance_snapshot_cb.call() if _maintenance_snapshot_cb.is_valid() else {},
+		"settlement": settlement_snapshot,
+		"spatial_index": spatial_snapshot,
+		"world_maintenance": maintenance_snapshot,
+		"kpis": kpi_snapshot,
 	}
 
 
@@ -239,3 +244,86 @@ func _summarize_lane_activity(lanes: Dictionary) -> Dictionary:
 		"almost_inactive": almost_inactive,
 		"very_active": very_active,
 	}
+
+
+func _build_explicit_kpi_snapshot(cadence_snapshot: Dictionary, bandit_snapshot: Dictionary, settlement_snapshot: Dictionary) -> Dictionary:
+	var bandit_lane_perf: Dictionary = bandit_snapshot.get("lane_perf", {})
+	var settlement_lane_perf: Dictionary = _nested_dict(settlement_snapshot, ["telemetry_perf", "lane_ms"], {})
+	var loop_detection: Array[Dictionary] = _detect_unbudgeted_loops(cadence_snapshot)
+	var live_tree_calls: int = int(_nested_dict(bandit_snapshot, ["live_tree_scans", "calls"], 0))
+	var live_tree_avg_nodes: float = float(_nested_dict(bandit_snapshot, ["live_tree_scans", "avg_node_count"], 0.0))
+	var bandit_alloc_est: float = float(_nested_dict(bandit_snapshot, ["temp_alloc_estimate_per_tick", "avg_objects"], 0.0))
+	var settlement_alloc_est: float = float(_nested_dict(settlement_snapshot, ["telemetry_perf", "temp_alloc_estimate_per_tick", "avg_objects"], 0.0))
+	var chunk_lane_est_ms: float = maxf(0.0, _safe_chunk_stage_p50_sum())
+	return {
+		"scan_live_tree_hot_paths": {
+			"status": "measured",
+			"calls": live_tree_calls,
+			"avg_nodes_per_scan": snappedf(live_tree_avg_nodes, 0.01),
+			"source": "BanditBehaviorLayer fallback item_drop/world_resource scans",
+		},
+		"temp_allocations_estimated_per_tick": {
+			"status": "estimated",
+			"objects_per_tick_estimate": snappedf(bandit_alloc_est + settlement_alloc_est, 0.01),
+			"components": {
+				"bandit_behavior_layer": snappedf(bandit_alloc_est, 0.01),
+				"settlement_intel": snappedf(settlement_alloc_est, 0.01),
+			},
+		},
+		"lane_times_ms": {
+			"director": _measured_kpi_entry(_nested_dict(bandit_lane_perf, ["director_pulse", "avg_ms"], -1.0)),
+			"behavior": _measured_kpi_entry(_nested_dict(bandit_lane_perf, ["bandit_behavior_tick", "avg_ms"], -1.0)),
+			"settlement": _measured_kpi_entry(_nested_dict(settlement_lane_perf, ["settlement_base_scan", "avg_ms"], -1.0)),
+			"chunk": {
+				"status": "estimated",
+				"avg_ms": snappedf(chunk_lane_est_ms, 0.001),
+				"notes": "estimated from chunk stage p50 aggregate",
+			},
+		},
+		"unbudgeted_loops_detected": {
+			"status": "pending_benchmark" if loop_detection.is_empty() else "measured",
+			"count": loop_detection.size(),
+			"loops": loop_detection,
+		},
+	}
+
+
+func _safe_chunk_stage_p50_sum() -> float:
+	if _perf_monitor == null:
+		return -1.0
+	return _perf_monitor.get_stage_p50(ChunkPerfMonitor.STAGE_GENERATE) \
+		+ _perf_monitor.get_stage_p50(ChunkPerfMonitor.STAGE_ENTITIES) \
+		+ _perf_monitor.get_stage_p50(ChunkPerfMonitor.STAGE_GROUND_CONNECT) \
+		+ _perf_monitor.get_stage_p50(ChunkPerfMonitor.STAGE_WALL_CONNECT) \
+		+ _perf_monitor.get_stage_p50(ChunkPerfMonitor.STAGE_COLLIDER_BUILD)
+
+
+func _measured_kpi_entry(avg_ms: Variant) -> Dictionary:
+	var val: float = float(avg_ms)
+	if val < 0.0:
+		return {
+			"status": "pending_benchmark",
+			"avg_ms": -1.0,
+		}
+	return {
+		"status": "measured",
+		"avg_ms": snappedf(val, 0.001),
+	}
+
+
+func _detect_unbudgeted_loops(cadence_snapshot: Dictionary) -> Array[Dictionary]:
+	var loops: Array[Dictionary] = []
+	var lanes: Dictionary = cadence_snapshot.get("lanes", {})
+	var high_due_lanes: Array[String] = ["director_pulse", "bandit_behavior_tick", "chunk_pulse", "settlement_base_scan", "settlement_workbench_scan"]
+	for lane_name in high_due_lanes:
+		var due: int = int(_nested_dict(lanes, [lane_name, "due"], 0))
+		var generated_due: int = int(_nested_dict(lanes, [lane_name, "last_generated_due"], 0))
+		if due > 1 or generated_due > 2:
+			loops.append({
+				"id": lane_name,
+				"kind": "cadence_backlog",
+				"detail": "lane generated/queued more than expected per tick",
+				"due": due,
+				"generated_due": generated_due,
+			})
+	return loops

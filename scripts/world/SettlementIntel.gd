@@ -46,6 +46,13 @@ var _cadence: WorldCadenceCoordinator
 var _world_spatial_index: WorldSpatialIndex
 var _dirty_workbench_chunks: Dictionary = {}
 var _dirty_base_chunks: Dictionary = {}
+var _perf_samples: int = 0
+var _perf_workbench_last_ms: float = 0.0
+var _perf_workbench_avg_ms: float = 0.0
+var _perf_base_last_ms: float = 0.0
+var _perf_base_avg_ms: float = 0.0
+var _perf_temp_alloc_est_last: int = 0
+var _perf_temp_alloc_est_avg: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -93,9 +100,13 @@ func process(delta: float) -> void:
 		i -= 1
 
 	var workbench_pulses: int = _cadence.consume_lane(&"settlement_workbench_scan") if use_world_cadence else 0
+	var workbench_processed: bool = false
 	if _dirty or workbench_pulses > 0:
 		_dirty = false
+		var wb_started_usec: int = Time.get_ticks_usec()
 		_scan_workbenches()
+		_perf_workbench_last_ms = maxf(float(Time.get_ticks_usec() - wb_started_usec) / 1000.0, 0.0)
+		workbench_processed = true
 
 	var base_scan_pulses: int = _cadence.consume_lane(&"settlement_base_scan") if use_world_cadence else 0
 	if _player_pos_getter.is_valid() and (_base_scan_dirty or base_scan_pulses > 0):
@@ -103,7 +114,17 @@ func process(delta: float) -> void:
 		var dirty_chunks: Array[String] = _dirty_base_chunks.keys()
 		_ensure_base_scan_job(_player_pos_getter.call(), BASE_SCAN_RADIUS_DEFAULT, false, dirty_chunks)
 
+	var base_started_usec: int = Time.get_ticks_usec()
 	_process_pending_base_scan(BASE_SCAN_DOOR_BUDGET_PER_PULSE)
+	_perf_base_last_ms = maxf(float(Time.get_ticks_usec() - base_started_usec) / 1000.0, 0.0)
+	_perf_samples += 1
+	if _perf_samples > 0:
+		if workbench_processed:
+			_perf_workbench_avg_ms = lerpf(_perf_workbench_avg_ms, _perf_workbench_last_ms, 1.0 / float(_perf_samples))
+		_perf_base_avg_ms = lerpf(_perf_base_avg_ms, _perf_base_last_ms, 1.0 / float(_perf_samples))
+		var pending_doors: Array = _pending_base_scan.get("doors", [])
+		_perf_temp_alloc_est_last = _markers.size() + _bases.size() + pending_doors.size() + _dirty_workbench_chunks.size() + _dirty_base_chunks.size()
+		_perf_temp_alloc_est_avg = lerpf(_perf_temp_alloc_est_avg, float(_perf_temp_alloc_est_last), 1.0 / float(_perf_samples))
 
 
 # ---------------------------------------------------------------------------
@@ -635,5 +656,22 @@ func get_debug_snapshot() -> Dictionary:
 			"elapsed": snappedf(_elapsed, 0.01),
 			"workbench_rescan_timer": 0.0,
 			"base_rescan_timer": 0.0,
+		},
+		"telemetry_perf": {
+			"samples": _perf_samples,
+			"lane_ms": {
+				"settlement_workbench_scan": {
+					"last_ms": snappedf(_perf_workbench_last_ms, 0.001),
+					"avg_ms": snappedf(_perf_workbench_avg_ms, 0.001),
+				},
+				"settlement_base_scan": {
+					"last_ms": snappedf(_perf_base_last_ms, 0.001),
+					"avg_ms": snappedf(_perf_base_avg_ms, 0.001),
+				},
+			},
+			"temp_alloc_estimate_per_tick": {
+				"last_objects": _perf_temp_alloc_est_last,
+				"avg_objects": snappedf(_perf_temp_alloc_est_avg, 0.01),
+			},
 		},
 	}
