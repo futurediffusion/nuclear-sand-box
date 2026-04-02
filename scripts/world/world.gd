@@ -4,9 +4,19 @@ extends Node2D
 # world.gd is the top-level orchestrator/facade for world subsystems. It wires
 # systems together and exposes public gameplay hooks, but social policy and
 # other subsystem internals should live in dedicated services instead of here.
+#
+# === [DOMAIN: WORLD COMPOSITION ROOT] =========================================
+# Allowlist for this file (orchestration only):
+# - Composition/wiring of subsystems and ports.
+# - Lifecycle entrypoints: _ready, _process, _notification, and input hooks.
+# - High-level event dispatch toward dedicated domain services.
+# - Save/reset orchestration hooks (without embedding domain decision logic).
+# Forbidden here: gameplay business rules, sanction decisions, targeting
+# heuristics, and other domain internals.
 
 signal chunk_stage_completed(chunk_pos: Vector2i, stage: String)
 
+# === [DOMAIN: TERRAIN/CHUNK COMPOSITION] ======================================
 @onready var tilemap: TileMap = $WorldTileMap
 @onready var walls_tilemap: TileMap = $StructureWallsMap   # <-- paredes van aquí
 @onready var ground_tilemap: TileMap = $GroundTileMap
@@ -47,6 +57,7 @@ var _tile_painter := TilePainter.new()
 @export var autosave_interval: float = 120.0
 @export var debug_world_sim_telemetry_enabled: bool = true
 
+# === [DOMAIN: WALLS (CONFIG SURFACE)] =========================================
 @export_group("Player Walls")
 @export var player_wallwood_max_hp: int = 3
 @export var player_wall_drop_enabled: bool = true
@@ -65,6 +76,7 @@ var _tile_painter := TilePainter.new()
 @export var structural_wall_default_hp: int = 3
 @export_group("")
 
+# === [DOMAIN: SPAWN DENSITY (CONFIG SURFACE)] =================================
 @export_group("Spawn Density")
 @export var copper_grass_min: int = 0
 @export var copper_grass_max: int = 1
@@ -84,6 +96,7 @@ var _tile_painter := TilePainter.new()
 @export var grass_tuft_dirt_max: int = 6
 @export_group("")
 
+# === [DOMAIN: CLIFFS/OCCLUSION (CONFIG SURFACE)] ==============================
 @export_group("Cliff Generation")
 @export var cliff_border_width: int = 4
 @export var cliff_blob_count: int = 18
@@ -95,6 +108,7 @@ var _tile_painter := TilePainter.new()
 @export var cliff_collision_band: float = 0.3
 @export_group("")
 
+# === [DOMAIN: WORLD RUNTIME STATE] ============================================
 var _biome_seed: int = 0
 var cliff_generator: CliffGenerator
 var _cliff_seed: int = 0
@@ -146,6 +160,7 @@ var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
 
+# === [DOMAIN: HIGH-LEVEL REACTION DISPATCH] ===================================
 # Placement reaction
 ## Every hostile eligible group receives structure-assault targeting on player placement.
 ## No fixed 3-unit cap: dispatch uses ALL members by default (configurable via squad value).
@@ -161,6 +176,7 @@ var _extortion_queue_port: Dictionary = {}
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
+# === [DOMAIN: SHARED RUNTIME CONSTANTS] =======================================
 const LAYER_GROUND: int = 0
 const LAYER_FLOOR: int = 1
 const WALL_TERRAIN_SET: int = 0
@@ -217,6 +233,7 @@ const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 const BIOME_ID_GRASSLAND: int = 1
 const BIOME_ID_DENSE_GRASS: int = 2
 
+# === [DOMAIN: LIFECYCLE + BOOTSTRAP ORCHESTRATION] ============================
 func _ready() -> void:
 	_wall_refresh_queue = WallRefreshQueueScript.new()
 	_cadence = WorldCadenceCoordinatorScript.new()
@@ -680,6 +697,7 @@ func _ready() -> void:
 	await update_chunks(current_player_chunk)
 
 
+# === [DOMAIN: EVENT/LIFECYCLE DISPATCH] =======================================
 func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
 	if stage == "tiles":
 		if _player_wall_system != null:
@@ -790,6 +808,7 @@ func _process(delta: float) -> void:
 		update_chunks(pchunk)
 
 
+# === [DOMAIN: CHUNK STREAMING ORCHESTRATION] ==================================
 func world_to_chunk(pos: Vector2) -> Vector2i:
 	return _tile_to_chunk(_world_to_tile(pos))
 
@@ -905,6 +924,7 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 	cliff_generator.release_chunk_cliff_collisions(chunk_pos)
 	_tile_painter.erase_chunk_region(cliffs_tilemap, chunk_pos, chunk_size, [LAYER_GROUND])
 
+# === [DOMAIN: TERRAIN/WALK SURFACE QUERY PORTS] ===============================
 func get_spawn_biome(x: int, y: int) -> int:
 	var terrain := _ground_painter.get_terrain(x, y)
 	if terrain == 0:  # dirt patch → alta densidad de ores
@@ -1083,6 +1103,7 @@ func _chunk_from_key(chunk_key: String) -> Vector2i:
 		return Vector2i(-99999, -99999)
 	return Vector2i(int(parts[0]), int(parts[1]))
 
+# === [DOMAIN: WALLS PUBLIC API (FACADE ONLY)] =================================
 func _get_extra_wall_support_lookup_for_chunk(chunk_pos: Vector2i) -> Dictionary:
 	var out: Dictionary = {}
 	# Miramos 3x3 chunks para cubrir el margen de 1 tile alrededor del chunk actual
@@ -1211,6 +1232,7 @@ func _ensure_chunk_wall_collision(chunk_pos: Vector2i) -> void:
 	if _chunk_wall_collider_cache != null:
 		_chunk_wall_collider_cache.ensure_for_chunk(chunk_pos)
 
+# === [DOMAIN: CLIFF/OCCLUSION ORCHESTRATION] ==================================
 func _init_cliff_screen_size() -> void:
 	var vp := get_viewport()
 	if vp == null:
@@ -1240,6 +1262,7 @@ func _update_cliff_occlusion() -> void:
 	var screen_pos: Vector2 = vp.get_canvas_transform() * player.global_position
 	mat.set_shader_parameter("player_screen_pos", screen_pos)
 
+# === [DOMAIN: TAVERN/SETTLEMENT ORCHESTRATION PORTS] ==========================
 func get_spawn_world_pos() -> Vector2:
 	return _tile_to_world(spawn_tile)
 
@@ -1467,6 +1490,7 @@ func _get_tavern_keeper_pos() -> Vector2:
 
 
 ## Entrypoint de incidentes: world.gd delega totalmente al orquestador de autoridad.
+# === [DOMAIN: INCIDENT DISPATCH (NO POLICY LOGIC)] ============================
 func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> void:
 	if _tavern_authority_orchestrator == null:
 		return
@@ -1678,6 +1702,7 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 		report_tavern_incident("murder_in_tavern", {"offender": killer_node, "pos": _pos})
 
 
+# === [DOMAIN: TERRITORY/INTEREST QUERY PORTS] =================================
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.
 ## PlayerTerritoryMap — territorio del jugador
 func _tick_player_territory() -> void:
@@ -1805,7 +1830,7 @@ func has_detected_base_near(world_pos: Vector2, radius: float) -> bool:
 		return false
 	return _settlement_intel.has_detected_base_near(world_pos, radius)
 
-
+# === [DOMAIN: DEBUG + PERSISTENCE/RESET ORCHESTRATION] ========================
 func _paint_outer_ground_band() -> void:
 	var band: int = 10
 	var cells: Array[Vector2i] = []
