@@ -115,8 +115,25 @@ func process(delta: float) -> void:
 		_ensure_base_scan_job(_player_pos_getter.call(), BASE_SCAN_RADIUS_DEFAULT, false, dirty_chunks)
 
 	var base_started_usec: int = Time.get_ticks_usec()
-	_process_pending_base_scan(BASE_SCAN_DOOR_BUDGET_PER_PULSE)
+	var base_budget: Dictionary = _cadence.get_lane_budget(&"settlement_base_scan") if use_world_cadence else {}
+	var base_ops_budget_per_pulse: int = int(base_budget.get("ops_per_pulse", 0))
+	var base_ms_budget_per_pulse: float = float(base_budget.get("ms_per_pulse", -1.0))
+	var base_scan_pulse_window: int = maxi(base_scan_pulses, 1)
+	var door_budget: int = BASE_SCAN_DOOR_BUDGET_PER_PULSE * base_scan_pulse_window
+	if base_ops_budget_per_pulse > 0:
+		door_budget = base_ops_budget_per_pulse * base_scan_pulse_window
+	var base_usage: Dictionary = _process_pending_base_scan(
+		door_budget,
+		base_ms_budget_per_pulse * float(base_scan_pulse_window) if base_ms_budget_per_pulse > 0.0 else -1.0
+	)
 	_perf_base_last_ms = maxf(float(Time.get_ticks_usec() - base_started_usec) / 1000.0, 0.0)
+	if use_world_cadence and base_scan_pulses > 0:
+		_cadence.report_lane_budget_usage(
+			&"settlement_base_scan",
+			_perf_base_last_ms,
+			int(base_usage.get("processed_doors", 0)),
+			base_scan_pulses
+		)
 	_perf_samples += 1
 	if _perf_samples > 0:
 		if workbench_processed:
@@ -363,14 +380,19 @@ func _collect_candidate_doors(center: Vector2, radius: float, chunk_keys: Array[
 	return result
 
 
-func _process_pending_base_scan(door_budget: int) -> void:
+func _process_pending_base_scan(door_budget: int, ms_budget: float = -1.0) -> Dictionary:
 	if _pending_base_scan.is_empty():
-		return
+		return {"processed_doors": 0}
 	var doors: Array[Vector2i] = _pending_base_scan.get("doors", [])
 	var cursor: int = int(_pending_base_scan.get("cursor", 0))
 	var results: Array = _pending_base_scan.get("results", [])
 	var processed: int = 0
+	var started_usec: int = Time.get_ticks_usec()
 	while cursor < doors.size() and processed < maxi(door_budget, 1):
+		if ms_budget > 0.0 and processed > 0:
+			var elapsed_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0
+			if elapsed_ms >= ms_budget:
+				break
 		var base_data := _try_detect_base_at_door(doors[cursor])
 		if not base_data.is_empty():
 			results.append(base_data)
@@ -379,7 +401,7 @@ func _process_pending_base_scan(door_budget: int) -> void:
 	_pending_base_scan["cursor"] = cursor
 	_pending_base_scan["results"] = results
 	if cursor < doors.size():
-		return
+		return {"processed_doors": processed}
 	var old_count := _bases.size()
 	_bases.assign(results)
 	_pending_base_scan.clear()
@@ -391,6 +413,7 @@ func _process_pending_base_scan(door_budget: int) -> void:
 				b.get("id", "?"), b.get("interior_tile_count", 0), b.get("wall_count", 0)])
 	elif new_count < old_count:
 		Debug.log("intel", "[BASE] lost %d base(s), now=%d" % [old_count - new_count, new_count])
+	return {"processed_doors": processed}
 
 
 

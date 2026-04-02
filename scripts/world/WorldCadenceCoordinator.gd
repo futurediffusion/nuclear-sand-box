@@ -7,7 +7,14 @@ const RECENT_ACTIVITY_DECAY_WINDOW: float = 5.0
 var _lanes: Dictionary = {}
 var _time: float = 0.0
 
-func configure_lane(name: StringName, interval: float, phase_ratio: float = 0.0, max_catchup: int = DEFAULT_MAX_CATCHUP) -> void:
+func configure_lane(
+	name: StringName,
+	interval: float,
+	phase_ratio: float = 0.0,
+	max_catchup: int = DEFAULT_MAX_CATCHUP,
+	budget_ms_per_pulse: float = -1.0,
+	budget_ops_per_pulse: int = 0
+) -> void:
 	if interval <= 0.0:
 		push_warning("WorldCadenceCoordinator lane %s needs interval > 0" % String(name))
 		return
@@ -25,6 +32,12 @@ func configure_lane(name: StringName, interval: float, phase_ratio: float = 0.0,
 		"last_catchup_generated": 0,
 		"last_tick_time": 0.0,
 		"last_consume_time": -1.0,
+		"budget_ms_per_pulse": budget_ms_per_pulse,
+		"budget_ops_per_pulse": maxi(0, budget_ops_per_pulse),
+		"last_consume_ms": -1.0,
+		"last_consume_ops": 0,
+		"over_budget": false,
+		"over_budget_events": 0,
 	}
 
 func reset_time(seed_time: float = 0.0) -> void:
@@ -98,6 +111,36 @@ func when_due(name: StringName) -> int:
 	return lane_due(name)
 
 
+func get_lane_budget(name: StringName) -> Dictionary:
+	if not _lanes.has(name):
+		return {}
+	var lane: Dictionary = _lanes[name]
+	return {
+		"ms_per_pulse": float(lane.get("budget_ms_per_pulse", -1.0)),
+		"ops_per_pulse": int(lane.get("budget_ops_per_pulse", 0)),
+	}
+
+
+func report_lane_budget_usage(name: StringName, consumed_ms: float = -1.0, consumed_ops: int = -1, pulses: int = 1) -> void:
+	if not _lanes.has(name):
+		return
+	var lane: Dictionary = _lanes[name]
+	var pulse_count: int = maxi(1, pulses)
+	var budget_ms: float = float(lane.get("budget_ms_per_pulse", -1.0))
+	var budget_ops: int = int(lane.get("budget_ops_per_pulse", 0))
+	var over_budget: bool = false
+	if budget_ms > 0.0 and consumed_ms >= 0.0:
+		over_budget = over_budget or consumed_ms > (budget_ms * float(pulse_count))
+	if budget_ops > 0 and consumed_ops >= 0:
+		over_budget = over_budget or consumed_ops > (budget_ops * pulse_count)
+	lane["last_consume_ms"] = consumed_ms
+	lane["last_consume_ops"] = maxi(0, consumed_ops)
+	lane["over_budget"] = over_budget
+	if over_budget:
+		lane["over_budget_events"] = int(lane.get("over_budget_events", 0)) + 1
+	_lanes[name] = lane
+
+
 func get_debug_snapshot() -> Dictionary:
 	var lanes: Dictionary = {}
 	for lane_name in _lanes.keys():
@@ -119,6 +162,12 @@ func get_debug_snapshot() -> Dictionary:
 			"last_generated_due": int(lane.get("last_generated_due", 0)),
 			"last_catchup_generated": int(lane.get("last_catchup_generated", 0)),
 			"total_consumed": int(lane.get("total_consumed", 0)),
+			"budget_ms_per_pulse": float(lane.get("budget_ms_per_pulse", -1.0)),
+			"budget_ops_per_pulse": int(lane.get("budget_ops_per_pulse", 0)),
+			"last_consume_ms": float(lane.get("last_consume_ms", -1.0)),
+			"last_consume_ops": int(lane.get("last_consume_ops", 0)),
+			"over_budget": bool(lane.get("over_budget", false)),
+			"over_budget_events": int(lane.get("over_budget_events", 0)),
 			"activity": activity,
 		}
 	return {
