@@ -130,15 +130,7 @@ var _tavern_director:          TavernSanctionDirector
 var _tavern_presence_monitor:  TavernPresenceMonitor
 var _tavern_garrison_monitor:  TavernGarrisonMonitor
 var _tavern_brawl:             TavernPerimeterBrawl
-
-## Postura defensiva del recinto. Evaluada cada _POSTURE_EVAL_INTERVAL segundos.
-const _POSTURE_EVAL_INTERVAL: float = 10.0
-var _posture_eval_accum: float       = 0.0
-var _current_posture:    int         = TavernDefensePosture.NORMAL
-## patrol_points originales de perimeter guards, cacheados en spawn.
-## Clave: Sentinel node (object reference). Valor: PackedVector2Array.
-## Permite restaurar patrullas al salir de FORTIFIED.
-var _perimeter_patrol_cache: Dictionary = {}
+var _tavern_authority_orchestrator: TavernAuthorityOrchestrator
 var _resource_repopulator: ResourceRepopulator
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
@@ -612,6 +604,16 @@ func _ready() -> void:
 			var b: Rect2 = get_tavern_inner_bounds_world()
 			return b.get_center() if b.size != Vector2.ZERO else Vector2.ZERO,
 	})
+	_tavern_authority_orchestrator = TavernAuthorityOrchestrator.new()
+	_tavern_authority_orchestrator.setup({
+		"memory": _tavern_memory,
+		"policy": _tavern_policy,
+		"director": _tavern_director,
+		"presence_monitor": _tavern_presence_monitor,
+		"get_tavern_inner_bounds_world": Callable(self, "get_tavern_inner_bounds_world"),
+		"get_tavern_sentinels": func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
+		"find_nearest_player": Callable(self, "_find_nearest_player"),
+	})
 	_local_social_ports = LocalSocialAuthorityPortsScript.new()
 	_local_social_ports.setup({
 		"local_authority_policy":  Callable(_tavern_policy,  "evaluate"),
@@ -761,7 +763,8 @@ func _process(delta: float) -> void:
 		_tavern_garrison_monitor.tick(delta)
 	if _tavern_brawl != null:
 		_tavern_brawl.tick(delta)
-	_tick_defense_posture(delta)
+	if _tavern_authority_orchestrator != null:
+		_tavern_authority_orchestrator.tick_defense_posture(delta)
 	var medium_pulses: int = _cadence.consume_lane(&"medium_pulse") if _cadence != null else 1
 	for _pulse in medium_pulses:
 		_tick_player_territory()
@@ -1411,10 +1414,10 @@ func _spawn_single_tavern_sentinel(role: String, pos: Vector2, side: String = ""
 			s.patrol_points = _get_interior_patrol_points()
 		"perimeter_guard":
 			if not side.is_empty():
-				var pts := _get_perimeter_patrol_points(side, pos)
+				var pts := _build_perimeter_patrol_points(side, pos)
 				s.patrol_points = pts
-				# Cache para poder restaurar patrullas al salir de postura FORTIFIED.
-				_perimeter_patrol_cache[s] = pts.duplicate()
+				if _tavern_authority_orchestrator != null:
+					_tavern_authority_orchestrator.remember_perimeter_patrol(s, pts)
 	return s
 
 
@@ -1450,109 +1453,15 @@ func _get_interior_patrol_points() -> PackedVector2Array:
 ## "toward" = dirección que acerca al muro (e.g. +y para norte, -y para sur).
 ## d1/d2 se randomizan por instancia para que dos guards del mismo lado
 ## tengan rutas ligeramente distintas y no caminen sincronizados.
-func _get_perimeter_patrol_points(side: String, home: Vector2) -> PackedVector2Array:
-	var b: Rect2  = get_tavern_inner_bounds_world()
-	const M: float = 128.0
-	var d1: float  = randf_range(20.0, 32.0)   # profundidad variante: más cerca del muro
-	var d2: float  = randf_range(16.0, 26.0)   # profundidad variante: más lejos del muro
-	match side:
-		"north", "south":
-			# toward: +1 = acercarse al muro (norte sube y), -1 (sur baja y)
-			var toward: float = 1.0 if side == "north" else -1.0
-			return PackedVector2Array([
-				Vector2(b.position.x - M,                 home.y + toward * d1),
-				Vector2(b.position.x + b.size.x * 0.25,  home.y - toward * d2),
-				Vector2(b.position.x + b.size.x * 0.5,   home.y),
-				Vector2(b.position.x + b.size.x * 0.75,  home.y - toward * d2),
-				Vector2(b.position.x + b.size.x + M,     home.y + toward * d1),
-			])
-		"east", "west":
-			# toward: -1 = acercarse al muro (este baja x), +1 (oeste sube x)
-			var toward: float = -1.0 if side == "east" else 1.0
-			return PackedVector2Array([
-				Vector2(home.x + toward * d1,   b.position.y - M),
-				Vector2(home.x - toward * d2,   b.position.y + b.size.y * 0.25),
-				Vector2(home.x,                  b.position.y + b.size.y * 0.5),
-				Vector2(home.x - toward * d2,   b.position.y + b.size.y * 0.75),
-				Vector2(home.x + toward * d1,   b.position.y + b.size.y + M),
-			])
-	return PackedVector2Array()
+func _build_perimeter_patrol_points(side: String, home: Vector2) -> PackedVector2Array:
+	if _tavern_authority_orchestrator == null:
+		return PackedVector2Array()
+	return _tavern_authority_orchestrator.build_perimeter_patrol_points(side, home)
 
 
-## ── Postura defensiva del recinto ────────────────────────────────────────────
-##
-## Evaluada cada _POSTURE_EVAL_INTERVAL segundos. Cuando la postura cambia,
-## se propaga a tres subsistemas:
-##   TavernPresenceMonitor — ajusta multiplier de thresholds
-##   TavernAuthorityPolicy — activa/desactiva Regla 5 (exterior escalada)
-##   Perimeter sentinels   — FORTIFIED: post fijo; NORMAL/GUARDED: patrulla corta
-##
-## La evaluación usa TavernDefensePosture.compute() que es puro y determinista.
+## Postura/autoridad: decisión semántica delegada a TavernAuthorityOrchestrator.
+## world.gd solo enruta callsites y wiring de puertos.
 
-func _tick_defense_posture(delta: float) -> void:
-	if _tavern_memory == null:
-		return
-	_posture_eval_accum += delta
-	if _posture_eval_accum < _POSTURE_EVAL_INTERVAL:
-		return
-	_posture_eval_accum = 0.0
-
-	var bounds: Rect2 = get_tavern_inner_bounds_world()
-	var tavern_center: Vector2 = bounds.get_center() if bounds.size != Vector2.ZERO else Vector2.ZERO
-	var new_posture: int = TavernDefensePosture.compute(_tavern_memory, tavern_center, RunClock.now())
-
-	if new_posture == _current_posture:
-		return
-
-	var old_posture: int = _current_posture
-	_current_posture = new_posture
-	_apply_defense_posture(new_posture, old_posture)
-	Debug.log("authority", "[POSTURE] %s → %s" % [
-		TavernDefensePosture.name_of(old_posture),
-		TavernDefensePosture.name_of(new_posture),
-	])
-
-
-func _apply_defense_posture(posture: int, old_posture: int) -> void:
-	# Propagar a monitor de presencia (thresholds dinámicos)
-	if _tavern_presence_monitor != null:
-		_tavern_presence_monitor.set_defense_posture(posture)
-	# Propagar a policy (Regla 5 — exterior escalada en FORTIFIED)
-	if _tavern_policy != null:
-		_tavern_policy.set_defense_posture(posture)
-	# Adaptar patrullas de perimeter guards
-	_adapt_perimeter_patrols(posture, old_posture)
-
-
-## Ajusta las patrullas de perimeter guards según postura.
-##
-## FORTIFIED → post fijo (patrol_points vacío) — máxima vigilancia, sin ronda.
-##             El guardia mantiene posición cerca de la pared y no se distrae.
-## NORMAL/GUARDED → restaura las patrullas originales cacheadas en spawn.
-##
-## Los interior_guard y door_guard no se tocan — solo perimeter.
-func _adapt_perimeter_patrols(posture: int, old_posture: int) -> void:
-	var sentinels: Array = get_tree().get_nodes_in_group("tavern_sentinel")
-	for node: Variant in sentinels:
-		if not (node is Sentinel and is_instance_valid(node)):
-			continue
-		var s := node as Sentinel
-		if s.sentinel_role != "perimeter_guard":
-			continue
-
-		if posture == TavernDefensePosture.FORTIFIED:
-			# Asegurar cache antes de limpiar (puede ser la primera vez que llega a FORTIFIED).
-			if not _perimeter_patrol_cache.has(s) and not s.patrol_points.is_empty():
-				_perimeter_patrol_cache[s] = s.patrol_points.duplicate()
-			s.patrol_points = PackedVector2Array()
-		elif old_posture == TavernDefensePosture.FORTIFIED:
-			# Restaurar al salir de FORTIFIED.
-			if _perimeter_patrol_cache.has(s):
-				s.patrol_points = _perimeter_patrol_cache[s] as PackedVector2Array
-
-
-## Resolver la posición world del TavernKeeper en runtime.
-## Si el keeper todavía no está en escena, usa geometría fija del chunk.
 func _get_tavern_keeper_pos() -> Vector2:
 	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
 	if not keepers.is_empty():
@@ -1563,142 +1472,13 @@ func _get_tavern_keeper_pos() -> Vector2:
 	return _tile_to_world(Vector2i(x0 + 6, y0 + 2))
 
 
-## ── Entry point institucional para incidentes civiles de taberna ─────────────
-## Este método es el punto de entrada del INCIDENTE, no del sanction.
-## La ruta conceptual correcta es: incident → memory → policy → sanction.
-## Hoy no hay director, así que el incidente se loguea y queda registrado
-## para observabilidad. NO se llama direct_local_sanction() porque semánticamente
-## eso salta memory y policy, que todavía no existen.
-##
-## En Paso 2: conectar TavernLocalMemory aquí primero, luego policy, luego director.
-## _local_social_ports tiene los puertos listos para cuando lleguen esas piezas.
-##
-## Llamar desde: hurtbox del keeper, barrel interaction, wall damage callbacks,
-##   BanditBehaviorLayer, futuros civiles, etc.
-## Offenders: player, bandit/enemy, cualquier Node2D agente.
+## Entrypoint de incidentes: world.gd delega totalmente al orquestador de autoridad.
 func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> void:
-	var incident := _build_tavern_incident(incident_type, payload)
-	if incident == null:
-		Debug.log("authority", "[TAVERN] incident_type='%s' sin mapping — ignorado" % incident_type)
+	if _tavern_authority_orchestrator == null:
 		return
-
-	# La policy evalúa ANTES de registrar — así ve solo el historial previo,
-	# no el incidente actual. El orden es relevante para escalaciones correctas.
-	var directive: LocalAuthorityDirective = _tavern_policy.evaluate(incident)
-	_tavern_memory.record(incident)
-	Debug.log("authority", "[TAVERN] %s" % directive.describe())
-
-	if directive.response_type == LocalAuthorityResponse.Response.RECORD_ONLY:
-		return
-
-	var offender_node: CharacterBody2D = payload.get("offender", null) as CharacterBody2D
-	if offender_node == null or not is_instance_valid(offender_node):
-		# Fallback solo cuando el ofensor era desconocido desde el principio (no enemy explícito).
-		# Para incidentes de bandit/enemy el nodo ya viene en payload — si no llegó, no forzar player.
-		var is_enemy_incident := incident_type in ["armed_intruder", "bandit_attack", "murder_in_tavern"]
-		if not is_enemy_incident:
-			var incident_pos: Vector2 = payload.get("pos", Vector2.ZERO)
-			offender_node = _find_nearest_player(incident_pos)
-
-	_tavern_director.dispatch(directive, offender_node)
+	_tavern_authority_orchestrator.report_incident(incident_type, payload)
 
 
-## Construye un LocalCivilIncident a partir del tipo de incidente semántico
-## y el payload del activador. Devuelve null si el tipo no tiene mapping.
-func _build_tavern_incident(incident_type: String, payload: Dictionary) -> LocalCivilIncident:
-	var C  := LocalCivilAuthorityConstants
-	var offense: String   = ""
-	var severity: float   = 0.0
-	var victim_kind: String = C.VictimKind.CIVILIAN
-	var zone: String      = C.ZONE_TAVERN_INTERIOR
-
-	match incident_type:
-		"assault_keeper":
-			offense     = C.Offense.ASSAULT
-			severity    = C.SEVERITY_SERIOUS
-			victim_kind = C.VictimKind.AUTHORITY_MEMBER
-		"assault_sentinel":
-			offense     = C.Offense.ASSAULT
-			severity    = C.SEVERITY_SERIOUS
-			victim_kind = C.VictimKind.AUTHORITY_MEMBER
-		"murder_in_tavern":
-			offense     = C.Offense.MURDER
-			severity    = C.SEVERITY_CRITICAL
-		"wall_damaged":
-			offense     = C.Offense.VANDALISM
-			severity    = C.SEVERITY_MODERATE
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-		"wall_damaged_exterior":
-			# Daño estructural desde el perímetro — ataque externo a la taberna.
-			# Más grave que interior (agresión directa desde fuera).
-			# zone=PERIMETER → director asigna perimeter_guard. Policy puede escalar a CALL_BACKUP.
-			offense     = C.Offense.VANDALISM
-			severity    = C.SEVERITY_SERIOUS
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-			zone        = C.ZONE_TAVERN_PERIMETER
-		"barrel_opened":
-			offense     = C.Offense.TRESPASS
-			severity    = C.SEVERITY_MINOR
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-		"barrel_destroyed":
-			offense     = C.Offense.VANDALISM
-			severity    = C.SEVERITY_MODERATE
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-		"armed_intruder":
-			offense     = C.Offense.WEAPON_THREAT
-			severity    = C.SEVERITY_SERIOUS
-		"trespass":
-			offense     = C.Offense.TRESPASS
-			severity    = C.SEVERITY_MINOR
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-			zone        = C.ZONE_TAVERN_GROUNDS
-		"bandit_attack":
-			offense     = C.Offense.ASSAULT
-			severity    = C.SEVERITY_SERIOUS
-		"disturbance":
-			offense     = C.Offense.DISTURBANCE
-			severity    = C.SEVERITY_MINOR
-			zone        = C.ZONE_TAVERN_INTERIOR
-		"suspicious_presence":
-			# Bandit/enemy en el perímetro exterior por tiempo prolongado.
-			# Emitido por TavernPresenceMonitor. Respuesta base: WARN.
-			# Policy escala si el actor tiene historial previo en la taberna.
-			offense     = C.Offense.DISTURBANCE
-			severity    = C.SEVERITY_MINOR
-			zone        = C.ZONE_TAVERN_PERIMETER
-		"loitering":
-			# Actor rondando la zona de puerta/acceso más de lo aceptable.
-			# Emitido por TavernPresenceMonitor. Respuesta base: WARN.
-			offense     = C.Offense.TRESPASS
-			severity    = C.SEVERITY_MINOR
-			zone        = C.ZONE_TAVERN_GROUNDS
-		_:
-			return null
-
-	var offender_node: Node2D = payload.get("offender", null) as Node2D
-	var offender_id: String   = ""
-	var offender_pos: Vector2 = payload.get("pos", Vector2.ZERO)
-
-	if offender_node != null and is_instance_valid(offender_node):
-		offender_id = offender_node.name
-		if offender_pos == Vector2.ZERO:
-			offender_pos = offender_node.global_position
-
-	return LocalCivilIncidentFactory.create(
-		"tavern_main",
-		offense,
-		severity,
-		offender_pos,
-		offender_id,
-		victim_kind,
-		zone,
-		[],            # witnesses — Fase 3
-		incident_type, # source_tag
-		{}
-	)
-
-
-## Devuelve el nodo TavernKeeper activo, o null si no está en escena.
 func _get_tavern_keeper_node() -> TavernKeeper:
 	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
 	if not keepers.is_empty() and keepers[0] is TavernKeeper:
