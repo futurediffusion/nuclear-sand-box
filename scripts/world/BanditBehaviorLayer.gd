@@ -277,6 +277,7 @@ func setup(ctx: Dictionary) -> void:
 	add_child(_stash)
 	_stash.setup({
 		"update_deposit_pos_cb": Callable(self, "_update_deposit_pos"),
+		"world_spatial_index": _world_spatial_index,
 	})
 
 	if _work_coordinator != null and is_instance_valid(_work_coordinator):
