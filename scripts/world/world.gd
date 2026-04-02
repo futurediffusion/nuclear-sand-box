@@ -599,6 +599,7 @@ func _ready() -> void:
 		"player":                player,
 		"speech_bubble_manager": _speech_bubble_manager,
 		"world_spatial_index": _world_spatial_index,
+		"runtime_group_index": _runtime_group_index,
 		"world_node": self,
 	})  # Setup del sistema de extorsión
 
@@ -1288,6 +1289,12 @@ func find_nearest_player_storage_world_pos(world_pos: Vector2, radius: float) ->
 
 func find_nearest_player_placeable_world_pos(world_pos: Vector2, radius: float) -> Vector2:
 	return _find_nearest_player_placeable_world_pos_by_items(world_pos, radius, _PLAYER_RAID_PLACEABLE_ITEM_IDS)
+
+func get_runtime_group_nodes(group_name: String) -> Array:
+	if _runtime_group_index != null:
+		return _runtime_group_index.get_nodes(group_name)
+	var tree: SceneTree = get_tree()
+	return tree.get_nodes_in_group(group_name) if tree != null else []
 
 
 func _find_nearest_player_placeable_world_pos_by_items(world_pos: Vector2, radius: float,

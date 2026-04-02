@@ -30,6 +30,7 @@ const MAX_PICK_RETRIES: int   = 80          # attempts to find a valid tile
 var _stone_scene:  PackedScene = null
 var _copper_scene: PackedScene = null
 var _tilemap: TileMap          = null
+var _runtime_group_index: RuntimeGroupIndex = null
 var _floor_cells: Array[Vector2i] = []
 var _player_world_pos: Vector2 = Vector2.INF
 var _live_counts := {
@@ -50,6 +51,8 @@ func setup(stone_scene: PackedScene, copper_scene: PackedScene, tilemap: TileMap
 	_stone_scene  = stone_scene
 	_copper_scene = copper_scene
 	_tilemap      = tilemap
+	_runtime_group_index = RuntimeGroupIndex.new()
+	_runtime_group_index.setup({"tree_getter": Callable(self, "get_tree")})
 	_rebuild_floor_cache()
 	_sync_live_counts_from_world()
 	add_to_group("resource_repopulator")
@@ -165,6 +168,10 @@ func _rebuild_floor_cache() -> void:
 
 
 func _sync_live_counts_from_world() -> void:
+	if _runtime_group_index != null:
+		_live_counts["stone"] = _runtime_group_index.get_nodes("world_stone").size()
+		_live_counts["copper"] = _runtime_group_index.get_nodes("world_copper").size()
+		return
 	_live_counts["stone"] = get_tree().get_nodes_in_group("world_stone").size()
 	_live_counts["copper"] = get_tree().get_nodes_in_group("world_copper").size()
 

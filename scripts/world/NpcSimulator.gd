@@ -613,7 +613,7 @@ func _scan_nearby_resources(node_pos: Vector2) -> Array:
 
 func _get_enemy_nodes_for_lite() -> Array:
 	if _runtime_group_index != null:
-		return _runtime_group_index.get_nodes("enemy", maxf(lite_check_interval, 0.05))
+		return _runtime_group_index.get_nodes("enemy")
 	var tree: SceneTree = get_tree()
 	return tree.get_nodes_in_group("enemy") if tree != null else []
 
@@ -627,7 +627,7 @@ func _get_world_resources_candidates(node_pos: Vector2, radius_sq: float) -> Arr
 			sqrt(maxf(radius_sq, 0.0))
 		)
 	if _runtime_group_index != null:
-		return _runtime_group_index.get_nodes("world_resource", maxf(sim_check_interval, 0.05))
+		return _runtime_group_index.get_nodes("world_resource")
 	var tree: SceneTree = get_tree()
 	return tree.get_nodes_in_group("world_resource") if tree != null else []
 

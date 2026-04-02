@@ -1,16 +1,42 @@
 extends RefCounted
 class_name RuntimeGroupIndex
 
+const GROUP_TYPE_ENEMY: StringName = &"enemy"
+const GROUP_TYPE_PLAYER: StringName = &"player"
+const GROUP_TYPE_INTERACTABLE: StringName = &"interactable"
+const GROUP_TYPE_RESOURCE: StringName = &"resource"
+const GROUP_TYPE_DEFAULT: StringName = &"default"
+
+const DEFAULT_GROUP_TTL_SEC: float = 0.25
+const GROUP_TYPE_TTL_SEC: Dictionary = {
+	GROUP_TYPE_ENEMY: 0.10,
+	GROUP_TYPE_PLAYER: 0.04,
+	GROUP_TYPE_INTERACTABLE: 0.22,
+	GROUP_TYPE_RESOURCE: 0.80,
+	GROUP_TYPE_DEFAULT: DEFAULT_GROUP_TTL_SEC,
+}
+
+const GROUP_NAME_TO_TYPE: Dictionary = {
+	"enemy": GROUP_TYPE_ENEMY,
+	"player": GROUP_TYPE_PLAYER,
+	"item_drop": GROUP_TYPE_INTERACTABLE,
+	"player_placeable": GROUP_TYPE_INTERACTABLE,
+	"world_resource": GROUP_TYPE_RESOURCE,
+	"world_stone": GROUP_TYPE_RESOURCE,
+	"world_copper": GROUP_TYPE_RESOURCE,
+}
+
 var _tree_getter: Callable
 var _group_entries: Dictionary = {}
 
 func setup(ctx: Dictionary) -> void:
 	_tree_getter = ctx.get("tree_getter", Callable())
 
-func get_nodes(group_name: String, max_age_sec: float = 0.4, force_refresh: bool = false) -> Array:
+func get_nodes(group_name: String, max_age_sec: float = -1.0, force_refresh: bool = false) -> Array:
 	if group_name.strip_edges() == "":
 		return []
-	if force_refresh or _needs_refresh(group_name, max_age_sec):
+	var ttl_sec: float = max_age_sec if max_age_sec >= 0.0 else get_group_ttl_sec(group_name)
+	if force_refresh or _needs_refresh(group_name, ttl_sec):
 		_refresh_group(group_name)
 	var entry: Dictionary = _group_entries.get(group_name, {})
 	var refs: Array = entry.get("refs", [])
@@ -25,6 +51,10 @@ func get_nodes(group_name: String, max_age_sec: float = 0.4, force_refresh: bool
 	entry["updated_at"] = Time.get_ticks_msec()
 	_group_entries[group_name] = entry
 	return out
+
+func get_group_ttl_sec(group_name: String) -> float:
+	var group_type: StringName = GROUP_NAME_TO_TYPE.get(group_name, GROUP_TYPE_DEFAULT)
+	return float(GROUP_TYPE_TTL_SEC.get(group_type, DEFAULT_GROUP_TTL_SEC))
 
 func invalidate(group_name: String = "") -> void:
 	if group_name.strip_edges() == "":

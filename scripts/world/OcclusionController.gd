@@ -12,8 +12,11 @@ var _materials: Array[ShaderMaterial] = []
 var _tilemaps: Array[TileMap] = []
 var _screen_size: Vector2 = Vector2(1920, 1080)
 var _player_ref: Node2D = null
+var _runtime_group_index: RuntimeGroupIndex = null
 
 func _ready() -> void:
+	_runtime_group_index = RuntimeGroupIndex.new()
+	_runtime_group_index.setup({"tree_getter": Callable(self, "get_tree")})
 	_cache_player_reference()
 	call_deferred("_find_materials")
 
@@ -27,7 +30,11 @@ func _cache_player_reference() -> void:
 			_player_ref = configured_player
 			return
 
-	var players := get_tree().get_nodes_in_group("player")
+	var players: Array = []
+	if _runtime_group_index != null:
+		players = _runtime_group_index.get_nodes("player")
+	else:
+		players = get_tree().get_nodes_in_group("player")
 	if players.is_empty():
 		_player_ref = null
 		return

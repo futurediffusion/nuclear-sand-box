@@ -188,6 +188,7 @@ var _find_storage_cb:    Callable                = Callable()
 var _find_placeable_cb:  Callable                = Callable()
 var _world_node:         Node                    = null
 var _world_spatial_index: WorldSpatialIndex      = null
+var _runtime_group_index: RuntimeGroupIndex      = null
 var _extortion_queue_port: Dictionary            = {}
 var _raid_queue_port: Dictionary                 = {}
 var _pending_structure_dispatches: Array[Dictionary] = []
@@ -228,6 +229,7 @@ func setup(ctx: Dictionary) -> void:
 	_player         = ctx.get("player")
 	_bubble_manager = ctx.get("speech_bubble_manager")
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
+	_runtime_group_index = ctx.get("runtime_group_index") as RuntimeGroupIndex
 	_world_node = ctx.get("world_node")
 	_domain_ports = ctx.get("domain_ports") as BanditDomainPorts
 	if _domain_ports == null:
@@ -702,14 +704,22 @@ func _build_res_info(node_pos: Vector2, all_resources: Array) -> Array:
 func _get_all_drop_nodes() -> Array:
 	# Runtime truth for tactical loot decisions is the live scene tree.
 	# Spatial index remains an optimization, never the semantic owner.
-	var nodes: Array = get_tree().get_nodes_in_group("item_drop")
+	var nodes: Array = []
+	if _runtime_group_index != null:
+		nodes = _runtime_group_index.get_nodes("item_drop")
+	else:
+		nodes = get_tree().get_nodes_in_group("item_drop")
 	_record_livetree_scan(nodes.size())
 	return nodes
 
 
 func _get_all_resource_nodes() -> Array:
 	# Runtime truth for resource watch is the live world_resource group.
-	var nodes: Array = get_tree().get_nodes_in_group("world_resource")
+	var nodes: Array = []
+	if _runtime_group_index != null:
+		nodes = _runtime_group_index.get_nodes("world_resource")
+	else:
+		nodes = get_tree().get_nodes_in_group("world_resource")
 	_record_livetree_scan(nodes.size())
 	return nodes
 
