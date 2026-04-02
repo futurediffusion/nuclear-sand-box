@@ -15,6 +15,8 @@ const BEHAVIOR_TICK_INTERVAL: float = 0.5      # segundos entre ticks de behavio
 # Scan radii — distancias máximas para detectar drops/recursos por tick
 const LOOT_SCAN_RADIUS:     float = 144.0
 const RESOURCE_SCAN_RADIUS: float = 288.0
+const RUNTIME_INDEX_DROP_QUERY_RADIUS_SCALE: float = 1.25
+const RUNTIME_INDEX_RESOURCE_QUERY_RADIUS_SCALE: float = 1.10
 
 # Rango melee para que un NPC golpee un recurso mientras minea
 const MINE_RANGE: float = 52.0
@@ -100,6 +102,12 @@ static func resource_scan_radius() -> float:
 
 static func resource_scan_radius_sq() -> float:
 	return RESOURCE_SCAN_RADIUS * RESOURCE_SCAN_RADIUS
+
+static func runtime_index_drop_query_radius() -> float:
+	return LOOT_SCAN_RADIUS * RUNTIME_INDEX_DROP_QUERY_RADIUS_SCALE
+
+static func runtime_index_resource_query_radius() -> float:
+	return RESOURCE_SCAN_RADIUS * RUNTIME_INDEX_RESOURCE_QUERY_RADIUS_SCALE
 
 static func mine_range_sq() -> float:
 	return MINE_RANGE * MINE_RANGE

@@ -200,6 +200,13 @@ var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
 var _domain_ports: BanditDomainPorts             = null
 var _ally_sep_debug_last_comparisons: int        = 0
+var _tick_perf_samples: int                       = 0
+var _tick_perf_total_ms: float                    = 0.0
+var _tick_perf_last_ms: float                     = 0.0
+var _tick_perf_avg_ms: float                      = 0.0
+var _tick_perf_last_query_delta: int              = 0
+var _tick_perf_query_delta_total: int             = 0
+var _tick_perf_query_delta_avg: float             = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -526,12 +533,20 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------------------
 
 func _tick_behaviors() -> void:
+	var tick_started_usec: int = Time.get_ticks_usec()
+	var query_total_before: int = _get_spatial_query_total()
 	_prune_behavior_timers()
 	_lod_debug_last_npc.clear()
 	_lod_debug_npc_counts = {"fast": 0, "medium": 0, "slow": 0}
-	var drop_nodes_snapshot: Array = _get_all_drop_nodes()
-	var res_nodes_snapshot: Array = _get_all_resource_nodes()
+	var use_runtime_spatial_index: bool = _world_spatial_index != null and is_instance_valid(_world_spatial_index)
+	var drop_nodes_snapshot: Array = []
+	var res_nodes_snapshot: Array = []
+	if not use_runtime_spatial_index:
+		drop_nodes_snapshot = _get_all_drop_nodes()
+		res_nodes_snapshot = _get_all_resource_nodes()
 	var leader_pos_by_group: Dictionary = {}
+	var drop_nodes_by_group: Dictionary = {}
+	var resource_nodes_by_group: Dictionary = {}
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
 		if beh.role != "leader" or beh.group_id == "":
@@ -543,11 +558,22 @@ func _tick_behaviors() -> void:
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
 		var node = _npc_simulator.get_enemy_node(enemy_id)
+		var node_pos_for_work: Vector2 = (node as Node2D).global_position if node is Node2D else Vector2.ZERO
+		var work_drop_candidates: Array = drop_nodes_snapshot
+		if use_runtime_spatial_index and node is Node2D:
+			work_drop_candidates = _get_runtime_nodes_for_behavior(
+				beh,
+				node_pos_for_work,
+				leader_pos_by_group,
+				drop_nodes_by_group,
+				WorldSpatialIndex.KIND_ITEM_DROP,
+				BanditTuningScript.runtime_index_drop_query_radius()
+			)
 		if node == null or not node.has_method("is_world_behavior_eligible") \
 				or not node.is_world_behavior_eligible():
 			if _work_coordinator != null:
 				var cmd_idle: Dictionary = beh.issue_execution_intent({"now": RunClock.now()})
-				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, cmd_idle, _get_runtime_lod_signals(node))
+				_work_coordinator.process_post_behavior(beh, node, work_drop_candidates, cmd_idle, _get_runtime_lod_signals(node))
 			continue
 
 		var node_pos: Vector2 = node.global_position
@@ -560,7 +586,7 @@ func _tick_behaviors() -> void:
 					"node_pos": node_pos,
 					"now": RunClock.now(),
 				})
-				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, cmd_slow, _get_runtime_lod_signals(node))
+				_work_coordinator.process_post_behavior(beh, node, work_drop_candidates, cmd_slow, _get_runtime_lod_signals(node))
 			continue
 		# Resetear a 0 en vez de acumular residual para evitar que elapsed crezca
 		# indefinidamente cuando tick_interval es corto (ej. 0.25s con jugador cerca).
@@ -569,10 +595,30 @@ func _tick_behaviors() -> void:
 		# NPC haya movido, disparando stuck detection de forma falsa.
 		_behavior_elapsed[enemy_id] = 0.0
 
+		var drop_candidates: Array = drop_nodes_snapshot
+		var resource_candidates: Array = res_nodes_snapshot
+		if use_runtime_spatial_index:
+			drop_candidates = _get_runtime_nodes_for_behavior(
+				beh,
+				node_pos,
+				leader_pos_by_group,
+				drop_nodes_by_group,
+				WorldSpatialIndex.KIND_ITEM_DROP,
+				BanditTuningScript.runtime_index_drop_query_radius()
+			)
+			resource_candidates = _get_runtime_nodes_for_behavior(
+				beh,
+				node_pos,
+				leader_pos_by_group,
+				resource_nodes_by_group,
+				WorldSpatialIndex.KIND_WORLD_RESOURCE,
+				BanditTuningScript.runtime_index_resource_query_radius()
+			)
+
 		var ctx: Dictionary = {
 			"node_pos":                       node_pos,
-			"nearby_drops_info":              _build_drops_info(node_pos, drop_nodes_snapshot),
-			"nearby_res_info":                _build_res_info(node_pos, res_nodes_snapshot),
+			"nearby_drops_info":              _build_drops_info(node_pos, drop_candidates),
+			"nearby_res_info":                _build_res_info(node_pos, resource_candidates),
 			"find_nearest_player_wall":       _find_wall_cb,
 			"find_nearest_player_workbench":  _find_workbench_cb,
 			"find_nearest_player_storage":    _find_storage_cb,
@@ -598,7 +644,9 @@ func _tick_behaviors() -> void:
 				"node_pos": node_pos,
 				"now": RunClock.now(),
 			})
-			_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot, cmd, _get_runtime_lod_signals(node))
+			_work_coordinator.process_post_behavior(beh, node, work_drop_candidates, cmd, _get_runtime_lod_signals(node))
+	var query_total_after: int = _get_spatial_query_total()
+	_record_tick_perf(Time.get_ticks_usec() - tick_started_usec, query_total_before, query_total_after)
 
 
 # ---------------------------------------------------------------------------
@@ -646,6 +694,48 @@ func _get_all_drop_nodes() -> Array:
 func _get_all_resource_nodes() -> Array:
 	# Runtime truth for resource watch is the live world_resource group.
 	return get_tree().get_nodes_in_group("world_resource")
+
+
+func _get_runtime_nodes_for_behavior(
+		beh: BanditWorldBehavior,
+		node_pos: Vector2,
+		leader_pos_by_group: Dictionary,
+		cache: Dictionary,
+		kind: StringName,
+		radius: float) -> Array:
+	if _world_spatial_index == null or not is_instance_valid(_world_spatial_index):
+		return []
+	var cache_key: String = String(beh.member_id)
+	var anchor_pos: Vector2 = node_pos
+	if beh.group_id != "":
+		cache_key = "group:%s" % beh.group_id
+		anchor_pos = leader_pos_by_group.get(beh.group_id, node_pos)
+	if cache.has(cache_key):
+		return cache[cache_key]
+	var runtime_nodes: Array = _world_spatial_index.get_runtime_nodes_near(kind, anchor_pos, radius)
+	cache[cache_key] = runtime_nodes
+	return runtime_nodes
+
+
+func _get_spatial_query_total() -> int:
+	if _world_spatial_index == null or not is_instance_valid(_world_spatial_index):
+		return -1
+	var snapshot: Dictionary = _world_spatial_index.get_debug_snapshot()
+	return int(snapshot.get("query_total", -1))
+
+
+func _record_tick_perf(elapsed_usec: int, query_total_before: int, query_total_after: int) -> void:
+	_tick_perf_last_ms = maxf(float(elapsed_usec) / 1000.0, 0.0)
+	_tick_perf_samples += 1
+	_tick_perf_total_ms += _tick_perf_last_ms
+	_tick_perf_avg_ms = _tick_perf_total_ms / float(maxi(_tick_perf_samples, 1))
+	var query_delta: int = -1
+	if query_total_before >= 0 and query_total_after >= query_total_before:
+		query_delta = query_total_after - query_total_before
+	_tick_perf_last_query_delta = query_delta
+	if query_delta >= 0:
+		_tick_perf_query_delta_total += query_delta
+		_tick_perf_query_delta_avg = float(_tick_perf_query_delta_total) / float(maxi(_tick_perf_samples, 1))
 
 
 # ---------------------------------------------------------------------------
@@ -1712,6 +1802,13 @@ func get_lod_debug_snapshot() -> Dictionary:
 		"npc_counts": _lod_debug_npc_counts.duplicate(true),
 		"npc_intervals": _lod_debug_last_npc.duplicate(true),
 		"group_scan": _group_intel.get_lod_debug_snapshot() if _group_intel != null else {},
+		"tick_perf": {
+			"samples": _tick_perf_samples,
+			"last_ms": _tick_perf_last_ms,
+			"avg_ms": _tick_perf_avg_ms,
+			"last_query_delta": _tick_perf_last_query_delta,
+			"avg_query_delta": _tick_perf_query_delta_avg,
+		},
 	}
 
 

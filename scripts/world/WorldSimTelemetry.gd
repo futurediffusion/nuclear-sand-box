@@ -50,6 +50,7 @@ func _print_perf_to_console() -> void:
 	var g_counts: Dictionary = _nested_dict(bandit, ["group_scan", "group_counts"])
 	var npc_counts: Dictionary = bandit.get("npc_counts", {})
 	var npc_reasons: Dictionary = bandit.get("npc_dominant_reasons", {})
+	var tick_perf: Dictionary = bandit.get("tick_perf", {})
 	var dist_stats: Dictionary = _npc_sim.get_active_distance_stats() if _npc_sim != null else {}
 	var dist_str: String = "n/a"
 	if int(dist_stats.get("count", 0)) > 0:
@@ -66,7 +67,7 @@ func _print_perf_to_console() -> void:
 			top_reason = String(r)
 	Debug.log("perf_telemetry", (
 		"chunk gen=%.2fms ent=%.2fms | npc sim=%.2fms (active=%d data=%d) dist[%s] | "
-		+ "bandits g[%s] npc[%s] top=%s | "
+		+ "bandits g[%s] npc[%s] top=%s tick=%.2fms q/tick=%.2f | "
 		+ "settlement dirty[wb=%s base=%s] bases=%d | "
 		+ "spatial hit=%d%% (%d q)"
 	) % [
@@ -78,6 +79,8 @@ func _print_perf_to_console() -> void:
 		_format_bucket_counts(g_counts),
 		_format_bucket_counts(npc_counts),
 		top_reason,
+		float(tick_perf.get("avg_ms", -1.0)),
+		float(tick_perf.get("avg_query_delta", -1.0)),
 		str(bool(settlement.get("interest_scan_dirty", false))),
 		str(bool(settlement.get("base_scan_dirty", false))),
 		int(settlement.get("bases_detected", 0)),
