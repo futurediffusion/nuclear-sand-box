@@ -13,6 +13,17 @@ const INDEX_CLEANUP_INTERVAL: float = 20.0
 var _warned_missing_world: bool = false
 var _cached_world: Node = null
 
+func reset() -> void:
+	_enemies.clear()
+	_enemy_chunks.clear()
+	buckets.clear()
+	_enemy_bucket_indices.clear()
+	_cleanup_timer = 0.0
+	_index_cleanup_timer = 0.0
+	_bucket_cleanup_cursor = 0
+	_warned_missing_world = false
+	_cached_world = null
+
 
 func register_enemy(e: Node2D) -> void:
 	if e == null:

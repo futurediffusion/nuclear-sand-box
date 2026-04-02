@@ -10,6 +10,8 @@ extends RefCounted
 ##      * Registries de dominio deben quedar vacíos antes de rehidratar simulación social.
 ##   3) BanditGroupMemory.reset(), ExtortionQueue.reset(), RaidQueue.reset()
 ##      * Limpia memoria táctica e intents pendientes derivados de estado viejo.
+##   3.1) EnemyRegistry.reset()
+##      * Evita índices huérfanos de enemigos entre runs (weakrefs/chunk buckets).
 ##   4) RunClock.reset(), WorldTime.load_save_data({})
 ##      * Relojes globales vuelven a baseline determinístico del nuevo run.
 ##   5) FactionHostilityManager.reset()
@@ -42,6 +44,7 @@ func _reset_tactical_memory_and_queues() -> void:
 	BanditGroupMemory.reset()
 	ExtortionQueue.reset()
 	RaidQueue.reset()
+	EnemyRegistry.reset()
 
 
 func _reset_run_time() -> void:
