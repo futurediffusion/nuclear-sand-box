@@ -292,6 +292,26 @@ func find_nearest_runtime_node(kind: StringName, world_pos: Vector2, radius: flo
 	return best
 
 
+func resolve_runtime_node_with_fallback(kind: StringName, instance_id: int,
+		actor_state: Dictionary = {}) -> Node2D:
+	if instance_id == 0 or not is_instance_id_valid(instance_id):
+		return null
+	var meta: Dictionary = _runtime_meta_by_id.get(instance_id, {})
+	if not meta.is_empty() and StringName(meta.get("kind", &"")) == kind:
+		var existing: Node = meta.get("node") as Node
+		var existing_2d := existing as Node2D
+		if existing_2d != null and is_instance_valid(existing_2d) and not existing_2d.is_queued_for_deletion():
+			return existing_2d
+	var recovered: Node2D = instance_from_id(instance_id) as Node2D
+	if recovered == null or not is_instance_valid(recovered) or recovered.is_queued_for_deletion():
+		return null
+	var expected_group: StringName = StringName(actor_state.get("expected_group", String(kind)))
+	if expected_group != &"" and not recovered.is_in_group(expected_group):
+		return null
+	register_runtime_node(kind, recovered)
+	return recovered
+
+
 func placeable_blocks_movement(item_id: String, uid: String = "") -> bool:
 	if item_id == "":
 		return false
