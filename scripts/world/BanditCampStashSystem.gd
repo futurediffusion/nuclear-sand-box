@@ -32,10 +32,13 @@ const BARREL_SPAWN_COLUMN_STEP:  float = 32.0   # px entre barriles adicionales
 const CARRY_STACK_BASE_Y:  float = -22.0  # Y del primer item cargado sobre el NPC
 const CARRY_STACK_STEP_Y:  float =   8.0  # desplazamiento Y por item adicional en el stack
 const PICKUP_ROUTE_COOLDOWN: float = 0.20 # s, aplicado de forma uniforme a rutas de pickup/cargo
+const FALLBACK_INTERACTABLE_RADIUS: float = 96.0 # px, búsqueda corta para fallback de depósito
 
 # group_id (String) -> instance_id (int) del barrel físico (runtime-only, no persisted)
 var _camp_barrels: Dictionary = {}
 var _pickup_route_next_at: Dictionary = {} # member_id|route -> RunClock.now()
+var _world_spatial_index: WorldSpatialIndex = null
+var _deposit_fallback_uses: int = 0
 
 # Callable(group_id: String, barrel_pos: Vector2) -> void
 # Implementado por BanditBehaviorLayer para propagar deposit_pos a los behaviors.
@@ -44,6 +47,7 @@ var _update_deposit_pos_cb: Callable = Callable()
 
 func setup(ctx: Dictionary) -> void:
 	_update_deposit_pos_cb = ctx.get("update_deposit_pos_cb", Callable())
+	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 
 
 # ---------------------------------------------------------------------------
@@ -102,14 +106,10 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			if bn != null and is_instance_valid(bn) and not bn.is_queued_for_deletion():
 				chest = bn
 
-	# 2) Fallback: cualquier interactable cercano con soporte de inserción
+	# 2) Fallback: consulta de proximidad (índice espacial + radio corto)
 	if chest == null:
-		for node in get_tree().get_nodes_in_group("interactable"):
-			if not node.has_method("try_insert_item") or not node.has_method("is_position_nearby"):
-				continue
-			if node.call("is_position_nearby", spawn_pos):
-				chest = node
-				break
+		_deposit_fallback_uses += 1
+		chest = _find_fallback_interactable_near(spawn_pos)
 
 	var land_target: Vector2 = spawn_pos
 	if chest != null and chest is Node2D:
@@ -245,6 +245,12 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	beh.on_deposit_complete()
 	Debug.log("bandit_ai", "[CampStash] cargo depositado id=%s pos=%s chest=%s" % [
 		beh.member_id, str(spawn_pos), str(chest != null)])
+
+
+func get_debug_snapshot() -> Dictionary:
+	return {
+		"deposit_fallback_uses": _deposit_fallback_uses,
+	}
 
 
 ## Appends inventory-style entries into bandit carry, respecting cargo capacity.
@@ -522,3 +528,30 @@ func _spawn_camp_barrel(home_pos: Vector2, column: int = 0) -> Node:
 func _notify_deposit_pos(group_id: String, barrel_pos: Vector2) -> void:
 	if _update_deposit_pos_cb.is_valid():
 		_update_deposit_pos_cb.call(group_id, barrel_pos)
+
+
+func _find_fallback_interactable_near(origin: Vector2) -> Node:
+	if _world_spatial_index == null or not is_instance_valid(_world_spatial_index):
+		return null
+	var nearest: Node = null
+	var nearest_dsq: float = INF
+	var nearby: Array = _world_spatial_index.get_runtime_nodes_near(
+		WorldSpatialIndex.KIND_STORAGE,
+		origin,
+		FALLBACK_INTERACTABLE_RADIUS
+	)
+	for node in nearby:
+		if node == null or not is_instance_valid(node) or node.is_queued_for_deletion():
+			continue
+		if not node.has_method("try_insert_item") or not node.has_method("is_position_nearby"):
+			continue
+		if not bool(node.call("is_position_nearby", origin)):
+			continue
+		var node2d := node as Node2D
+		if node2d == null:
+			continue
+		var dsq: float = node2d.global_position.distance_squared_to(origin)
+		if dsq < nearest_dsq:
+			nearest = node
+			nearest_dsq = dsq
+	return nearest
