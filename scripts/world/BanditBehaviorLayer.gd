@@ -74,6 +74,10 @@ const STRUCTURE_DISPATCH_SYNC_BUDGET: int = 3
 const STRUCTURE_DISPATCH_FRAME_BUDGET: int = 4
 const STRUCTURE_DISPATCH_MAX_PENDING_JOBS: int = 12
 const INVALID_STRUCTURE_TARGET: Vector2 = Vector2(-1.0, -1.0)
+const SNAPSHOT_DETAIL_MINIMAL: String = "minimal"
+const SNAPSHOT_DETAIL_NORMAL: String = "normal"
+const SNAPSHOT_DETAIL_FULL: String = "full"
+const DEEP_SNAPSHOT_SAMPLE_INTERVAL_DEFAULT: float = 0.75
 
 # ---------------------------------------------------------------------------
 # Frases de reconocimiento Ã¢ï¿½,ï¿½ï¿½?ï¿½ cuando la banda te tiene fichado y te ve venir
@@ -217,6 +221,10 @@ var _temp_alloc_est_avg: float                    = 0.0
 var _livetree_scan_calls: int                     = 0
 var _livetree_scan_nodes_last: int                = 0
 var _livetree_scan_nodes_total: int               = 0
+var _snapshot_profiling_enabled: bool             = false
+var _deep_snapshot_sample_interval: float         = DEEP_SNAPSHOT_SAMPLE_INTERVAL_DEFAULT
+var _deep_snapshot_cache: Dictionary              = {}
+var _deep_snapshot_last_at: float                 = -INF
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +240,8 @@ func setup(ctx: Dictionary) -> void:
 	_runtime_group_index = ctx.get("runtime_group_index") as RuntimeGroupIndex
 	_world_node = ctx.get("world_node")
 	_domain_ports = ctx.get("domain_ports") as BanditDomainPorts
+	_snapshot_profiling_enabled = bool(ctx.get("snapshot_profiling_enabled", false))
+	_deep_snapshot_sample_interval = maxf(0.0, float(ctx.get("deep_snapshot_sample_interval", DEEP_SNAPSHOT_SAMPLE_INTERVAL_DEFAULT)))
 	if _domain_ports == null:
 		_domain_ports = BanditDomainPortsScript.new() as BanditDomainPorts
 		_domain_ports.setup()
@@ -308,6 +318,8 @@ func setup_group_intel(ctx: Dictionary) -> void:
 		"extortion_queue_port":      ctx.get("extortion_queue_port", {}),
 		"raid_queue_port":           ctx.get("raid_queue_port", {}),
 		"dispatch_group_action_cb":  Callable(self, "_dispatch_group_intel_action"),
+		"snapshot_profiling_enabled": _snapshot_profiling_enabled,
+		"deep_snapshot_sample_interval": _deep_snapshot_sample_interval,
 	})
 
 	# Guardar query callables Ã¢ï¿½,ï¿½ï¿½?ï¿½ se pasan al RaidDirector y tambiï¿½fÂ©n al ctx de cada tick
@@ -1843,11 +1855,15 @@ func _record_npc_lod_debug(beh: BanditWorldBehavior, node: Node, lod_debug: Dict
 		])
 
 
-func get_lod_debug_snapshot() -> Dictionary:
-	return {
-		"npc_counts": _lod_debug_npc_counts.duplicate(true),
-		"npc_intervals": _lod_debug_last_npc.duplicate(true),
-		"group_scan": _group_intel.get_lod_debug_snapshot() if _group_intel != null else {},
+func get_lod_debug_snapshot(detail_level: String = SNAPSHOT_DETAIL_NORMAL, force_export: bool = false,
+		profiling_enabled: bool = false) -> Dictionary:
+	var resolved_level: String = _normalize_snapshot_detail_level(detail_level)
+	var profile_mode: bool = _snapshot_profiling_enabled or profiling_enabled
+	var include_deep: bool = resolved_level == SNAPSHOT_DETAIL_FULL or force_export or profile_mode
+	var snapshot: Dictionary = {
+		"detail_level": resolved_level,
+		"npc_counts": _lod_debug_npc_counts,
+		"group_scan": _group_intel.get_lod_debug_snapshot(resolved_level, force_export, profile_mode) if _group_intel != null else {},
 		"tick_perf": {
 			"samples": _tick_perf_samples,
 			"last_ms": _tick_perf_last_ms,
@@ -1865,16 +1881,48 @@ func get_lod_debug_snapshot() -> Dictionary:
 				"avg_ms": _behavior_lane_avg_ms,
 			},
 		},
-		"temp_alloc_estimate_per_tick": {
-			"last_objects": _temp_alloc_est_last,
-			"avg_objects": _temp_alloc_est_avg,
-		},
-		"live_tree_scans": {
-			"calls": _livetree_scan_calls,
-			"last_node_count": _livetree_scan_nodes_last,
-			"avg_node_count": float(_livetree_scan_nodes_total) / float(maxi(_livetree_scan_calls, 1)),
-		},
 	}
+	if resolved_level == SNAPSHOT_DETAIL_MINIMAL:
+		return snapshot
+	if not include_deep:
+		return snapshot
+	if not force_export and resolved_level != SNAPSHOT_DETAIL_FULL and not _should_refresh_deep_snapshot():
+		if not _deep_snapshot_cache.is_empty():
+			return _deep_snapshot_cache
+	var deep_snapshot: Dictionary = snapshot.duplicate()
+	deep_snapshot["npc_intervals"] = _lod_debug_last_npc.duplicate(true)
+	deep_snapshot["temp_alloc_estimate_per_tick"] = {
+		"last_objects": _temp_alloc_est_last,
+		"avg_objects": _temp_alloc_est_avg,
+	}
+	deep_snapshot["live_tree_scans"] = {
+		"calls": _livetree_scan_calls,
+		"last_node_count": _livetree_scan_nodes_last,
+		"avg_node_count": float(_livetree_scan_nodes_total) / float(maxi(_livetree_scan_calls, 1)),
+	}
+	deep_snapshot["group_scan"] = _group_intel.get_lod_debug_snapshot(SNAPSHOT_DETAIL_FULL, force_export, profile_mode) if _group_intel != null else {}
+	if not force_export:
+		_deep_snapshot_cache = deep_snapshot
+		_deep_snapshot_last_at = RunClock.now()
+	return deep_snapshot
+
+
+func _normalize_snapshot_detail_level(detail_level: String) -> String:
+	match String(detail_level).to_lower():
+		SNAPSHOT_DETAIL_MINIMAL:
+			return SNAPSHOT_DETAIL_MINIMAL
+		SNAPSHOT_DETAIL_FULL:
+			return SNAPSHOT_DETAIL_FULL
+		_:
+			return SNAPSHOT_DETAIL_NORMAL
+
+
+func _should_refresh_deep_snapshot() -> bool:
+	if _deep_snapshot_cache.is_empty():
+		return true
+	if _deep_snapshot_sample_interval <= 0.0:
+		return true
+	return (RunClock.now() - _deep_snapshot_last_at) >= _deep_snapshot_sample_interval
 
 
 func _is_lod_debug_logging_enabled() -> bool:

@@ -44,6 +44,15 @@ var _lod_debug_group_counts: Dictionary = {"fast": 0, "medium": 0, "slow": 0}
 var _scan_metrics_last_group: Dictionary = {}
 const EXECUTION_INTENT_TTL_EXTORT: float = 120.0
 const EXECUTION_INTENT_TTL_RAID: float = 240.0
+const SNAPSHOT_DETAIL_MINIMAL: String = "minimal"
+const SNAPSHOT_DETAIL_NORMAL: String = "normal"
+const SNAPSHOT_DETAIL_FULL: String = "full"
+const DEEP_SNAPSHOT_SAMPLE_INTERVAL_DEFAULT: float = 0.75
+
+var _snapshot_profiling_enabled: bool = false
+var _deep_snapshot_sample_interval: float = DEEP_SNAPSHOT_SAMPLE_INTERVAL_DEFAULT
+var _deep_snapshot_cache: Dictionary = {}
+var _deep_snapshot_last_at: float = -INF
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +68,8 @@ func setup(ctx: Dictionary) -> void:
 	_extortion_queue_port = _resolve_extortion_queue_port(ctx)
 	_raid_queue_port = _resolve_raid_queue_port(ctx)
 	_dispatch_group_action_cb = ctx.get("dispatch_group_action_cb", Callable())
+	_snapshot_profiling_enabled = bool(ctx.get("snapshot_profiling_enabled", false))
+	_deep_snapshot_sample_interval = maxf(0.0, float(ctx.get("deep_snapshot_sample_interval", DEEP_SNAPSHOT_SAMPLE_INTERVAL_DEFAULT)))
 
 
 func _resolve_extortion_queue_port(ctx: Dictionary) -> Dictionary:
@@ -261,12 +272,53 @@ func _record_group_lod_debug(group_id: String, current_intent: String, lod_debug
 		])
 
 
-func get_lod_debug_snapshot() -> Dictionary:
-	return {
+func get_lod_debug_snapshot(detail_level: String = SNAPSHOT_DETAIL_NORMAL, force_export: bool = false,
+		profiling_enabled: bool = false) -> Dictionary:
+	var resolved_level: String = _normalize_snapshot_detail_level(detail_level)
+	var profile_mode: bool = _snapshot_profiling_enabled or profiling_enabled
+	var include_deep: bool = resolved_level == SNAPSHOT_DETAIL_FULL or force_export or profile_mode
+	if resolved_level == SNAPSHOT_DETAIL_MINIMAL:
+		return {
+			"detail_level": resolved_level,
+			"group_counts": _lod_debug_group_counts,
+		}
+	var snapshot: Dictionary = {
+		"detail_level": resolved_level,
+		"group_counts": _lod_debug_group_counts,
+	}
+	if not include_deep:
+		return snapshot
+	if not force_export and resolved_level != SNAPSHOT_DETAIL_FULL and not _should_refresh_deep_snapshot():
+		if not _deep_snapshot_cache.is_empty():
+			return _deep_snapshot_cache
+	var deep_snapshot: Dictionary = {
+		"detail_level": SNAPSHOT_DETAIL_FULL if force_export else resolved_level,
 		"group_counts": _lod_debug_group_counts.duplicate(true),
 		"group_intervals": _lod_debug_last_group.duplicate(true),
 		"group_scan_metrics": _scan_metrics_last_group.duplicate(true),
 	}
+	if not force_export:
+		_deep_snapshot_cache = deep_snapshot
+		_deep_snapshot_last_at = RunClock.now()
+	return deep_snapshot
+
+
+func _normalize_snapshot_detail_level(detail_level: String) -> String:
+	match String(detail_level).to_lower():
+		SNAPSHOT_DETAIL_MINIMAL:
+			return SNAPSHOT_DETAIL_MINIMAL
+		SNAPSHOT_DETAIL_FULL:
+			return SNAPSHOT_DETAIL_FULL
+		_:
+			return SNAPSHOT_DETAIL_NORMAL
+
+
+func _should_refresh_deep_snapshot() -> bool:
+	if _deep_snapshot_cache.is_empty():
+		return true
+	if _deep_snapshot_sample_interval <= 0.0:
+		return true
+	return (RunClock.now() - _deep_snapshot_last_at) >= _deep_snapshot_sample_interval
 
 
 func _is_lod_debug_logging_enabled() -> bool:
@@ -421,17 +473,18 @@ func _build_queue_decision_context(group_id: String, g: Dictionary, faction_id: 
 
 func _record_group_scan_metrics(group_id: String, scan_ctx: Dictionary, score: float, policy: Dictionary,
 		current_intent: String, new_intent: String, markers: Array, bases: Array, dispatched_kind: String) -> void:
+	var include_expensive_payloads: bool = _snapshot_profiling_enabled
 	_scan_metrics_last_group[group_id] = {
 		"leader_home_distance": float(scan_ctx.get("leader_home_distance", 0.0)),
-		"combat_signals": (scan_ctx.get("combat_signals", {}) as Dictionary).duplicate(true),
-		"effective_thresholds": (scan_ctx.get("effective_thresholds", {}) as Dictionary).duplicate(true),
+		"combat_signals": (scan_ctx.get("combat_signals", {}) as Dictionary).duplicate() if include_expensive_payloads else {},
+		"effective_thresholds": (scan_ctx.get("effective_thresholds", {}) as Dictionary).duplicate() if include_expensive_payloads else {},
 		"score": score,
 		"effective_score": float(policy.get("effective_score", score)),
 		"intent_before": current_intent,
 		"intent_after": new_intent,
 		"marker_count": markers.size(),
 		"base_count": bases.size(),
-		"queue": (scan_ctx.get("queue", {}) as Dictionary).duplicate(true),
+		"queue": (scan_ctx.get("queue", {}) as Dictionary).duplicate() if include_expensive_payloads else {},
 		"dispatched_kind": dispatched_kind,
 	}
 

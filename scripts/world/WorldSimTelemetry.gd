@@ -3,6 +3,9 @@ extends RefCounted
 
 var enabled: bool = true
 var print_interval: float = 5.0
+var snapshot_detail_level: String = "normal"
+var snapshot_profiling_enabled: bool = false
+var deep_snapshot_sample_interval: float = 0.75
 
 var _world: Node = null
 var _cadence: WorldCadenceCoordinator = null
@@ -13,10 +16,15 @@ var _maintenance_snapshot_cb: Callable = Callable()
 var _npc_sim: NpcSimulator = null
 var _perf_monitor: ChunkPerfMonitor = null
 var _print_timer: float = 0.0
+var _deep_snapshot_cache: Dictionary = {}
+var _deep_snapshot_last_at: float = -INF
 
 
 func setup(ctx: Dictionary) -> void:
 	enabled = bool(ctx.get("enabled", true))
+	snapshot_detail_level = _normalize_snapshot_detail_level(String(ctx.get("snapshot_detail_level", "normal")))
+	snapshot_profiling_enabled = bool(ctx.get("snapshot_profiling_enabled", false))
+	deep_snapshot_sample_interval = maxf(0.0, float(ctx.get("deep_snapshot_sample_interval", 0.75)))
 	_world = ctx.get("world")
 	_cadence = ctx.get("cadence") as WorldCadenceCoordinator
 	_bandit_behavior_layer = ctx.get("bandit_behavior_layer") as BanditBehaviorLayer
@@ -88,13 +96,37 @@ func _print_perf_to_console() -> void:
 	])
 
 
-func get_debug_snapshot() -> Dictionary:
+func get_debug_snapshot(detail_level: String = "", force_export: bool = false) -> Dictionary:
 	if not enabled:
 		return {
 			"enabled": false,
 		}
+	var resolved_level: String = snapshot_detail_level if detail_level == "" else _normalize_snapshot_detail_level(detail_level)
+	var include_deep: bool = resolved_level == "full" or force_export or snapshot_profiling_enabled
 	var cadence_snapshot: Dictionary = _cadence.get_debug_snapshot() if _cadence != null else {}
-	var bandit_snapshot: Dictionary = _bandit_behavior_layer.get_lod_debug_snapshot() if _bandit_behavior_layer != null else {}
+	var bandit_snapshot: Dictionary = _bandit_behavior_layer.get_lod_debug_snapshot(
+		resolved_level,
+		force_export,
+		snapshot_profiling_enabled
+	) if _bandit_behavior_layer != null else {}
+	var settlement_snapshot: Dictionary = _settlement_intel.get_debug_snapshot() if _settlement_intel != null else {}
+	var spatial_snapshot: Dictionary = _world_spatial_index.get_debug_snapshot() if _world_spatial_index != null else {}
+	var maintenance_snapshot: Dictionary = _maintenance_snapshot_cb.call() if _maintenance_snapshot_cb.is_valid() else {}
+	var snapshot: Dictionary = {
+		"enabled": true,
+		"detail_level": resolved_level,
+		"profiling_enabled": snapshot_profiling_enabled,
+		"cadence": cadence_snapshot,
+		"bandit_lod": bandit_snapshot,
+		"settlement": settlement_snapshot,
+		"spatial_index": spatial_snapshot,
+		"world_maintenance": maintenance_snapshot,
+	}
+	if not include_deep:
+		return snapshot
+	if not force_export and resolved_level != "full" and not _should_refresh_deep_snapshot():
+		if not _deep_snapshot_cache.is_empty():
+			return _deep_snapshot_cache
 	if not cadence_snapshot.is_empty():
 		cadence_snapshot["activity_summary"] = _summarize_lane_activity(cadence_snapshot.get("lanes", {}))
 	if not bandit_snapshot.is_empty():
@@ -102,19 +134,11 @@ func get_debug_snapshot() -> Dictionary:
 		var group_scan: Dictionary = bandit_snapshot.get("group_scan", {})
 		group_scan["group_dominant_reasons"] = _count_dominant_reasons(group_scan.get("group_intervals", {}))
 		bandit_snapshot["group_scan"] = group_scan
-	var settlement_snapshot: Dictionary = _settlement_intel.get_debug_snapshot() if _settlement_intel != null else {}
-	var spatial_snapshot: Dictionary = _world_spatial_index.get_debug_snapshot() if _world_spatial_index != null else {}
-	var maintenance_snapshot: Dictionary = _maintenance_snapshot_cb.call() if _maintenance_snapshot_cb.is_valid() else {}
-	var kpi_snapshot: Dictionary = _build_explicit_kpi_snapshot(cadence_snapshot, bandit_snapshot, settlement_snapshot)
-	return {
-		"enabled": true,
-		"cadence": cadence_snapshot,
-		"bandit_lod": bandit_snapshot,
-		"settlement": settlement_snapshot,
-		"spatial_index": spatial_snapshot,
-		"world_maintenance": maintenance_snapshot,
-		"kpis": kpi_snapshot,
-	}
+	snapshot["kpis"] = _build_explicit_kpi_snapshot(cadence_snapshot, bandit_snapshot, settlement_snapshot)
+	if not force_export:
+		_deep_snapshot_cache = snapshot
+		_deep_snapshot_last_at = RunClock.now()
+	return snapshot
 
 
 func dump_debug_summary() -> String:
@@ -327,3 +351,21 @@ func _detect_unbudgeted_loops(cadence_snapshot: Dictionary) -> Array[Dictionary]
 				"generated_due": generated_due,
 			})
 	return loops
+
+
+func _normalize_snapshot_detail_level(detail_level: String) -> String:
+	match String(detail_level).to_lower():
+		"minimal":
+			return "minimal"
+		"full":
+			return "full"
+		_:
+			return "normal"
+
+
+func _should_refresh_deep_snapshot() -> bool:
+	if _deep_snapshot_cache.is_empty():
+		return true
+	if deep_snapshot_sample_interval <= 0.0:
+		return true
+	return (RunClock.now() - _deep_snapshot_last_at) >= deep_snapshot_sample_interval
