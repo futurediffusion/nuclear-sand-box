@@ -12,18 +12,35 @@ var global_flags: Dictionary = {}  # flags globales del mundo
 var player_walls_by_chunk: Dictionary = {}  # chunk_key(String) -> tile_key(String) -> {"hp": int}
 
 var chunk_size: int = 32
+const INVALID_CHUNK_POS: Vector2i = Vector2i(-999999, -999999)
+var _chunk_key_serialize_calls: int = 0
+var _chunk_key_deserialize_calls: int = 0
 
 func chunk_key(cx: int, cy: int) -> String:
 	return chunk_key_from_pos(Vector2i(cx, cy))
 
 func chunk_key_from_pos(chunk_pos: Vector2i) -> String:
-	return "%d,%d" % [chunk_pos.x, chunk_pos.y]
+	return serialize_chunk_pos(chunk_pos)
 
 func chunk_pos_from_key(chunk_key_value: String) -> Vector2i:
+	return deserialize_chunk_key(chunk_key_value)
+
+func serialize_chunk_pos(chunk_pos: Vector2i) -> String:
+	_chunk_key_serialize_calls += 1
+	return "%d,%d" % [chunk_pos.x, chunk_pos.y]
+
+func deserialize_chunk_key(chunk_key_value: String) -> Vector2i:
+	_chunk_key_deserialize_calls += 1
 	var parts: PackedStringArray = chunk_key_value.split(",")
 	if parts.size() != 2:
-		return Vector2i(-999999, -999999)
+		return INVALID_CHUNK_POS
 	return Vector2i(int(parts[0]), int(parts[1]))
+
+func get_chunk_key_codec_metrics() -> Dictionary:
+	return {
+		"serialize_calls": _chunk_key_serialize_calls,
+		"deserialize_calls": _chunk_key_deserialize_calls,
+	}
 
 func get_chunk_key_for_tile(tx: int, ty: int) -> String:
 	return chunk_key_from_pos(chunk_pos_for_tile(tx, ty))
@@ -382,14 +399,23 @@ func ensure_chunk_enemy_spawns(chunk_key: String, records: Array) -> void:
 	)
 	enemy_spawns_by_chunk[chunk_key] = stable_records
 
+func ensure_chunk_enemy_spawns_at_chunk_pos(chunk_pos: Vector2i, records: Array) -> void:
+	ensure_chunk_enemy_spawns(chunk_key_from_pos(chunk_pos), records)
+
 func get_chunk_enemy_spawns(chunk_key: String) -> Array:
 	if not enemy_spawns_by_chunk.has(chunk_key):
 		return []
 	return (enemy_spawns_by_chunk[chunk_key] as Array).duplicate(true)
 
+func get_chunk_enemy_spawns_at_chunk_pos(chunk_pos: Vector2i) -> Array:
+	return get_chunk_enemy_spawns(chunk_key_from_pos(chunk_pos))
+
 func clear_chunk_enemy_spawns(chunk_key: String) -> void:
 	enemy_spawns_by_chunk.erase(chunk_key)
 	enemy_state_by_chunk.erase(chunk_key)
+
+func clear_chunk_enemy_spawns_at_chunk_pos(chunk_pos: Vector2i) -> void:
+	clear_chunk_enemy_spawns(chunk_key_from_pos(chunk_pos))
 
 # --- Flower data ---
 var _flower_data: Dictionary = {}  # Vector2i -> Array

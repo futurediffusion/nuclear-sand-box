@@ -402,7 +402,7 @@ func on_chunk_unloaded(chunk_key: String) -> void:
 
 func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 	var chunk_key: String = WorldSave.chunk_key_from_pos(chunk_pos)
-	if not WorldSave.get_chunk_enemy_spawns(chunk_key).is_empty():
+	if not WorldSave.get_chunk_enemy_spawns_at_chunk_pos(chunk_pos).is_empty():
 		if _cliff_gen == null or not _world_to_tile.is_valid():
 			return
 		var stale := false
@@ -419,7 +419,7 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 		if not stale and not all_dead:
 			return
 		Debug.log("npc_data", "[NpcSim] respawn chunk=%s all_dead=%s stale=%s" % [chunk_key, str(all_dead), str(stale)])
-		WorldSave.clear_chunk_enemy_spawns(chunk_key)
+		WorldSave.clear_chunk_enemy_spawns_at_chunk_pos(chunk_pos)
 	if not _chunk_save.has(chunk_pos):
 		return
 	var records: Array[Dictionary] = []
@@ -476,7 +476,7 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 				"loadout": {"weapon_ids": ["ironpipe", "bow"], "equipped_weapon_id": "ironpipe"},
 			}
 			records.append(record)
-			WorldSave.get_or_create_enemy_state(chunk_key, enemy_id, {
+			WorldSave.get_or_create_enemy_state_at_chunk_pos(chunk_pos, enemy_id, {
 				"id":             enemy_id,
 				"chunk_key":      chunk_key,
 				"pos":            enemy_pos,
@@ -496,7 +496,7 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 			})
 			spawn_index += 1
 			camp_member_index += 1
-	WorldSave.ensure_chunk_enemy_spawns(chunk_key, records)
+	WorldSave.ensure_chunk_enemy_spawns_at_chunk_pos(chunk_pos, records)
 	# Prewarm fresh records once per session to disperse scavengers from camp center
 	if not _prewarmed_chunks.has(chunk_pos):
 		_prewarmed_chunks[chunk_pos] = true

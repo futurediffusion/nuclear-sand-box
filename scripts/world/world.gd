@@ -826,12 +826,12 @@ func update_chunks(center: Vector2i) -> void:
 	# Pass 2: paint GroundTileMap for new chunks (batched so set_cells_terrain_connect sees neighbors)
 	var ground_to_paint: Array[Vector2i] = []
 	for cpos in needed_chunks:
-		if not _ground_terrain_painted_chunks.has(_chunk_key(cpos)):
+		if not _ground_terrain_painted_chunks.has(cpos):
 			ground_to_paint.append(cpos)
 	if not ground_to_paint.is_empty():
 		await chunk_generator.apply_ground_terrain_ctx(ground_to_paint, pipeline.make_ground_terrain_ctx())
 		for cpos in ground_to_paint:
-			_ground_terrain_painted_chunks[_chunk_key(cpos)] = true
+			_ground_terrain_painted_chunks[cpos] = true
 			_vegetation_root.load_chunk(cpos, chunk_occupied_tiles.get(cpos, {}))
 
 	for cpos in loaded_chunks.keys():
@@ -841,7 +841,7 @@ func update_chunks(center: Vector2i) -> void:
 			entity_coordinator.unload_entities(cpos)
 			pipeline.on_chunk_unloaded(cpos)
 			# Erasure de tiles diferida: evita 4× erase_chunk_region por frame
-			_ground_terrain_painted_chunks.erase(_chunk_key(cpos))
+			_ground_terrain_painted_chunks.erase(cpos)
 			_pending_tile_erases.append(cpos)
 
 	if pipeline.progressive_terrain_paint_enabled and pipeline.terrain_paint_center_ring0_pending == 0:
@@ -879,7 +879,7 @@ func unload_chunk(chunk_pos: Vector2i) -> void:
 	_tile_painter.erase_chunk_region(walls_tilemap, chunk_pos, chunk_size, [WALLS_MAP_LAYER])
 	# Borrar suelo del GroundTileMap
 	_tile_painter.erase_chunk_region(ground_tilemap, chunk_pos, chunk_size, [0])
-	_ground_terrain_painted_chunks.erase(_chunk_key(chunk_pos))
+	_ground_terrain_painted_chunks.erase(chunk_pos)
 	# Liberar collider de cliffs y borrar tiles del TileMap_Cliffs
 	cliff_generator.release_chunk_cliff_collisions(chunk_pos)
 	_tile_painter.erase_chunk_region(cliffs_tilemap, chunk_pos, chunk_size, [LAYER_GROUND])
