@@ -17,6 +17,8 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Evidencia telemetry/debug fuera de canal controlado mutando estado:
 - Respuesta nueva decisión semántica en world.gd: No
 - Evidencia nueva decisión semántica en world.gd:
+- Respuesta ¿agregaste lógica de negocio en world.gd?: No
+- Evidencia ¿agregaste lógica de negocio en world.gd?:
 - Respuesta nuevas responsabilidades de dominio en BanditWorkCoordinator: No
 - Evidencia nuevas responsabilidades de dominio en BanditWorkCoordinator:
 - Respuesta cambio de estado nuevo en el PR: No
