@@ -119,6 +119,8 @@ var _ground_terrain_painted_chunks: Dictionary = {}
 var player: Node2D
 var loaded_chunks: Dictionary = {}
 var current_player_chunk := Vector2i(-999, -999)
+var _chunk_update_state: Dictionary = {}
+var _chunk_short_pulse_budget: int = 1
 
 var spawn_tile: Vector2i
 var tavern_chunk: Vector2i
@@ -186,6 +188,13 @@ var _raid_queue_port: Dictionary = {}
 var _extortion_queue_port: Dictionary = {}
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
+
+const CHUNK_UPDATE_STAGE_PLAN: StringName = &"plan"
+const CHUNK_UPDATE_STAGE_GENERATE: StringName = &"generate"
+const CHUNK_UPDATE_STAGE_LOAD_ENTITIES: StringName = &"load_entities"
+const CHUNK_UPDATE_STAGE_PAINT: StringName = &"paint"
+const CHUNK_UPDATE_STAGE_UNLOAD: StringName = &"unload"
+const CHUNK_UPDATE_STAGE_DONE: StringName = &"done"
 
 # === [DOMAIN: SHARED RUNTIME CONSTANTS] =======================================
 const LAYER_GROUND: int = 0
@@ -791,6 +800,7 @@ func _process_world_scheduler(delta: float) -> void:
 		_tick_player_territory()
 	pipeline.process(delta)
 	var short_pulses: int = _cadence.consume_lane(&"short_pulse") if _cadence != null else 1
+	_chunk_short_pulse_budget = max(1, short_pulses)
 	for _pulse in short_pulses:
 		_process_wall_refresh_queue(1)
 		_process_tile_erase_queue()
@@ -804,19 +814,183 @@ func _process_world_scheduler(delta: float) -> void:
 		_perform_world_save("autosave")
 
 func _dispatch_player_chunk_updates() -> void:
-	if _cadence != null and _cadence.consume_lane(&"chunk_pulse") <= 0:
+	var chunk_pulses: int = _cadence.consume_lane(&"chunk_pulse") if _cadence != null else 1
+	if chunk_pulses <= 0:
 		return
 	if not player:
 		return
 	var pchunk := world_to_chunk(player.global_position)
-	if pchunk != current_player_chunk:
+	var center_changed: bool = pchunk != current_player_chunk
+	if center_changed:
 		current_player_chunk = pchunk
 		pipeline.current_player_chunk = pchunk
 		if npc_simulator:
 			npc_simulator.current_player_chunk = pchunk
 		if entity_coordinator:
 			entity_coordinator.current_player_chunk = pchunk
-		update_chunks(pchunk)
+	for _pulse in chunk_pulses:
+		if center_changed or _is_chunk_update_in_progress():
+			update_chunks(pchunk)
+
+func _is_chunk_update_in_progress() -> bool:
+	if _chunk_update_state.is_empty():
+		return false
+	return _chunk_update_state.get("stage", CHUNK_UPDATE_STAGE_DONE) != CHUNK_UPDATE_STAGE_DONE
+
+func _reset_chunk_update_state(center: Vector2i) -> void:
+	_chunk_update_state = {
+		"center": center,
+		"stage": CHUNK_UPDATE_STAGE_PLAN,
+		"needed": {},
+		"needed_chunks": [],
+		"needed_index": 0,
+		"ground_to_paint": [],
+		"ground_paint_index": 0,
+		"unload_keys": [],
+		"unload_index": 0,
+	}
+
+func _advance_chunk_update_stage(state: Dictionary, short_pulse_budget: int) -> bool:
+	var center: Vector2i = state.get("center", current_player_chunk)
+	var stage: StringName = state.get("stage", CHUNK_UPDATE_STAGE_DONE)
+	match stage:
+		CHUNK_UPDATE_STAGE_PLAN:
+			_plan_chunk_update(state, center)
+			state["stage"] = CHUNK_UPDATE_STAGE_GENERATE
+			return false
+		CHUNK_UPDATE_STAGE_GENERATE:
+			if await _run_generate_stage(state):
+				state["stage"] = CHUNK_UPDATE_STAGE_LOAD_ENTITIES
+			return false
+		CHUNK_UPDATE_STAGE_LOAD_ENTITIES:
+			if _run_load_entities_stage(state, center):
+				state["stage"] = CHUNK_UPDATE_STAGE_PAINT
+			return false
+		CHUNK_UPDATE_STAGE_PAINT:
+			if await _run_paint_stage(state):
+				state["stage"] = CHUNK_UPDATE_STAGE_UNLOAD
+			return false
+		CHUNK_UPDATE_STAGE_UNLOAD:
+			if _run_unload_stage(state, short_pulse_budget):
+				state["stage"] = CHUNK_UPDATE_STAGE_DONE
+				return true
+			return false
+		_:
+			return true
+
+func _plan_chunk_update(state: Dictionary, center: Vector2i) -> void:
+	var needed: Dictionary = {}
+	var needed_chunks: Array[Vector2i] = []
+	var max_chunk_x: int = int(floor(float(width - 1) / float(chunk_size)))
+	var max_chunk_y: int = int(floor(float(height - 1) / float(chunk_size)))
+	for cy in range(center.y - active_radius, center.y + active_radius + 1):
+		for cx in range(center.x - active_radius, center.x + active_radius + 1):
+			if cx < 0 or cx > max_chunk_x or cy < 0 or cy > max_chunk_y:
+				continue
+			var cpos := Vector2i(cx, cy)
+			needed[cpos] = true
+			needed_chunks.append(cpos)
+	if pipeline.terrain_paint_ring_priority_enabled:
+		needed_chunks.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+			var ring_a: int = max(abs(a.x - center.x), abs(a.y - center.y))
+			var ring_b: int = max(abs(b.x - center.x), abs(b.y - center.y))
+			if ring_a == ring_b:
+				if a.y == b.y:
+					return a.x < b.x
+				return a.y < b.y
+			return ring_a < ring_b
+		)
+	if pipeline.progressive_terrain_paint_enabled:
+		pipeline.reset_terrain_paint_epoch()
+	var ground_to_paint: Array[Vector2i] = []
+	for cpos in needed_chunks:
+		if not _ground_terrain_painted_chunks.has(_chunk_key(cpos)):
+			ground_to_paint.append(cpos)
+	state["needed"] = needed
+	state["needed_chunks"] = needed_chunks
+	state["needed_index"] = 0
+	state["ground_to_paint"] = ground_to_paint
+	state["ground_paint_index"] = 0
+	state["unload_keys"] = loaded_chunks.keys()
+	state["unload_index"] = 0
+
+func _run_generate_stage(state: Dictionary) -> bool:
+	var needed_chunks: Array[Vector2i] = state.get("needed_chunks", [])
+	var idx: int = int(state.get("needed_index", 0))
+	var budget: int = 1
+	while budget > 0 and idx < needed_chunks.size():
+		var cpos: Vector2i = needed_chunks[idx]
+		if not pipeline.generated_chunks.has(cpos) and not pipeline.generating_chunks.has(cpos):
+			pipeline.generating_chunks[cpos] = true
+			await pipeline.generate_chunk(cpos, true)
+		idx += 1
+		budget -= 1
+	state["needed_index"] = idx
+	return idx >= needed_chunks.size()
+
+func _run_load_entities_stage(state: Dictionary, center: Vector2i) -> bool:
+	var needed_chunks: Array[Vector2i] = state.get("needed_chunks", [])
+	var idx: int = int(state.get("needed_index", 0))
+	var budget: int = 1
+	while budget > 0 and idx < needed_chunks.size():
+		var cpos: Vector2i = needed_chunks[idx]
+		if not pipeline.generating_chunks.has(cpos):
+			if not loaded_chunks.has(cpos):
+				entity_coordinator.load_chunk(cpos)
+				loaded_chunks[cpos] = true
+			if pipeline.progressive_terrain_paint_enabled and _is_chunk_in_active_window(cpos, center):
+				pipeline.enqueue_terrain_paint(cpos, center, pipeline.terrain_paint_epoch)
+			idx += 1
+			budget -= 1
+		else:
+			break
+	state["needed_index"] = idx
+	return idx >= needed_chunks.size()
+
+func _run_paint_stage(state: Dictionary) -> bool:
+	var ground_to_paint: Array[Vector2i] = state.get("ground_to_paint", [])
+	var idx: int = int(state.get("ground_paint_index", 0))
+	if idx >= ground_to_paint.size():
+		return true
+	var budget: int = 1
+	var batch: Array[Vector2i] = []
+	while budget > 0 and idx < ground_to_paint.size():
+		batch.append(ground_to_paint[idx])
+		idx += 1
+		budget -= 1
+	if not batch.is_empty():
+		await chunk_generator.apply_ground_terrain_ctx(batch, pipeline.make_ground_terrain_ctx())
+		for cpos in batch:
+			_ground_terrain_painted_chunks[_chunk_key(cpos)] = true
+			_vegetation_root.load_chunk(cpos, chunk_occupied_tiles.get(cpos, {}))
+	state["ground_paint_index"] = idx
+	return idx >= ground_to_paint.size()
+
+func _run_unload_stage(state: Dictionary, short_pulse_budget: int) -> bool:
+	var needed: Dictionary = state.get("needed", {})
+	var unload_keys: Array = state.get("unload_keys", [])
+	var idx: int = int(state.get("unload_index", 0))
+	var budget: int = max(1, short_pulse_budget)
+	while budget > 0 and idx < unload_keys.size():
+		var cpos: Variant = unload_keys[idx]
+		idx += 1
+		if not (cpos is Vector2i):
+			budget -= 1
+			continue
+		var chunk_pos: Vector2i = cpos
+		if needed.has(chunk_pos):
+			budget -= 1
+			continue
+		loaded_chunks.erase(chunk_pos)
+		entity_coordinator.unload_entities(chunk_pos)
+		pipeline.on_chunk_unloaded(chunk_pos)
+		_ground_terrain_painted_chunks.erase(_chunk_key(chunk_pos))
+		_pending_tile_erases.append(chunk_pos)
+		budget -= 1
+	state["unload_index"] = idx
+	return idx >= unload_keys.size()
+
+
 
 
 # === [DOMAIN: CHUNK STREAMING ORCHESTRATION] ==================================
@@ -835,77 +1009,19 @@ func update_chunks(center: Vector2i) -> void:
 	await _update_chunks_impl(center)
 
 func _update_chunks_impl(center: Vector2i) -> void:
-	if pipeline.is_updating:
-		return
-	Debug.log("boot", "ChunkManager load begin center=%s" % center)
-	Debug.log("chunk", "CENTER moved -> (%d,%d)" % [center.x, center.y])
-	if player:
-		_debug_check_tile_alignment(player.global_position)
-		_debug_check_player_chunk(player.global_position)
+	if _chunk_update_state.is_empty() or _chunk_update_state.get("center", Vector2i(-999, -999)) != center:
+		Debug.log("boot", "ChunkManager load begin center=%s" % center)
+		Debug.log("chunk", "CENTER moved -> (%d,%d)" % [center.x, center.y])
+		if player:
+			_debug_check_tile_alignment(player.global_position)
+			_debug_check_player_chunk(player.global_position)
+		_reset_chunk_update_state(center)
 
-	var needed: Dictionary = {}
-	var needed_chunks: Array[Vector2i] = []
-	var max_chunk_x: int = int(floor(float(width - 1) / float(chunk_size)))
-	var max_chunk_y: int = int(floor(float(height - 1) / float(chunk_size)))
-
-	for cy in range(center.y - active_radius, center.y + active_radius + 1):
-		for cx in range(center.x - active_radius, center.x + active_radius + 1):
-			if cx < 0 or cx > max_chunk_x or cy < 0 or cy > max_chunk_y:
-				continue
-			var cpos := Vector2i(cx, cy)
-			needed[cpos] = true
-			needed_chunks.append(cpos)
-
-	if pipeline.terrain_paint_ring_priority_enabled:
-		needed_chunks.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-			var ring_a: int = max(abs(a.x - center.x), abs(a.y - center.y))
-			var ring_b: int = max(abs(b.x - center.x), abs(b.y - center.y))
-			if ring_a == ring_b:
-				if a.y == b.y:
-					return a.x < b.x
-				return a.y < b.y
-			return ring_a < ring_b
-		)
-
-	if pipeline.progressive_terrain_paint_enabled:
-		pipeline.reset_terrain_paint_epoch()
-
-	for cpos in needed_chunks:
-		if not pipeline.generated_chunks.has(cpos) and not pipeline.generating_chunks.has(cpos):
-			pipeline.generating_chunks[cpos] = true
-			await pipeline.generate_chunk(cpos, true)
-		if pipeline.generating_chunks.has(cpos):
-			continue
-		if not loaded_chunks.has(cpos):
-			entity_coordinator.load_chunk(cpos)
-			loaded_chunks[cpos] = true
-		if pipeline.progressive_terrain_paint_enabled and _is_chunk_in_active_window(cpos, center):
-			pipeline.enqueue_terrain_paint(cpos, center, pipeline.terrain_paint_epoch)
-
-	# Pass 2: paint GroundTileMap for new chunks (batched so set_cells_terrain_connect sees neighbors)
-	var ground_to_paint: Array[Vector2i] = []
-	for cpos in needed_chunks:
-		if not _ground_terrain_painted_chunks.has(_chunk_key(cpos)):
-			ground_to_paint.append(cpos)
-	if not ground_to_paint.is_empty():
-		await chunk_generator.apply_ground_terrain_ctx(ground_to_paint, pipeline.make_ground_terrain_ctx())
-		for cpos in ground_to_paint:
-			_ground_terrain_painted_chunks[_chunk_key(cpos)] = true
-			_vegetation_root.load_chunk(cpos, chunk_occupied_tiles.get(cpos, {}))
-
-	for cpos in loaded_chunks.keys():
-		if not needed.has(cpos):
-			# Lógica inmediata: sacar del mapa activo y descargar entidades
-			loaded_chunks.erase(cpos)
-			entity_coordinator.unload_entities(cpos)
-			pipeline.on_chunk_unloaded(cpos)
-			# Erasure de tiles diferida: evita 4× erase_chunk_region por frame
-			_ground_terrain_painted_chunks.erase(_chunk_key(cpos))
-			_pending_tile_erases.append(cpos)
-
-	if pipeline.progressive_terrain_paint_enabled and pipeline.terrain_paint_center_ring0_pending == 0:
-		pipeline.is_updating = false
-	Debug.log("boot", "ChunkManager load end center=%s" % center)
+	var finished: bool = await _advance_chunk_update_stage(_chunk_update_state, _chunk_short_pulse_budget)
+	if finished:
+		if pipeline.progressive_terrain_paint_enabled and pipeline.terrain_paint_center_ring0_pending == 0:
+			pipeline.is_updating = false
+		Debug.log("boot", "ChunkManager load end center=%s" % center)
 
 
 func _record_chunk_stage_time(stage: String, chunk_pos: Vector2i, elapsed_ms: float) -> void:
