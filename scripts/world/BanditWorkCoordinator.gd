@@ -51,6 +51,39 @@ var _full_cycles_by_member: Dictionary = {}  # member_id -> completed_cycle_coun
 var _work_tick_seq: int = 0
 
 
+func _pipeline_log_enabled() -> bool:
+	return Debug.is_enabled("bandit_pipeline")
+
+
+func _fmt_pos(value: Vector2) -> String:
+	return "%.2f,%.2f" % [value.x, value.y]
+
+
+func _pipeline_log_event(event_name: String, beh: BanditWorldBehavior,
+		used_pos: Vector2, target_id: String, extra := {}) -> void:
+	if not _pipeline_log_enabled():
+		return
+	var payload := {
+		"event": event_name,
+		"npc_id": beh.member_id if beh != null else "unknown",
+		"camp_id": beh.group_id if beh != null else "unknown",
+		"pos": _fmt_pos(used_pos),
+		"target_id": target_id,
+		"state": str(int(beh.state)) if beh != null else "unknown",
+		"tick": _work_tick_seq,
+	}
+	for key in extra.keys():
+		payload[key] = extra[key]
+	var parts: Array[String] = []
+	for key in ["event", "npc_id", "camp_id", "pos", "target_id", "state", "tick"]:
+		parts.append("%s=%s" % [key, str(payload.get(key, ""))])
+	for key in payload.keys():
+		if key in ["event", "npc_id", "camp_id", "pos", "target_id", "state", "tick"]:
+			continue
+		parts.append("%s=%s" % [str(key), str(payload[key])])
+	Debug.log("bandit_pipeline", "[BWC_PIPE] %s" % " ".join(parts))
+
+
 func setup(ctx: Dictionary) -> void:
 	_stash = ctx.get("stash") as BanditCampStashSystem
 	_world_node = ctx.get("world_node")
@@ -108,13 +141,10 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 			member_pos, drops_cache)
 
 	if beh.cargo_count > cargo_before_work:
-		Debug.log("bandit_ai", "[BWC] cargo_updated npc=%s cargo=%d→%d tick=%d state=%s" % [
-			beh.member_id,
-			cargo_before_work,
-			beh.cargo_count,
-			_work_tick_seq,
-			str(int(beh.state)),
-		])
+		_pipeline_log_event("cargo_updated", beh, member_pos, "", {
+			"cargo_before": cargo_before_work,
+			"cargo_after": beh.cargo_count,
+		})
 
 	if beh.cargo_count > 0:
 		_request_return_home(beh, "cargo_loaded")
@@ -124,6 +154,9 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 	if had_cargo_before_deposit and beh.cargo_count <= 0:
 		var current: int = int(_full_cycles_by_member.get(beh.member_id, 0))
 		_full_cycles_by_member[beh.member_id] = current + 1
+		_pipeline_log_event("work_cycle_resumed", beh, member_pos, "", {
+			"cycle_count": current + 1,
+		})
 
 
 func _resolve_resource_center(beh: BanditWorldBehavior, enemy_node: Node) -> Vector2:
@@ -131,10 +164,16 @@ func _resolve_resource_center(beh: BanditWorldBehavior, enemy_node: Node) -> Vec
 	if beh._resource_node_id == 0 or not is_instance_id_valid(beh._resource_node_id):
 		if beh._resource_node_id != 0:
 			beh._resource_node_id = 0
+		_pipeline_log_event("resource_index_missing", beh, fallback, "", {
+			"stage": "resolve_resource_center",
+		})
 		return fallback
 	var res := instance_from_id(beh._resource_node_id) as Node2D
 	if res == null or not is_instance_valid(res) or res.is_queued_for_deletion():
 		beh._resource_node_id = 0
+		_pipeline_log_event("resource_index_missing", beh, fallback, "", {
+			"stage": "resolve_resource_center_invalid",
+		})
 		return fallback
 	return res.global_position
 
@@ -143,14 +182,23 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var mine_id: int = beh.pending_mine_id
 	if mine_id == 0:
 		return
+	_pipeline_log_event("resource_acquired", beh, _node_pos_for_work(enemy_node), str(mine_id), {
+		"stage": "mining_pending",
+	})
 	beh.pending_mine_id = 0
 	if not is_instance_id_valid(mine_id):
 		beh._resource_node_id = 0
+		_pipeline_log_event("resource_index_missing", beh, _node_pos_for_work(enemy_node), str(mine_id), {
+			"stage": "pending_mine_invalid",
+		})
 		return
 
 	var res_node: Node = instance_from_id(mine_id) as Node
 	if res_node == null or not is_instance_valid(res_node) or res_node.is_queued_for_deletion():
 		beh._resource_node_id = 0
+		_pipeline_log_event("resource_index_missing", beh, _node_pos_for_work(enemy_node), str(mine_id), {
+			"stage": "resource_node_missing",
+		})
 		return
 
 	var enemy_pos: Vector2 = _node_pos_for_work(enemy_node)
@@ -158,6 +206,9 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	if enemy_pos.distance_squared_to(res_pos) > BanditTuningScript.mine_range_sq():
 		_restore_mine_intent_if_still_watching(beh, mine_id)
 		return
+	_pipeline_log_event("resource_in_range", beh, enemy_pos, str(mine_id), {
+		"resource_pos": _fmt_pos(res_pos),
+	})
 
 	var wc: WeaponComponent = enemy_node.get_node_or_null("WeaponComponent") as WeaponComponent
 	if wc != null and wc.current_weapon_id != "ironpipe":
@@ -169,12 +220,9 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		return
 
 	res_node.hit(enemy_node)
-	Debug.log("bandit_ai", "[BWC] resource_hit npc=%s mine_id=%d tick=%d state=%s" % [
-		beh.member_id,
-		mine_id,
-		_work_tick_seq,
-		str(int(beh.state)),
-	])
+	_pipeline_log_event("resource_hit", beh, enemy_pos, str(mine_id), {
+		"resource_pos": _fmt_pos(res_pos),
+	})
 	_preserve_cycle_after_hit(beh, mine_id)
 	if enemy_node.has_method("queue_ai_attack_press"):
 		enemy_node.call("queue_ai_attack_press", res_pos)
@@ -471,19 +519,25 @@ func _request_return_home(beh: BanditWorldBehavior, reason: String) -> bool:
 		# Priority rule: carrying cargo should preempt HOLD_POSITION unless another
 		# stronger block exists.
 		if block_reason != "holding_position_with_cargo":
+			_pipeline_log_event("cargo_not_returning", beh, beh.home_pos, "", {
+				"reason": reason,
+				"block": block_reason,
+			})
 			return false
 		block_reason = ""
 
 	if block_reason != "":
 		return false
 	beh.force_return_home()
-	Debug.log("bandit_ai", "[BWC] return_home_triggered npc=%s reason=%s cargo=%d state=%s tick=%d" % [
-		beh.member_id,
-		reason,
-		beh.cargo_count,
-		str(int(beh.state)),
-		_work_tick_seq,
-	])
+	_pipeline_log_event("return_home_triggered", beh, beh.home_pos, "", {
+		"reason": reason,
+		"cargo": beh.cargo_count,
+	})
+	if beh.state != NpcWorldBehavior.State.RETURN_HOME:
+		_pipeline_log_event("cargo_not_returning", beh, beh.home_pos, "", {
+			"reason": reason,
+			"post_state": str(int(beh.state)),
+		})
 	return true
 
 
@@ -514,6 +568,9 @@ func _preserve_cycle_after_hit(beh: BanditWorldBehavior, mine_id: int) -> void:
 	Debug.log("bandit_ai", "[BWC] state_lost_after_hit guard npc=%s mine_id=%d count=%d" % [
 		beh.member_id, mine_id, _state_lost_after_hit_count
 	])
+	_pipeline_log_event("state_lost_after_hit", beh, _resolve_resource_center(beh, null), str(mine_id), {
+		"count": _state_lost_after_hit_count,
+	})
 
 
 func _guard_resource_cycle_before_work(beh: BanditWorldBehavior) -> void:
