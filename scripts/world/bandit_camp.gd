@@ -16,8 +16,13 @@ func _ready() -> void:
 	_timer.timeout.connect(_try_spawn)
 	_timer.start()
 
-	# spawn inicial
-	for i in range(max_bandits_alive):
+	# El spawn inicial se difiere para esperar propiedades aplicadas por SpawnBudgetQueue.
+	call_deferred("_spawn_initial_bandits")
+
+func _spawn_initial_bandits() -> void:
+	if max_bandits_alive <= 0:
+		return
+	for _i in range(max_bandits_alive):
 		_try_spawn()
 
 func _try_spawn() -> void:

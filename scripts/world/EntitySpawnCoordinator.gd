@@ -210,11 +210,14 @@ func enqueue_entities(chunk_pos: Vector2i) -> void:
 			var c: Dictionary = _camps_list[c_idx]
 			var ct: Vector2i = c["tile"]
 			var camp_gid: String = "camp:%s:%03d" % [chunk_key, c_idx]
+			var camp_max_bandits: int = int(c.get("max_bandits_alive", 4))
+			if camp_max_bandits < 1:
+				camp_max_bandits = 4
 			jobs.append({
 				"chunk_key": chunk_key, "kind": "camp",
 				"scene": bandit_camp_scene, "tile": ct,
 				"global_position": _tile_to_world.call(ct),
-				"init_data": {"properties": {"bandit_scene": bandit_scene, "max_bandits_alive": 0}, "group_id": camp_gid},
+				"init_data": {"properties": {"bandit_scene": bandit_scene, "max_bandits_alive": camp_max_bandits}, "group_id": camp_gid},
 				"priority": chunk_ring,
 				"uid": UID.make_uid("camp_bandit", "", ct),
 			})
