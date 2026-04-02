@@ -15,7 +15,7 @@ Objetivo del sprint: **cero fallback permanente disfrazado de temporal**, con fo
 | `ChestComponent` (`ChestWorld`) | `ContainerPlaceable` | `scenes/placeables/chest_world.tscn`, `scenes/placeables/barrel_world.tscn`, test de fill | **RETIRADO (migrado)** |
 | `chest_ui` (`ChestUi`) | `ContainerUi` | `scenes/main.tscn`, `scenes/tests/chest_random_fill_test.tscn`, resoluciones UI por path/grupo | **RETIRADO (migrado)** |
 | `FactionRelationService` | `FactionHostilityManager` | Sin consumidores runtime en repo | **RETIRADO (sin compat efectiva)** |
-| `ShopService` API legacy | `ShopService.get_port()` (`ShopPort`) | `keeper_menu_ui.gd` usa API legacy; `inventory_panel.gd` usa `get_port` | **VIGENTE (compat efectiva parcial)** |
+| `ShopService` API legacy | `ShopService.get_port()` (`ShopPort`) | Sin consumidores runtime tras migración de `keeper_menu_ui.gd` | **RETIRADO (consumo=0)** |
 | Constantes compat de `PlacementSystem` | `PlacementCatalog` | Solo runner legacy de checklist (`walls_colliders_checklist_runner.gd`) | **RETIRADO (sin consumidores runtime)** |
 
 ## 2) Priorización por riesgo gameplay
@@ -30,10 +30,10 @@ Marcadores auditados: `REMOVE_AFTER`, `legacy fallback`, excepciones temporales,
 
 | Tipo | Hallazgo único | Ubicación | Impacto gameplay | Decisión |
 |---|---|---|---|---|
-| Compat wrapper | API legacy `ShopService` | `scripts/ui/keeper_menu_ui.gd` + registro EXC | Alto (economía de gameplay) | **Mantener temporal con plan de retiro estricto** |
+| Compat wrapper | API legacy `ShopService` | Sin consumidores runtime (`rg` de llamadas legacy en scripts) | Alto (economía de gameplay) | **Retirar ahora (consumo=0)** |
 | Compat temporal | Símbolos legacy de `PlacementSystem` | `scripts/systems/PlacementSystem.gd` | Medio (riesgo de recaída en contrato legacy) | **Retirar ahora** |
 | `REMOVE_AFTER` | `FactionRelationService` (histórico) | Solo trazas en docs/registro | Bajo (sin consumo runtime) | **Ya retirado; mantener evidencia documental** |
-| Excepción temporal | `EXC-SHOP-PORT-WRAPPER-001` | `docs/incidencias/registro-unico-deuda-tecnica.md` | Alto | **Activa con owner + fecha + salida verificable** |
+| Excepción temporal | `EXC-SHOP-PORT-WRAPPER-001` | `docs/incidencias/registro-unico-deuda-tecnica.md` | Alto | **Retirada (salida verificada)** |
 
 ## 4) Wrappers retirados en este sprint
 
@@ -45,17 +45,11 @@ Marcadores auditados: `REMOVE_AFTER`, `legacy fallback`, excepciones temporales,
 
 ## 5) Excepciones que se mantienen (con fecha y salida verificable)
 
-### EXC-SHOP-PORT-WRAPPER-001
-- **Wrapper:** API legacy de `ShopService` (`get_buy_price`, `sell`, etc.).
-- **Motivo técnico estricto:** `keeper_menu_ui.gd` todavía consume la API legacy del autoload.
-- **Owner:** `Runtime-Commerce`.
-- **Fecha de revisión:** `2026-04-15`.
-- **Fecha de retiro comprometida (cercana):** `2026-05-15`.
-- **Condición exacta de salida:** migrar `keeper_menu_ui.gd` a `ShopService.get_port()` y verificar telemetría `get_legacy_telemetry_snapshot()` en `0` para todas las rutas legacy.
+_No quedan excepciones activas de wrappers de compatibilidad._
 
 ## 6) Resultado del sprint
 
-- **Agregado vs retirado:** `+1 / -3` (deuda neta: `-2`).
+- **Agregado vs retirado:** `+0 / -4` (deuda neta: `-4`).
 - Se elimina ruta paralela de UI de contenedores y puente de hostilidad sin uso.
 - No se reintroduce doble verdad: hostilidad queda solo en `FactionHostilityManager` y contenedores/UI quedan en contrato neutral `Container*`.
 
@@ -63,8 +57,8 @@ Marcadores auditados: `REMOVE_AFTER`, `legacy fallback`, excepciones temporales,
 
 Para cerrar formalmente el sprint se fijan estos KPIs:
 
-- **KPI-TEMP-OPEN (temporales abiertos):** `<= 1` y todo temporal remanente debe tener `owner + fecha de retiro`.
-- **KPI-WRAP-LIVE (wrappers vivos en runtime):** `<= 1` y debe existir compatibilidad efectiva comprobable (consumidor real en repo).
+- **KPI-TEMP-OPEN (temporales abiertos):** `0` para wrappers de compatibilidad en runtime.
+- **KPI-WRAP-LIVE (wrappers vivos en runtime):** `0` (**objetivo explícito: cero compat wrappers**).
 - **KPI-RUNTIME-P0 (incidentes runtime críticos):** `0` incidentes críticos activos en `docs/incidencias/`.
 
 Interpretación operativa:
