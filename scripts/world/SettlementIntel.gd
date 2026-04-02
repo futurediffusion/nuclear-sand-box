@@ -3,7 +3,7 @@ extends RefCounted
 
 # --- Interest marker constants ---
 const MERGE_RADIUS: float = 96.0
-const WORKBENCH_RESCAN_INTERVAL: float = 30.0
+const WORKBENCH_RESCAN_INTERVAL: float = 120.0
 const TTL_BY_KIND: Dictionary = {
 	"copper_mined":      150.0,
 	"stone_mined":       150.0,
@@ -52,6 +52,7 @@ var _player_pos_getter: Callable
 var _cadence: WorldCadenceCoordinator
 var _world_spatial_index: WorldSpatialIndex
 var _flood_result: FloodFillResult = FloodFillResult.new()
+var _last_placeables_change_serial: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +79,7 @@ func setup(ctx: Dictionary) -> void:
 
 	_dirty = true
 	_base_scan_dirty = true
+	_last_placeables_change_serial = int(WorldSave.placed_entities_change_serial)
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +104,11 @@ func process(delta: float) -> void:
 						m.get("kind", "?"), str(m.get("tile_pos", Vector2i.ZERO))])
 				_markers.remove_at(i)
 		i -= 1
+
+	var next_placeable_serial: int = int(WorldSave.placed_entities_change_serial)
+	if next_placeable_serial != _last_placeables_change_serial:
+		_last_placeables_change_serial = next_placeable_serial
+		_dirty = true
 
 	var workbench_pulses: int = _cadence.consume_lane(&"settlement_workbench_scan") if use_world_cadence else 0
 	if _dirty or workbench_pulses > 0 or _rescan_timer >= WORKBENCH_RESCAN_INTERVAL:
