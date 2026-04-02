@@ -33,6 +33,10 @@ var _consistency_checks_total: int = 0
 var _consistency_checks_failed: int = 0
 var _last_consistency_issue: String = ""
 var _last_consistency_check_msec: int = 0
+var _placeables_query_entries_readonly: int = 0
+var _placeables_query_entries_copied: int = 0
+var _placeables_query_deep_copies: int = 0
+var _placeables_query_copy_avoided_estimate: int = 0
 
 
 func setup(ctx: Dictionary) -> void:
@@ -142,12 +146,20 @@ func get_all_runtime_nodes(kind: StringName) -> Array:
 	return result
 
 
+## SAFE COPY API: always returns deep copies.
 func get_placeables_by_item_ids_near(world_pos: Vector2, radius: float, item_ids: Array[String]) -> Array[Dictionary]:
+	var readonly_entries: Array[Dictionary] = get_placeables_by_item_ids_near_readonly(world_pos, radius, item_ids)
+	return _deep_copy_placeable_entries(readonly_entries)
+
+
+## READONLY VIEW API (by contract): returns references from derived cache/truth.
+## Consumers MUST NOT mutate dictionaries returned by this method.
+func get_placeables_by_item_ids_near_readonly(world_pos: Vector2, radius: float, item_ids: Array[String]) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var filter: Dictionary = _array_to_string_set(item_ids)
 	var r2: float = radius * radius
 	for chunk_key in _get_chunk_keys_for_radius(world_pos, radius):
-		var entries: Array[Dictionary] = get_placeables_in_chunk_key(chunk_key, item_ids)
+		var entries: Array[Dictionary] = get_placeables_in_chunk_key_readonly(chunk_key, item_ids)
 		for entry in entries:
 			var item_id := String(entry.get("item_id", "")).strip_edges()
 			if not filter.is_empty() and not filter.has(item_id):
@@ -155,26 +167,55 @@ func get_placeables_by_item_ids_near(world_pos: Vector2, radius: float, item_ids
 			var wpos := _entry_world_pos(entry)
 			if wpos.distance_squared_to(world_pos) <= r2:
 				result.append(entry)
+	_placeables_query_entries_readonly += result.size()
+	_placeables_query_copy_avoided_estimate += result.size()
 	return result
 
 
+## SAFE COPY API: always returns deep copies.
 func get_placeables_in_chunk_key(chunk_key: String, item_ids: Array[String] = []) -> Array[Dictionary]:
+	var readonly_entries: Array[Dictionary] = get_placeables_in_chunk_key_readonly(chunk_key, item_ids)
+	return _deep_copy_placeable_entries(readonly_entries)
+
+
+## READONLY VIEW API (by contract): returns references from derived cache/truth.
+## Consumers MUST NOT mutate dictionaries returned by this method.
+func get_placeables_in_chunk_key_readonly(chunk_key: String, item_ids: Array[String] = []) -> Array[Dictionary]:
 	var parts := chunk_key.split(",")
 	if parts.size() != 2:
 		return []
-	return get_placeables_in_chunk(int(parts[0]), int(parts[1]), item_ids)
+	return get_placeables_in_chunk_readonly(int(parts[0]), int(parts[1]), item_ids)
 
 
+## SAFE COPY API: always returns deep copies.
 func get_placeables_in_chunk(cx: int, cy: int, item_ids: Array[String] = []) -> Array[Dictionary]:
+	var readonly_entries: Array[Dictionary] = get_placeables_in_chunk_readonly(cx, cy, item_ids)
+	return _deep_copy_placeable_entries(readonly_entries)
+
+
+## READONLY VIEW API (by contract): returns references from derived cache/truth.
+## Consumers MUST NOT mutate dictionaries returned by this method.
+func get_placeables_in_chunk_readonly(cx: int, cy: int, item_ids: Array[String] = []) -> Array[Dictionary]:
 	if item_ids.is_empty():
-		return WorldSave.get_placed_entities_in_chunk(cx, cy)
+		var chunk_key := WorldSave.chunk_key(cx, cy)
+		if not WorldSave.placed_entities_by_chunk.has(chunk_key):
+			return []
+		var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[chunk_key]
+		var all_entries: Array[Dictionary] = []
+		for uid in chunk_dict.keys():
+			all_entries.append(chunk_dict[uid] as Dictionary)
+		_placeables_query_entries_readonly += all_entries.size()
+		_placeables_query_copy_avoided_estimate += all_entries.size()
+		return all_entries
 	_ensure_placeables_cache()
 	var filter: Dictionary = _array_to_string_set(item_ids)
 	var result: Array[Dictionary] = []
 	for item_id in filter.keys():
 		var chunk_entries: Array = _get_cached_placeables_for_item_in_chunk(String(item_id), WorldSave.chunk_key(cx, cy))
 		for entry in chunk_entries:
-			result.append((entry as Dictionary).duplicate(true))
+			result.append(entry as Dictionary)
+	_placeables_query_entries_readonly += result.size()
+	_placeables_query_copy_avoided_estimate += result.size()
 	return result
 
 
@@ -200,7 +241,15 @@ func try_write_placeables_cache(_item_id: String, _chunk_key: String, _entries: 
 
 ## Persistent query helper only.
 ## Reads a derived WorldSave view; does not turn placeables into live runtime nodes.
+## SAFE COPY API: always returns deep copies.
 func get_all_placeables_by_item_id(item_id: String) -> Array[Dictionary]:
+	var readonly_entries: Array[Dictionary] = get_all_placeables_by_item_id_readonly(item_id)
+	return _deep_copy_placeable_entries(readonly_entries)
+
+
+## READONLY VIEW API (by contract): returns references from derived cache/truth.
+## Consumers MUST NOT mutate dictionaries returned by this method.
+func get_all_placeables_by_item_id_readonly(item_id: String) -> Array[Dictionary]:
 	var key := item_id.strip_edges()
 	if key == "":
 		return []
@@ -209,7 +258,9 @@ func get_all_placeables_by_item_id(item_id: String) -> Array[Dictionary]:
 	var by_chunk: Dictionary = _placeables_by_item_id_and_chunk.get(key, {})
 	for chunk_entries in by_chunk.values():
 		for entry in chunk_entries:
-			result.append((entry as Dictionary).duplicate(true))
+			result.append(entry as Dictionary)
+	_placeables_query_entries_readonly += result.size()
+	_placeables_query_copy_avoided_estimate += result.size()
 	return result
 
 
@@ -372,6 +423,19 @@ func _get_cached_placeables_for_item_in_chunk(item_id: String, chunk_key: String
 	return by_chunk.get(chunk_key, [])
 
 
+func _deep_copy_placeable_entries(entries: Array[Dictionary]) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for entry in entries:
+		result.append(_duplicate_placeable_entry(entry))
+	_placeables_query_entries_copied += result.size()
+	return result
+
+
+func _duplicate_placeable_entry(entry: Dictionary) -> Dictionary:
+	_placeables_query_deep_copies += 1
+	return entry.duplicate(true)
+
+
 func get_debug_snapshot() -> Dictionary:
 	var runtime_counts := {
 		"item_drop": get_all_runtime_nodes(KIND_ITEM_DROP).size(),
@@ -397,6 +461,13 @@ func get_debug_snapshot() -> Dictionary:
 			"checks_total": _consistency_checks_total,
 			"checks_failed": _consistency_checks_failed,
 			"last_issue": _last_consistency_issue,
+		},
+		"placeables_query_allocations": {
+			"readonly_entries_returned": _placeables_query_entries_readonly,
+			"copied_entries_returned": _placeables_query_entries_copied,
+			"deep_copies_total": _placeables_query_deep_copies,
+			"copy_avoided_estimate": _placeables_query_copy_avoided_estimate,
+			"copy_avoidance_ratio": float(_placeables_query_copy_avoided_estimate) / float(maxi(_placeables_query_copy_avoided_estimate + _placeables_query_deep_copies, 1)),
 		},
 		"query_total": _queries_total,
 		"query_hit_rate": float(_queries_with_hits) / float(maxi(_queries_total, 1)),

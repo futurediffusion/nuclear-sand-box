@@ -211,12 +211,12 @@ func _scan_workbenches() -> void:
 	if _world_spatial_index != null:
 		if scoped_scan:
 			for chunk_key in target_chunks:
-				for entry in _world_spatial_index.get_placeables_in_chunk_key(String(chunk_key), ["workbench"]):
+				for entry in _world_spatial_index.get_placeables_in_chunk_key_readonly(String(chunk_key), ["workbench"]):
 					var uid := String((entry as Dictionary).get("uid", ""))
 					if uid != "":
 						live_uids[uid] = entry
 		else:
-			for entry in _world_spatial_index.get_all_placeables_by_item_id("workbench"):
+			for entry in _world_spatial_index.get_all_placeables_by_item_id_readonly("workbench"):
 				var uid := String((entry as Dictionary).get("uid", ""))
 				if uid != "":
 					live_uids[uid] = entry
@@ -317,10 +317,10 @@ func _collect_candidate_doors(center: Vector2, radius: float, chunk_keys: Array[
 	if _world_spatial_index != null:
 		if scoped_scan:
 			for chunk_key in chunk_keys:
-				for entry in _world_spatial_index.get_placeables_in_chunk_key(chunk_key, ["doorwood"]):
+				for entry in _world_spatial_index.get_placeables_in_chunk_key_readonly(chunk_key, ["doorwood"]):
 					source_entries.append(entry)
 		else:
-			source_entries = _world_spatial_index.get_placeables_by_item_ids_near(center, radius, ["doorwood"])
+			source_entries = _world_spatial_index.get_placeables_by_item_ids_near_readonly(center, radius, ["doorwood"])
 	else:
 		var fallback_chunks: Array[String] = chunk_keys if scoped_scan else _get_chunk_keys_for_radius(center, radius)
 		for chunk_key in fallback_chunks:
