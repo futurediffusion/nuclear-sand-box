@@ -30,13 +30,15 @@ var _chunk_size: int = 32
 var _runtime_nodes_by_kind: Dictionary = {}
 # instance_id -> {"kind": StringName, "chunk_pos": Vector2i, "node": Node}
 var _runtime_meta_by_id: Dictionary = {}
-# Derived persistent view: item_id -> chunk_key -> Array[Dictionary].
+# Derived persistent view: item_id -> chunk_pos(Vector2i) -> Array[Dictionary].
 # This is rebuilt from WorldSave when its structural revision changes.
 var _placeables_cache_revision: int = -1
 var _placeables_by_item_id_and_chunk: Dictionary = {}
 
 var _queries_total: int = 0
 var _queries_with_hits: int = 0
+var _chunk_query_time_usec_total: int = 0
+var _chunk_query_calls: int = 0
 
 
 func setup(ctx: Dictionary) -> void:
@@ -159,15 +161,22 @@ func get_placeables_in_chunk_key(chunk_key: String, item_ids: Array[String] = []
 
 
 func get_placeables_in_chunk(cx: int, cy: int, item_ids: Array[String] = []) -> Array[Dictionary]:
+	var t0: int = Time.get_ticks_usec()
 	if item_ids.is_empty():
-		return WorldSave.get_placed_entities_in_chunk(cx, cy)
+		var direct: Array[Dictionary] = WorldSave.get_placed_entities_in_chunk(cx, cy)
+		_chunk_query_time_usec_total += Time.get_ticks_usec() - t0
+		_chunk_query_calls += 1
+		return direct
 	_ensure_placeables_cache()
 	var filter: Dictionary = _array_to_string_set(item_ids)
 	var result: Array[Dictionary] = []
+	var chunk_pos := Vector2i(cx, cy)
 	for item_id in filter.keys():
-		var chunk_entries: Array = _get_cached_placeables_for_item_in_chunk(String(item_id), WorldSave.chunk_key_from_pos(Vector2i(cx, cy)))
+		var chunk_entries: Array = _get_cached_placeables_for_item_in_chunk_pos(String(item_id), chunk_pos)
 		for entry in chunk_entries:
 			result.append((entry as Dictionary).duplicate(true))
+	_chunk_query_time_usec_total += Time.get_ticks_usec() - t0
+	_chunk_query_calls += 1
 	return result
 
 
@@ -331,6 +340,9 @@ func _ensure_placeables_cache() -> void:
 	_placeables_cache_revision = revision
 	_placeables_by_item_id_and_chunk.clear()
 	for chunk_key in WorldSave.placed_entities_by_chunk.keys():
+		var chunk_pos: Vector2i = WorldSave.chunk_pos_from_key(String(chunk_key))
+		if chunk_pos.x <= -999999:
+			continue
 		var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[chunk_key]
 		for uid in chunk_dict.keys():
 			var entry: Dictionary = chunk_dict[uid]
@@ -340,15 +352,15 @@ func _ensure_placeables_cache() -> void:
 			if not _placeables_by_item_id_and_chunk.has(item_id):
 				_placeables_by_item_id_and_chunk[item_id] = {}
 			var by_chunk: Dictionary = _placeables_by_item_id_and_chunk[item_id]
-			if not by_chunk.has(chunk_key):
-				by_chunk[chunk_key] = []
-			var bucket: Array = by_chunk[chunk_key]
+			if not by_chunk.has(chunk_pos):
+				by_chunk[chunk_pos] = []
+			var bucket: Array = by_chunk[chunk_pos]
 			bucket.append(entry.duplicate(true))
 
 
-func _get_cached_placeables_for_item_in_chunk(item_id: String, chunk_key: String) -> Array:
+func _get_cached_placeables_for_item_in_chunk_pos(item_id: String, chunk_pos: Vector2i) -> Array:
 	var by_chunk: Dictionary = _placeables_by_item_id_and_chunk.get(item_id, {})
-	return by_chunk.get(chunk_key, [])
+	return by_chunk.get(chunk_pos, [])
 
 
 func get_debug_snapshot() -> Dictionary:
@@ -373,4 +385,7 @@ func get_debug_snapshot() -> Dictionary:
 		"persistent_cache_item_ids": _placeables_by_item_id_and_chunk.size(),
 		"query_total": _queries_total,
 		"query_hit_rate": float(_queries_with_hits) / float(maxi(_queries_total, 1)),
+		"chunk_query_calls": _chunk_query_calls,
+		"chunk_query_avg_usec": float(_chunk_query_time_usec_total) / float(maxi(_chunk_query_calls, 1)),
+		"worldsave_chunk_key_codec": WorldSave.get_chunk_key_codec_metrics(),
 	}
