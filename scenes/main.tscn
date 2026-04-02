@@ -29,7 +29,7 @@
 [ext_resource type="PackedScene" uid="uid://c1eimnkv5d2r2" path="res://scenes/tavern_keeper.tscn" id="26_keeper"]
 [ext_resource type="Script" uid="uid://cr51wiqhvam4b" path="res://scripts/world/VegetationRoot.gd" id="27_vegroot"]
 [ext_resource type="PackedScene" uid="uid://b2w1eue5fqx4m" path="res://scenes/ui/workbench_menu_ui.tscn" id="28_yq6so"]
-[ext_resource type="PackedScene" uid="uid://cccpmg7n24spe" path="res://scenes/ui/chest_ui.tscn" id="29_tel4y"]
+[ext_resource type="PackedScene" uid="uid://cccpmg7n24spe" path="res://scenes/ui/container_ui.tscn" id="29_tel4y"]
 [ext_resource type="PackedScene" uid="uid://qlf2bj00x63j" path="res://scenes/placeables/workbench_world.tscn" id="29_wbworld"]
 [ext_resource type="Script" uid="uid://tq4fi4lfk12p" path="res://scripts/systems/SoundPanel.gd" id="30_soundpanel"]
 [ext_resource type="PackedScene" uid="uid://7u81ce63dfdb" path="res://scenes/sentinel.tscn" id="31_sentinel"]
@@ -253,7 +253,7 @@ layer = 50
 
 [node name="WorkbenchMenuUi" parent="UI" instance=ExtResource("28_yq6so")]
 
-[node name="ChestUi" parent="UI" instance=ExtResource("29_tel4y")]
+[node name="ContainerUi" parent="UI" instance=ExtResource("29_tel4y")]
 
 [node name="WorkbenchWorld" parent="." instance=ExtResource("29_wbworld")]
 position = Vector2(4640, 4320)

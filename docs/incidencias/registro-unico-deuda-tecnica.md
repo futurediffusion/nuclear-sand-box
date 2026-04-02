@@ -15,12 +15,13 @@
 ## Excepciones activas
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Estado |
 |---|---|---|---|---|---|---|---|---|---|
-| EXC-HOSTILITY-WRAPPER-001 | 2026-04-02 | N/A (higiene sprint temporal) | Wrapper legacy `FactionRelationService` con `REMOVE_AFTER` | Compat API/Signal bridge | Se conserva solo para absorber listeners externos no migrados al `FactionHostilityManager` canónico; no mantiene estado propio ni lógica de decisión. | Runtime-Hostility | 2026-04-09 | 2026-05-15 | Activa |
+| EXC-SHOP-PORT-WRAPPER-001 | 2026-04-02 | N/A (higiene sprint temporal) | API legacy en `ShopService` (wrapper hacia `ShopPort`) | Compat API bridge | `keeper_menu_ui.gd` aún consume llamadas legacy (`buy/sell/can_*`); se mantiene puente hasta migrar consumidor y cerrar telemetría legacy en cero. | Runtime-Commerce | 2026-05-01 | 2026-09-30 | Activa |
 
 ## Excepciones retiradas
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Fecha retiro efectiva |
 |---|---|---|---|---|---|---|---|---|---|
 | EXC-TIME-EXTORT-001 | 2026-04-01 | N/A (registro histórico) | Timer local recurrente en `ExtortionFlow` | `LOCAL_TIMER_BY_DESIGN` | Scheduler `remaining += delta` reemplazado por `run_at` sobre `RunClock` y consumo exclusivo desde `director_pulse` en Cadence. | Runtime World | 2026-04-01 | 2026-04-01 | 2026-04-01 |
+| EXC-HOSTILITY-WRAPPER-001 | 2026-04-02 | N/A (higiene sprint temporal) | Wrapper legacy `FactionRelationService` con `REMOVE_AFTER` | Compat API/Signal bridge | Retirado por ausencia de consumidores runtime en repo y migración total al owner canónico `FactionHostilityManager`. | Runtime-Hostility | 2026-04-09 | 2026-05-15 | 2026-04-02 |
 
 
 ## Revisión semanal obligatoria de excepciones

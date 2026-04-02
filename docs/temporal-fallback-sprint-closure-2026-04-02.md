@@ -2,35 +2,40 @@
 
 Objetivo del sprint: **cero fallback permanente disfrazado de temporal**.
 
-## 1) Barrido de marcadores temporales (gameplay crítico)
+## 1) Inventario de wrappers/puentes activos (runtime)
 
-| Prioridad | Área gameplay | Marcador detectado | Archivo | Estado sprint |
-|---|---|---|---|---|
-| P0 | Daño a walls en asalto | `TEMP EXCEPTION` + `legacy wall damage fallback` | `scripts/world/BanditWorkCoordinator.gd` | **RETIRADO** |
-| P0 | Hostilidad/cadena de ownership | `REMOVE_AFTER` en wrapper de hostilidad | `scripts/systems/FactionRelationService.gd` | **VIGENTE (renovado con owner + fecha corta)** |
-| P0 | Hostilidad/raids scheduling | Documentación mencionaba fallback local de cadence | `docs/phase-7-time-inventory.md` | **CORREGIDO (sin fallback local)** |
+| Wrapper / puente | Contrato final | Consumidores reales en repo | Estado |
+|---|---|---|---|
+| `ChestComponent` (`ChestWorld`) | `ContainerPlaceable` | `scenes/placeables/chest_world.tscn`, `scenes/placeables/barrel_world.tscn`, test de fill | **RETIRADO (migrado)** |
+| `chest_ui` (`ChestUi`) | `ContainerUi` | `scenes/main.tscn`, `scenes/tests/chest_random_fill_test.tscn`, resoluciones UI por path/grupo | **RETIRADO (migrado)** |
+| `FactionRelationService` | `FactionHostilityManager` | Sin consumidores runtime en repo | **RETIRADO (sin compat efectiva)** |
+| `ShopService` API legacy | `ShopService.get_port()` (`ShopPort`) | `keeper_menu_ui.gd` usa API legacy; `inventory_panel.gd` usa `get_port` | **VIGENTE (compat efectiva parcial)** |
 
 ## 2) Priorización por riesgo gameplay
 
-1. **P0 — Walls damage / assault runtime**: si se mantiene dual API (`hit_wall_at_world_pos` + `damage_player_wall_at_world_pos`) se puede bifurcar daño estructural y generar comportamiento no determinista de raid.
-2. **P0 — Hostility ownership bridge**: wrapper legacy sin salida explícita puede perpetuar dependencia indirecta y opacar el owner canónico (`FactionHostilityManager`).
-3. **P0 — Hostility cooldown/scheduling docs drift**: documentación desactualizada induce a reintroducir fallback local en futuros cambios de cadence.
+1. **P0 — UI de contenedores con rutas paralelas**: mantener `UI/ChestUi` + grupo `chest_ui` en paralelo a `UI/ContainerUi` abría lookup dual innecesario.
+2. **P0 — Wrapper de contenedor en escenas**: `ChestComponent` era herencia vacía (`extends ContainerPlaceable`) y sostenía contrato duplicado sin semántica propia.
+3. **P0 — Hostilidad bridge sin consumidores**: `FactionRelationService` no aportaba compatibilidad efectiva al no tener lectores/escritores activos en runtime.
 
-## 3) Fallbacks retirados en este sprint
+## 3) Wrappers retirados en este sprint
 
-- Se elimina el fallback legacy de daño a pared en `BanditWorkCoordinator`.
-- El coordinador ahora exige API canónica `hit_wall_at_world_pos` y emite warning explícito cuando falta wiring.
+- Se migra `chest_world` y `barrel_world` a `ContainerPlaceable` directo.
+- Se migra `main` y `chest_random_fill_test` a `container_ui.tscn`.
+- Se eliminan los lookups legacy `UI/ChestUi` y grupo `chest_ui` de `ContainerPlaceable` y `player_inventory_menu`.
+- Se elimina `FactionRelationService` por ausencia de consumidores reales en el código del repo.
 
-## 4) Excepciones que no se pueden retirar hoy
+## 4) Excepciones que se mantienen (con fecha y salida verificable)
 
-### EXC-HOSTILITY-WRAPPER-001
-- **Motivo técnico estricto:** mantener puente de señal/API legacy de hostilidad para listeners externos aún no migrados.
-- **Owner:** `Runtime-Hostility`.
-- **Fecha de revisión:** `2026-04-09`.
-- **Fecha de retiro comprometida:** `2026-05-15`.
-- **Condición de retiro:** migrar listeners restantes a `FactionHostilityManager` y eliminar wrapper.
+### EXC-SHOP-PORT-WRAPPER-001
+- **Wrapper:** API legacy de `ShopService` (`get_buy_price`, `sell`, etc.).
+- **Motivo técnico estricto:** `keeper_menu_ui.gd` todavía consume la API legacy del autoload.
+- **Owner:** `Runtime-Commerce`.
+- **Fecha de revisión:** `2026-05-01`.
+- **Fecha de retiro comprometida:** `2026-09-30`.
+- **Condición exacta de salida:** migrar `keeper_menu_ui.gd` a `ShopService.get_port()` y verificar telemetría `get_legacy_telemetry_snapshot()` en `0` para todas las rutas legacy.
 
 ## 5) Resultado del sprint
 
-- **Agregado vs retirado:** `+1 / -1` (deuda neta: `0`).
-- El único marcador temporal restante queda registrado con owner, revisión y fecha de retiro verificable.
+- **Agregado vs retirado:** `+1 / -3` (deuda neta: `-2`).
+- Se elimina ruta paralela de UI de contenedores y puente de hostilidad sin uso.
+- No se reintroduce doble verdad: hostilidad queda solo en `FactionHostilityManager` y contenedores/UI quedan en contrato neutral `Container*`.

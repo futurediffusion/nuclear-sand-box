@@ -1,7 +1,7 @@
 [gd_scene load_steps=6 format=3 uid="uid://dij5isni7hkgt"]
 
 [ext_resource type="Texture2D" uid="uid://laiuybevhqv4" path="res://art/sprites/chestclosed.png" id="1_7goi3"]
-[ext_resource type="Script" uid="uid://cluyi5c1qyddd" path="res://scripts/placeables/ChestComponent.gd" id="1_t0sh6"]
+[ext_resource type="Script" uid="uid://cluyi5c1qyddd" path="res://scripts/placeables/ContainerPlaceable.gd" id="1_t0sh6"]
 [ext_resource type="Texture2D" uid="uid://cj70iqi85uw61" path="res://art/ui/ekey.png" id="2_t0sh6"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_od151"]

@@ -1,2 +1,0 @@
-extends ContainerPlaceable
-class_name ChestWorld

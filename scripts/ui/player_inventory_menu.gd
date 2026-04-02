@@ -95,13 +95,7 @@ func _get_container_ui() -> CanvasLayer:
 		var by_container_path := scene.get_node_or_null("UI/ContainerUi") as CanvasLayer
 		if by_container_path != null:
 			return by_container_path
-		var by_chest_path := scene.get_node_or_null("UI/ChestUi") as CanvasLayer
-		if by_chest_path != null:
-			return by_chest_path
 	for node in get_tree().get_nodes_in_group("container_ui"):
-		if node is CanvasLayer:
-			return node as CanvasLayer
-	for node in get_tree().get_nodes_in_group("chest_ui"):
 		if node is CanvasLayer:
 			return node as CanvasLayer
 	return null

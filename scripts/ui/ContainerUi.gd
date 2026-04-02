@@ -46,7 +46,6 @@ var drag_offset: Vector2 = Vector2(16, 16)
 
 func _ready() -> void:
 	visible = false
-	add_to_group("chest_ui")
 	add_to_group("container_ui")
 	if has_signal("visibility_changed"):
 		visibility_changed.connect(_on_visibility_changed)
