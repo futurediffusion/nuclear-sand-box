@@ -224,11 +224,46 @@ var _tick_scan_buffers: TickScanBuffers          = TickScanBuffers.new()
 var _structure_work_buffers: StructureWorkBuffers = StructureWorkBuffers.new()
 var _dispatch_work_buffers: DispatchWorkBuffers  = DispatchWorkBuffers.new()
 var _method_caps: MethodCapabilityCache          = MethodCapabilityCacheScript.new()
+var _worker_instrumentation_enabled: bool        = true
 
 
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
+
+func set_worker_instrumentation_enabled(enabled: bool) -> void:
+	_worker_instrumentation_enabled = enabled
+
+
+func is_worker_instrumentation_enabled() -> bool:
+	return _worker_instrumentation_enabled and Debug.is_enabled("bandit_pipeline")
+
+
+func log_worker_event(event_name: String, payload: Dictionary = {}) -> void:
+	if not is_worker_instrumentation_enabled():
+		return
+	var normalized := payload.duplicate(true)
+	normalized["npc_id"] = str(normalized.get("npc_id", "unknown"))
+	normalized["group_id"] = str(normalized.get("group_id", normalized.get("camp_id", "unknown")))
+	normalized["camp_id"] = str(normalized.get("camp_id", normalized["group_id"]))
+	normalized["state"] = str(normalized.get("state", "unknown"))
+	normalized["tick"] = int(normalized.get("tick", 0))
+	normalized["target_id"] = str(normalized.get("target_id", ""))
+	normalized["position_used"] = str(normalized.get("position_used", "0.00,0.00"))
+	normalized["work_cycle_id"] = str(normalized.get("work_cycle_id", ""))
+	var parts: Array[String] = []
+	parts.append("event=%s" % event_name)
+	for key in ["npc_id", "group_id", "camp_id", "state", "tick", "target_id", "position_used", "work_cycle_id"]:
+		parts.append("%s=%s" % [key, str(normalized.get(key, ""))])
+	var extra_keys: Array = normalized.keys()
+	extra_keys.sort()
+	for key_var in extra_keys:
+		var key: String = str(key_var)
+		if key in ["npc_id", "group_id", "camp_id", "state", "tick", "target_id", "position_used", "work_cycle_id"]:
+			continue
+		parts.append("%s=%s" % [key, str(normalized[key_var])])
+	Debug.log("bandit_pipeline", "[BANDIT_WORKER_EVENT] %s" % " ".join(parts))
+
 
 func setup(ctx: Dictionary) -> void:
 	_cadence        = ctx.get("cadence") as WorldCadenceCoordinator
@@ -280,6 +315,9 @@ func setup(ctx: Dictionary) -> void:
 	add_child(_stash)
 	_stash.setup({
 		"update_deposit_pos_cb": Callable(self, "_update_deposit_pos"),
+		"log_worker_event_cb": Callable(self, "log_worker_event"),
+		"is_worker_instrumentation_enabled_cb": Callable(self, "is_worker_instrumentation_enabled"),
+		"worker_instrumentation_enabled": _worker_instrumentation_enabled,
 	})
 
 	if _work_coordinator != null and is_instance_valid(_work_coordinator):
@@ -291,6 +329,13 @@ func setup(ctx: Dictionary) -> void:
 		"stash": _stash,
 		"world_node": _world_node,
 		"world_spatial_index": _world_spatial_index,
+		"log_worker_event_cb": Callable(self, "log_worker_event"),
+		"is_worker_instrumentation_enabled_cb": Callable(self, "is_worker_instrumentation_enabled"),
+		"worker_instrumentation_enabled": _worker_instrumentation_enabled,
+	})
+	_stash.set_work_context({
+		"get_work_tick_cb": Callable(_work_coordinator, "get_work_tick_seq"),
+		"get_work_cycle_id_cb": Callable(_work_coordinator, "get_work_cycle_id_for_member"),
 	})
 
 
