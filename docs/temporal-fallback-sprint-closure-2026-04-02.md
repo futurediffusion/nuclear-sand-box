@@ -1,6 +1,12 @@
-# Sprint cierre temporal fallbacks — 2026-04-02
+# Sprint corto de cierre (temporales, wrappers y validación runtime) — 2026-04-02
 
-Objetivo del sprint: **cero fallback permanente disfrazado de temporal**.
+Objetivo del sprint: **cero fallback permanente disfrazado de temporal**, con foco exclusivo en:
+
+1. temporales de runtime,
+2. wrappers/puentes de compatibilidad,
+3. validación runtime de salida.
+
+> Alcance explícito: durante este sprint **no** se abre trabajo de features ni refactors adyacentes.
 
 ## 1) Inventario de wrappers/puentes activos (runtime)
 
@@ -39,3 +45,46 @@ Objetivo del sprint: **cero fallback permanente disfrazado de temporal**.
 - **Agregado vs retirado:** `+1 / -3` (deuda neta: `-2`).
 - Se elimina ruta paralela de UI de contenedores y puente de hostilidad sin uso.
 - No se reintroduce doble verdad: hostilidad queda solo en `FactionHostilityManager` y contenedores/UI quedan en contrato neutral `Container*`.
+
+## 6) KPIs de salida (gate obligatorio)
+
+Para cerrar formalmente el sprint se fijan estos KPIs:
+
+- **KPI-TEMP-OPEN (temporales abiertos):** `<= 1` y todo temporal remanente debe tener `owner + fecha de retiro`.
+- **KPI-WRAP-LIVE (wrappers vivos en runtime):** `<= 1` y debe existir compatibilidad efectiva comprobable (consumidor real en repo).
+- **KPI-RUNTIME-P0 (incidentes runtime críticos):** `0` incidentes críticos activos en `docs/incidencias/`.
+
+Interpretación operativa:
+
+- Si cualquiera de los 3 KPIs no cumple, el sprint sigue abierto.
+- Si los 3 KPIs cumplen, se habilita congelamiento de arquitectura suficiente (sección 7).
+
+## 7) Regla de congelamiento al cumplir KPIs
+
+Cuando `KPI-TEMP-OPEN`, `KPI-WRAP-LIVE` y `KPI-RUNTIME-P0` estén en verde:
+
+- se declara **freeze suficiente** del frente de cleanup,
+- se prohíbe continuar “limpieza por inercia” sin incidente o métrica que lo justifique,
+- todo cambio adicional de arquitectura requiere nuevo disparador explícito (incidente, regresión o objetivo de producto).
+
+## 8) Reapertura de features (condición de entrada)
+
+Al reabrir desarrollo de features, se exige:
+
+1. **Owner único por decisión/cambio de estado** (sin co-ownership difuso).
+2. **Respeto estricto a `docs/pr-smell-blacklist.md`** como blacklist activa de olores.
+3. Si aparece un temporal nuevo, debe nacer con:
+   - ticket/registro de excepción,
+   - fecha de retiro,
+   - criterio verificable de salida.
+
+## 9) Vigilancia ligera anti-recaída
+
+Para evitar volver a “refactor perpetuo”, se mantiene una vigilancia mínima:
+
+- chequeo semanal breve de:
+  - temporales abiertos,
+  - wrappers vivos,
+  - incidentes runtime críticos;
+- auditoría puntual solo ante desvío de KPI;
+- sin reabrir programa masivo de limpieza mientras no haya evidencia de recaída.
