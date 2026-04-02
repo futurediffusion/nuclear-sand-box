@@ -3,6 +3,28 @@ class_name BanditWorkCoordinator
 
 ## Low-level runtime coordinator for already-ticked bandits.
 ## Keeps concrete world interactions here and delegates carry logistics to CampStash.
+##
+## Resource-cycle ownership contract (decision here, execution in behavior):
+## acquire resource -> hit -> drop candidate -> pickup -> cargo -> return -> deposit
+## - Coordinator decides transition intent and validates guards.
+## - Behavior keeps locomotion/state-machine execution.
+## - CampStash executes concrete world pickup/deposit side effects.
+##
+## Stage contract (entry -> exit):
+## 1) acquire_resource: state=RESOURCE_WATCH + valid _resource_node_id.
+##    exits to hit_resource when pending_mine_id!=0.
+## 2) hit_resource: pending_mine_id consumed and hit() attempted.
+##    exits to drop_candidate (drop spawned in world) or acquire_resource retry.
+## 3) drop_candidate: nearby sweep around resource center.
+##    exits to pickup_intent when pending_collect_id!=0.
+## 4) pickup_intent: sweep_collect_arrive resolves drop -> cargo_manifest/cargo_count.
+##    exits to cargo_loaded (cargo_count>0) or acquire_resource retry.
+## 5) cargo_loaded: cargo_count grows, coordinator requests RETURN_HOME intent.
+##    exits to return_home via behavior.force_return_home().
+## 6) return_home: behavior executes navigation to deposit/home.
+##    exits to deposit when _just_arrived_home_with_cargo flag is consumed by stash.
+## 7) deposit: stash handle_cargo_deposit empties manifest/counter.
+##    exits to acquire_resource/patrol depending on behavior.
 
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 
@@ -24,6 +46,8 @@ var _world_spatial_index: WorldSpatialIndex = null
 
 var _raid_attack_next_at: Dictionary = {}  # member_id -> RunClock.now()
 var _raid_loot_next_at: Dictionary = {}  # member_id -> RunClock.now()
+var _state_lost_after_hit_count: int = 0
+var _full_cycles_by_member: Dictionary = {}  # member_id -> completed_cycle_count
 
 
 func setup(ctx: Dictionary) -> void:
@@ -40,9 +64,11 @@ func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cac
 		return
 
 	_maybe_drop_carry_on_aggro(beh, enemy_node)
+	_guard_resource_cycle_before_work(beh)
 	_handle_mining(beh, enemy_node)
 	_handle_structure_assault(beh, enemy_node)
 	_handle_collection_and_deposit(beh, enemy_node, drops_cache)
+	_guard_resource_cycle_after_work(beh)
 
 
 func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
@@ -78,7 +104,14 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 		_stash.sweep_collect_arrive(beh, enemy_node,
 			member_pos, drops_cache)
 
+	if beh.cargo_count > 0 and _should_request_return_home(beh):
+		_request_return_home(beh, "cargo_loaded")
+
+	var had_cargo_before_deposit: bool = beh.cargo_count > 0
 	_stash.handle_cargo_deposit(beh, enemy_node)
+	if had_cargo_before_deposit and beh.cargo_count <= 0:
+		var current: int = int(_full_cycles_by_member.get(beh.member_id, 0))
+		_full_cycles_by_member[beh.member_id] = current + 1
 
 
 func _resolve_resource_center(beh: BanditWorldBehavior, enemy_node: Node) -> Vector2:
@@ -111,17 +144,20 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var enemy_pos: Vector2 = _node_pos_for_work(enemy_node)
 	var res_pos: Vector2 = (res_node as Node2D).global_position
 	if enemy_pos.distance_squared_to(res_pos) > BanditTuningScript.mine_range_sq():
+		_restore_mine_intent_if_still_watching(beh, mine_id)
 		return
 
 	var wc: WeaponComponent = enemy_node.get_node_or_null("WeaponComponent") as WeaponComponent
 	if wc != null and wc.current_weapon_id != "ironpipe":
 		wc.equip_weapon_id("ironpipe")
 		if wc.current_weapon_id != "ironpipe":
+			_restore_mine_intent_if_still_watching(beh, mine_id)
 			return
 		beh.pending_mine_id = mine_id
 		return
 
 	res_node.hit(enemy_node)
+	_preserve_cycle_after_hit(beh, mine_id)
 	if enemy_node.has_method("queue_ai_attack_press"):
 		enemy_node.call("queue_ai_attack_press", res_pos)
 
@@ -201,7 +237,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 		# Si ya no quedan paredes/placeables para este asalto y el NPC trae cargo,
 		# priorizar retorno al barril para depositar en vez de quedarse reteniendo el ítem.
 		if not fallback_hit and beh.cargo_count > 0:
-			beh.force_return_home()
+			_request_return_home(beh, "structure_no_target_with_cargo")
 			Debug.log("raid", "[BWC] structure no-target → return home with cargo npc=%s group=%s cargo=%d" % [
 				beh.member_id, beh.group_id, beh.cargo_count
 			])
@@ -374,7 +410,7 @@ func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
 			container.try_insert_item(String(entry.get("item_id", "")), int(entry.get("amount", 0)))
 		return false
 
-	beh.force_return_home()
+	_request_return_home(beh, "raid_chest_loot")
 	Debug.log("raid", "[BWC] chest looted npc=%s group=%s chest_uid=%s +%d cargo=%d/%d items=%s" % [
 		beh.member_id,
 		beh.group_id,
@@ -385,6 +421,85 @@ func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
 		_format_loot_entries(cargo_result.get("taken", []) as Array),
 	])
 	return true
+
+
+func _should_request_return_home(beh: BanditWorldBehavior) -> bool:
+	if beh == null:
+		return false
+	match beh.state:
+		NpcWorldBehavior.State.RETURN_HOME, NpcWorldBehavior.State.HOLD_POSITION:
+			return false
+		_:
+			return true
+
+
+func _request_return_home(beh: BanditWorldBehavior, reason: String) -> void:
+	if beh == null or not _should_request_return_home(beh):
+		return
+	beh.force_return_home()
+	Debug.log("bandit_ai", "[BWC] return_home_requested npc=%s reason=%s cargo=%d state=%s" % [
+		beh.member_id,
+		reason,
+		beh.cargo_count,
+		str(int(beh.state)),
+	])
+
+
+func _restore_mine_intent_if_still_watching(beh: BanditWorldBehavior, mine_id: int) -> void:
+	if beh == null:
+		return
+	if beh.state != NpcWorldBehavior.State.RESOURCE_WATCH:
+		return
+	if beh._resource_node_id != mine_id:
+		return
+	if beh.pending_collect_id != 0:
+		return
+	beh.pending_mine_id = mine_id
+
+
+func _preserve_cycle_after_hit(beh: BanditWorldBehavior, mine_id: int) -> void:
+	if beh == null:
+		return
+	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH:
+		return
+	_state_lost_after_hit_count += 1
+	if beh.pending_collect_id != 0:
+		return
+	if beh._resource_node_id != mine_id:
+		return
+	# Guard: if state was lost right after hit, re-enter resource watch explicitly.
+	beh.enter_resource_watch(_resolve_resource_center(beh, null), mine_id)
+	Debug.log("bandit_ai", "[BWC] state_lost_after_hit guard npc=%s mine_id=%d count=%d" % [
+		beh.member_id, mine_id, _state_lost_after_hit_count
+	])
+
+
+func _guard_resource_cycle_before_work(beh: BanditWorldBehavior) -> void:
+	if beh == null:
+		return
+	# Empty transition guard: no mining target + no pickup target while in watcher state.
+	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH \
+			and beh.pending_mine_id == 0 \
+			and beh.pending_collect_id == 0 \
+			and beh._resource_node_id == 0:
+		if beh.cargo_count > 0:
+			_request_return_home(beh, "empty_resource_watch_with_cargo")
+
+
+func _guard_resource_cycle_after_work(beh: BanditWorldBehavior) -> void:
+	if beh == null:
+		return
+	if beh.pending_collect_id != 0 and beh.cargo_count >= beh.cargo_capacity:
+		# Transition cannot stay unresolved when capacity is full.
+		beh.pending_collect_id = 0
+		_request_return_home(beh, "collect_intent_while_full")
+
+
+func get_cycle_debug_stats() -> Dictionary:
+	return {
+		"state_lost_after_hit": _state_lost_after_hit_count,
+		"full_cycles_by_member": _full_cycles_by_member.duplicate(true),
+	}
 
 
 func _find_nearest_raidable_container(enemy_pos: Vector2, assault_anchor: Vector2) -> ContainerPlaceable:

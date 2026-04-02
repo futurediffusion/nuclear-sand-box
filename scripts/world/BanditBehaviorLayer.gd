@@ -16,6 +16,12 @@ class_name BanditBehaviorLayer
 #   5. Handles pending_collect_id, mining, cargo deposit (via BanditCampStashSystem).
 #   6. Prunes behaviors for enemies that have despawned.
 #
+# Resource cycle execution contract (coordinator-driven decisions):
+#   acquire resource -> hit -> drop candidate -> pickup -> cargo -> return -> deposit
+#   - BanditBehaviorLayer: executes behavior tick + supplies sensory context.
+#   - BanditWorkCoordinator: validates transition guards + requests intent transitions.
+#   - BanditWorldBehavior: executes movement/state changes requested by coordinator.
+#
 # Every physics frame:
 #   Applies desired_velocity (+ friction compensation) to sleeping non-lite enemies.
 #
@@ -435,6 +441,11 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------------------
 
 func _tick_behaviors() -> void:
+	# Ownership boundary:
+	# 1) behavior.tick() decides locomotion/state evolution from current intent.
+	# 2) work_coordinator performs world side effects + guarded transition requests.
+	# This ordering prevents "silent jump" transitions after hit/pickup because
+	# all side effects run through one post-behavior gate.
 	_prune_behavior_timers()
 	_lod_debug_last_npc.clear()
 	_lod_debug_npc_counts = {"fast": 0, "medium": 0, "slow": 0}
