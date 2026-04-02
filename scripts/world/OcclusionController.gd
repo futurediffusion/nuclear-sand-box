@@ -4,15 +4,46 @@ class_name OcclusionController
 ## Asigna SOLO los tilemaps de PAREDES aquí, NO el tilemap de suelo.
 ## Si se deja vacío busca automáticamente por nombre "StructureWallsMap".
 @export var tilemaps: Array[NodePath] = []
+@export var player_path: NodePath
 @export var fade_radius: float = 120.0
 @export var alpha_hidden: float = 0.4
 
 var _materials: Array[ShaderMaterial] = []
 var _tilemaps: Array[TileMap] = []
 var _screen_size: Vector2 = Vector2(1920, 1080)
+var _player_ref: Node2D = null
 
 func _ready() -> void:
+	_cache_player_reference()
 	call_deferred("_find_materials")
+
+func inject_player(player: Node2D) -> void:
+	_player_ref = player
+
+func _cache_player_reference() -> void:
+	if player_path != NodePath(""):
+		var configured_player := get_node_or_null(player_path) as Node2D
+		if configured_player != null:
+			_player_ref = configured_player
+			return
+
+	var players := get_tree().get_nodes_in_group("player")
+	if players.is_empty():
+		_player_ref = null
+		return
+
+	_player_ref = players[0] as Node2D
+
+func _get_player() -> Node2D:
+	if is_instance_valid(_player_ref):
+		return _player_ref
+
+	# Fallback puntual: reintentar búsqueda solo cuando la referencia se invalida.
+	_cache_player_reference()
+	if is_instance_valid(_player_ref):
+		return _player_ref
+
+	return null
 
 func _find_materials() -> void:
 	_materials.clear()
@@ -71,11 +102,7 @@ func _process(_delta: float) -> void:
 	if _materials.is_empty():
 		return
 
-	var players := get_tree().get_nodes_in_group("player")
-	if players.is_empty():
-		return
-
-	var player := players[0] as Node2D
+	var player := _get_player()
 	if player == null:
 		return
 
