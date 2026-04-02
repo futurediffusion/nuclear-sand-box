@@ -1,0 +1,18 @@
+name: World boundary guard
+
+on:
+  pull_request:
+    paths:
+      - scripts/world/world.gd
+      - scripts/world/TavernAuthorityOrchestrator.gd
+      - scripts/ci_guard_world_boundary.py
+      - docs/world-gd-boundary.md
+      - .github/workflows/world-boundary-guard.yml
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard world.gd decision boundary
+        run: python3 scripts/ci_guard_world_boundary.py
