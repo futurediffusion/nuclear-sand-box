@@ -159,6 +159,7 @@ var _runtime_reset_coordinator: RuntimeResetCoordinator
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
+var _tavern_keeper_cached: TavernKeeper
 var _cadence_facade
 var _tavern_authority_facade
 var _settlement_wiring_facade
@@ -608,7 +609,7 @@ func _wire_world_facade_ports() -> void:
 	_tavern_authority_facade = TavernAuthorityFacadeScript.new()
 	var tavern_ports: Dictionary = _tavern_authority_facade.setup({
 		"get_keeper": Callable(self, "_get_tavern_keeper_node"),
-		"get_sentinels": func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
+		"get_sentinels": Callable(self, "_get_tavern_sentinel_nodes"),
 		"incident_reporter": Callable(self, "report_tavern_incident"),
 		"get_presence_candidates": Callable(self, "_get_tavern_presence_candidates"),
 		"get_tavern_inner_bounds_world": Callable(self, "get_tavern_inner_bounds_world"),
@@ -1292,9 +1293,8 @@ func get_tavern_center_tile(chunk_pos: Vector2i) -> Vector2i:
 ## La puerta es la ausencia de pared en el tile inferior central (x0+6, y0+7).
 ## Este método devuelve el tile justo afuera: (door_x, inner_max.y + 2).
 func get_tavern_exit_world_pos() -> Vector2:
-	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
-	if not keepers.is_empty():
-		var keeper := keepers[0]
+	var keeper := _get_tavern_keeper_node()
+	if keeper != null:
 		var inner_min: Vector2i = keeper.get("tavern_inner_min")
 		var inner_max: Vector2i = keeper.get("tavern_inner_max")
 		var door_x: int = (inner_min.x + inner_max.x + 1) / 2
@@ -1307,9 +1307,8 @@ func get_tavern_exit_world_pos() -> Vector2:
 
 ## Rect2 en world-space del interior de la taberna (sin incluir las paredes).
 func get_tavern_inner_bounds_world() -> Rect2:
-	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
-	if not keepers.is_empty():
-		var keeper := keepers[0]
+	var keeper := _get_tavern_keeper_node()
+	if keeper != null:
 		var inner_min: Vector2i = keeper.get("tavern_inner_min")
 		var inner_max: Vector2i = keeper.get("tavern_inner_max")
 		var min_world := _tile_to_world(inner_min)
@@ -1344,7 +1343,7 @@ func ensure_tavern_sentinels_spawned() -> void:
 	if _tavern_sentinels_spawned:
 		return
 	# Segunda guarda: si por alguna razón ya hay sentinels de taberna en escena
-	if not get_tree().get_nodes_in_group("tavern_sentinel").is_empty():
+	if not _get_tavern_sentinel_nodes().is_empty():
 		_tavern_sentinels_spawned = true
 		return
 	if sentinel_scene == null:
@@ -1485,9 +1484,9 @@ func _build_perimeter_patrol_points(side: String, home: Vector2) -> PackedVector
 ## world.gd solo enruta callsites y wiring de puertos.
 
 func _get_tavern_keeper_pos() -> Vector2:
-	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
-	if not keepers.is_empty():
-		return (keepers[0] as Node2D).global_position
+	var keeper := _get_tavern_keeper_node()
+	if keeper != null:
+		return keeper.global_position
 	# Fallback: tile del counter desde geometría del chunk
 	var x0 := tavern_chunk.x * chunk_size + 4
 	var y0 := tavern_chunk.y * chunk_size + 3
@@ -1503,10 +1502,17 @@ func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> 
 
 
 func _get_tavern_keeper_node() -> TavernKeeper:
+	if _tavern_keeper_cached != null and is_instance_valid(_tavern_keeper_cached):
+		return _tavern_keeper_cached
 	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
 	if not keepers.is_empty() and keepers[0] is TavernKeeper:
-		return keepers[0] as TavernKeeper
+		_tavern_keeper_cached = keepers[0] as TavernKeeper
+		return _tavern_keeper_cached
 	return null
+
+func _get_tavern_sentinel_nodes() -> Array:
+	# Excepción deliberada: set pequeño y semántica estrictamente local de autoridad.
+	return get_tree().get_nodes_in_group("tavern_sentinel")
 
 
 ## Cablea el reporter de incidentes y el service_check de memoria en el keeper activo.
@@ -1569,10 +1575,9 @@ func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
 	# Comparar en coordenadas de tile (enteras) para evitar ambigüedad de float.
 	# has_point en world-space fallaba en tiles exactamente en el borde del bounds
 	# (norte/este dependiendo del offset de map_to_local).
-	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
-	if keepers.is_empty():
+	var keeper := _get_tavern_keeper_node()
+	if keeper == null:
 		return
-	var keeper := keepers[0]
 	var inner_min: Vector2i = keeper.get("tavern_inner_min")
 	var inner_max: Vector2i = keeper.get("tavern_inner_max")
 	var world_pos: Vector2 = _tile_to_world(tile_pos)
@@ -1662,20 +1667,28 @@ func _tick_player_territory() -> void:
 		"player_territory_dirty": _player_territory_dirty,
 		"player_territory": _player_territory,
 		"settlement_intel": _settlement_intel,
-		"world_spatial_index": _world_spatial_index,
-		"tree": get_tree(),
+		"get_workbench_nodes": Callable(self, "_get_runtime_workbench_nodes"),
 	})
 
 ## Group-scan audit notes (world.gd):
-## - "tavern_sentinel"/"tavern_keeper" stays live-tree by design (site-local authority roles).
-## - "workbench" tick query migrated to WorldSpatialIndex runtime kind.
+## - _process pulses/hot routes:
+##   - _tick_player_territory (medium_pulse): workbench source is an injected port
+##     ("get_workbench_nodes") backed by WorldSpatialIndex.
+##   - TavernPresenceMonitor.tick (0.4s cadence): players+enemies read from runtime
+##     registries; only "npc" keeps a bounded live-tree lookup by local semantics.
+## - Reaction loops:
+##   - Tavern keeper/sentinel resolution remains live-tree but wrapped in callables:
+##     site-local authority roles are tiny sets and benefit from scene truth.
+## - One-shot local wiring:
+##   - "interactable"/"chest" scans stay live-tree in _register_tavern_containers()
+##     because they run on keeper wiring (post-spawn), not per-frame.
 ## - "enemy" tavern scans migrated to npc_simulator active runtime registry.
-## - "npc"/"interactable"/"chest" stay live-tree for now (heterogeneous composition and sparse calls).
+## - "npc" stays live-tree for now (heterogeneous composition, sparse cadence).
 func _get_tavern_presence_candidates() -> Array:
 	var result: Array = []
 	result.append_array(_get_live_player_nodes())
 	result.append_array(_get_live_enemy_nodes())
-	result.append_array(get_tree().get_nodes_in_group("npc"))
+	result.append_array(_get_live_npc_nodes())
 	return result
 
 
@@ -1698,6 +1711,19 @@ func _get_live_enemy_nodes() -> Array:
 				result.append(enemy_node)
 		return result
 	return get_tree().get_nodes_in_group("enemy")
+
+
+func _get_live_npc_nodes() -> Array:
+	# Excepción deliberada: "npc" combina actores heterogéneos no indexados todavía
+	# en WorldSpatialIndex. El callsite corre en pulses de 0.4s y el costo es acotado.
+	return get_tree().get_nodes_in_group("npc")
+
+
+func _get_runtime_workbench_nodes() -> Array:
+	if _world_spatial_index != null:
+		return _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH)
+	# Fallback defensivo: no debería ocurrir en runtime normal.
+	return get_tree().get_nodes_in_group("workbench")
 
 
 func _get_live_player_nodes() -> Array:
