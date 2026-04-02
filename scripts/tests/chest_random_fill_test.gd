@@ -17,9 +17,9 @@ func _spawn_test_chest() -> void:
 		push_warning("[ChestRandomFillTest] chest_scene no asignada")
 		return
 
-	var chest := chest_scene.instantiate() as ChestWorld
+	var chest := chest_scene.instantiate() as ContainerPlaceable
 	if chest == null:
-		push_warning("[ChestRandomFillTest] no se pudo instanciar ChestWorld")
+		push_warning("[ChestRandomFillTest] no se pudo instanciar ContainerPlaceable")
 		return
 
 	chest.position = player.position + Vector2(max_chest_distance_px, 0.0)

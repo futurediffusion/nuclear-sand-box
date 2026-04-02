@@ -1,2 +1,0 @@
-extends ContainerUi
-class_name ChestUi
