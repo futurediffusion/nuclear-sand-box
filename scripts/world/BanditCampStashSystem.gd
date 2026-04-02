@@ -21,6 +21,7 @@ extends Node
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 const CAMP_BARREL_SCENE:  PackedScene = preload("res://scenes/placeables/barrel_world.tscn")
 const ITEM_DROP_SCENE:    PackedScene = preload("res://scenes/items/ItemDrop.tscn")
+const MethodCapabilityCacheScript := preload("res://scripts/utils/MethodCapabilityCache.gd")
 
 # ---------------------------------------------------------------------------
 # Camp layout constants — geometría visual interna, no balance de gameplay.
@@ -34,6 +35,7 @@ const CARRY_STACK_STEP_Y:  float =   8.0  # desplazamiento Y por item adicional 
 
 # group_id (String) -> instance_id (int) del barrel físico (runtime-only, no persisted)
 var _camp_barrels: Dictionary = {}
+var _method_caps: MethodCapabilityCache = MethodCapabilityCacheScript.new()
 
 # Callable(group_id: String, barrel_pos: Vector2) -> void
 # Implementado por BanditBehaviorLayer para propagar deposit_pos a los behaviors.
@@ -103,7 +105,8 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	# 2) Fallback: cualquier interactable cercano con soporte de inserción
 	if chest == null:
 		for node in get_tree().get_nodes_in_group("interactable"):
-			if not node.has_method("try_insert_item") or not node.has_method("is_position_nearby"):
+			if not _method_caps.has_method_cached(node, &"try_insert_item") \
+					or not _method_caps.has_method_cached(node, &"is_position_nearby"):
 				continue
 			if node.call("is_position_nearby", spawn_pos):
 				chest = node
@@ -183,7 +186,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 							continue
 						var bn2 := instance_from_id(bid) as Node
 						if bn2 == null or not is_instance_valid(bn2) \
-								or not bn2.has_method("try_insert_item"):
+								or not _method_caps.has_method_cached(bn2, &"try_insert_item"):
 							continue
 						var ins2 := int(bn2.call("try_insert_item", cap_item_id, cap_amount))
 						if ins2 > 0:

@@ -1,5 +1,6 @@
 extends Node
 class_name NpcSimulator
+const MethodCapabilityCacheScript := preload("res://scripts/utils/MethodCapabilityCache.gd")
 
 @export_group("Lite Mode")
 @export var lite_enabled: bool = true
@@ -59,6 +60,7 @@ var _data_behaviors: Dictionary = {}   # enemy_id -> BanditWorldBehavior
 var _prewarmed_chunks: Dictionary = {} # chunk_pos(Vector2i) -> true (per session)
 var _world_w_tiles: int = 64
 var _world_h_tiles: int = 64
+var _method_caps: MethodCapabilityCache = MethodCapabilityCacheScript.new()
 
 # ---------------------------------------------------------------------------
 # Helpers de Tracking
@@ -169,9 +171,10 @@ func _tick_lite_mode(delta: float) -> void:
 	for enemy in get_tree().get_nodes_in_group("enemy"):
 		if enemy == null or not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
 			continue
-		if not enemy.has_method("enter_lite_mode") or not enemy.has_method("exit_lite_mode"):
+		if not _method_caps.has_method_cached(enemy, &"enter_lite_mode") \
+				or not _method_caps.has_method_cached(enemy, &"exit_lite_mode"):
 			continue
-		if enemy.has_method("is_dead") and enemy.is_dead():
+		if _method_caps.has_method_cached(enemy, &"is_dead") and enemy.is_dead():
 			continue
 		var dist: float = enemy.global_position.distance_to(player_pos)
 		if data_only_enabled and dist > (sim_radius + sim_hysteresis):
@@ -264,21 +267,21 @@ func despawn_enemy(enemy_id: String) -> void:
 	var node := get_enemy_node(enemy_id)
 	var chunk_pos: Vector2i = get_enemy_chunk_pos(enemy_id)
 	if node != null:
-		if node.has_method("capture_save_state"):
+		if _method_caps.has_method_cached(node, &"capture_save_state"):
 			var state: Dictionary = node.call("capture_save_state")
 			if node.has_node("DownedComponent"):
 				var downed := node.get_node("DownedComponent")
-				if downed.has_method("get_save_data"):
+				if _method_caps.has_method_cached(downed, &"get_save_data"):
 					state.merge(downed.call("get_save_data"), true)
 			if chunk_pos.x > -999999:
 				WorldSave.set_enemy_state_at_chunk_pos(chunk_pos, enemy_id, state)
 		if node.has_node("AIComponent"):
 			var ai := node.get_node_or_null("AIComponent")
-			if ai != null and ai.has_method("on_owner_exit_tree"):
+			if ai != null and _method_caps.has_method_cached(ai, &"on_owner_exit_tree"):
 				ai.call("on_owner_exit_tree")
 		if node.has_node("AIWeaponController"):
 			var ctrl := node.get_node_or_null("AIWeaponController")
-			if ctrl != null and ctrl.has_method("clear_transient_input"):
+			if ctrl != null and _method_caps.has_method_cached(ctrl, &"clear_transient_input"):
 				ctrl.call("clear_transient_input")
 		EnemyRegistry.unregister_enemy(node)
 		node.queue_free()
@@ -293,15 +296,15 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 	var save_state: Dictionary = job.get("init_data", {}).get("save_state", {})
 	if node.has_node("DownedComponent"):
 		var downed := node.get_node("DownedComponent")
-		if downed.has_method("load_save_data"):
+		if _method_caps.has_method_cached(downed, &"load_save_data"):
 			downed.call("load_save_data", save_state)
 
 	var start_lite: bool = bool(job.get("start_lite", false))
 	if start_lite:
-		if node.has_method("enter_lite_mode"):
+		if _method_caps.has_method_cached(node, &"enter_lite_mode"):
 			node.call("enter_lite_mode")
 	else:
-		if node.has_method("exit_lite_mode"):
+		if _method_caps.has_method_cached(node, &"exit_lite_mode"):
 			node.call("exit_lite_mode")
 
 	# Fade-in para evitar pop-in visual en el spawn.
@@ -344,10 +347,11 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 				var spawn_pos: Vector2 = Vector2(save_state.get("pos", Vector2.ZERO))
 				if spawn_pos.distance_to(player.global_position) < 600.0:
 					# exit_lite_mode must come before wake_now so full AI actually runs
-					if node.has_method("exit_lite_mode") and node.has_method("is_lite_mode") \
+					if _method_caps.has_method_cached(node, &"exit_lite_mode") \
+							and _method_caps.has_method_cached(node, &"is_lite_mode") \
 							and bool(node.call("is_lite_mode")):
 						node.call("exit_lite_mode")
-					if ai_node.has_method("wake_now"):
+					if _method_caps.has_method_cached(ai_node, &"wake_now"):
 						ai_node.call("wake_now")
 
 # Llamado desde World._on_spawn_queue_job_skipped cuando kind == "enemy"
@@ -505,11 +509,11 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 func _can_despawn(node: Node, state: Dictionary) -> bool:
 	if node == null or not is_instance_valid(node):
 		return true
-	if node.has_method("is_attacking") and bool(node.call("is_attacking")):
+	if _method_caps.has_method_cached(node, &"is_attacking") and bool(node.call("is_attacking")):
 		return false
 	var now: float = RunClock.now()
 	var last_active: float = float(state.get("last_active_time", 0.0))
-	if node.has_method("capture_save_state"):
+	if _method_caps.has_method_cached(node, &"capture_save_state"):
 		last_active = maxf(last_active, float(node.call("capture_save_state").get("last_active_time", 0.0)))
 	return now - last_active >= maxf(despawn_grace_seconds, 0.0)
 
