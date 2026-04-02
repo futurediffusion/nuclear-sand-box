@@ -95,6 +95,24 @@ Fuentes de verdad:
   - Respuesta:
   - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
 
+## Checklist específica — `world.gd` (obligatoria cuando aplica)
+
+> Completar esta sección si el PR toca `scripts/world/world.gd`, `docs/world-gd-boundary.md` o facades conectadas por `world.gd`.
+
+- [ ] **¿`world.gd` se mantiene dentro del presupuesto vigente (líneas ≤ 1900, métodos públicos ≤ 45, dependencias directas `preload` ≤ 26)?**
+  - Respuesta:
+  - Evidencia (`scripts/ci_guard_world_boundary.py` / CI):
+- [ ] **¿Todo cambio en `world.gd` es solo composición, lifecycle o dispatch?**
+  - Respuesta:
+  - Evidencia (ruta de código o nota de arquitectura):
+- [ ] **Si apareció lógica no-orquestación, ¿fue movida a facades/ports/coordinators existentes antes de merge?**
+  - Respuesta:
+  - Destino del movimiento (facade/servicio):
+  - Evidencia (ruta de código o nota de arquitectura):
+- [ ] **¿Se revisó el diff acumulado semanal de `world.gd` para prevenir recaídas?**
+  - Respuesta:
+  - Evidencia (artifact `world-gd-weekly-review.md` o link al run):
+
 - [ ] **¿introduce ruta alternativa en Bandit Assault Pipeline?**
   - Respuesta:
   - Etapa(s) afectada(s):

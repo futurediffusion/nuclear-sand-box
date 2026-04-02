@@ -9,6 +9,9 @@ import sys
 WORLD_FILE = Path("scripts/world/world.gd")
 RESET_EXCEPTIONS_FILE = Path("docs/world-gd-reset-exceptions.md")
 BUSINESS_RULE_EXCEPTIONS_FILE = Path("docs/world-gd-business-rule-exceptions.md")
+MAX_WORLD_LINES = 1900
+MAX_WORLD_PUBLIC_METHODS = 45
+MAX_WORLD_DIRECT_SCRIPT_DEPENDENCIES = 26
 
 
 def _load_line_exceptions(file_path: Path) -> dict[int, tuple[str, date]]:
@@ -82,6 +85,36 @@ def main() -> int:
 
     text = WORLD_FILE.read_text(encoding="utf-8")
     lines = text.splitlines()
+
+    public_method_count = sum(
+        1 for line in lines
+        if re.match(r"^func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
+        and not line.startswith("func _")
+    )
+    direct_script_dependencies = {
+        match.group(1)
+        for match in re.finditer(r'preload\("([^"]+)"\)', text)
+        if match.group(1).startswith("res://")
+    }
+    budget_violations = []
+    if len(lines) > MAX_WORLD_LINES:
+        budget_violations.append(
+            f" - lines: {len(lines)} > {MAX_WORLD_LINES}"
+        )
+    if public_method_count > MAX_WORLD_PUBLIC_METHODS:
+        budget_violations.append(
+            f" - public methods: {public_method_count} > {MAX_WORLD_PUBLIC_METHODS}"
+        )
+    if len(direct_script_dependencies) > MAX_WORLD_DIRECT_SCRIPT_DEPENDENCIES:
+        budget_violations.append(
+            " - direct script dependencies (preload): "
+            f"{len(direct_script_dependencies)} > {MAX_WORLD_DIRECT_SCRIPT_DEPENDENCIES}"
+        )
+    if budget_violations:
+        print("World boundary guard failed. world.gd exceeded size/complexity budget:")
+        print("\n".join(budget_violations))
+        print("Move non-orchestration responsibilities into existing facades/ports/coordinators.")
+        return 1
 
     business_rule_patterns = {
         "social_sanction_constants": r"\bLocalCivilAuthorityConstants\b",
