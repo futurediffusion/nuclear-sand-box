@@ -22,6 +22,7 @@ const W_WORKBENCH: float      = 10.0
 const W_STRUCTURE: float      =  6.0
 const W_MINE: float           =  3.0
 const W_CHOP: float           =  2.0
+const BANDIT_INTEL_LOG_SAMPLE_HEAVY: int = 8
 
 const SimulationLODPolicyScript := preload("res://scripts/world/SimulationLODPolicy.gd")
 const AIComponentScript         := preload("res://scripts/components/AIComponent.gd")
@@ -270,8 +271,9 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var interest = _pick_best_interest(markers, bases)
 	if interest != null:
 		BanditGroupMemory.record_interest(group_id, interest.pos, interest.kind)
-		Debug.log("bandit_intel", "[BGI] group=%s score=%.1f eff=%.1f intent=%s lv%d a=%.1f h=%.1f t=%.1f cd=%.1f" % [
-			group_id, score, effective_score, new_intent, h_level, effective_t_alerted, effective_t_hunting, intent_time, internal_cd])
+		if _should_log_bandit_intel("scan_summary", BANDIT_INTEL_LOG_SAMPLE_HEAVY):
+			Debug.log("bandit_intel", "[BGI] group=%s score=%.1f eff=%.1f intent=%s lv%d a=%.1f h=%.1f t=%.1f cd=%.1f" % [
+				group_id, score, effective_score, new_intent, h_level, effective_t_alerted, effective_t_hunting, intent_time, internal_cd])
 
 	# For "alerted": designate exactly one scout
 	if new_intent == "alerted":
@@ -400,7 +402,8 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 		markers: Array, bases: Array) -> void:
 	# Guard 1: already queued for this group
 	if ExtortionQueue.has_pending_for_group(group_id):
-		Debug.log("bandit_intel", "[BGI] extortion pending — skip group=%s" % group_id)
+		if _should_log_bandit_intel("extortion_pending_skip", BANDIT_INTEL_LOG_SAMPLE_HEAVY):
+			Debug.log("bandit_intel", "[BGI] extortion pending — skip group=%s" % group_id)
 		return
 
 	var leader_id:  String = String(g.get("leader_id",  ""))
@@ -417,8 +420,9 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	var wealth_factor: float     = FactionHostilityManager.WEALTH_EXTORT_COOLDOWN_FACTOR[w_tier]
 	var effective_cooldown: float = BanditTuning.extort_cooldown_base() * compliance_factor * wealth_factor
 	if elapsed < effective_cooldown:
-		Debug.log("bandit_intel", "[BGI] extortion cooldown %.0fs left group=%s" % [
-			effective_cooldown - elapsed, group_id])
+		if _should_log_bandit_intel("extortion_cooldown", BANDIT_INTEL_LOG_SAMPLE_HEAVY):
+			Debug.log("bandit_intel", "[BGI] extortion cooldown %.0fs left group=%s" % [
+				effective_cooldown - elapsed, group_id])
 		return
 
 	# Severity: score base + bonus compliance (saben que paga) + bonus wealth (demandan más)
@@ -443,10 +447,11 @@ func _maybe_enqueue_extortion(group_id: String, g: Dictionary,
 	})
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(4.0, effective_cooldown * 0.15))
 	BanditGroupMemory.update_intent(group_id, "extorting")
-	Debug.log("bandit_intel",
-		"[BGI] extortion enqueued group=%s leader=%s kind=%s sev=%.2f compliance=%.2f wealth=%.0f(t%d)" % [
-		group_id, leader_id, interest.kind, severity, pay_data.compliance_score,
-		pay_data.band_wealth, w_tier])
+	if _can_log_bandit_intel():
+		Debug.log("bandit_intel",
+			"[BGI] extortion enqueued group=%s leader=%s kind=%s sev=%.2f compliance=%.2f wealth=%.0f(t%d)" % [
+			group_id, leader_id, interest.kind, severity, pay_data.compliance_score,
+			pay_data.band_wealth, w_tier])
 
 
 # ---------------------------------------------------------------------------
@@ -576,9 +581,10 @@ func _maybe_enqueue_wall_probe(group_id: String, g: Dictionary,
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(6.0, probe_cd * 0.10))
 	BanditGroupMemory.update_intent(group_id, "raiding")
 	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
-	Debug.log("bandit_intel",
-		"[BGI] wall probe enqueued group=%s leader=%s base=%s squad=%d lv%d chance=%.2f" % [
-		group_id, leader_id, base_id, squad_size, h_level, chance])
+	if _can_log_bandit_intel():
+		Debug.log("bandit_intel",
+			"[BGI] wall probe enqueued group=%s leader=%s base=%s squad=%d lv%d chance=%.2f" % [
+			group_id, leader_id, base_id, squad_size, h_level, chance])
 
 
 # ---------------------------------------------------------------------------
@@ -609,8 +615,9 @@ func _maybe_enqueue_light_raid(group_id: String, g: Dictionary,
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(8.0, BanditTuning.raid_cooldown_base() * 0.12))
 	BanditGroupMemory.update_intent(group_id, "raiding")
 	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
-	Debug.log("bandit_intel", "[BGI] light raid enqueued group=%s leader=%s base=%s" % [
-		group_id, leader_id, base_id])
+	if _can_log_bandit_intel():
+		Debug.log("bandit_intel", "[BGI] light raid enqueued group=%s leader=%s base=%s" % [
+			group_id, leader_id, base_id])
 
 
 # ---------------------------------------------------------------------------
@@ -631,7 +638,8 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 	var effective_raid_cd: float = BanditTuning.raid_cooldown_base() * raid_cd_factor
 	var last_time: float         = RaidQueue.get_last_raid_time(group_id)
 	if RunClock.now() - last_time < effective_raid_cd:
-		Debug.log("bandit_intel", "[BGI] raid cooldown — group=%s" % group_id)
+		if _should_log_bandit_intel("raid_cooldown", BANDIT_INTEL_LOG_SAMPLE_HEAVY):
+			Debug.log("bandit_intel", "[BGI] raid cooldown — group=%s" % group_id)
 		return
 
 	var leader_id: String  = String(g.get("leader_id",  ""))
@@ -642,5 +650,14 @@ func _maybe_enqueue_raid(group_id: String, g: Dictionary,
 	BanditGroupMemory.push_social_cooldown(group_id, maxf(12.0, effective_raid_cd * 0.15))
 	BanditGroupMemory.update_intent(group_id, "raiding")
 	BanditGroupMemory.record_interest(group_id, base_center, "base_detected")
-	Debug.log("bandit_intel", "[BGI] raid enqueued group=%s leader=%s base=%s" % [
-		group_id, leader_id, base_id])
+	if _can_log_bandit_intel():
+		Debug.log("bandit_intel", "[BGI] raid enqueued group=%s leader=%s base=%s" % [
+			group_id, leader_id, base_id])
+
+
+func _can_log_bandit_intel() -> bool:
+	return Debug.is_enabled("bandit_intel")
+
+
+func _should_log_bandit_intel(sample_key: String, every_n: int) -> bool:
+	return Debug.should_sample("bandit_intel", "bandit_group_intel:%s" % sample_key, every_n)

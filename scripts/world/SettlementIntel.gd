@@ -23,6 +23,7 @@ const BASE_SCAN_RADIUS_DEFAULT: float = 576.0  # ~18 tiles from player
 const BASE_SCAN_DOOR_BUDGET_PER_PULSE: int = 4
 const BASE_SCAN_PHASE_RATIO: float = 0.28
 const WORKBENCH_SCAN_PHASE_RATIO: float = 0.61
+const INTEL_LOG_SAMPLE_HEAVY: int = 8
 
 # Cardinal directions used in flood fill and adjacency checks
 const _CARDINALS: Array[Vector2i] = [
@@ -96,8 +97,9 @@ func process(delta: float) -> void:
 		var m: Dictionary = _markers[i]
 		if not bool(m.get("persistent", false)):
 			if _elapsed >= float(m.get("expires_at", 0.0)):
-				Debug.log("intel", "[MARKER] expired kind=%s tile=%s" % [
-					m.get("kind", "?"), str(m.get("tile_pos", Vector2i.ZERO))])
+				if _should_log_intel("marker_expired", INTEL_LOG_SAMPLE_HEAVY):
+					Debug.log("intel", "[MARKER] expired kind=%s tile=%s" % [
+						m.get("kind", "?"), str(m.get("tile_pos", Vector2i.ZERO))])
 				_markers.remove_at(i)
 		i -= 1
 
@@ -136,7 +138,8 @@ func record_interest_event(kind: String, world_pos: Vector2, meta: Dictionary = 
 				m["expires_at"] = _elapsed + ttl
 			if not meta.is_empty():
 				m["metadata"] = meta
-			Debug.log("intel", "[MARKER] refreshed kind=%s tile=%s" % [kind, str(tile_pos)])
+			if _should_log_intel("marker_refreshed", INTEL_LOG_SAMPLE_HEAVY):
+				Debug.log("intel", "[MARKER] refreshed kind=%s tile=%s" % [kind, str(tile_pos)])
 			return
 
 	var marker: Dictionary = {
@@ -150,8 +153,9 @@ func record_interest_event(kind: String, world_pos: Vector2, meta: Dictionary = 
 		"metadata":   meta,
 	}
 	_markers.append(marker)
-	Debug.log("intel", "[MARKER] created kind=%s tile=%s persistent=%s" % [
-		kind, str(tile_pos), str(persistent)])
+	if _can_log_intel():
+		Debug.log("intel", "[MARKER] created kind=%s tile=%s persistent=%s" % [
+			kind, str(tile_pos), str(persistent)])
 
 
 func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dictionary]:
@@ -238,7 +242,8 @@ func _scan_workbenches() -> void:
 			var metadata_variant: Variant = m.get("metadata", null)
 			var uid: String = String((metadata_variant as Dictionary).get("uid", "")) if metadata_variant is Dictionary else ""
 			if uid != "" and not live_uids.has(uid):
-				Debug.log("intel", "[MARKER] persistent removed kind=workbench uid=%s" % uid)
+				if _can_log_intel():
+					Debug.log("intel", "[MARKER] persistent removed kind=workbench uid=%s" % uid)
 				_markers.remove_at(i)
 		i -= 1
 
@@ -257,7 +262,8 @@ func _scan_workbenches() -> void:
 		var entry: Dictionary = live_uids[uid]
 		var tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
 		var wpos := _tile_to_world(tile)
-		Debug.log("intel", "[MARKER] workbench found uid=%s tile=%s" % [str(uid), str(tile)])
+		if _can_log_intel():
+			Debug.log("intel", "[MARKER] workbench found uid=%s tile=%s" % [str(uid), str(tile)])
 		_markers.append({
 			"id":         "workbench_" + str(uid),
 			"kind":       "workbench",
@@ -335,10 +341,12 @@ func _process_pending_base_scan(door_budget: int) -> void:
 	var new_count := _bases.size()
 	if new_count > old_count:
 		for b in _bases:
-			Debug.log("intel", "[BASE] detected id=%s interior=%d walls=%d" % [
-				b.get("id", "?"), b.get("interior_tile_count", 0), b.get("wall_count", 0)])
+			if _can_log_intel():
+				Debug.log("intel", "[BASE] detected id=%s interior=%d walls=%d" % [
+					b.get("id", "?"), b.get("interior_tile_count", 0), b.get("wall_count", 0)])
 	elif new_count < old_count:
-		Debug.log("intel", "[BASE] lost %d base(s), now=%d" % [old_count - new_count, new_count])
+		if _can_log_intel():
+			Debug.log("intel", "[BASE] lost %d base(s), now=%d" % [old_count - new_count, new_count])
 
 
 
@@ -350,8 +358,9 @@ func _try_detect_base_at_door(door_tile: Vector2i) -> Dictionary:
 	var wall_set := _build_wall_set_in_window(min_tile, max_tile)
 
 	if wall_set.size() < MIN_WALL_COUNT:
-		Debug.log("intel", "[BASE] door=%s skip: walls=%d < %d" % [
-			str(door_tile), wall_set.size(), MIN_WALL_COUNT])
+		if _should_log_intel("base_skip_walls", INTEL_LOG_SAMPLE_HEAVY):
+			Debug.log("intel", "[BASE] door=%s skip: walls=%d < %d" % [
+				str(door_tile), wall_set.size(), MIN_WALL_COUNT])
 		return {}
 
 	# Count walls directly adjacent to door
@@ -366,8 +375,9 @@ func _try_detect_base_at_door(door_tile: Vector2i) -> Dictionary:
 			free_neighbors.append(nb)
 
 	if adj_walls < MIN_DOOR_WALL_ADJACENCY:
-		Debug.log("intel", "[BASE] door=%s skip: adj_walls=%d < %d" % [
-			str(door_tile), adj_walls, MIN_DOOR_WALL_ADJACENCY])
+		if _should_log_intel("base_skip_adj_walls", INTEL_LOG_SAMPLE_HEAVY):
+			Debug.log("intel", "[BASE] door=%s skip: adj_walls=%d < %d" % [
+				str(door_tile), adj_walls, MIN_DOOR_WALL_ADJACENCY])
 		return {}
 
 	# Flood fill from each free neighbor — keep the largest contained region
@@ -537,3 +547,11 @@ func get_debug_snapshot() -> Dictionary:
 			"base_rescan_timer": snappedf(_base_rescan_timer, 0.01),
 		},
 	}
+
+
+func _can_log_intel() -> bool:
+	return Debug.is_enabled("intel")
+
+
+func _should_log_intel(sample_key: String, every_n: int) -> bool:
+	return Debug.should_sample("intel", "settlement_intel:%s" % sample_key, every_n)

@@ -26,6 +26,7 @@ class_name ResourceRepopulator
 const FLOOR_LAYER: int        = 1           # tilemap layer with walkable ground
 const PLAYER_MIN_DIST_SQ: float = 280.0 * 280.0  # keep respawns away from player
 const MAX_PICK_RETRIES: int   = 80          # attempts to find a valid tile
+const REPOP_LOG_SAMPLE_HEAVY: int = 6
 
 var _stone_scene:  PackedScene = null
 var _copper_scene: PackedScene = null
@@ -55,11 +56,12 @@ func on_resource_depleted(kind: String) -> void:
 	match kind:
 		"stone":  _stone_pending.append(stone_respawn_cooldown)
 		"copper": _copper_pending.append(copper_respawn_cooldown)
-	Debug.log("resource_repop", "[Repop] depleted %s → cooldown %.0fs pending=%d" % [
-		kind,
-		stone_respawn_cooldown if kind == "stone" else copper_respawn_cooldown,
-		_stone_pending.size() if kind == "stone" else _copper_pending.size(),
-	])
+	if _can_log_repop():
+		Debug.log("resource_repop", "[Repop] depleted %s → cooldown %.0fs pending=%d" % [
+			kind,
+			stone_respawn_cooldown if kind == "stone" else copper_respawn_cooldown,
+			_stone_pending.size() if kind == "stone" else _copper_pending.size(),
+		])
 
 
 # ---------------------------------------------------------------------------
@@ -88,14 +90,16 @@ func _tick(delta: float, timers: Array[float],
 			# Cap already met (maybe the world has originals still loaded).
 			# Discard this pending spawn — no need for another.
 			timers.remove_at(i)
-			Debug.log("resource_repop", "[Repop] %s cap met (%d/%d), pending discarded" % [kind, live, cap])
+			if _should_log_repop("%s_cap_met" % kind, REPOP_LOG_SAMPLE_HEAVY):
+				Debug.log("resource_repop", "[Repop] %s cap met (%d/%d), pending discarded" % [kind, live, cap])
 			continue
 		var pos := _pick_random_floor_pos()
 		if pos == Vector2.INF:
 			# No valid tile found right now — retry in a few seconds
 			timers[i] = 8.0
 			i += 1
-			Debug.log("resource_repop", "[Repop] %s no valid tile, retry in 8s" % kind)
+			if _should_log_repop("%s_retry_no_tile" % kind, REPOP_LOG_SAMPLE_HEAVY):
+				Debug.log("resource_repop", "[Repop] %s no valid tile, retry in 8s" % kind)
 			continue
 		_spawn(scene, pos, kind)
 		timers.remove_at(i)
@@ -111,7 +115,8 @@ func _spawn(scene: PackedScene, pos: Vector2, kind: String) -> void:
 	var node := scene.instantiate()
 	_tilemap.add_child(node)
 	(node as Node2D).global_position = pos
-	Debug.log("resource_repop", "[Repop] spawned %s at %s" % [kind, str(pos)])
+	if _can_log_repop():
+		Debug.log("resource_repop", "[Repop] spawned %s at %s" % [kind, str(pos)])
 
 
 # ---------------------------------------------------------------------------
@@ -142,3 +147,11 @@ func _pick_random_floor_pos() -> Vector2:
 		return world_pos
 
 	return Vector2.INF
+
+
+func _can_log_repop() -> bool:
+	return Debug.is_enabled("resource_repop")
+
+
+func _should_log_repop(sample_key: String, every_n: int) -> bool:
+	return Debug.should_sample("resource_repop", "resource_repop:%s" % sample_key, every_n)
