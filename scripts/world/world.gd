@@ -571,21 +571,29 @@ func _ready() -> void:
 		"chunk_save": chunk_save,
 	})
 
+	_register_world_signal_callbacks()
+	_wire_world_facade_ports()
+	_wire_world_bandit_group_ports()
+
+	await update_chunks(current_player_chunk)
+
+func _register_world_signal_callbacks() -> void:
 	if GameEvents != null and not GameEvents.entity_died.is_connected(_on_entity_died):
 		GameEvents.entity_died.connect(_on_entity_died)
 	if not PlacementSystem.placement_completed.is_connected(_on_placement_completed):
 		PlacementSystem.placement_completed.connect(_on_placement_completed)
 	if not chunk_stage_completed.is_connected(_on_chunk_stage_completed):
 		chunk_stage_completed.connect(_on_chunk_stage_completed)
-
 	if _player_wall_system != null:
 		if not _player_wall_system.player_wall_hit.is_connected(_on_wall_hit_activity):
 			_player_wall_system.player_wall_hit.connect(_on_wall_hit_activity)
 		if not _player_wall_system.structural_wall_hit.is_connected(_on_wall_hit_activity):
 			_player_wall_system.structural_wall_hit.connect(_on_wall_hit_activity)
+		if not _player_wall_system.player_wall_drop.is_connected(_on_wall_drop_for_intel):
+			_player_wall_system.player_wall_drop.connect(_on_wall_drop_for_intel)
 
+func _wire_world_facade_ports() -> void:
 	WorldSave.wall_tile_blocker_fn = _has_wall_tile_between
-
 	_settlement_wiring_facade = SettlementWiringFacadeScript.new()
 	var settlement_ports: Dictionary = _settlement_wiring_facade.setup({
 		"cadence": _cadence,
@@ -625,9 +633,7 @@ func _ready() -> void:
 		"react_to_bandit_territory_intrusion": Callable(self, "_on_bandit_territory_intrusion"),
 		"local_social_ports": _local_social_ports,
 	})
-
 	PlacementSystem.register_placement_validator(Callable(self, "_validate_placement_restrictions"))
-
 	_pathing_facade = WorldPathingFacadeScript.new()
 	_pathing_facade.setup({
 		"cliffs_tilemap": cliffs_tilemap,
@@ -637,10 +643,6 @@ func _ready() -> void:
 		"world_tile_rect": Rect2i(0, 0, width, height),
 		"world_spatial_index": _world_spatial_index,
 	})
-	if _player_wall_system != null \
-			and not _player_wall_system.player_wall_drop.is_connected(_on_wall_drop_for_intel):
-		_player_wall_system.player_wall_drop.connect(_on_wall_drop_for_intel)
-
 	_telemetry_facade = WorldTelemetryFacadeScript.new()
 	_world_sim_telemetry = _telemetry_facade.setup({
 		"enabled": debug_world_sim_telemetry_enabled,
@@ -653,11 +655,10 @@ func _ready() -> void:
 		"npc_sim": npc_simulator,
 		"perf_monitor": _perf_monitor,
 	})
-
 	_player_territory_facade = PlayerTerritoryFacadeScript.new()
 	_placement_reaction_facade = PlacementReactionFacadeScript.new()
 
-	# Wire SettlementIntel into BanditGroupIntel (must be after _settlement_intel is ready)
+func _wire_world_bandit_group_ports() -> void:
 	_extortion_queue_port = {
 		"has_pending_for_group": Callable(ExtortionQueue, "has_pending_for_group"),
 		"get_last_request_time": Callable(ExtortionQueue, "get_last_request_time"),
@@ -685,8 +686,6 @@ func _ready() -> void:
 			"find_nearest_player_storage_world_pos": Callable(self, "find_nearest_player_storage_world_pos"),
 			"find_nearest_player_placeable_world_pos": Callable(self, "find_nearest_player_placeable_world_pos"),
 		})
-
-	await update_chunks(current_player_chunk)
 
 
 # === [DOMAIN: EVENT/LIFECYCLE DISPATCH] =======================================
@@ -757,6 +756,10 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 		rebuild_budget -= 1
 
 func _process(delta: float) -> void:
+	_process_world_scheduler(delta)
+	_dispatch_player_chunk_updates()
+
+func _process_world_scheduler(delta: float) -> void:
 	if _cadence != null:
 		_cadence.advance(delta)
 	if _settlement_intel != null:
@@ -785,6 +788,8 @@ func _process(delta: float) -> void:
 		_world_sim_telemetry.tick(delta)
 	if _cadence != null and _cadence.consume_lane(&"autosave") > 0:
 		_perform_world_save("autosave")
+
+func _dispatch_player_chunk_updates() -> void:
 	if _cadence != null and _cadence.consume_lane(&"chunk_pulse") <= 0:
 		return
 	if not player:
