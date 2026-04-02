@@ -23,6 +23,10 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Justificación explícita si NO se usa Cadence en gameplay:
 - Registro de excepción temporal (si aplica): sin excepción
 - Fecha de retiro obligatoria (YYYY-MM-DD): 2099-12-31
+- Respuesta temporal/fallback/wrapper nuevo en este PR: No
+- Owner de temporal nuevo (si aplica): no aplica
+- Fecha límite temporal nuevo (YYYY-MM-DD, si aplica): 2099-12-31
+- Condición de salida verificable de temporal nuevo (si aplica): no aplica
 - Criterio de done Sprint 1 (patrones corregidos no reingresan): Sí
 - Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR): Sí
 
@@ -115,6 +119,7 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - [ ] **Lógica global oculta** (`Respuesta lógica global oculta: Sí`) => **No Ready**.
 - [ ] **Telemetry/debug fuera de canal controlado mutando estado** (`Respuesta telemetry/debug fuera de canal controlado mutando estado: Sí`) => **No Ready**.
 - [ ] **Fallback/excepción temporal sin fecha de retiro** => **No Ready**.
+- [ ] **Temporal/fallback/wrapper nuevo sin owner + fecha límite + condición verificable** => **No Ready**.
 - [ ] **Criterio de done Sprint 1 en No** => **No Ready**.
 - [ ] **Criterio de done anti-reversión en No** => **No Ready**.
 
