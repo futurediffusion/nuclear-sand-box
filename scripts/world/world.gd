@@ -141,6 +141,7 @@ var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
 var _world_sim_telemetry: WorldSimTelemetry
+var _runtime_reset_coordinator: RuntimeResetCoordinator
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
@@ -199,6 +200,7 @@ const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColl
 const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd")
 const WorldCadenceCoordinatorScript := preload("res://scripts/world/WorldCadenceCoordinator.gd")
 const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.gd")
+const RuntimeResetCoordinatorScript := preload("res://scripts/world/RuntimeResetCoordinator.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -343,10 +345,12 @@ func _ready() -> void:
 
 	WorldSave.chunk_size = chunk_size
 
+	_runtime_reset_coordinator = RuntimeResetCoordinatorScript.new()
+
 	SaveManager.register_world(self)
 	SaveManager.register_runtime_ports({
 		"snapshot_before_save": Callable(self, "_snapshot_entities_for_save"),
-		"reset_runtime_for_new_game": Callable(self, "_reset_runtime_for_new_game"),
+		"reset_runtime_for_new_game": Callable(self, "_trigger_runtime_reset_for_new_game"),
 	})
 	var _had_save := SaveManager.load_world_save()
 
@@ -1809,16 +1813,16 @@ func _snapshot_entities_for_save() -> void:
 		entity_coordinator.snapshot_entities_to_world_save()
 
 
+func _trigger_runtime_reset_for_new_game() -> void:
+	if _runtime_reset_coordinator == null:
+		_runtime_reset_coordinator = RuntimeResetCoordinatorScript.new()
+	_runtime_reset_coordinator.reset_for_new_game()
+
+
+## Temporary compatibility shim for legacy internal callers.
+## Remove when all callsites migrate to _trigger_runtime_reset_for_new_game.
 func _reset_runtime_for_new_game() -> void:
-	PlacementSystem.clear_runtime_instances()
-	FactionSystem.reset()
-	SiteSystem.reset()
-	NpcProfileSystem.reset()
-	BanditGroupMemory.reset()
-	ExtortionQueue.reset()
-	RunClock.reset()
-	WorldTime.load_save_data({})
-	FactionHostilityManager.reset()
+	_trigger_runtime_reset_for_new_game()
 
 
 func _get_world_maintenance_debug_snapshot() -> Dictionary:
