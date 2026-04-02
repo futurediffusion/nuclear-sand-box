@@ -33,9 +33,11 @@ const BARREL_SPAWN_COLUMN_STEP:  float = 32.0   # px entre barriles adicionales
 const CARRY_STACK_BASE_Y:  float = -22.0  # Y del primer item cargado sobre el NPC
 const CARRY_STACK_STEP_Y:  float =   8.0  # desplazamiento Y por item adicional en el stack
 const DEPOSIT_TARGET_MAX_DIST_SQ: float = 180.0 * 180.0
+const ENABLE_SECONDARY_DEPOSIT_FALLBACK: bool = false
 
 # group_id (String) -> instance_id (int) del barrel físico (runtime-only, no persisted)
 var _camp_barrels: Dictionary = {}
+var _pending_deposit_attempts_by_member: Dictionary = {}
 var _method_caps: MethodCapabilityCache = MethodCapabilityCacheScript.new()
 
 # Callable(group_id: String, barrel_pos: Vector2) -> void
@@ -96,6 +98,28 @@ func _emit_worker_event(event_name: String, beh: BanditWorldBehavior,
 	var fallback := payload.duplicate()
 	fallback["event"] = event_name
 	Debug.log("bandit_pipeline", "[CAMP_PIPE] %s" % JSON.stringify(fallback))
+
+
+func _queue_deposit_attempt(beh: BanditWorldBehavior, cause: String, source: String) -> void:
+	if beh == null:
+		return
+	var member_id: String = beh.member_id
+	var queue: Array = _pending_deposit_attempts_by_member.get(member_id, []) as Array
+	queue.append({
+		"tick": _current_tick(),
+		"cause": cause,
+		"source": source,
+		"cargo": beh.cargo_count,
+	})
+	while queue.size() > 8:
+		queue.pop_front()
+	_pending_deposit_attempts_by_member[member_id] = queue
+
+
+func _clear_deposit_attempt_queue(beh: BanditWorldBehavior) -> void:
+	if beh == null:
+		return
+	_pending_deposit_attempts_by_member.erase(beh.member_id)
 
 
 func setup(ctx: Dictionary) -> void:
@@ -166,14 +190,15 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		])
 		beh.cargo_count = 0
 		beh.on_deposit_complete()
+		_clear_deposit_attempt_queue(beh)
 		return
 
 	var resolution := _resolve_deposit_target(beh.group_id, spawn_pos)
 	var chest: Node = resolution.get("node", null) as Node
 	var target_source: String = String(resolution.get("source", "none"))
 	var missing_cause: String = String(resolution.get("missing_cause", "none"))
-
-	if chest == null:
+	var should_spawn_fallback: bool = bool(resolution.get("allow_spawn_fallback", true))
+	if chest == null and should_spawn_fallback:
 		var fallback_barrel := _spawn_camp_barrel(spawn_pos - Vector2(36.0, 0.0), 0)
 		if fallback_barrel != null:
 			chest = fallback_barrel
@@ -182,6 +207,8 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			if beh.group_id != "":
 				_camp_barrels[beh.group_id] = fallback_barrel.get_instance_id()
 				_notify_deposit_pos(beh.group_id, fallback_barrel.global_position)
+		else:
+			missing_cause = "spawn_fallback_failed"
 
 	_emit_worker_event("deposit_attempt", beh, spawn_pos, "", {
 		"cargo": beh.cargo_count,
@@ -191,6 +218,15 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		_emit_worker_event("deposit_target_missing", beh, spawn_pos, "", {
 			"cause": missing_cause,
 		})
+		_queue_deposit_attempt(beh, missing_cause, target_source)
+		_emit_worker_event("cargo_not_returning", beh, spawn_pos, "", {
+			"reason": "deposit_target_unavailable",
+			"cause": missing_cause,
+			"attempt_queue_size": int((_pending_deposit_attempts_by_member.get(beh.member_id, []) as Array).size()),
+		})
+		beh._just_arrived_home_with_cargo = true
+		beh.force_return_home()
+		return
 
 	var land_target: Vector2 = spawn_pos
 	if chest != null and chest is Node2D:
@@ -255,6 +291,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 						"amount": inserted,
 						"source": target_source,
 					})
+					_clear_deposit_attempt_queue(beh)
 					if cap_sfx != null:
 						AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
 					cap_drop.queue_free()
@@ -279,6 +316,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 							if cap_sfx != null:
 								AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
 							cap_drop.queue_free()
+							_clear_deposit_attempt_queue(beh)
 							found_space = true
 							break
 					if not found_space:
@@ -296,8 +334,14 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 							if cap_sfx != null:
 								AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
 							cap_drop.queue_free()
+							_clear_deposit_attempt_queue(beh)
 							return
 				# Sin espacio en ningún barril — dejar en el suelo
+				_emit_worker_event("cargo_not_returning", beh, spawn_pos, cap_item_id, {
+					"reason": "deposit_blocked",
+					"cause": "stash_full",
+					"source": target_source,
+				})
 				cap_drop.add_to_group("item_drop")
 				cap_drop.set_deferred("collision_layer", orig_layer)
 				cap_drop.set_deferred("monitoring",      true)
@@ -319,7 +363,13 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 					if cap_sfx != null:
 						AudioSystem.play_2d(cap_sfx, cap_deposit, null, &"SFX")
 					cap_drop.queue_free()
+					_clear_deposit_attempt_queue(beh)
 				else:
+					_emit_worker_event("cargo_not_returning", beh, spawn_pos, cap_item_id, {
+						"reason": "deposit_blocked",
+						"cause": "spawn_fallback_failed",
+						"source": target_source,
+					})
 					cap_drop.add_to_group("item_drop")
 					cap_drop.set_deferred("collision_layer", orig_layer)
 					cap_drop.set_deferred("monitoring",      true)
@@ -329,6 +379,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	beh._cargo_manifest.clear()
 	beh.cargo_count = 0
 	beh.on_deposit_complete()
+	_clear_deposit_attempt_queue(beh)
 	Debug.log("bandit_ai", "[CampStash] cargo depositado id=%s pos=%s chest=%s" % [
 		beh.member_id, str(spawn_pos), str(chest != null)])
 
@@ -436,6 +487,7 @@ func drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	beh._cargo_manifest.clear()
 	beh.cargo_count                   = 0
 	beh._just_arrived_home_with_cargo = false
+	_clear_deposit_attempt_queue(beh)
 	Debug.log("bandit_ai", "[CampStash] carry soltado al entrar en combate id=%s" % beh.member_id)
 
 
@@ -577,40 +629,59 @@ func _resolve_deposit_target(group_id: String, near_pos: Vector2) -> Dictionary:
 		"node": null,
 		"source": "none",
 		"missing_cause": "none",
+		"allow_spawn_fallback": true,
 	}
-	# 1) Primario: barril asignado al grupo.
+	# 1) Primario: barril asignado al grupo (con un reintento inmediato).
 	if group_id != "":
-		var barrel_id: int = int(_camp_barrels.get(group_id, 0))
-		if barrel_id == 0:
-			result["missing_cause"] = "group_barrel_id_missing"
-		elif not is_instance_id_valid(barrel_id):
-			result["missing_cause"] = "group_barrel_instance_invalid"
-		else:
-			var barrel := instance_from_id(barrel_id) as Node
-			if barrel == null or not is_instance_valid(barrel) or barrel.is_queued_for_deletion():
-				result["missing_cause"] = "group_barrel_deleted"
-			elif not _method_caps.has_method_cached(barrel, &"try_insert_item"):
-				result["missing_cause"] = "group_barrel_no_insert_method"
-			elif barrel is Node2D and near_pos.distance_squared_to(
-					(barrel as Node2D).global_position) > DEPOSIT_TARGET_MAX_DIST_SQ:
-				result["missing_cause"] = "group_barrel_out_of_range"
+		for _attempt in 2:
+			var barrel_id: int = int(_camp_barrels.get(group_id, 0))
+			if barrel_id == 0:
+				result["missing_cause"] = "group_barrel_id_missing"
+			elif not is_instance_id_valid(barrel_id):
+				result["missing_cause"] = "group_barrel_instance_invalid"
 			else:
-				result["node"] = barrel
-				result["source"] = "group_barrel"
-				result["missing_cause"] = "none"
-				return result
+				var barrel := instance_from_id(barrel_id) as Node
+				if barrel == null or not is_instance_valid(barrel) or barrel.is_queued_for_deletion():
+					result["missing_cause"] = "group_barrel_deleted"
+				elif not _method_caps.has_method_cached(barrel, &"try_insert_item"):
+					result["missing_cause"] = "group_barrel_no_insert_method"
+				elif barrel is Node2D and near_pos.distance_squared_to(
+						(barrel as Node2D).global_position) > DEPOSIT_TARGET_MAX_DIST_SQ:
+					result["missing_cause"] = "pathing_or_out_of_range"
+				else:
+					result["node"] = barrel
+					result["source"] = "group_barrel"
+					result["missing_cause"] = "none"
+					return result
 
-	# 2) Fallback secundario: interactuable cercano con inserción.
-	for node in get_tree().get_nodes_in_group("interactable"):
-		if not _method_caps.has_method_cached(node, &"try_insert_item") \
-				or not _method_caps.has_method_cached(node, &"is_position_nearby"):
-			continue
-		if node.call("is_position_nearby", near_pos):
-			result["node"] = node
-			result["source"] = "nearby_interactable"
+		# 2) Fallback principal: otro barril válido del mismo grupo.
+		var best_fallback: Node = null
+		var best_dist_sq: float = INF
+		for gid in _camp_barrels.keys():
+			var gid_str: String = String(gid)
+			if not gid_str.begins_with(group_id):
+				continue
+			var extra_id: int = int(_camp_barrels.get(gid_str, 0))
+			if extra_id == 0 or not is_instance_id_valid(extra_id):
+				continue
+			var extra := instance_from_id(extra_id) as Node
+			if extra == null or not is_instance_valid(extra) or extra.is_queued_for_deletion():
+				continue
+			if not _method_caps.has_method_cached(extra, &"try_insert_item"):
+				continue
+			var dist_sq: float = 0.0
+			if extra is Node2D:
+				dist_sq = near_pos.distance_squared_to((extra as Node2D).global_position)
+			if dist_sq < best_dist_sq:
+				best_dist_sq = dist_sq
+				best_fallback = extra
+		if best_fallback != null:
+			result["node"] = best_fallback
+			result["source"] = "group_barrel_fallback"
 			result["missing_cause"] = "none"
+			result["allow_spawn_fallback"] = false
 			return result
 
 	if String(result["missing_cause"]) == "none":
-		result["missing_cause"] = "no_interactable_nearby"
+		result["missing_cause"] = "group_barrel_unresolved"
 	return result
