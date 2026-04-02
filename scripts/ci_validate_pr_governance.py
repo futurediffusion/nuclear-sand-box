@@ -39,6 +39,7 @@ required_labels = [
     "Respuesta debug mutando estado:",
     "Respuesta telemetry/debug fuera de canal controlado mutando estado:",
     "Respuesta nueva decisión semántica en world.gd:",
+    "Respuesta reset semántico directo reintroducido en world.gd:",
     "Respuesta ¿agregaste lógica de negocio en world.gd?:",
     "Respuesta nuevas responsabilidades de dominio en BanditWorkCoordinator:",
     "Respuesta cambio de estado nuevo en el PR:",
@@ -56,6 +57,7 @@ required_labels = [
     "Criterio de done Sprint 1 (patrones corregidos no reingresan):",
     "Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR):",
     "Criterio continuidad checklist obligatoria (hasta completar 2 sprints sin recaídas):",
+    "Cierre 2 sprints consecutivos sin violaciones de estas reglas:",
 ]
 
 missing = [label for label in required_labels if not has_non_empty_field(label)]
@@ -73,6 +75,7 @@ blocker_by_violation = {
     "debug_mutando_estado": "respuesta debug mutando estado: sí",
     "telemetry_debug_fuera_de_canal_controlado": "respuesta telemetry/debug fuera de canal controlado mutando estado: sí",
     "nueva_decision_semantica_en_world_gd": "respuesta nueva decisión semántica en world.gd: sí",
+    "reset_semantico_directo_world_gd": "respuesta reset semántico directo reintroducido en world.gd: sí",
     "logica_de_negocio_en_world_gd": "respuesta ¿agregaste lógica de negocio en world.gd?: sí",
     "nuevas_responsabilidades_en_bandit_work_coordinator": "respuesta nuevas responsabilidades de dominio en banditworkcoordinator: sí",
 }
@@ -182,10 +185,16 @@ if "respuesta nueva decisión semántica en world.gd: sí" in lower:
 if "respuesta ¿agregaste lógica de negocio en world.gd?: sí" in lower:
     fail("Merge bloqueado: no se permite agregar lógica de negocio en world.gd.")
 
+if "respuesta reset semántico directo reintroducido en world.gd: sí" in lower:
+    fail("Merge bloqueado: world.gd no puede reintroducir resets semánticos directos.")
+
 if "respuesta nuevas responsabilidades de dominio en banditworkcoordinator: sí" in lower:
     fail("Merge bloqueado: BanditWorkCoordinator no puede crecer en responsabilidades de dominio.")
 
 if "criterio continuidad checklist obligatoria (hasta completar 2 sprints sin recaídas): no" in lower:
     fail("Merge bloqueado: la checklist obligatoria debe mantenerse hasta completar 2 sprints sin recaídas.")
+
+if "cierre 2 sprints consecutivos sin violaciones de estas reglas: no" in lower:
+    fail("Merge bloqueado: el cierre exige 2 sprints consecutivos sin violaciones de estas reglas.")
 
 print(f"[PR-GOVERNANCE][OK] Validación superada para PR: {TITLE}")
