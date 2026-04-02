@@ -1310,7 +1310,7 @@ func _find_nearest_player_placeable_world_pos_by_items(world_pos: Vector2, radiu
 		return Vector2(-1.0, -1.0)
 	var best_pos: Vector2 = Vector2(-1.0, -1.0)
 	var best_dsq: float = radius * radius
-	var entries: Array[Dictionary] = _world_spatial_index.get_placeables_by_item_ids_near(world_pos, radius, item_ids)
+	var entries: Array[Dictionary] = _world_spatial_index.get_placeables_by_item_ids_near_readonly(world_pos, radius, item_ids)
 	for entry in entries:
 		var tile_pos := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
 		if tile_pos.x <= -999999 or tile_pos.y <= -999999:
