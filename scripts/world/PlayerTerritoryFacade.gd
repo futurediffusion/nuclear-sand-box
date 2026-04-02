@@ -11,14 +11,8 @@ func tick(ctx: Dictionary) -> bool:
 	var settlement_intel: SettlementIntel = ctx.get("settlement_intel")
 	if player_territory == null or settlement_intel == null:
 		return true
-	var world_spatial_index: WorldSpatialIndex = ctx.get("world_spatial_index")
-	var wb_nodes: Array = []
-	if world_spatial_index != null:
-		wb_nodes = world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH)
-	else:
-		var tree: SceneTree = ctx.get("tree")
-		if tree != null:
-			wb_nodes = tree.get_nodes_in_group("workbench")
+	var get_workbench_nodes: Callable = ctx.get("get_workbench_nodes", Callable())
+	var wb_nodes: Array = get_workbench_nodes.call() if get_workbench_nodes.is_valid() else []
 	var bases: Array[Dictionary] = settlement_intel.get_detected_bases_near(Vector2.ZERO, 999999.0)
 	player_territory.rebuild(wb_nodes, bases)
 	return false
