@@ -219,6 +219,7 @@ var _structure_cache_gc_at: float                = 0.0
 var _dispatch_log_next_at: Dictionary            = {}
 var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
+var _cargo_return_block_reason_by_member: Dictionary = {}
 var _lod_mode_perf: Dictionary = {}
 var _tick_scan_buffers: TickScanBuffers          = TickScanBuffers.new()
 var _structure_work_buffers: StructureWorkBuffers = StructureWorkBuffers.new()
@@ -525,6 +526,7 @@ func _tick_behaviors() -> int:
 			continue
 
 		var node_pos: Vector2 = _effective_work_position(node)
+		_enforce_cargo_return_priority(beh, node_pos, "pre_tick")
 		var tick_interval: float = _get_behavior_tick_interval(beh, node, node_pos)
 		var elapsed: float = float(_behavior_elapsed.get(enemy_id, 0.0)) + BanditTuningScript.behavior_tick_interval()
 		_behavior_elapsed[enemy_id] = elapsed
@@ -557,6 +559,7 @@ func _tick_behaviors() -> int:
 		# Pasar tick_interval como delta (tiempo real desde ï¿½fÂºltimo tick),
 		# no elapsed que puede ser mayor que tick_interval.
 		beh.tick(tick_interval, ctx)
+		_enforce_cargo_return_priority(beh, node_pos, "post_tick")
 		work_units += 1
 		var lod_mode: StringName = StringName(String(_lod_debug_last_npc.get(beh.member_id, {}).get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))))
 		_record_mode_reaction_latency(lod_mode, reaction_latency)
@@ -854,6 +857,8 @@ func _maybe_show_recognition_bubble(beh: BanditWorldBehavior,
 ## sin que el jugador estï¿½fÂ© cerca. Crea sensaciï¿½fÂ³n de mundo vivo.
 func _maybe_show_idle_chat(beh: BanditWorldBehavior,
 		node: Node, node_pos: Vector2) -> void:
+	if beh.cargo_count > 0:
+		return
 	if _bubble_manager == null:
 		return
 	# Cooldown por NPC (escalonado desde setup para que no hablen todos a la vez)
@@ -883,6 +888,44 @@ func _maybe_show_idle_chat(beh: BanditWorldBehavior,
 	_bubble_manager.show_actor_bubble(node as Node2D, phrase, 3.5)
 	# Cooldown aleatorio para que cada NPC hable a su propio ritmo
 	beh.idle_chat_until = RunClock.now() + randf_range(IDLE_CHAT_COOLDOWN_MIN, IDLE_CHAT_COOLDOWN_MAX)
+
+
+func _enforce_cargo_return_priority(beh: BanditWorldBehavior, member_pos: Vector2, stage: String) -> void:
+	if beh == null or beh.cargo_count <= 0:
+		if beh != null:
+			_cargo_return_block_reason_by_member.erase(beh.member_id)
+		return
+	if beh.state == NpcWorldBehavior.State.RETURN_HOME:
+		_cargo_return_block_reason_by_member.erase(beh.member_id)
+		return
+	if beh.state == NpcWorldBehavior.State.HOLD_POSITION:
+		_cargo_return_block_reason_by_member[beh.member_id] = "holding_position_with_cargo"
+		log_worker_event("cargo_not_returning", {
+			"npc_id": beh.member_id,
+			"group_id": beh.group_id,
+			"camp_id": beh.group_id,
+			"state": str(int(beh.state)),
+			"target_id": "",
+			"position_used": "%.2f,%.2f" % [member_pos.x, member_pos.y],
+			"reason": "cargo_return_blocked",
+			"cause": "holding_position_with_cargo",
+			"stage": stage,
+		})
+		return
+	var prev_state: int = int(beh.state)
+	beh.force_return_home()
+	log_worker_event("cargo_not_returning", {
+		"npc_id": beh.member_id,
+		"group_id": beh.group_id,
+		"camp_id": beh.group_id,
+		"state": str(int(beh.state)),
+		"target_id": "",
+		"position_used": "%.2f,%.2f" % [member_pos.x, member_pos.y],
+		"reason": "cargo_return_preempted",
+		"cause": "non_return_state_with_cargo",
+		"from_state": str(prev_state),
+		"stage": stage,
+	})
 
 
 func _get_behavior(enemy_id: String) -> BanditWorldBehavior:
