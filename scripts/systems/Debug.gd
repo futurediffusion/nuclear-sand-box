@@ -31,6 +31,7 @@ const BOOT_TRACE := true
 	"npc_data": false,
 	"npc_lite": false,
 	"bandit_ai": false,
+	"bandit_pipeline": false,
 	"bandit_lod": false,
 	"intel": false,
 	"camp_stash": false,

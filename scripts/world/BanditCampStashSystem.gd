@@ -43,6 +43,38 @@ var _method_caps: MethodCapabilityCache = MethodCapabilityCacheScript.new()
 var _update_deposit_pos_cb: Callable = Callable()
 
 
+func _pipeline_log_enabled() -> bool:
+	return Debug.is_enabled("bandit_pipeline")
+
+
+func _fmt_pos(value: Vector2) -> String:
+	return "%.2f,%.2f" % [value.x, value.y]
+
+
+func _pipeline_log_event(event_name: String, beh: BanditWorldBehavior,
+		used_pos: Vector2, target_id: String, extra := {}) -> void:
+	if not _pipeline_log_enabled():
+		return
+	var payload := {
+		"event": event_name,
+		"npc_id": beh.member_id if beh != null else "unknown",
+		"camp_id": beh.group_id if beh != null else "unknown",
+		"pos": _fmt_pos(used_pos),
+		"target_id": target_id,
+		"state": str(int(beh.state)) if beh != null else "unknown",
+	}
+	for key in extra.keys():
+		payload[key] = extra[key]
+	var parts: Array[String] = []
+	for key in ["event", "npc_id", "camp_id", "pos", "target_id", "state"]:
+		parts.append("%s=%s" % [key, str(payload.get(key, ""))])
+	for key in payload.keys():
+		if key in ["event", "npc_id", "camp_id", "pos", "target_id", "state"]:
+			continue
+		parts.append("%s=%s" % [str(key), str(payload[key])])
+	Debug.log("bandit_pipeline", "[CAMP_PIPE] %s" % " ".join(parts))
+
+
 func setup(ctx: Dictionary) -> void:
 	_update_deposit_pos_cb = ctx.get("update_deposit_pos_cb", Callable())
 
@@ -118,20 +150,14 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 				_camp_barrels[beh.group_id] = fallback_barrel.get_instance_id()
 				_notify_deposit_pos(beh.group_id, fallback_barrel.global_position)
 
-	Debug.log("bandit_ai", "[CampStashHook] deposit_attempt npc=%s group=%s cargo=%d source=%s" % [
-		beh.member_id,
-		beh.group_id,
-		beh.cargo_count,
-		target_source,
-	])
+	_pipeline_log_event("deposit_attempt", beh, spawn_pos, "", {
+		"cargo": beh.cargo_count,
+		"source": target_source,
+	})
 	if chest == null:
-		Debug.log("bandit_ai",
-				"[CampStashHook] deposit_target_missing npc=%s group=%s cause=%s pos=%s" % [
-			beh.member_id,
-			beh.group_id,
-			missing_cause,
-			str(spawn_pos),
-		])
+		_pipeline_log_event("deposit_target_missing", beh, spawn_pos, "", {
+			"cause": missing_cause,
+		})
 
 	var land_target: Vector2 = spawn_pos
 	if chest != null and chest is Node2D:
@@ -192,10 +218,10 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 					return
 				var inserted := int(chest.call("try_insert_item", cap_item_id, cap_amount))
 				if inserted > 0:
-					Debug.log("bandit_ai",
-							"[CampStashHook] deposit_success npc=%s group=%s item=%s amount=%d source=%s" % [
-						beh.member_id, cap_group_id, cap_item_id, inserted, target_source
-					])
+					_pipeline_log_event("deposit_success", beh, spawn_pos, cap_item_id, {
+						"amount": inserted,
+						"source": target_source,
+					})
 					if cap_sfx != null:
 						AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
 					cap_drop.queue_free()
@@ -384,10 +410,15 @@ func drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 # Privado — sweep y collection
 # ---------------------------------------------------------------------------
 
+func _resolve_enemy_pos(enemy_node: Node) -> Vector2:
+	var node2d := enemy_node as Node2D
+	return node2d.global_position if node2d != null else Vector2.ZERO
+
 func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 		check_pos: Vector2, radius_sq: float, drops_cache: Array) -> void:
 	if beh.is_cargo_full():
 		return
+	var found_candidate: bool = false
 	var sound_idx := 0
 	for drop in drops_cache:
 		if beh.is_cargo_full():
@@ -399,9 +430,19 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 			continue
 		if check_pos.distance_squared_to(drop_node.global_position) > radius_sq:
 			continue
+		found_candidate = true
 		beh.pending_collect_id = drop_node.get_instance_id()
+		_pipeline_log_event("drop_detected", beh, check_pos, str(beh.pending_collect_id), {
+			"drop_pos": _fmt_pos(drop_node.global_position),
+			"radius_sq": snappedf(radius_sq, 0.01),
+		})
 		_handle_collection(beh, enemy_node, sound_idx * BanditTuningScript.cargo_sfx_stagger())
 		sound_idx += 1
+	if not found_candidate:
+		_pipeline_log_event("pickup_candidates_empty", beh, check_pos, "", {
+			"radius_sq": snappedf(radius_sq, 0.01),
+			"cache_size": drops_cache.size(),
+		})
 
 
 func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
@@ -410,18 +451,24 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 	beh.pending_collect_id = 0
 
 	if drop_id == 0 or not is_instance_id_valid(drop_id):
+		_pipeline_log_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
+			"reason": "invalid_instance_id",
+		})
 		return
-	Debug.log("bandit_ai", "[CampStashHook] drop_pickup_attempt npc=%s drop_id=%d cargo=%d/%d" % [
-		beh.member_id,
-		drop_id,
-		beh.cargo_count,
-		beh.cargo_capacity,
-	])
+	_pipeline_log_event("drop_pickup_attempt", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
+		"cargo": "%d/%d" % [beh.cargo_count, beh.cargo_capacity],
+	})
 	var drop_obj: Object = instance_from_id(drop_id)
 	if drop_obj == null or not is_instance_valid(drop_obj):
+		_pipeline_log_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
+			"reason": "drop_object_missing",
+		})
 		return
 	var drop_node: Node2D = drop_obj as Node2D
 	if drop_node == null or drop_node.is_queued_for_deletion():
+		_pipeline_log_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
+			"reason": "drop_node_deleted",
+		})
 		return
 
 	var collected_amount: int = int(drop_node.get("amount") if drop_node.get("amount") != null else 1)
@@ -462,6 +509,12 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 
 	var prev: int = beh.cargo_count
 	beh.cargo_count = mini(beh.cargo_count + collected_amount, beh.cargo_capacity)
+	_pipeline_log_event("drop_pickup_success", beh, drop_pos, str(drop_id), {
+		"item_id": item_id,
+		"amount": collected_amount,
+		"cargo_before": prev,
+		"cargo_after": beh.cargo_count,
+	})
 	Debug.log("bandit_ai", "[CampStash] collected %s×%d id=%s cargo=%d→%d/%d" % [
 		item_id, collected_amount, beh.member_id, prev, beh.cargo_count, beh.cargo_capacity])
 
