@@ -98,6 +98,27 @@ No es un módulo de reglas de negocio.
 - **Prohibido** añadir reglas de negocio nuevas en `scripts/world/world.gd`.
 - Todo comportamiento nuevo debe implementarse en facade o módulo de dominio y `world.gd` solo puede orquestar/delegar.
 
+## Presupuesto de tamaño/complejidad (`world.gd`)
+
+Presupuesto vigente para `scripts/world/world.gd` (guardado por CI):
+
+- **Líneas máximas:** `1900`
+- **Métodos públicos máximos** (`func` sin prefijo `_`): `45`
+- **Dependencias directas máximas:** `26` preloads de script (`preload("res://...")`)
+
+### Regla de reacción cuando se excede el presupuesto
+
+Si cualquier métrica supera el presupuesto en un PR:
+
+1. No agregar semántica nueva en `world.gd`.
+2. Mover responsabilidades no-orquestación a facades existentes (`*Facade`, `*Ports`, `*Coordinator`) antes de merge.
+3. Reducir `world.gd` hasta volver al presupuesto o registrar excepción temporal aprobada con fecha de retiro.
+
+### Método de medición (fuente única)
+
+La medición oficial vive en `scripts/ci_guard_world_boundary.py` y se ejecuta en CI vía `world-boundary-guard.yml`.
+No se aceptan mediciones manuales ad-hoc como criterio de merge.
+
 ## Excepciones temporales explícitas
 
 - Excepciones de `*.reset()` (si existen): `docs/world-gd-reset-exceptions.md` (incluyen fecha de retiro obligatoria).
@@ -107,6 +128,7 @@ No es un módulo de reglas de negocio.
 ## Regla operativa para PRs
 
 Si un cambio en `world.gd` introduce lógica no allowlisted, se debe mover a un servicio/orquestador/puerto de dominio antes de merge.
+Si además excede presupuesto, el PR queda en **No Ready** hasta completar el movimiento a facades.
 
 ## Ejemplos concretos de violaciones
 

@@ -1,0 +1,21 @@
+name: World.gd weekly review
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+
+jobs:
+  weekly-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build world.gd weekly diff report
+        run: python3 scripts/ci_world_gd_weekly_review.py
+      - name: Upload weekly report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-gd-weekly-review
+          path: artifacts/world-gd-weekly-review.md
