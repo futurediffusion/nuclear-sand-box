@@ -187,6 +187,8 @@ var _find_storage_cb:    Callable                = Callable()
 var _find_placeable_cb:  Callable                = Callable()
 var _world_node:         Node                    = null
 var _world_spatial_index: WorldSpatialIndex      = null
+var _extortion_queue_port: Dictionary            = {}
+var _raid_queue_port: Dictionary                 = {}
 var _pending_structure_dispatches: Array[Dictionary] = []
 var _group_team_target_cache: Dictionary         = {}
 var _group_target_pool_cache: Dictionary         = {}
@@ -273,6 +275,8 @@ func setup(ctx: Dictionary) -> void:
 
 ## Called from world.gd after SettlementIntel is ready.
 func setup_group_intel(ctx: Dictionary) -> void:
+	_extortion_queue_port = ctx.get("extortion_queue_port", {}) as Dictionary
+	_raid_queue_port = ctx.get("raid_queue_port", {}) as Dictionary
 	_group_intel = BanditGroupIntelScript.new()
 	_group_intel.setup({
 		"npc_simulator":             _npc_simulator,
@@ -312,7 +316,7 @@ func _dispatch_group_intel_action(action: Dictionary) -> void:
 		"enqueue_extortion":
 			var payload: Dictionary = action.get("payload", {}) as Dictionary
 			if not payload.is_empty():
-				ExtortionQueue.enqueue(payload)
+				_queue_port_call(_extortion_queue_port, "enqueue", [payload])
 				BanditGroupMemory.issue_execution_intent(
 					group_id, "extorting", "BanditBehaviorLayer",
 					float(action.get("execution_ttl", 120.0)), {"source": "extortion_queue"})
@@ -326,18 +330,32 @@ func _dispatch_group_intel_action(action: Dictionary) -> void:
 		"enqueue_wall_probe":
 			var probe_args: Array = action.get("args", [])
 			if probe_args.size() >= 6:
-				RaidQueue.enqueue_wall_probe(probe_args[0], probe_args[1], probe_args[2], probe_args[3], probe_args[4], int(probe_args[5]))
+				_queue_port_call(_raid_queue_port, "enqueue_wall_probe", [
+					probe_args[0], probe_args[1], probe_args[2], probe_args[3], probe_args[4], int(probe_args[5])
+				])
 				_finalize_group_raid_dispatch(group_id, action, "wall_probe")
 		"enqueue_light_raid":
 			var light_args: Array = action.get("args", [])
 			if light_args.size() >= 5:
-				RaidQueue.enqueue_light_raid(light_args[0], light_args[1], light_args[2], light_args[3], light_args[4])
+				_queue_port_call(_raid_queue_port, "enqueue_light_raid", [
+					light_args[0], light_args[1], light_args[2], light_args[3], light_args[4]
+				])
 				_finalize_group_raid_dispatch(group_id, action, "light_raid")
 		"enqueue_full_raid":
 			var raid_args: Array = action.get("args", [])
 			if raid_args.size() >= 5:
-				RaidQueue.enqueue_raid(raid_args[0], raid_args[1], raid_args[2], raid_args[3], raid_args[4])
+				_queue_port_call(_raid_queue_port, "enqueue_raid", [
+					raid_args[0], raid_args[1], raid_args[2], raid_args[3], raid_args[4]
+				])
 				_finalize_group_raid_dispatch(group_id, action, "full_raid")
+
+
+func _queue_port_call(port: Dictionary, key: String, args: Array = []) -> Variant:
+	var cb: Callable = port.get(key, Callable())
+	if not cb.is_valid():
+		push_warning("BanditBehaviorLayer missing queue port callable '%s'" % key)
+		return null
+	return cb.callv(args)
 
 
 func _finalize_group_raid_dispatch(group_id: String, action: Dictionary, source: String) -> void:
