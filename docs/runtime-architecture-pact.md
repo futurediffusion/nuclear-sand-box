@@ -66,6 +66,17 @@ Regla de resolución:
 - ✅ **Ejemplo de cumplimiento:** `WorldSpatialIndex` responde entidades cercanas y el sistema dueño decide si son objetivo válido.
 - ❌ **Ejemplo de violación:** `WorldSpatialIndex` etiqueta por sí mismo un actor como “enemigo legal” y dispara consecuencias de hostilidad.
 
+### 7) `world.gd` no reinicia dominio por acoplamiento directo
+
+**Regla:** `scripts/world/world.gd` no puede invocar `*.reset()` sobre sistemas de dominio.
+Los resets de dominio viven fuera de `world.gd` y se ejecutan mediante **puertos explícitos de orquestación**.
+
+- ✅ **Ejemplo de cumplimiento:** `world.gd` llama `orchestration_ports.reset(...)` y la implementación concreta queda fuera del composition root.
+- ❌ **Ejemplo de violación:** `world.gd` llama `bandit_group_memory.reset()` o `settlement_intel.reset()` directamente.
+
+**Excepciones temporales:** solo se aceptan si están aprobadas con justificación y fecha de retiro en `docs/world-gd-reset-exceptions.md`.
+Sin excepción aprobada, el check de CI debe bloquear merge.
+
 ---
 
 ## Criterios de cumplimiento operativo
