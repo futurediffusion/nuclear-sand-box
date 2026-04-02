@@ -38,6 +38,8 @@ required_labels = [
     "Respuesta decisión duplicada (assault/combat/hostility):",
     "Respuesta debug mutando estado:",
     "Respuesta telemetry/debug fuera de canal controlado mutando estado:",
+    "Respuesta nueva decisión semántica en world.gd:",
+    "Respuesta nuevas responsabilidades de dominio en BanditWorkCoordinator:",
     "Respuesta cambio de estado nuevo en el PR:",
     "Owner de decisión tocada (obligatorio):",
     "Categoría de verdad para datos/campos nuevos:",
@@ -46,12 +48,13 @@ required_labels = [
     "Justificación explícita si NO se usa Cadence en gameplay:",
     "Registro de excepción temporal (si aplica):",
     "Fecha de retiro obligatoria (YYYY-MM-DD):",
-    "Respuesta temporal/fallback/wrapper nuevo en este PR:",
+    "Respuesta temporal/fallback/compat/wrapper nuevo en este PR:",
     "Owner de temporal nuevo (si aplica):",
     "Fecha límite temporal nuevo (YYYY-MM-DD, si aplica):",
     "Condición de salida verificable de temporal nuevo (si aplica):",
     "Criterio de done Sprint 1 (patrones corregidos no reingresan):",
     "Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR):",
+    "Criterio continuidad checklist obligatoria (hasta completar 2 sprints sin recaídas):",
 ]
 
 missing = [label for label in required_labels if not has_non_empty_field(label)]
@@ -68,6 +71,8 @@ blocker_by_violation = {
     "decision_duplicada_assault_combat_hostility": "respuesta decisión duplicada (assault/combat/hostility): sí",
     "debug_mutando_estado": "respuesta debug mutando estado: sí",
     "telemetry_debug_fuera_de_canal_controlado": "respuesta telemetry/debug fuera de canal controlado mutando estado: sí",
+    "nueva_decision_semantica_en_world_gd": "respuesta nueva decisión semántica en world.gd: sí",
+    "nuevas_responsabilidades_en_bandit_work_coordinator": "respuesta nuevas responsabilidades de dominio en banditworkcoordinator: sí",
 }
 
 triggered_blockers = [
@@ -99,9 +104,9 @@ if exception_value not in {"", "-", "n/a", "na", "sin excepción"}:
     if (retirement_date - date.today()).days > 180:
         fail("La fecha de retiro obligatoria de excepciones/fallbacks no puede superar 180 días.")
 
-new_temporary_answer = get_field_value("Respuesta temporal/fallback/wrapper nuevo en este PR:").lower()
+new_temporary_answer = get_field_value("Respuesta temporal/fallback/compat/wrapper nuevo en este PR:").lower()
 if new_temporary_answer not in {"sí", "si", "no"}:
-    fail("Respuesta temporal/fallback/wrapper nuevo en este PR debe ser Sí o No.")
+    fail("Respuesta temporal/fallback/compat/wrapper nuevo en este PR debe ser Sí o No.")
 
 new_temporary_owner = get_field_value("Owner de temporal nuevo (si aplica):").strip()
 new_temporary_deadline_raw = get_field_value("Fecha límite temporal nuevo (YYYY-MM-DD, si aplica):").strip()
@@ -144,6 +149,10 @@ else:
     if state_truth_category not in allowed_truth_categories:
         fail("Categoría de verdad del cambio de estado nuevo inválida.")
 
+decision_owner = get_field_value("Owner de decisión tocada (obligatorio):").lower()
+if decision_owner in {"", "-", "n/a", "na", "no aplica", "pendiente", "_pendiente_"}:
+    fail("Todo cambio debe declarar owner de decisión explícito (uno por decisión tocada).")
+
 if "criterio de done sprint 1 (patrones corregidos no reingresan): no" in lower:
     fail("Merge bloqueado: criterio de done Sprint 1 marcado como No.")
 
@@ -164,5 +173,14 @@ if "respuesta duplicación de heurística crítica: sí" in lower:
 
 if "respuesta telemetry/debug fuera de canal controlado mutando estado: sí" in lower:
     fail("Merge bloqueado: se declaró mutación real desde debug/telemetry fuera de canal controlado.")
+
+if "respuesta nueva decisión semántica en world.gd: sí" in lower:
+    fail("Merge bloqueado: no se permiten decisiones semánticas nuevas en world.gd.")
+
+if "respuesta nuevas responsabilidades de dominio en banditworkcoordinator: sí" in lower:
+    fail("Merge bloqueado: BanditWorkCoordinator no puede crecer en responsabilidades de dominio.")
+
+if "criterio continuidad checklist obligatoria (hasta completar 2 sprints sin recaídas): no" in lower:
+    fail("Merge bloqueado: la checklist obligatoria debe mantenerse hasta completar 2 sprints sin recaídas.")
 
 print(f"[PR-GOVERNANCE][OK] Validación superada para PR: {TITLE}")
