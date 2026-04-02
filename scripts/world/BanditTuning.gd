@@ -43,6 +43,7 @@ const STRUCTURE_NO_TARGET_GRACE: float = 20.0
 const STRUCTURE_ASSAULT_MAX_TOTAL_SAFETY: float = 1200.0
 const STRUCTURE_ASSAULT_ACTIVE_TTL: float = 8.0
 const ASSAULT_SUPPRESS_GENERIC_DROP_PICKUP: bool = true
+const ENABLE_WORKER_RESOURCE_FALLBACK: bool = true
 
 # ---------------------------------------------------------------------------
 # Physics / separation
@@ -103,6 +104,9 @@ static func resource_scan_radius_sq() -> float:
 
 static func mine_range_sq() -> float:
 	return MINE_RANGE * MINE_RANGE
+
+static func enable_worker_resource_fallback() -> bool:
+	return ENABLE_WORKER_RESOURCE_FALLBACK
 
 # ---------------------------------------------------------------------------
 # Physics / separation accessors

@@ -37,6 +37,7 @@ const RAID_LOOT_COOLDOWN: float = 1.10
 const RAID_ANCHOR_FALLBACK_HIT_RANGE_SQ: float = 112.0 * 112.0
 const RAID_LOCAL_WALL_PROBE_RADIUS: float = 180.0
 const RAID_LOCAL_WALL_STRIKE_RANGE_SQ: float = 164.0 * 164.0
+const RESOURCE_HIT_RECENCY_TICKS: int = 10
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
@@ -137,6 +138,14 @@ func get_work_cycle_id_for_member(member_id: String) -> String:
 	return String(_active_work_cycle_by_member.get(member_id, ""))
 
 
+func has_recent_resource_hit(beh: BanditWorldBehavior) -> bool:
+	if beh == null:
+		return false
+	if int(beh.last_resource_hit_tick) <= 0:
+		return false
+	return (_work_tick_seq - int(beh.last_resource_hit_tick)) <= RESOURCE_HIT_RECENCY_TICKS
+
+
 func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array) -> void:
 	if beh == null:
 		return
@@ -180,7 +189,7 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 		return
 
 	var cargo_before_work: int = beh.cargo_count
-	var member_pos: Vector2 = _node_pos_for_work(enemy_node)
+	var member_pos: Vector2 = _effective_work_position(enemy_node)
 	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH:
 		var res_center := _resolve_resource_center(beh, enemy_node)
 		_stash.sweep_collect_orbit(beh, enemy_node, res_center, drops_cache)
@@ -209,21 +218,42 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 
 
 func _resolve_resource_center(beh: BanditWorldBehavior, enemy_node: Node) -> Vector2:
-	var fallback := _node_pos_for_work(enemy_node)
-	if beh._resource_node_id == 0 or not is_instance_id_valid(beh._resource_node_id):
+	var fallback := _effective_work_position(enemy_node)
+	var resource_id: int = beh._resource_node_id
+	var used_sticky_resource_id: bool = false
+	if resource_id == 0:
+		resource_id = int(beh.last_valid_resource_node_id)
+		used_sticky_resource_id = resource_id != 0
+	if resource_id == 0 or not is_instance_id_valid(resource_id):
 		if beh._resource_node_id != 0:
 			beh._resource_node_id = 0
 		_emit_worker_event("resource_index_missing", beh, fallback, "", {
 			"stage": "resolve_resource_center",
 		})
 		return fallback
-	var res := instance_from_id(beh._resource_node_id) as Node2D
+	var res: Node2D = null
+	if _world_spatial_index != null and BanditTuningScript.enable_worker_resource_fallback():
+		res = _world_spatial_index.resolve_runtime_node_with_fallback(
+			WorldSpatialIndex.KIND_WORLD_RESOURCE,
+			resource_id,
+			{"expected_group": "world_resource"}
+		)
+	if res == null:
+		res = instance_from_id(resource_id) as Node2D
 	if res == null or not is_instance_valid(res) or res.is_queued_for_deletion():
 		beh._resource_node_id = 0
+		if beh.last_valid_resource_node_id == resource_id:
+			beh.last_valid_resource_node_id = 0
 		_emit_worker_event("resource_index_missing", beh, fallback, "", {
 			"stage": "resolve_resource_center_invalid",
 		})
 		return fallback
+	beh._resource_node_id = resource_id
+	beh.last_valid_resource_node_id = resource_id
+	if used_sticky_resource_id:
+		_emit_worker_event("resource_fallback_applied", beh, fallback, str(resource_id), {
+			"stage": "resolve_resource_center_sticky_id",
+		})
 	return res.global_position
 
 
@@ -231,13 +261,13 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var mine_id: int = beh.pending_mine_id
 	if mine_id == 0:
 		return
-	_emit_worker_event("resource_acquired", beh, _node_pos_for_work(enemy_node), str(mine_id), {
+	_emit_worker_event("resource_acquired", beh, _effective_work_position(enemy_node), str(mine_id), {
 		"stage": "mining_pending",
 	}, true)
 	beh.pending_mine_id = 0
 	if not is_instance_id_valid(mine_id):
 		beh._resource_node_id = 0
-		_emit_worker_event("resource_index_missing", beh, _node_pos_for_work(enemy_node), str(mine_id), {
+		_emit_worker_event("resource_index_missing", beh, _effective_work_position(enemy_node), str(mine_id), {
 			"stage": "pending_mine_invalid",
 		})
 		return
@@ -245,12 +275,12 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var res_node: Node = instance_from_id(mine_id) as Node
 	if res_node == null or not is_instance_valid(res_node) or res_node.is_queued_for_deletion():
 		beh._resource_node_id = 0
-		_emit_worker_event("resource_index_missing", beh, _node_pos_for_work(enemy_node), str(mine_id), {
+		_emit_worker_event("resource_index_missing", beh, _effective_work_position(enemy_node), str(mine_id), {
 			"stage": "resource_node_missing",
 		})
 		return
 
-	var enemy_pos: Vector2 = _node_pos_for_work(enemy_node)
+	var enemy_pos: Vector2 = _effective_work_position(enemy_node)
 	var res_pos: Vector2 = (res_node as Node2D).global_position
 	if enemy_pos.distance_squared_to(res_pos) > BanditTuningScript.mine_range_sq():
 		_restore_mine_intent_if_still_watching(beh, mine_id)
@@ -272,6 +302,8 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	_emit_worker_event("resource_hit", beh, enemy_pos, str(mine_id), {
 		"resource_pos": _fmt_pos(res_pos),
 	})
+	beh.last_valid_resource_node_id = mine_id
+	beh.last_resource_hit_tick = _work_tick_seq
 	_preserve_cycle_after_hit(beh, mine_id)
 	if enemy_node.has_method("queue_ai_attack_press"):
 		enemy_node.call("queue_ai_attack_press", res_pos)
@@ -298,7 +330,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 	var member_anchor: Vector2 = _resolve_member_assault_anchor(beh, group_anchor)
 	var attack_anchor: Vector2 = member_anchor if _is_valid_target(member_anchor) else group_anchor
 
-	var enemy_pos: Vector2 = _node_pos_for_work(enemy_node)
+	var enemy_pos: Vector2 = _effective_work_position(enemy_node)
 	if not _is_valid_target(attack_anchor):
 		attack_anchor = enemy_pos
 	elif has_raid_context:
@@ -412,7 +444,7 @@ func _resolve_assault_anchor(group_id: String, g: Dictionary) -> Vector2:
 	return pending if _is_valid_target(pending) else INVALID_TARGET
 
 
-func _node_pos_for_work(enemy_node: Node) -> Vector2:
+func _effective_work_position(enemy_node: Node) -> Vector2:
 	# Single helper to keep work/pickup queries consistent: member position is
 	# the authoritative actor-space for local loot collection and mining loops.
 	# Group/leader/camp anchors remain valid only for raid target selection.
@@ -630,6 +662,15 @@ func _guard_resource_cycle_before_work(beh: BanditWorldBehavior) -> void:
 			and beh.pending_mine_id == 0 \
 			and beh.pending_collect_id == 0 \
 			and beh._resource_node_id == 0:
+		if BanditTuningScript.enable_worker_resource_fallback() \
+				and beh.last_valid_resource_node_id != 0 \
+				and has_recent_resource_hit(beh):
+			beh._resource_node_id = beh.last_valid_resource_node_id
+			beh.pending_mine_id = beh._resource_node_id
+			_emit_worker_event("resource_fallback_applied", beh, beh.home_pos, str(beh._resource_node_id), {
+				"stage": "guard_before_work_recent_hit",
+			}, true)
+			return
 		if beh.cargo_count > 0:
 			_request_return_home(beh, "empty_resource_watch_with_cargo")
 

@@ -103,6 +103,8 @@ var _resource_orbit_dir: float      = 1.0    # +1 CCW, -1 CW
 var _resource_orbit_step: float     = 0.6    # rad advanced per waypoint
 var _resource_node_id: int          = 0      # instance_id of resource being orbited
 var _mine_tick_timer: float         = 0.0    # countdown to next mine hit
+var last_valid_resource_node_id: int = 0
+var last_resource_hit_tick: int      = 0
 
 # Last known node position — lets enter_resource_watch compute initial angle
 var _last_node_pos: Vector2 = Vector2.ZERO
@@ -191,6 +193,8 @@ func enter_extort_approach(target_pos: Vector2) -> void:
 ## Enter RESOURCE_WATCH, orbiting resource_pos at a fixed radius.
 func enter_resource_watch(resource_pos: Vector2, resource_id: int = 0) -> void:
 	_resource_node_id     = resource_id
+	if resource_id != 0:
+		last_valid_resource_node_id = resource_id
 	_mine_tick_timer      = 0.0
 	pending_mine_id       = 0
 	_resource_watch_pos   = resource_pos
@@ -524,6 +528,8 @@ func export_state() -> Dictionary:
 		"wb_rng_state":        str(_rng.state),
 		"pending_mine_id":     pending_mine_id,
 		"resource_node_id":    _resource_node_id,
+		"last_valid_resource_node_id": last_valid_resource_node_id,
+		"last_resource_hit_tick":      last_resource_hit_tick,
 	}
 
 ## Restores behavior state from a previously exported dictionary.
@@ -554,6 +560,8 @@ func import_state(data: Dictionary) -> void:
 	# instance IDs are invalid after reload — reset to 0
 	pending_mine_id   = int(data.get("pending_mine_id",  0))
 	_resource_node_id = int(data.get("resource_node_id", 0))
+	last_valid_resource_node_id = int(data.get("last_valid_resource_node_id", _resource_node_id))
+	last_resource_hit_tick = int(data.get("last_resource_hit_tick", 0))
 	if data.has("wb_rng_state"):
 		var rs: int = int(str(data.get("wb_rng_state", "0")))
 		if rs != 0:
