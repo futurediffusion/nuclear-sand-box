@@ -15,7 +15,7 @@
 ## Excepciones activas
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Estado |
 |---|---|---|---|---|---|---|---|---|---|
-| EXC-SHOP-PORT-WRAPPER-001 | 2026-04-02 | N/A (higiene sprint temporal) | API legacy en `ShopService` (wrapper hacia `ShopPort`) | Compat API bridge | `keeper_menu_ui.gd` aún consume llamadas legacy (`buy/sell/can_*`); se mantiene puente hasta migrar consumidor y cerrar telemetría legacy en cero. | Runtime-Commerce | 2026-05-01 | 2026-09-30 | Activa |
+| EXC-SHOP-PORT-WRAPPER-001 | 2026-04-02 | N/A (higiene sprint temporal) | API legacy en `ShopService` (wrapper hacia `ShopPort`) | Compat API bridge | `keeper_menu_ui.gd` aún consume llamadas legacy (`buy/sell/can_*`); se mantiene puente hasta migrar consumidor y cerrar telemetría legacy en cero. | Runtime-Commerce | 2026-04-15 | 2026-05-15 | Activa |
 
 ## Excepciones retiradas
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Fecha retiro efectiva |

@@ -16,37 +16,50 @@ Objetivo del sprint: **cero fallback permanente disfrazado de temporal**, con fo
 | `chest_ui` (`ChestUi`) | `ContainerUi` | `scenes/main.tscn`, `scenes/tests/chest_random_fill_test.tscn`, resoluciones UI por path/grupo | **RETIRADO (migrado)** |
 | `FactionRelationService` | `FactionHostilityManager` | Sin consumidores runtime en repo | **RETIRADO (sin compat efectiva)** |
 | `ShopService` API legacy | `ShopService.get_port()` (`ShopPort`) | `keeper_menu_ui.gd` usa API legacy; `inventory_panel.gd` usa `get_port` | **VIGENTE (compat efectiva parcial)** |
+| Constantes compat de `PlacementSystem` | `PlacementCatalog` | Solo runner legacy de checklist (`walls_colliders_checklist_runner.gd`) | **RETIRADO (sin consumidores runtime)** |
 
 ## 2) Priorización por riesgo gameplay
 
-1. **P0 — UI de contenedores con rutas paralelas**: mantener `UI/ChestUi` + grupo `chest_ui` en paralelo a `UI/ContainerUi` abría lookup dual innecesario.
-2. **P0 — Wrapper de contenedor en escenas**: `ChestComponent` era herencia vacía (`extends ContainerPlaceable`) y sostenía contrato duplicado sin semántica propia.
-3. **P0 — Hostilidad bridge sin consumidores**: `FactionRelationService` no aportaba compatibilidad efectiva al no tener lectores/escritores activos en runtime.
+1. **P0 — Commerce loop bloqueado por wrapper legacy** (`ShopService` API legacy): impacta compra/venta del keeper y puede introducir divergencia entre `keeper_menu_ui` y `ShopPort`.
+2. **P1 — Compat symbols de placement sin uso runtime** (`PlacementSystem.PLACEABLE_SCENES` etc.): ruido de contrato que facilita reintroducir lookup legacy en pruebas y tooling.
+3. **P2 — Wrappers ya retirados** (`ChestUi`, `ChestComponent`, `FactionRelationService`): mantener trazabilidad histórica pero sin deuda activa.
 
-## 3) Wrappers retirados en este sprint
+## 3) Búsqueda consolidada de marcadores temporales (única)
+
+Marcadores auditados: `REMOVE_AFTER`, `legacy fallback`, excepciones temporales, compat wrappers (`compat temporal`, `wrapper legacy`).
+
+| Tipo | Hallazgo único | Ubicación | Impacto gameplay | Decisión |
+|---|---|---|---|---|
+| Compat wrapper | API legacy `ShopService` | `scripts/ui/keeper_menu_ui.gd` + registro EXC | Alto (economía de gameplay) | **Mantener temporal con plan de retiro estricto** |
+| Compat temporal | Símbolos legacy de `PlacementSystem` | `scripts/systems/PlacementSystem.gd` | Medio (riesgo de recaída en contrato legacy) | **Retirar ahora** |
+| `REMOVE_AFTER` | `FactionRelationService` (histórico) | Solo trazas en docs/registro | Bajo (sin consumo runtime) | **Ya retirado; mantener evidencia documental** |
+| Excepción temporal | `EXC-SHOP-PORT-WRAPPER-001` | `docs/incidencias/registro-unico-deuda-tecnica.md` | Alto | **Activa con owner + fecha + salida verificable** |
+
+## 4) Wrappers retirados en este sprint
 
 - Se migra `chest_world` y `barrel_world` a `ContainerPlaceable` directo.
 - Se migra `main` y `chest_random_fill_test` a `container_ui.tscn`.
 - Se eliminan los lookups legacy `UI/ChestUi` y grupo `chest_ui` de `ContainerPlaceable` y `player_inventory_menu`.
 - Se elimina `FactionRelationService` por ausencia de consumidores reales en el código del repo.
+- Se eliminan símbolos compat de `PlacementSystem` y el runner de checklist pasa a leer `PlacementCatalog` directo.
 
-## 4) Excepciones que se mantienen (con fecha y salida verificable)
+## 5) Excepciones que se mantienen (con fecha y salida verificable)
 
 ### EXC-SHOP-PORT-WRAPPER-001
 - **Wrapper:** API legacy de `ShopService` (`get_buy_price`, `sell`, etc.).
 - **Motivo técnico estricto:** `keeper_menu_ui.gd` todavía consume la API legacy del autoload.
 - **Owner:** `Runtime-Commerce`.
-- **Fecha de revisión:** `2026-05-01`.
-- **Fecha de retiro comprometida:** `2026-09-30`.
+- **Fecha de revisión:** `2026-04-15`.
+- **Fecha de retiro comprometida (cercana):** `2026-05-15`.
 - **Condición exacta de salida:** migrar `keeper_menu_ui.gd` a `ShopService.get_port()` y verificar telemetría `get_legacy_telemetry_snapshot()` en `0` para todas las rutas legacy.
 
-## 5) Resultado del sprint
+## 6) Resultado del sprint
 
 - **Agregado vs retirado:** `+1 / -3` (deuda neta: `-2`).
 - Se elimina ruta paralela de UI de contenedores y puente de hostilidad sin uso.
 - No se reintroduce doble verdad: hostilidad queda solo en `FactionHostilityManager` y contenedores/UI quedan en contrato neutral `Container*`.
 
-## 6) KPIs de salida (gate obligatorio)
+## 7) KPIs de salida (gate obligatorio)
 
 Para cerrar formalmente el sprint se fijan estos KPIs:
 
@@ -59,7 +72,7 @@ Interpretación operativa:
 - Si cualquiera de los 3 KPIs no cumple, el sprint sigue abierto.
 - Si los 3 KPIs cumplen, se habilita congelamiento de arquitectura suficiente (sección 7).
 
-## 7) Regla de congelamiento al cumplir KPIs
+## 8) Regla de congelamiento al cumplir KPIs
 
 Cuando `KPI-TEMP-OPEN`, `KPI-WRAP-LIVE` y `KPI-RUNTIME-P0` estén en verde:
 
@@ -67,7 +80,7 @@ Cuando `KPI-TEMP-OPEN`, `KPI-WRAP-LIVE` y `KPI-RUNTIME-P0` estén en verde:
 - se prohíbe continuar “limpieza por inercia” sin incidente o métrica que lo justifique,
 - todo cambio adicional de arquitectura requiere nuevo disparador explícito (incidente, regresión o objetivo de producto).
 
-## 8) Reapertura de features (condición de entrada)
+## 9) Reapertura de features (condición de entrada)
 
 Al reabrir desarrollo de features, se exige:
 
@@ -78,7 +91,7 @@ Al reabrir desarrollo de features, se exige:
    - fecha de retiro,
    - criterio verificable de salida.
 
-## 9) Vigilancia ligera anti-recaída
+## 10) Vigilancia ligera anti-recaída
 
 Para evitar volver a “refactor perpetuo”, se mantiene una vigilancia mínima:
 

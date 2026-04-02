@@ -46,6 +46,10 @@ required_labels = [
     "Justificación explícita si NO se usa Cadence en gameplay:",
     "Registro de excepción temporal (si aplica):",
     "Fecha de retiro obligatoria (YYYY-MM-DD):",
+    "Respuesta temporal/fallback/wrapper nuevo en este PR:",
+    "Owner de temporal nuevo (si aplica):",
+    "Fecha límite temporal nuevo (YYYY-MM-DD, si aplica):",
+    "Condición de salida verificable de temporal nuevo (si aplica):",
     "Criterio de done Sprint 1 (patrones corregidos no reingresan):",
     "Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR):",
 ]
@@ -94,6 +98,28 @@ if exception_value not in {"", "-", "n/a", "na", "sin excepción"}:
         fail("La fecha de retiro obligatoria debe ser futura para excepciones/fallbacks temporales.")
     if (retirement_date - date.today()).days > 180:
         fail("La fecha de retiro obligatoria de excepciones/fallbacks no puede superar 180 días.")
+
+new_temporary_answer = get_field_value("Respuesta temporal/fallback/wrapper nuevo en este PR:").lower()
+if new_temporary_answer not in {"sí", "si", "no"}:
+    fail("Respuesta temporal/fallback/wrapper nuevo en este PR debe ser Sí o No.")
+
+new_temporary_owner = get_field_value("Owner de temporal nuevo (si aplica):").strip()
+new_temporary_deadline_raw = get_field_value("Fecha límite temporal nuevo (YYYY-MM-DD, si aplica):").strip()
+new_temporary_exit_condition = get_field_value("Condición de salida verificable de temporal nuevo (si aplica):").strip()
+
+if new_temporary_answer in {"sí", "si"}:
+    if new_temporary_owner.lower() in {"", "-", "n/a", "na", "no aplica", "sin owner"}:
+        fail("Todo temporal/fallback/wrapper nuevo debe declarar owner explícito.")
+    try:
+        new_temporary_deadline = datetime.strptime(new_temporary_deadline_raw, "%Y-%m-%d").date()
+    except ValueError:
+        fail("Todo temporal/fallback/wrapper nuevo debe declarar fecha límite válida (YYYY-MM-DD).")
+    if new_temporary_deadline <= date.today():
+        fail("La fecha límite de temporales nuevos debe ser futura.")
+    if (new_temporary_deadline - date.today()).days > 90:
+        fail("La fecha límite de temporales nuevos debe ser cercana (máximo 90 días).")
+    if new_temporary_exit_condition.lower() in {"", "-", "n/a", "na", "no aplica", "pendiente"}:
+        fail("Todo temporal/fallback/wrapper nuevo debe declarar condición de salida verificable.")
 
 truth_category = get_field_value("Categoría de verdad para datos/campos nuevos:").lower()
 allowed_truth_categories = {"runtime", "save", "derived", "cache", "no aplica"}

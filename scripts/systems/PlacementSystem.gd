@@ -10,10 +10,6 @@ signal placement_cancelled(item_id: String)
 const TILE_SIZE: int = 32
 const GHOST_SCENE: PackedScene = preload("res://scenes/placement_ghost.tscn")
 
-## Compat temporal: mantener símbolos históricos para referencias externas.
-const PLACEABLE_SCENES: Dictionary = PlacementCatalog.PLACEABLE_SCENES
-const TILE_WALL_ITEMS: Dictionary = PlacementCatalog.TILE_WALL_ITEMS
-const REPEAT_SCENE_ITEMS: Dictionary = PlacementCatalog.REPEAT_SCENE_ITEMS
 const PLACEMENT_MODE_SCENE: String = PlacementCatalog.PLACEMENT_MODE_SCENE
 const PLACEMENT_MODE_TILE_WALL: String = PlacementCatalog.PLACEMENT_MODE_TILE_WALL
 const PLACEMENT_CLICK_COMBAT_BLOCK_MS: int = 120

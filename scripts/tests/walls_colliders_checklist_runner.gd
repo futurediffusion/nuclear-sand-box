@@ -135,10 +135,10 @@ func _run() -> void:
 	var required := ["doorwood", "floorwood", "chest", "barrel", "table", "stool", "workbench"]
 	var missing: Array[String] = []
 	for item_id in required:
-		if not PlacementSystem.PLACEABLE_SCENES.has(item_id):
+		if not PlacementCatalog.PLACEABLE_SCENES.has(item_id):
 			missing.append(item_id)
 			continue
-		var scene_path: String = String(PlacementSystem.PLACEABLE_SCENES[item_id])
+		var scene_path: String = String(PlacementCatalog.PLACEABLE_SCENES[item_id])
 		var packed := load(scene_path)
 		if packed == null:
 			missing.append(item_id + "(scene)")
