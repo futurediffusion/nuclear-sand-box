@@ -570,6 +570,8 @@ func _ready() -> void:
 		"cliff_generator": cliff_generator,
 		"world_to_tile": Callable(self, "_world_to_tile"),
 		"entity_root": _entity_root,
+		"runtime_group_index": _runtime_group_index,
+		"world_spatial_index_getter": Callable(self, "_get_world_spatial_index"),
 		"width": width,
 		"height": height,
 	})

@@ -39,6 +39,8 @@ var _chunk_key_fn: Callable
 var _cliff_gen: CliffGenerator = null
 var _world_to_tile: Callable
 var _entity_root: Node2D = null
+var _runtime_group_index: RuntimeGroupIndex = null
+var _world_spatial_index_getter: Callable
 
 # Estado propio
 var active_enemies: Dictionary = {}      # enemy_id -> Node
@@ -51,6 +53,11 @@ var _sim_timer: float = 0.0
 var _process_ms_rolling: float = 0.0
 var _process_ms_samples: int = 0
 var process_ms_avg: float = 0.0
+var _scanned_nodes_rolling: float = 0.0
+var _scanned_nodes_samples: int = 0
+var scanned_nodes_avg: float = 0.0
+var scanned_nodes_last_tick: int = 0
+var _tick_scanned_nodes: int = 0
 
 # ── Data-only behaviors ───────────────────────────────────────────────────────
 # Owned by NpcSimulator for enemies that are alive but have no active node.
@@ -133,19 +140,29 @@ func setup(ctx: Dictionary) -> void:
 	_cliff_gen = ctx.get("cliff_generator")
 	_world_to_tile = ctx.get("world_to_tile", Callable())
 	_entity_root = ctx.get("entity_root")
+	_runtime_group_index = ctx.get("runtime_group_index") as RuntimeGroupIndex
+	_world_spatial_index_getter = ctx.get("world_spatial_index_getter", Callable())
 	_world_w_tiles = ctx.get("width",  64)
 	_world_h_tiles = ctx.get("height", 64)
 
 func _process(delta: float) -> void:
 	var _t0 := Time.get_ticks_usec()
+	_tick_scanned_nodes = 0
 	_tick_lite_mode(delta)
 	_tick_data_only(delta)
 	_process_ms_rolling += float(Time.get_ticks_usec() - _t0) / 1000.0
 	_process_ms_samples += 1
+	scanned_nodes_last_tick = _tick_scanned_nodes
+	_scanned_nodes_rolling += float(_tick_scanned_nodes)
+	_scanned_nodes_samples += 1
 	if _process_ms_samples >= 60:
 		process_ms_avg = _process_ms_rolling / 60.0
 		_process_ms_rolling = 0.0
 		_process_ms_samples = 0
+	if _scanned_nodes_samples >= 60:
+		scanned_nodes_avg = _scanned_nodes_rolling / 60.0
+		_scanned_nodes_rolling = 0.0
+		_scanned_nodes_samples = 0
 
 # ---------------------------------------------------------------------------
 # Lite mode — activa/desactiva IA de enemigos según distancia al jugador
@@ -162,7 +179,8 @@ func _tick_lite_mode(delta: float) -> void:
 	var player_pos := player.global_position
 	var enter_radius := lite_radius + lite_hysteresis
 	var exit_radius := maxf(lite_radius - lite_hysteresis, 0.0)
-	for enemy in get_tree().get_nodes_in_group("enemy"):
+	for enemy in _get_enemy_nodes_for_lite():
+		_tick_scanned_nodes += 1
 		if enemy == null or not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
 			continue
 		if not enemy.has_method("enter_lite_mode") or not enemy.has_method("exit_lite_mode"):
@@ -223,8 +241,8 @@ func _tick_data_only(delta: float) -> void:
 				# No active node, not spawning — simulate offscreen (data-only)
 				_tick_data_behavior(enemy_id, state, sim_delta)
 	if debug_counts:
-		Debug.log("npc_data", "active=%d queued=%d data_beh=%d" % [
-			active_enemies.size(), spawning_enemy_ids.size(), _data_behaviors.size()])
+		Debug.log("npc_data", "active=%d queued=%d data_beh=%d process_ms_avg=%.3f scanned_nodes_last=%d scanned_nodes_avg=%.2f" % [
+			active_enemies.size(), spawning_enemy_ids.size(), _data_behaviors.size(), process_ms_avg, scanned_nodes_last_tick, scanned_nodes_avg])
 
 # ---------------------------------------------------------------------------
 # API pública — llamada desde World
@@ -581,14 +599,37 @@ func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary
 
 func _scan_nearby_resources(node_pos: Vector2) -> Array:
 	var result: Array = []
-	for res in get_tree().get_nodes_in_group("world_resource"):
+	var radius_sq: float = BanditTuningScript.resource_scan_radius_sq()
+	for res in _get_world_resources_candidates(node_pos, radius_sq):
+		_tick_scanned_nodes += 1
 		var res_node := res as Node2D
 		if res_node == null or not is_instance_valid(res_node) \
 				or res_node.is_queued_for_deletion():
 			continue
-		if node_pos.distance_squared_to(res_node.global_position) <= BanditTuningScript.resource_scan_radius_sq():
+		if node_pos.distance_squared_to(res_node.global_position) <= radius_sq:
 			result.append({"pos": res_node.global_position})
 	return result
+
+
+func _get_enemy_nodes_for_lite() -> Array:
+	if _runtime_group_index != null:
+		return _runtime_group_index.get_nodes("enemy", maxf(lite_check_interval, 0.05))
+	var tree: SceneTree = get_tree()
+	return tree.get_nodes_in_group("enemy") if tree != null else []
+
+
+func _get_world_resources_candidates(node_pos: Vector2, radius_sq: float) -> Array:
+	var spatial_index: WorldSpatialIndex = _world_spatial_index_getter.call() if _world_spatial_index_getter.is_valid() else null
+	if spatial_index != null:
+		return spatial_index.get_runtime_nodes_near(
+			WorldSpatialIndex.KIND_WORLD_RESOURCE,
+			node_pos,
+			sqrt(maxf(radius_sq, 0.0))
+		)
+	if _runtime_group_index != null:
+		return _runtime_group_index.get_nodes("world_resource", maxf(sim_check_interval, 0.05))
+	var tree: SceneTree = get_tree()
+	return tree.get_nodes_in_group("world_resource") if tree != null else []
 
 
 func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float, skip_scene_scan: bool = false) -> void:
