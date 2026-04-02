@@ -169,6 +169,12 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		return
 
 	res_node.hit(enemy_node)
+	Debug.log("bandit_ai", "[BWC] resource_hit npc=%s mine_id=%d tick=%d state=%s" % [
+		beh.member_id,
+		mine_id,
+		_work_tick_seq,
+		str(int(beh.state)),
+	])
 	_preserve_cycle_after_hit(beh, mine_id)
 	if enemy_node.has_method("queue_ai_attack_press"):
 		enemy_node.call("queue_ai_attack_press", res_pos)
