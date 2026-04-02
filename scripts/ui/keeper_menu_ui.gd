@@ -21,8 +21,13 @@ func _ui_manager() -> Node:
 	return get_node_or_null("/root/UiManager")
 
 
-func _shop_service() -> Node:
-	return get_node_or_null("/root/ShopService")
+func _shop_port() -> Variant:
+	var shop_service := get_node_or_null("/root/ShopService")
+	if shop_service == null:
+		return null
+	if shop_service.has_method("get_port"):
+		return shop_service.get_port()
+	return shop_service
 
 
 func _ready() -> void:
@@ -143,7 +148,7 @@ func set_vendor(vendor: VendorComponent) -> void:
 	_queue_refresh_keeper_slot_meta()
 	keeper_panel.set_shop_context(_vendor, _player_inv, "BUY")
 	player_panel.set_shop_context(_vendor, _player_inv, "SELL")
-	var shop := _shop_service()
+	var shop := _shop_port()
 	if vendor != null:
 		keeper_panel.set_price_resolver(func(item_id: String) -> int:
 			return 0 if shop == null else int(shop.get_buy_price(vendor, item_id))
@@ -183,8 +188,8 @@ func _try_sell_item(item_id: String, amount: int) -> void:
 	if _vendor == null or _player_inv == null:
 		return
 	# KeeperMenuUi no muta inventario ni oro directamente.
-	# ShopService es la única autoridad de transacciones.
-	var shop := _shop_service()
+	# ShopPort es la única autoridad de transacciones.
+	var shop := _shop_port()
 	if shop == null:
 		return
 	var check: Dictionary = shop.can_sell(_vendor, _player_inv, item_id, amount)
@@ -208,8 +213,8 @@ func _try_buy_item(slot_meta: Dictionary, amount: int) -> void:
 	if item_id == "":
 		return
 	# KeeperMenuUi no muta inventario ni oro directamente.
-	# ShopService es la única autoridad de transacciones.
-	var shop := _shop_service()
+	# ShopPort es la única autoridad de transacciones.
+	var shop := _shop_port()
 	if shop == null:
 		return
 	var check: Dictionary = shop.can_buy_from_meta(_vendor, _player_inv, slot_meta, amount)
