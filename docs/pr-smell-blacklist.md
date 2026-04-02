@@ -32,16 +32,24 @@ Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`
 | Debug mutando estado real | Bloqueante | `No Ready` |
 | Telemetry/debug mutando estado fuera de canal controlado | Bloqueante | `No Ready` |
 | Fallback temporal sin fecha de retiro | Bloqueante | `No Ready` |
+| Compat/fallback nuevo sin fecha de retiro | Bloqueante | `No Ready` |
+| Decisión semántica nueva agregada en `world.gd` | Bloqueante | `No Ready` |
+| `BanditWorkCoordinator` creciendo en responsabilidades de dominio | Bloqueante | `No Ready` |
 | Criterio de done Sprint 1 en `No` (reingreso de patrón corregido) | Bloqueante | `No Ready` |
 | Criterio de done anti-reversión en `No` | Bloqueante | `No Ready` |
+| Criterio continuidad checklist obligatoria en `No` (hasta 2 sprints sin recaídas) | Bloqueante | `No Ready` |
 
 ### Reglas transversales obligatorias
 
-1. **Owner de decisión**: todo cambio nuevo debe declarar owner canónico de la decisión afectada.
+1. **Owner de decisión**: todo cambio nuevo debe declarar owner canónico de la decisión afectada (uno por decisión tocada).
 2. **Cambio de estado nuevo**: todo cambio de estado nuevo debe declarar owner de escritura + categoría de verdad única (`runtime`, `save`, `derived`, `cache`).
-3. **Fallback temporal**: toda excepción/fallback temporal exige fecha de retiro (`YYYY-MM-DD`) desde el primer PR y no puede declararse sin expiración explícita.
-4. **No reingreso Sprint 1**: los patrones ya corregidos en Sprint 1 no pueden reingresar; si reaparecen, el PR se bloquea.
-5. **Anti-reversión**: el done de cada PR debe garantizar que el flujo normal de PR no pueda volver al estado anterior.
+3. **Dato/campo nuevo**: todo dato/campo nuevo debe declarar categoría de verdad única (`runtime`, `save`, `derived`, `cache`) y owner de escritura si muta estado.
+4. **Fallback/compat temporal**: toda excepción/fallback/compat temporal exige fecha de retiro (`YYYY-MM-DD`) desde el primer PR y no puede declararse sin expiración explícita.
+5. **No decisión semántica en `world.gd`**: nuevas decisiones de dominio deben vivir en owner canónico fuera de `world.gd`.
+6. **No expansión de dominio en `BanditWorkCoordinator`**: no se permiten nuevas responsabilidades de dominio; solo coordinación.
+7. **Checklist obligatoria sostenida**: la checklist anti-olores permanece obligatoria hasta completar 2 sprints consecutivos sin recaídas.
+8. **No reingreso Sprint 1**: los patrones ya corregidos en Sprint 1 no pueden reingresar; si reaparecen, el PR se bloquea.
+9. **Anti-reversión**: el done de cada PR debe garantizar que el flujo normal de PR no pueda volver al estado anterior.
 
 ---
 
@@ -91,8 +99,23 @@ Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`
 
 ---
 
+## 7) Decisión semántica nueva en `world.gd`
 
-## 7) Segunda ruta de decisión para assault/combat/hostility
+- **Severidad:** `bloqueante`
+- **Por qué es peligroso:** `world.gd` es orquestación/ensamble; agregar semántica de dominio allí rompe boundaries y aumenta acoplamiento transversal.
+- **Señal de detección:** lógica nueva de decisión de dominio (assault, hostility, truth ownership, negocio) implementada directamente en `world.gd`.
+- **Alternativa correcta:** mover la decisión al owner canónico (policy/service/coordinator de dominio) y dejar `world.gd` como wiring.
+
+## 8) `BanditWorkCoordinator` con nuevas responsabilidades de dominio
+
+- **Severidad:** `bloqueante`
+- **Por qué es peligroso:** convierte al coordinador en dueño semántico, duplicando reglas y erosionando separación coordinación vs dominio.
+- **Señal de detección:** `BanditWorkCoordinator` agrega reglas de negocio nuevas (criterios de assault/combat/social/territorio) fuera de owners de dominio existentes.
+- **Alternativa correcta:** mantener `BanditWorkCoordinator` como orquestador y delegar semántica en policies/servicios de dominio.
+
+---
+
+## 9) Segunda ruta de decisión para assault/combat/hostility
 
 - **Severidad:** `bloqueante`
 - **Por qué es peligroso:** duplica autoridad de decisión, provoca drift entre policies y rompe la trazabilidad del owner canónico.
@@ -103,9 +126,12 @@ Cada violación se evalúa por tipo explícito y tiene salida binaria de gate (`
 
 - [ ] No se introducen olores **bloqueantes** de esta blacklist.
 - [ ] Si hubo excepción temporal, existe plan de mitigación + ticket + fecha de retiro.
-- [ ] Todo fallback nuevo incluye owner, fecha límite y criterio de retiro.
-- [ ] Todo cambio nuevo declara owner de decisión y categoría de verdad cuando aplica.
+- [ ] Todo fallback/compat nuevo incluye owner, fecha límite y criterio de retiro.
+- [ ] Ningún cambio nuevo mete decisión semántica en `world.gd`.
+- [ ] `BanditWorkCoordinator` no suma responsabilidades de dominio.
+- [ ] Todo cambio nuevo declara owner de decisión (uno por decisión) y categoría de verdad para cada dato/campo nuevo cuando aplica.
 - [ ] Ningún patrón ya corregido en Sprint 1 reingresa en el PR.
+- [ ] Se mantiene checklist obligatoria hasta completar 2 sprints sin recaídas.
 
 ## Referencias normativas
 

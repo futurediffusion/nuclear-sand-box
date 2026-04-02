@@ -7,12 +7,18 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Evidencia lógica nueva en autoload:
 - Respuesta lógica global oculta: No
 - Evidencia lógica global oculta:
+- Respuesta duplicación de heurística crítica: No
+- Evidencia duplicación de heurística crítica:
 - Respuesta decisión duplicada (assault/combat/hostility): No
 - Evidencia decisión duplicada (assault/combat/hostility):
 - Respuesta debug mutando estado: No
 - Evidencia debug mutando estado:
 - Respuesta telemetry/debug fuera de canal controlado mutando estado: No
 - Evidencia telemetry/debug fuera de canal controlado mutando estado:
+- Respuesta nueva decisión semántica en world.gd: No
+- Evidencia nueva decisión semántica en world.gd:
+- Respuesta nuevas responsabilidades de dominio en BanditWorkCoordinator: No
+- Evidencia nuevas responsabilidades de dominio en BanditWorkCoordinator:
 - Respuesta cambio de estado nuevo en el PR: No
 - Owner de decisión tocada (obligatorio):
 - Categoría de verdad para datos/campos nuevos: no aplica
@@ -21,12 +27,13 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Justificación explícita si NO se usa Cadence en gameplay:
 - Registro de excepción temporal (si aplica): sin excepción
 - Fecha de retiro obligatoria (YYYY-MM-DD): 2099-12-31
-- Respuesta temporal/fallback/wrapper nuevo en este PR: No
+- Respuesta temporal/fallback/compat/wrapper nuevo en este PR: No
 - Owner de temporal nuevo (si aplica): no aplica
 - Fecha límite temporal nuevo (YYYY-MM-DD, si aplica): 2099-12-31
 - Condición de salida verificable de temporal nuevo (si aplica): no aplica
 - Criterio de done Sprint 1 (patrones corregidos no reingresan): Sí
 - Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR): Sí
+- Criterio continuidad checklist obligatoria (hasta completar 2 sprints sin recaídas): Sí
 
 ## Resumen
 - Describe brevemente el cambio y su impacto.
@@ -64,6 +71,12 @@ Fuentes de verdad:
   - Respuesta:
   - Dato/campo → categoría + owner:
   - Evidencia (ruta de código o nota de arquitectura):
+- [ ] **¿Se evita agregar decisiones semánticas nuevas en `scripts/world/world.gd`?**
+  - Respuesta:
+  - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
+- [ ] **¿`BanditWorkCoordinator` se mantiene sin nuevas responsabilidades de dominio?**
+  - Respuesta:
+  - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
 - [ ] **¿agrega comportamiento en autoload que debería vivir en un owner de dominio?**
   - Respuesta:
   - Evidencia de cumplimiento (ruta de código o nota de arquitectura):
@@ -97,6 +110,10 @@ Fuentes de verdad:
 - [ ] Acepto que toda violación bloqueante sin excepción aprobada deja este PR en **No Ready**.
 - [ ] Si hubo excepción temporal, quedó registrada en `docs/incidencias/registro-unico-deuda-tecnica.md`.
 - [ ] Confirmo que cada excepción temporal usada tiene fecha de retiro comprometida (`YYYY-MM-DD`).
+- [ ] Confirmo que cualquier compat/fallback/wrapper nuevo sin fecha de retiro deja el PR en **No Ready**.
+- [ ] Confirmo que decisión semántica nueva en `world.gd` deja el PR en **No Ready**.
+- [ ] Confirmo que nuevas responsabilidades de dominio en `BanditWorkCoordinator` dejan el PR en **No Ready**.
+- [ ] Confirmo que la checklist obligatoria se mantiene hasta completar 2 sprints sin recaídas.
 
 ## Evidencia global obligatoria
 - [ ] Incluí evidencia para todos los puntos (ruta de código o nota de arquitectura).

@@ -15,6 +15,10 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Evidencia debug mutando estado:
 - Respuesta telemetry/debug fuera de canal controlado mutando estado: No
 - Evidencia telemetry/debug fuera de canal controlado mutando estado:
+- Respuesta nueva decisión semántica en world.gd: No
+- Evidencia nueva decisión semántica en world.gd:
+- Respuesta nuevas responsabilidades de dominio en BanditWorkCoordinator: No
+- Evidencia nuevas responsabilidades de dominio en BanditWorkCoordinator:
 - Respuesta cambio de estado nuevo en el PR: No
 - Owner de decisión tocada (obligatorio):
 - Categoría de verdad para datos/campos nuevos: no aplica
@@ -23,12 +27,13 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - Justificación explícita si NO se usa Cadence en gameplay:
 - Registro de excepción temporal (si aplica): sin excepción
 - Fecha de retiro obligatoria (YYYY-MM-DD): 2099-12-31
-- Respuesta temporal/fallback/wrapper nuevo en este PR: No
+- Respuesta temporal/fallback/compat/wrapper nuevo en este PR: No
 - Owner de temporal nuevo (si aplica): no aplica
 - Fecha límite temporal nuevo (YYYY-MM-DD, si aplica): 2099-12-31
 - Condición de salida verificable de temporal nuevo (si aplica): no aplica
 - Criterio de done Sprint 1 (patrones corregidos no reingresan): Sí
 - Criterio de done anti-reversión (no volver al estado anterior por flujo normal de PR): Sí
+- Criterio continuidad checklist obligatoria (hasta completar 2 sprints sin recaídas): Sí
 
 ## Runtime Architecture Review (obligatorio)
 
@@ -40,6 +45,9 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - [ ] Si añade timer local: adjunté justificación aprobada con categoría `LOCAL_TIMER_BY_DESIGN` y fecha de revisión (`YYYY-MM-DD`).
 - [ ] Si el caso debía usar Cadence: existe excepción temporal aprobada y registrada en `docs/incidencias/registro-unico-deuda-tecnica.md`.
 - [ ] Acepto el criterio de bloqueo: cualquier “Sí” sin excepción aprobada deja el PR en **No Ready**.
+- [ ] Confirmo que no agregué decisiones semánticas nuevas en `scripts/world/world.gd`.
+- [ ] Confirmo que `BanditWorkCoordinator` no crece en responsabilidades de dominio.
+- [ ] Confirmo que la checklist obligatoria se mantiene hasta completar 2 sprints sin recaídas.
 
 
 ## Checklist anti-olores (bloqueante)
@@ -119,9 +127,13 @@ Completa **todas** las líneas (no dejar vacío). Este bloque es validado por CI
 - [ ] **Lógica global oculta** (`Respuesta lógica global oculta: Sí`) => **No Ready**.
 - [ ] **Telemetry/debug fuera de canal controlado mutando estado** (`Respuesta telemetry/debug fuera de canal controlado mutando estado: Sí`) => **No Ready**.
 - [ ] **Fallback/excepción temporal sin fecha de retiro** => **No Ready**.
+- [ ] **Compat/fallback/wrapper nuevo sin fecha de retiro** => **No Ready**.
 - [ ] **Temporal/fallback/wrapper nuevo sin owner + fecha límite + condición verificable** => **No Ready**.
+- [ ] **Decisión semántica nueva en `world.gd`** => **No Ready**.
+- [ ] **Nuevas responsabilidades de dominio en `BanditWorkCoordinator`** => **No Ready**.
 - [ ] **Criterio de done Sprint 1 en No** => **No Ready**.
 - [ ] **Criterio de done anti-reversión en No** => **No Ready**.
+- [ ] **Criterio continuidad checklist obligatoria en No (hasta 2 sprints sin recaídas)** => **No Ready**.
 
 ## Declaración de feature (obligatorio para features nuevas)
 
