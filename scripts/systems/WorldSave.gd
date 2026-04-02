@@ -61,6 +61,10 @@ var placed_entity_data_by_uid: Dictionary = {}
 ## Revisión estructural de placeables persistentes.
 ## Sube solo cuando cambia el set canónico (alta/baja/movimiento), no cuando cambia data por UID.
 var placed_entities_revision: int = 0
+## Serial monotónico de cambios estructurales de placeables (delta-friendly).
+var placed_entities_change_serial: int = 0
+const PLACED_ENTITIES_CHANGE_LOG_MAX: int = 256
+var _placed_entities_change_log: Array[Dictionary] = []
 
 const PLAYER_WALL_HP_KEY: String = "hp"
 
@@ -72,6 +76,13 @@ func add_placed_entity(entry: Dictionary) -> void:
 	var uid := String(entry.get("uid", ""))
 	if uid == "":
 		return
+	var previous_entry: Dictionary = {}
+	if placed_entity_chunk_by_uid.has(uid):
+		var prev_ckey := String(placed_entity_chunk_by_uid[uid])
+		if placed_entities_by_chunk.has(prev_ckey):
+			var prev_chunk_dict: Dictionary = placed_entities_by_chunk[prev_ckey]
+			if prev_chunk_dict.has(uid):
+				previous_entry = (prev_chunk_dict[uid] as Dictionary).duplicate(true)
 
 	var tx := int(entry.get("tile_pos_x", 0))
 	var ty := int(entry.get("tile_pos_y", 0))
@@ -96,6 +107,12 @@ func add_placed_entity(entry: Dictionary) -> void:
 	placed_entities_by_chunk[ckey][uid] = final_entry
 	placed_entity_chunk_by_uid[uid] = ckey
 	placed_entities_revision += 1
+	_record_placed_entities_change({
+		"op": "upsert",
+		"uid": uid,
+		"prev_entry": previous_entry,
+		"entry": final_entry.duplicate(true),
+	})
 
 func remove_placed_entity(uid: String) -> void:
 	if not placed_entity_chunk_by_uid.has(uid):
@@ -104,7 +121,11 @@ func remove_placed_entity(uid: String) -> void:
 		return
 
 	var ckey := String(placed_entity_chunk_by_uid[uid])
+	var previous_entry: Dictionary = {}
 	if placed_entities_by_chunk.has(ckey):
+		var chunk_dict: Dictionary = placed_entities_by_chunk[ckey]
+		if chunk_dict.has(uid):
+			previous_entry = (chunk_dict[uid] as Dictionary).duplicate(true)
 		placed_entities_by_chunk[ckey].erase(uid)
 		if placed_entities_by_chunk[ckey].is_empty():
 			placed_entities_by_chunk.erase(ckey)
@@ -112,11 +133,19 @@ func remove_placed_entity(uid: String) -> void:
 	placed_entity_chunk_by_uid.erase(uid)
 	erase_placed_entity_data(uid)
 	placed_entities_revision += 1
+	_record_placed_entities_change({
+		"op": "remove",
+		"uid": uid,
+		"prev_entry": previous_entry,
+	})
 
 func clear_placed_entities() -> void:
+	var had_entries: bool = not placed_entity_chunk_by_uid.is_empty()
 	placed_entities_by_chunk.clear()
 	placed_entity_chunk_by_uid.clear()
 	placed_entities_revision += 1
+	if had_entries:
+		_record_placed_entities_change({"op": "clear"})
 
 func get_placed_entities_in_chunk(cx: int, cy: int) -> Array[Dictionary]:
 	var ckey := chunk_key(cx, cy)
@@ -272,6 +301,44 @@ func list_player_walls_in_chunk(cx: int, cy: int) -> Array[Dictionary]:
 
 func clear_player_walls() -> void:
 	player_walls_by_chunk.clear()
+
+
+func get_placed_entities_changes_since(serial: int) -> Dictionary:
+	var since: int = maxi(serial, 0)
+	var latest: int = placed_entities_change_serial
+	if _placed_entities_change_log.is_empty():
+		return {
+			"latest_serial": latest,
+			"overflow": false,
+			"changes": [],
+		}
+	var first_serial: int = int(_placed_entities_change_log[0].get("serial", 1))
+	if since < first_serial - 1:
+		return {
+			"latest_serial": latest,
+			"overflow": true,
+			"changes": [],
+		}
+	var changes: Array[Dictionary] = []
+	for change in _placed_entities_change_log:
+		var change_serial: int = int((change as Dictionary).get("serial", 0))
+		if change_serial <= since:
+			continue
+		changes.append((change as Dictionary).duplicate(true))
+	return {
+		"latest_serial": latest,
+		"overflow": false,
+		"changes": changes,
+	}
+
+
+func _record_placed_entities_change(change: Dictionary) -> void:
+	placed_entities_change_serial += 1
+	var payload: Dictionary = change.duplicate(true)
+	payload["serial"] = placed_entities_change_serial
+	_placed_entities_change_log.append(payload)
+	if _placed_entities_change_log.size() > PLACED_ENTITIES_CHANGE_LOG_MAX:
+		_placed_entities_change_log.pop_front()
 
 func _player_wall_tile_key(tile_pos: Vector2i) -> String:
 	return "%d,%d" % [tile_pos.x, tile_pos.y]
