@@ -40,6 +40,7 @@ const RAID_LOCAL_WALL_STRIKE_RANGE_SQ: float = 164.0 * 164.0
 const RESOURCE_HIT_RECENCY_TICKS: int = 10
 const POST_HIT_CONTINUITY_WINDOW_TICKS: int = 3
 const POST_HIT_PICKUP_RETRY_LIMIT: int = 3
+const ENABLE_POST_DEPOSIT_RESUME_PHASE: bool = true
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
@@ -132,6 +133,10 @@ func setup(ctx: Dictionary) -> void:
 	_log_worker_event_cb = ctx.get("log_worker_event_cb", Callable())
 	_is_worker_instrumentation_enabled_cb = ctx.get("is_worker_instrumentation_enabled_cb", Callable())
 	_instrumentation_enabled = bool(ctx.get("worker_instrumentation_enabled", true))
+	if _stash != null:
+		_stash.set_work_context({
+			"on_deposit_closed_cb": Callable(self, "notify_deposit_closed"),
+		})
 
 
 func get_work_tick_seq() -> int:
@@ -212,15 +217,56 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 	if beh.cargo_count > 0:
 		_request_return_home(beh, "cargo_loaded")
 
-	var had_cargo_before_deposit: bool = beh.cargo_count > 0
 	_stash.handle_cargo_deposit(beh, enemy_node)
-	if had_cargo_before_deposit and beh.cargo_count <= 0:
-		var current: int = int(_full_cycles_by_member.get(beh.member_id, 0))
-		_full_cycles_by_member[beh.member_id] = current + 1
-		_emit_worker_event("work_cycle_resumed", beh, member_pos, "", {
-			"cycle_count": current + 1,
+
+
+func _reactivate_resource_search(beh: BanditWorldBehavior, resume_pos: Vector2) -> void:
+	if beh == null:
+		return
+	beh.pending_collect_id = 0
+	beh.pending_mine_id = 0
+	var resource_id: int = int(beh.last_valid_resource_node_id)
+	if resource_id == 0:
+		resource_id = int(beh._resource_node_id)
+	if resource_id == 0 or not is_instance_id_valid(resource_id):
+		_emit_worker_event("resource_reactivation_skipped", beh, resume_pos, "", {
+			"reason": "missing_or_invalid_resource_id",
+			"last_valid_resource_id": int(beh.last_valid_resource_node_id),
 		})
-		_complete_work_cycle(beh)
+		return
+	beh.enter_resource_watch(_resolve_resource_center(beh, null), resource_id)
+	_emit_worker_event("resource_reactivated", beh, resume_pos, str(resource_id), {
+		"reason": "post_deposit_resume",
+	})
+
+
+func _resume_after_deposit_closed(beh: BanditWorldBehavior, deposit_pos: Vector2, had_cargo: bool) -> void:
+	if beh == null or not had_cargo:
+		return
+	var current: int = int(_full_cycles_by_member.get(beh.member_id, 0))
+	_full_cycles_by_member[beh.member_id] = current + 1
+	_emit_worker_event("work_cycle_resumed", beh, deposit_pos, "", {
+		"cycle_count": current + 1,
+		"source": "deposit_closed",
+	})
+	if ENABLE_POST_DEPOSIT_RESUME_PHASE:
+		_reactivate_resource_search(beh, deposit_pos)
+	else:
+		_emit_worker_event("work_cycle_resume_rollback", beh, deposit_pos, "", {
+			"reason": "post_deposit_resume_phase_disabled",
+		})
+	_complete_work_cycle(beh)
+
+
+func notify_deposit_closed(beh: BanditWorldBehavior, deposit_pos: Vector2,
+		outcome: String, had_cargo: bool) -> void:
+	if beh == null:
+		return
+	_emit_worker_event("deposit_closed_ack", beh, deposit_pos, "", {
+		"outcome": outcome,
+		"had_cargo": had_cargo,
+	})
+	_resume_after_deposit_closed(beh, deposit_pos, had_cargo)
 
 
 func _resolve_resource_center(beh: BanditWorldBehavior, enemy_node: Node) -> Vector2:
