@@ -310,23 +310,33 @@ func _pick_best_interest(markers: Array, bases: Array) -> Dictionary:
 	if not bases.is_empty():
 		var b: Dictionary = bases[0] as Dictionary
 		return {"pos": b.get("center_world_pos", Vector2.ZERO), "kind": "base_detected"}
-	var best_wb: Dictionary  = {}
-	var best_st: Dictionary  = {}
-	var best_act: Dictionary = {}
+	var has_workbench: bool = false
+	var workbench_pos: Vector2 = Vector2.ZERO
+	var has_structure: bool = false
+	var structure_pos: Vector2 = Vector2.ZERO
+	var has_activity: bool = false
+	var activity_pos: Vector2 = Vector2.ZERO
+	var activity_kind: String = ""
 	for m in markers:
 		var kind: String  = String(m.get("kind", ""))
 		var pos: Vector2  = m.get("world_pos", Vector2.ZERO)
-		if kind == "workbench" and best_wb.is_empty():
-			best_wb = {"pos": pos, "kind": kind}
-		elif kind == "structure_placed" and best_st.is_empty():
-			best_st = {"pos": pos, "kind": kind}
-		elif best_act.is_empty():
-			best_act = {"pos": pos, "kind": kind}
-	if not best_wb.is_empty():
-		return best_wb
-	if not best_st.is_empty():
-		return best_st
-	return best_act
+		if kind == "workbench" and not has_workbench:
+			has_workbench = true
+			workbench_pos = pos
+		elif kind == "structure_placed" and not has_structure:
+			has_structure = true
+			structure_pos = pos
+		elif not has_activity:
+			has_activity = true
+			activity_pos = pos
+			activity_kind = kind
+	if has_workbench:
+		return {"pos": workbench_pos, "kind": "workbench"}
+	if has_structure:
+		return {"pos": structure_pos, "kind": "structure_placed"}
+	if has_activity:
+		return {"pos": activity_pos, "kind": activity_kind}
+	return {}
 
 
 # ---------------------------------------------------------------------------
