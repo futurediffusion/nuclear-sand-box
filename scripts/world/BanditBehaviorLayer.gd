@@ -161,6 +161,10 @@ const IDLE_CHAT_COOLDOWN_MAX: float = 200.0
 ## Distancia mï¿½fÂ­nima al jugador para soltar frases ambientales (que no suene a reacciï¿½fÂ³n).
 const IDLE_CHAT_PLAYER_DIST_MIN_SQ: float = 280.0 * 280.0
 
+class GroupMemberBuffer:
+	var nodes: Array = []
+	var positions: Array[Vector2] = []
+
 var _npc_simulator:  NpcSimulator             = null
 var _group_intel:    BanditGroupIntel         = null
 var _player:         Node2D                   = null
@@ -311,27 +315,34 @@ func _physics_process(_delta: float) -> void:
 			node.velocity = vel.normalized() * (vel.length() + BanditTuningScript.friction_compensation())
 		if behavior.group_id != "":
 			if not group_nodes.has(behavior.group_id):
-				group_nodes[behavior.group_id] = []
-			group_nodes[behavior.group_id].append({"node": node, "pos": node.global_position})
+				group_nodes[behavior.group_id] = GroupMemberBuffer.new()
+			var member_buffer: GroupMemberBuffer = group_nodes[behavior.group_id] as GroupMemberBuffer
+			member_buffer.nodes.append(node)
+			member_buffer.positions.append(node.global_position)
 
 	# Pass 2: ally separation
 	for gid in group_nodes:
-		var members: Array = group_nodes[gid]
-		if members.size() < 2:
+		var member_buffer: GroupMemberBuffer = group_nodes[gid] as GroupMemberBuffer
+		if member_buffer == null:
 			continue
-		for i in members.size():
-			var a: Dictionary = members[i]
+		var member_count: int = member_buffer.nodes.size()
+		if member_count < 2:
+			continue
+		for i in member_count:
+			var a_pos: Vector2 = member_buffer.positions[i]
+			var a_node = member_buffer.nodes[i]
 			var sep: Vector2 = Vector2.ZERO
-			for j in members.size():
+			for j in member_count:
 				if i == j:
 					continue
-				var diff: Vector2 = (a["pos"] as Vector2) - (members[j]["pos"] as Vector2)
+				var diff: Vector2 = a_pos - member_buffer.positions[j]
 				var d: float = diff.length()
 				if d < BanditTuningScript.ally_sep_radius() and d > 0.5:
 					sep += diff.normalized() * (BanditTuningScript.ally_sep_radius() - d) \
 						/ BanditTuningScript.ally_sep_radius() * BanditTuningScript.ally_sep_force()
 			if sep.length_squared() > 0.01:
-				a["node"].velocity += sep
+				if a_node != null:
+					a_node.velocity += sep
 
 	if _extortion_director != null:
 		_extortion_director.apply_extortion_movement(BanditTuningScript.friction_compensation())

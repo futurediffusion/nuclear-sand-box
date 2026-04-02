@@ -230,7 +230,8 @@ func _scan_workbenches() -> void:
 	while i >= 0:
 		var m: Dictionary = _markers[i]
 		if m.get("kind", "") == "workbench":
-			var uid: String = String(m.get("metadata", {}).get("uid", ""))
+			var metadata: Dictionary = m.get("metadata", {}) as Dictionary
+			var uid: String = String(metadata.get("uid", ""))
 			if uid != "" and not live_uids.has(uid):
 				Debug.log("intel", "[MARKER] persistent removed kind=workbench uid=%s" % uid)
 				_markers.remove_at(i)
@@ -240,7 +241,8 @@ func _scan_workbenches() -> void:
 	var existing_uids: Dictionary = {}
 	for m in _markers:
 		if m.get("kind", "") == "workbench":
-			var uid: String = String(m.get("metadata", {}).get("uid", ""))
+			var metadata: Dictionary = m.get("metadata", {}) as Dictionary
+			var uid: String = String(metadata.get("uid", ""))
 			if uid != "":
 				existing_uids[uid] = true
 
