@@ -171,6 +171,14 @@ class TickScanBuffers:
 	var resources: Array[Dictionary] = []
 	var ctx: Dictionary = {}
 
+class StructureWorkBuffers:
+	var wall_samples: Array[Vector2] = []
+	var wall_rows: Array[Dictionary] = []
+	var clustered_rows: Array[Dictionary] = []
+	var dispatch_rows: Array[Dictionary] = []
+	var member_query_centers: Array[Vector2] = []
+	var member_candidates: Array[Vector2] = []
+
 var _npc_simulator:  NpcSimulator             = null
 var _group_intel:    BanditGroupIntel         = null
 var _player:         Node2D                   = null
@@ -203,6 +211,7 @@ var _dispatch_log_next_at: Dictionary            = {}
 var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
 var _tick_scan_buffers: TickScanBuffers          = TickScanBuffers.new()
+var _structure_work_buffers: StructureWorkBuffers = StructureWorkBuffers.new()
 var _method_caps: MethodCapabilityCache          = MethodCapabilityCacheScript.new()
 
 
@@ -980,8 +989,10 @@ func _build_structure_target_pool(anchor_pos: Vector2) -> Array[Vector2]:
 	var pool: Array[Vector2] = []
 	# Prioridad: primero distribuir puntos de pared reales para evitar
 	# convergencia artificial en una sola punta/ancla.
-	_append_scored_wall_samples(pool, _collect_wall_samples(anchor_pos), anchor_pos)
-	for center in _build_structure_query_centers(anchor_pos, anchor_pos):
+	_fill_wall_samples_buffer(anchor_pos, _structure_work_buffers.wall_samples)
+	_append_scored_wall_samples(pool, _structure_work_buffers.wall_samples, anchor_pos)
+	_fill_structure_query_centers_buffer(anchor_pos, anchor_pos, _structure_work_buffers.member_query_centers)
+	for center in _structure_work_buffers.member_query_centers:
 		# Los walls ya vienen del sampler dedicado; aquí solo sumar
 		# placeables/contenedores para evitar queries redundantes de pared.
 		_append_structure_candidates_for_center(pool, center, STRUCTURE_MEMBER_QUERY_RADIUS, false)
@@ -992,8 +1003,8 @@ func _build_structure_target_pool(anchor_pos: Vector2) -> Array[Vector2]:
 	return pool
 
 
-func _collect_wall_samples(anchor_pos: Vector2) -> Array[Vector2]:
-	var out: Array[Vector2] = []
+func _fill_wall_samples_buffer(anchor_pos: Vector2, out: Array[Vector2]) -> void:
+	out.clear()
 	if _find_wall_samples_cb.is_valid():
 		var sampled: Variant = _find_wall_samples_cb.call(
 			anchor_pos,
@@ -1010,9 +1021,9 @@ func _collect_wall_samples(anchor_pos: Vector2) -> Array[Vector2]:
 					continue
 				out.append(pos)
 	if not out.is_empty():
-		return out
+		return
 	if not _find_wall_cb.is_valid():
-		return out
+		return
 	for gy in range(-STRUCTURE_WALL_SAMPLE_GRID_HALF_STEPS, STRUCTURE_WALL_SAMPLE_GRID_HALF_STEPS + 1):
 		for gx in range(-STRUCTURE_WALL_SAMPLE_GRID_HALF_STEPS, STRUCTURE_WALL_SAMPLE_GRID_HALF_STEPS + 1):
 			var center: Vector2 = anchor_pos + Vector2(float(gx), float(gy)) * STRUCTURE_WALL_SAMPLE_STEP
@@ -1027,13 +1038,13 @@ func _collect_wall_samples(anchor_pos: Vector2) -> Array[Vector2]:
 			if duplicate:
 				continue
 			out.append(wall_pos)
-	return out
 
 
 func _append_scored_wall_samples(pool: Array[Vector2], wall_samples: Array[Vector2], anchor_pos: Vector2) -> void:
 	if wall_samples.is_empty():
 		return
-	var rows: Array[Dictionary] = []
+	var rows: Array[Dictionary] = _structure_work_buffers.wall_rows
+	rows.clear()
 	for i in range(wall_samples.size()):
 		var pos: Vector2 = wall_samples[i]
 		var support: int = 0
@@ -1074,7 +1085,8 @@ func _append_scored_wall_samples(pool: Array[Vector2], wall_samples: Array[Vecto
 			if row_dsq < prev_dsq:
 				clustered[key] = row
 
-	var clustered_rows: Array[Dictionary] = []
+	var clustered_rows: Array[Dictionary] = _structure_work_buffers.clustered_rows
+	clustered_rows.clear()
 	for raw_key in clustered.keys():
 		var row_any: Variant = clustered.get(raw_key)
 		if row_any is Dictionary:
@@ -1121,7 +1133,8 @@ func _sort_wall_rows_by_priority(rows: Array[Dictionary]) -> void:
 
 func _collect_live_structure_dispatch_member_ids(group_id: String, target_pos: Vector2,
 		cap: int) -> Array[String]:
-	var rows: Array[Dictionary] = []
+	var rows: Array[Dictionary] = _structure_work_buffers.dispatch_rows
+	rows.clear()
 	var seen: Dictionary = {}
 	for eid in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[eid]
@@ -1320,8 +1333,10 @@ func _is_structure_target_still_valid(target_pos: Vector2) -> bool:
 
 func _resolve_member_assault_target(member_pos: Vector2, anchor_pos: Vector2,
 		claimed_targets: Array) -> Vector2:
-	var query_centers: Array[Vector2] = _build_structure_query_centers(member_pos, anchor_pos)
-	var candidates: Array[Vector2] = []
+	var query_centers: Array[Vector2] = _structure_work_buffers.member_query_centers
+	_fill_structure_query_centers_buffer(member_pos, anchor_pos, query_centers)
+	var candidates: Array[Vector2] = _structure_work_buffers.member_candidates
+	candidates.clear()
 	for center in query_centers:
 		_append_structure_candidates_for_center(candidates, center, STRUCTURE_MEMBER_QUERY_RADIUS)
 		if candidates.size() >= STRUCTURE_MEMBER_CANDIDATE_LIMIT:
@@ -1364,9 +1379,16 @@ func _append_structure_candidates_for_center(out: Array[Vector2], center: Vector
 
 
 func _build_structure_query_centers(member_pos: Vector2, anchor_pos: Vector2) -> Array[Vector2]:
-	var centers: Array[Vector2] = [member_pos]
+	var centers: Array[Vector2] = []
+	_fill_structure_query_centers_buffer(member_pos, anchor_pos, centers)
+	return centers
+
+
+func _fill_structure_query_centers_buffer(member_pos: Vector2, anchor_pos: Vector2, out: Array[Vector2]) -> void:
+	out.clear()
+	out.append(member_pos)
 	if member_pos.distance_squared_to(anchor_pos) > 1.0:
-		centers.append(anchor_pos)
+		out.append(anchor_pos)
 	var ring_dirs: Array[Vector2] = [
 		Vector2.RIGHT,
 		Vector2.LEFT,
@@ -1378,10 +1400,9 @@ func _build_structure_query_centers(member_pos: Vector2, anchor_pos: Vector2) ->
 		Vector2(-1.0, -1.0).normalized(),
 	]
 	for dir in ring_dirs:
-		centers.append(member_pos + dir * STRUCTURE_MEMBER_QUERY_RING_RADIUS)
+		out.append(member_pos + dir * STRUCTURE_MEMBER_QUERY_RING_RADIUS)
 		if member_pos.distance_squared_to(anchor_pos) > 1.0:
-			centers.append(anchor_pos + dir * STRUCTURE_MEMBER_QUERY_RING_RADIUS)
-	return centers
+			out.append(anchor_pos + dir * STRUCTURE_MEMBER_QUERY_RING_RADIUS)
 
 
 func _try_append_structure_candidate(out: Array[Vector2], finder: Callable, center: Vector2,
