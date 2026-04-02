@@ -165,6 +165,11 @@ class GroupMemberBuffer:
 	var nodes: Array = []
 	var positions: Array[Vector2] = []
 
+class TickScanBuffers:
+	var drops: Array[Dictionary] = []
+	var resources: Array[Dictionary] = []
+	var ctx: Dictionary = {}
+
 var _npc_simulator:  NpcSimulator             = null
 var _group_intel:    BanditGroupIntel         = null
 var _player:         Node2D                   = null
@@ -196,6 +201,7 @@ var _structure_cache_gc_at: float                = 0.0
 var _dispatch_log_next_at: Dictionary            = {}
 var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
+var _tick_scan_buffers: TickScanBuffers          = TickScanBuffers.new()
 
 
 # ---------------------------------------------------------------------------
@@ -446,15 +452,17 @@ func _tick_behaviors() -> void:
 		# NPC haya movido, disparando stuck detection de forma falsa.
 		_behavior_elapsed[enemy_id] = 0.0
 
-		var ctx: Dictionary = {
-			"node_pos":                       node_pos,
-			"nearby_drops_info":              _build_drops_info(node_pos, drop_nodes_snapshot),
-			"nearby_res_info":                _build_res_info(node_pos, res_nodes_snapshot),
-			"find_nearest_player_wall":       _find_wall_cb,
-			"find_nearest_player_workbench":  _find_workbench_cb,
-			"find_nearest_player_storage":    _find_storage_cb,
-			"find_nearest_player_placeable":  _find_placeable_cb,
-		}
+		_fill_drops_info_buffer(node_pos, drop_nodes_snapshot, _tick_scan_buffers.drops)
+		_fill_res_info_buffer(node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
+		var ctx: Dictionary = _tick_scan_buffers.ctx
+		ctx.clear()
+		ctx["node_pos"] = node_pos
+		ctx["nearby_drops_info"] = _tick_scan_buffers.drops
+		ctx["nearby_res_info"] = _tick_scan_buffers.resources
+		ctx["find_nearest_player_wall"] = _find_wall_cb
+		ctx["find_nearest_player_workbench"] = _find_workbench_cb
+		ctx["find_nearest_player_storage"] = _find_storage_cb
+		ctx["find_nearest_player_placeable"] = _find_placeable_cb
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
 
@@ -478,9 +486,9 @@ func _tick_behaviors() -> void:
 # ctx builders
 # ---------------------------------------------------------------------------
 
-func _build_drops_info(node_pos: Vector2, all_drops: Array) -> Array:
-	var result: Array = []
+func _fill_drops_info_buffer(node_pos: Vector2, all_drops: Array, out: Array[Dictionary]) -> void:
 	var r2: float = BanditTuningScript.loot_scan_radius_sq()
+	var write_idx: int = 0
 	for drop in all_drops:
 		var drop_node := drop as Node2D
 		if drop_node == null or not is_instance_valid(drop_node) \
@@ -488,17 +496,24 @@ func _build_drops_info(node_pos: Vector2, all_drops: Array) -> Array:
 			continue
 		if node_pos.distance_squared_to(drop_node.global_position) > r2:
 			continue
-		result.append({
-			"id":     drop_node.get_instance_id(),
-			"pos":    drop_node.global_position,
-			"amount": int(drop_node.get("amount") if drop_node.get("amount") != null else 1),
-		})
-	return result
+		var info: Dictionary
+		if write_idx < out.size():
+			info = out[write_idx]
+			info.clear()
+		else:
+			info = {}
+			out.append(info)
+		info["id"] = drop_node.get_instance_id()
+		info["pos"] = drop_node.global_position
+		info["amount"] = int(drop_node.get("amount") if drop_node.get("amount") != null else 1)
+		write_idx += 1
+	if write_idx < out.size():
+		out.resize(write_idx)
 
 
-func _build_res_info(node_pos: Vector2, all_resources: Array) -> Array:
-	var result: Array = []
+func _fill_res_info_buffer(node_pos: Vector2, all_resources: Array, out: Array[Dictionary]) -> void:
 	var r2: float = BanditTuningScript.resource_scan_radius_sq()
+	var write_idx: int = 0
 	for res in all_resources:
 		var res_node := res as Node2D
 		if res_node == null or not is_instance_valid(res_node) \
@@ -506,8 +521,18 @@ func _build_res_info(node_pos: Vector2, all_resources: Array) -> Array:
 			continue
 		if node_pos.distance_squared_to(res_node.global_position) > r2:
 			continue
-		result.append({"pos": res_node.global_position, "id": res_node.get_instance_id()})
-	return result
+		var info: Dictionary
+		if write_idx < out.size():
+			info = out[write_idx]
+			info.clear()
+		else:
+			info = {}
+			out.append(info)
+		info["pos"] = res_node.global_position
+		info["id"] = res_node.get_instance_id()
+		write_idx += 1
+	if write_idx < out.size():
+		out.resize(write_idx)
 
 
 func _get_all_drop_nodes() -> Array:

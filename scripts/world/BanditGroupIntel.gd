@@ -26,6 +26,13 @@ const W_CHOP: float           =  2.0
 const SimulationLODPolicyScript := preload("res://scripts/world/SimulationLODPolicy.gd")
 const AIComponentScript         := preload("res://scripts/components/AIComponent.gd")
 
+class GroupLodSignals:
+	var is_in_direct_combat: bool = false
+	var was_recently_engaged: bool = false
+	var is_alerted_to_player_activity: bool = false
+	var is_pursuing_pressure: bool = false
+	var is_runtime_busy_but_not_combat: bool = false
+
 var _get_markers_near: Callable
 var _get_bases_near: Callable
 var _npc_simulator: NpcSimulator
@@ -38,6 +45,7 @@ var _intent_policy := BanditIntentPolicy.new()
 var _scan_accumulator_by_group: Dictionary = {}
 var _lod_debug_last_group: Dictionary = {}
 var _lod_debug_group_counts: Dictionary = {"fast": 0, "medium": 0, "slow": 0}
+var _group_lod_signals: GroupLodSignals = GroupLodSignals.new()
 
 
 # ---------------------------------------------------------------------------
@@ -78,11 +86,11 @@ func _scan_group_slice() -> void:
 		_scan_cursor = 0
 		_scan_accumulator_by_group.clear()
 		_lod_debug_last_group.clear()
-		_lod_debug_group_counts = {"fast": 0, "medium": 0, "slow": 0}
+		_reset_lod_group_counts()
 		return
 	_prune_removed_groups(group_ids)
 	_lod_debug_last_group.clear()
-	_lod_debug_group_counts = {"fast": 0, "medium": 0, "slow": 0}
+	_reset_lod_group_counts()
 	var per_slice: int = maxi(1, int(ceil(float(group_ids.size()) / float(maxi(GROUP_SCAN_SLICE_COUNT, 1)))))
 	for _i in per_slice:
 		if group_ids.is_empty():
@@ -132,47 +140,41 @@ func _get_group_scan_interval(group_id: String, g: Dictionary) -> float:
 		if leader != null and leader.has_method("is_on_screen"):
 			is_visible = bool(leader.is_on_screen())
 	var current_intent: String = String(g.get("current_group_intent", "idle"))
-	var group_signals: Dictionary = _get_group_lod_signals(leader, current_intent, g)
+	var group_signals: GroupLodSignals = _get_group_lod_signals(leader, current_intent, g)
 	var lod_debug: Dictionary = SimulationLODPolicyScript.get_bandit_group_scan_debug({
 		"base_interval": BanditTuning.group_scan_interval(),
 		"distance_to_player": distance_to_player,
 		"intent": current_intent,
 		"is_visible": is_visible,
-		"in_combat": bool(group_signals.get("is_in_direct_combat", false)),
-		"recently_engaged": bool(group_signals.get("was_recently_engaged", false)),
-		"has_player_signal": bool(group_signals.get("is_alerted_to_player_activity", false)),
+		"in_combat": group_signals.is_in_direct_combat,
+		"recently_engaged": group_signals.was_recently_engaged,
+		"has_player_signal": group_signals.is_alerted_to_player_activity,
 		"has_base_signal": String(g.get("last_interest_kind", "")) == "base_detected",
 	})
 	_record_group_lod_debug(group_id, current_intent, lod_debug, group_signals)
 	return float(lod_debug.get("interval", BanditTuning.group_scan_interval()))
 
 
-func _get_group_lod_signals(leader: Node, current_intent: String, g: Dictionary) -> Dictionary:
+func _get_group_lod_signals(leader: Node, current_intent: String, g: Dictionary) -> GroupLodSignals:
 	var _let: Variant = leader.get("last_engaged_time") if leader != null else null
 	var last_engaged_time: float = float(_let) if _let != null else 0.0
-	var was_recently_engaged: bool = SimulationLODPolicyScript.was_recently_engaged(last_engaged_time)
+	_group_lod_signals.was_recently_engaged = SimulationLODPolicyScript.was_recently_engaged(last_engaged_time)
 	var ai_comp = leader.get("ai_component") if leader != null else null
 	var current_state: int = int(ai_comp.get("current_state")) if ai_comp != null else -1
 	var current_target = ai_comp.get_current_target() if ai_comp != null and ai_comp.has_method("get_current_target") else null
 	var has_active_target: bool = current_target != null and is_instance_valid(current_target)
-	var is_in_direct_combat: bool = current_state == AIComponentScript.AIState.CHASE \
+	_group_lod_signals.is_in_direct_combat = current_state == AIComponentScript.AIState.CHASE \
 			or current_state == AIComponentScript.AIState.ATTACK \
 			or has_active_target
-	var is_alerted_to_player_activity: bool = current_intent != "idle" or String(g.get("last_interest_kind", "")) != ""
-	var is_pursuing_pressure: bool = current_intent == "hunting" or current_intent == "raiding" or current_intent == "extorting"
-	var is_runtime_busy_but_not_combat: bool = false
-	if leader != null and not is_in_direct_combat:
-		is_runtime_busy_but_not_combat = bool(leader.has_method("is_world_behavior_eligible") and not leader.is_world_behavior_eligible())
-	return {
-		"is_in_direct_combat": is_in_direct_combat,
-		"was_recently_engaged": was_recently_engaged,
-		"is_alerted_to_player_activity": is_alerted_to_player_activity,
-		"is_pursuing_pressure": is_pursuing_pressure,
-		"is_runtime_busy_but_not_combat": is_runtime_busy_but_not_combat,
-	}
+	_group_lod_signals.is_alerted_to_player_activity = current_intent != "idle" or String(g.get("last_interest_kind", "")) != ""
+	_group_lod_signals.is_pursuing_pressure = current_intent == "hunting" or current_intent == "raiding" or current_intent == "extorting"
+	_group_lod_signals.is_runtime_busy_but_not_combat = false
+	if leader != null and not _group_lod_signals.is_in_direct_combat:
+		_group_lod_signals.is_runtime_busy_but_not_combat = bool(leader.has_method("is_world_behavior_eligible") and not leader.is_world_behavior_eligible())
+	return _group_lod_signals
 
 
-func _record_group_lod_debug(group_id: String, current_intent: String, lod_debug: Dictionary, group_signals: Dictionary) -> void:
+func _record_group_lod_debug(group_id: String, current_intent: String, lod_debug: Dictionary, group_signals: GroupLodSignals) -> void:
 	var bucket: String = String(lod_debug.get("bucket", "medium"))
 	_lod_debug_group_counts[bucket] = int(_lod_debug_group_counts.get(bucket, 0)) + 1
 	_lod_debug_last_group[group_id] = {
@@ -180,11 +182,11 @@ func _record_group_lod_debug(group_id: String, current_intent: String, lod_debug
 		"interval": float(lod_debug.get("interval", BanditTuning.group_scan_interval())),
 		"bucket": bucket,
 		"dominant_reason": String(lod_debug.get("dominant_reason", "baseline")),
-		"is_in_direct_combat": bool(group_signals.get("is_in_direct_combat", false)),
-		"was_recently_engaged": bool(group_signals.get("was_recently_engaged", false)),
-		"is_alerted_to_player_activity": bool(group_signals.get("is_alerted_to_player_activity", false)),
-		"is_pursuing_pressure": bool(group_signals.get("is_pursuing_pressure", false)),
-		"is_runtime_busy_but_not_combat": bool(group_signals.get("is_runtime_busy_but_not_combat", false)),
+		"is_in_direct_combat": group_signals.is_in_direct_combat,
+		"was_recently_engaged": group_signals.was_recently_engaged,
+		"is_alerted_to_player_activity": group_signals.is_alerted_to_player_activity,
+		"is_pursuing_pressure": group_signals.is_pursuing_pressure,
+		"is_runtime_busy_but_not_combat": group_signals.is_runtime_busy_but_not_combat,
 	}
 	if _is_lod_debug_logging_enabled():
 		Debug.log("bandit_lod", "[BanditLOD][group] group=%s interval=%.2f bucket=%s reason=%s combat=%s engaged=%s alert=%s pursue=%s" % [
@@ -192,11 +194,17 @@ func _record_group_lod_debug(group_id: String, current_intent: String, lod_debug
 			float(lod_debug.get("interval", 0.0)),
 			bucket,
 			String(lod_debug.get("dominant_reason", "baseline")),
-			str(bool(group_signals.get("is_in_direct_combat", false))),
-			str(bool(group_signals.get("was_recently_engaged", false))),
-			str(bool(group_signals.get("is_alerted_to_player_activity", false))),
-			str(bool(group_signals.get("is_pursuing_pressure", false))),
+			str(group_signals.is_in_direct_combat),
+			str(group_signals.was_recently_engaged),
+			str(group_signals.is_alerted_to_player_activity),
+			str(group_signals.is_pursuing_pressure),
 		])
+
+
+func _reset_lod_group_counts() -> void:
+	_lod_debug_group_counts["fast"] = 0
+	_lod_debug_group_counts["medium"] = 0
+	_lod_debug_group_counts["slow"] = 0
 
 
 func get_lod_debug_snapshot() -> Dictionary:

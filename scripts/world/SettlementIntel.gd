@@ -29,6 +29,10 @@ const _CARDINALS: Array[Vector2i] = [
 	Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
 ]
 
+class FloodFillResult:
+	var tiles: Array[Vector2i] = []
+	var escaped: bool = false
+
 # --- Interest marker state ---
 var _markers: Array[Dictionary] = []
 var _elapsed: float = 0.0
@@ -46,6 +50,7 @@ var _tile_to_world_cb: Callable
 var _player_pos_getter: Callable
 var _cadence: WorldCadenceCoordinator
 var _world_spatial_index: WorldSpatialIndex
+var _flood_result: FloodFillResult = FloodFillResult.new()
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +235,8 @@ func _scan_workbenches() -> void:
 	while i >= 0:
 		var m: Dictionary = _markers[i]
 		if m.get("kind", "") == "workbench":
-			var metadata: Dictionary = m.get("metadata", {}) as Dictionary
-			var uid: String = String(metadata.get("uid", ""))
+			var metadata_variant: Variant = m.get("metadata", null)
+			var uid: String = String((metadata_variant as Dictionary).get("uid", "")) if metadata_variant is Dictionary else ""
 			if uid != "" and not live_uids.has(uid):
 				Debug.log("intel", "[MARKER] persistent removed kind=workbench uid=%s" % uid)
 				_markers.remove_at(i)
@@ -241,8 +246,8 @@ func _scan_workbenches() -> void:
 	var existing_uids: Dictionary = {}
 	for m in _markers:
 		if m.get("kind", "") == "workbench":
-			var metadata: Dictionary = m.get("metadata", {}) as Dictionary
-			var uid: String = String(metadata.get("uid", ""))
+			var metadata_variant: Variant = m.get("metadata", null)
+			var uid: String = String((metadata_variant as Dictionary).get("uid", "")) if metadata_variant is Dictionary else ""
 			if uid != "":
 				existing_uids[uid] = true
 
@@ -368,11 +373,11 @@ func _try_detect_base_at_door(door_tile: Vector2i) -> Dictionary:
 	# Flood fill from each free neighbor — keep the largest contained region
 	var best_tiles: Array[Vector2i] = []
 	for start in free_neighbors:
-		var result := _flood_fill(start, wall_set, door_tile, min_tile, max_tile)
-		if not result["escaped"]:
-			var tiles: Array[Vector2i] = result["tiles"]
-			if tiles.size() >= MIN_INTERIOR_TILES and tiles.size() > best_tiles.size():
-				best_tiles = tiles
+		_flood_fill(start, wall_set, door_tile, min_tile, max_tile, _flood_result)
+		if not _flood_result.escaped \
+				and _flood_result.tiles.size() >= MIN_INTERIOR_TILES \
+				and _flood_result.tiles.size() > best_tiles.size():
+			best_tiles = _flood_result.tiles.duplicate()
 
 	if best_tiles.is_empty():
 		return {}
@@ -425,24 +430,21 @@ func _build_wall_set_in_window(min_tile: Vector2i, max_tile: Vector2i) -> Dictio
 
 
 # BFS flood fill from `start`. Treats wall_set tiles and door_tile as blockers.
-# Returns {"tiles": Array[Vector2i], "escaped": bool}.
 # "escaped" = true if the fill reached outside [min_tile, max_tile].
 func _flood_fill(start: Vector2i, wall_set: Dictionary, door_tile: Vector2i,
-		min_tile: Vector2i, max_tile: Vector2i) -> Dictionary:
-
-	var empty: Array[Vector2i] = []
+		min_tile: Vector2i, max_tile: Vector2i, out: FloodFillResult) -> void:
+	out.tiles.clear()
+	out.escaped = false
 	if wall_set.has(start) or start == door_tile:
-		return {"tiles": empty, "escaped": false}
+		return
 
 	var visited: Dictionary = {}
-	var tiles: Array[Vector2i] = []
 	visited[start] = true
-	tiles.append(start)
+	out.tiles.append(start)
 	var head := 0
-	var escaped := false
 
-	while head < tiles.size() and not escaped:
-		var curr := tiles[head]
+	while head < out.tiles.size() and not out.escaped:
+		var curr := out.tiles[head]
 		head += 1
 		for d in _CARDINALS:
 			var nb := curr + d
@@ -450,12 +452,10 @@ func _flood_fill(start: Vector2i, wall_set: Dictionary, door_tile: Vector2i,
 				continue
 			if nb.x < min_tile.x or nb.x > max_tile.x \
 					or nb.y < min_tile.y or nb.y > max_tile.y:
-				escaped = true
+				out.escaped = true
 				break
 			visited[nb] = true
-			tiles.append(nb)
-
-	return {"tiles": tiles, "escaped": escaped}
+			out.tiles.append(nb)
 
 
 func _compute_bounds(tiles: Array[Vector2i]) -> Rect2i:
