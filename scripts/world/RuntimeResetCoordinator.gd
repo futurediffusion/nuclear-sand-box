@@ -22,6 +22,15 @@ extends RefCounted
 ## - Side effects permitidos:
 ##   * Mutar estado global runtime de sistemas de dominio/tiempo/hostilidad.
 ##   * No crear/destruir nodos de escena ni tocar serialización fuera de estos resets.
+## - Validación sin side effects reales:
+##   * En entorno de pruebas, `configure_validation_spies()` permite inyectar dobles/spies por operación.
+##   * Si hay spy para una operación, no se ejecuta el autoload real.
+var _validation_spies: Dictionary = {}
+
+func configure_validation_spies(spies_by_operation: Dictionary) -> void:
+	_validation_spies = spies_by_operation.duplicate()
+
+
 func reset_new_game() -> void:
 	_reset_placement_runtime()
 	_reset_domain_registries()
@@ -31,26 +40,57 @@ func reset_new_game() -> void:
 
 
 func _reset_placement_runtime() -> void:
-	PlacementSystem.clear_runtime_instances()
+	_invoke_reset("placement.clear_runtime_instances", func() -> void:
+		PlacementSystem.clear_runtime_instances()
+	)
 
 
 func _reset_domain_registries() -> void:
-	FactionSystem.reset()
-	SiteSystem.reset()
-	NpcProfileSystem.reset()
+	_invoke_reset("registries.faction.reset", func() -> void:
+		FactionSystem.reset()
+	)
+	_invoke_reset("registries.site.reset", func() -> void:
+		SiteSystem.reset()
+	)
+	_invoke_reset("registries.npc_profile.reset", func() -> void:
+		NpcProfileSystem.reset()
+	)
 
 
 func _reset_tactical_memory_and_queues() -> void:
-	BanditGroupMemory.reset()
-	ExtortionQueue.reset()
-	RaidQueue.reset()
-	EnemyRegistry.reset()
+	_invoke_reset("tactical.bandit_group_memory.reset", func() -> void:
+		BanditGroupMemory.reset()
+	)
+	_invoke_reset("tactical.extortion_queue.reset", func() -> void:
+		ExtortionQueue.reset()
+	)
+	_invoke_reset("tactical.raid_queue.reset", func() -> void:
+		RaidQueue.reset()
+	)
+	_invoke_reset("tactical.enemy_registry.reset", func() -> void:
+		EnemyRegistry.reset()
+	)
 
 
 func _reset_run_time() -> void:
-	RunClock.reset()
-	WorldTime.load_save_data({})
+	_invoke_reset("time.run_clock.reset", func() -> void:
+		RunClock.reset()
+	)
+	_invoke_reset("time.world_time.load_save_data", func() -> void:
+		WorldTime.load_save_data({})
+	)
 
 
 func _reset_hostility_runtime() -> void:
-	FactionHostilityManager.reset()
+	_invoke_reset("hostility.faction_hostility_manager.reset", func() -> void:
+		FactionHostilityManager.reset()
+	)
+
+
+func _invoke_reset(operation: String, default_call: Callable) -> void:
+	if _validation_spies.has(operation):
+		var spy := _validation_spies[operation] as Callable
+		if spy.is_valid():
+			spy.call()
+			return
+	default_call.call()
