@@ -800,6 +800,8 @@ func _process_world_scheduler(delta: float) -> void:
 			_chunk_maintenance.process_queues(1, 2)
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
+	if _resource_repopulator != null and player:
+		_resource_repopulator.set_player_world_pos(player.global_position)
 	_update_cliff_occlusion()
 	if _chunk_perf_budget_facade != null:
 		_chunk_perf_budget_facade.process(delta)

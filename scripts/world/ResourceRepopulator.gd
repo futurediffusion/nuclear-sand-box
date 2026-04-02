@@ -30,6 +30,12 @@ const MAX_PICK_RETRIES: int   = 80          # attempts to find a valid tile
 var _stone_scene:  PackedScene = null
 var _copper_scene: PackedScene = null
 var _tilemap: TileMap          = null
+var _floor_cells: Array[Vector2i] = []
+var _player_world_pos: Vector2 = Vector2.INF
+var _live_counts := {
+	"stone": 0,
+	"copper": 0,
+}
 
 # Each entry = seconds remaining before a spawn attempt
 var _stone_pending:  Array[float] = []
@@ -44,7 +50,13 @@ func setup(stone_scene: PackedScene, copper_scene: PackedScene, tilemap: TileMap
 	_stone_scene  = stone_scene
 	_copper_scene = copper_scene
 	_tilemap      = tilemap
+	_rebuild_floor_cache()
+	_sync_live_counts_from_world()
 	add_to_group("resource_repopulator")
+
+
+func set_player_world_pos(pos: Vector2) -> void:
+	_player_world_pos = pos
 
 
 # ---------------------------------------------------------------------------
@@ -53,8 +65,12 @@ func setup(stone_scene: PackedScene, copper_scene: PackedScene, tilemap: TileMap
 
 func on_resource_depleted(kind: String) -> void:
 	match kind:
-		"stone":  _stone_pending.append(stone_respawn_cooldown)
-		"copper": _copper_pending.append(copper_respawn_cooldown)
+		"stone":
+			_stone_pending.append(stone_respawn_cooldown)
+			_adjust_live_count("stone", -1)
+		"copper":
+			_copper_pending.append(copper_respawn_cooldown)
+			_adjust_live_count("copper", -1)
 	Debug.log("resource_repop", "[Repop] depleted %s → cooldown %.0fs pending=%d" % [
 		kind,
 		stone_respawn_cooldown if kind == "stone" else copper_respawn_cooldown,
@@ -72,7 +88,7 @@ func _process(delta: float) -> void:
 
 
 func _tick(delta: float, timers: Array[float],
-		scene: PackedScene, cap: int, group: String, kind: String) -> void:
+		scene: PackedScene, cap: int, _group: String, kind: String) -> void:
 	if timers.is_empty():
 		return
 	for i in timers.size():
@@ -83,7 +99,7 @@ func _tick(delta: float, timers: Array[float],
 			i += 1
 			continue
 		# Timer expired — check if we're still below cap
-		var live: int = get_tree().get_nodes_in_group(group).size()
+		var live: int = _get_live_count(kind)
 		if live >= cap:
 			# Cap already met (maybe the world has originals still loaded).
 			# Discard this pending spawn — no need for another.
@@ -111,6 +127,7 @@ func _spawn(scene: PackedScene, pos: Vector2, kind: String) -> void:
 	var node := scene.instantiate()
 	_tilemap.add_child(node)
 	(node as Node2D).global_position = pos
+	_adjust_live_count(kind, 1)
 	Debug.log("resource_repop", "[Repop] spawned %s at %s" % [kind, str(pos)])
 
 
@@ -121,24 +138,41 @@ func _spawn(scene: PackedScene, pos: Vector2, kind: String) -> void:
 func _pick_random_floor_pos() -> Vector2:
 	if _tilemap == null:
 		return Vector2.INF
-	var cells: Array[Vector2i] = _tilemap.get_used_cells(FLOOR_LAYER)
-	if cells.is_empty():
+	if _floor_cells.is_empty():
+		_rebuild_floor_cache()
+	if _floor_cells.is_empty():
 		return Vector2.INF
 
-	var player_pos := Vector2.INF
-	var players := get_tree().get_nodes_in_group("player")
-	if not players.is_empty():
-		player_pos = (players[0] as Node2D).global_position
-
 	for _attempt in MAX_PICK_RETRIES:
-		var cell: Vector2i = cells[randi() % cells.size()]
+		var cell: Vector2i = _floor_cells[randi() % _floor_cells.size()]
 		var local_pos: Vector2 = _tilemap.map_to_local(cell)
 		var world_pos: Vector2 = _tilemap.to_global(local_pos)
 
-		if player_pos != Vector2.INF \
-				and world_pos.distance_squared_to(player_pos) < PLAYER_MIN_DIST_SQ:
+		if _player_world_pos != Vector2.INF \
+				and world_pos.distance_squared_to(_player_world_pos) < PLAYER_MIN_DIST_SQ:
 			continue  # too close to player
 
 		return world_pos
 
 	return Vector2.INF
+
+
+func _rebuild_floor_cache() -> void:
+	_floor_cells.clear()
+	if _tilemap == null:
+		return
+	_floor_cells = _tilemap.get_used_cells(FLOOR_LAYER)
+
+
+func _sync_live_counts_from_world() -> void:
+	_live_counts["stone"] = get_tree().get_nodes_in_group("world_stone").size()
+	_live_counts["copper"] = get_tree().get_nodes_in_group("world_copper").size()
+
+
+func _get_live_count(kind: String) -> int:
+	return int(_live_counts.get(kind, 0))
+
+
+func _adjust_live_count(kind: String, delta: int) -> void:
+	var current: int = int(_live_counts.get(kind, 0))
+	_live_counts[kind] = maxi(0, current + delta)
