@@ -34,6 +34,7 @@ const MAX_GROUP_SCAN_INTERVAL: float = 16.0
 const MIN_BEHAVIOR_TICK_INTERVAL: float = 0.25
 const MAX_BEHAVIOR_TICK_INTERVAL: float = 1.5
 const ACTIVE_WORK_LOOP_MAX_INTERVAL: float = 0.35
+const WORKER_PRIORITY_TICK_INTERVAL: float = 0.25
 const MODE_CONTEXTUAL: StringName = &"contextual"
 const MODE_EXPLORATION_NORMAL: StringName = &"exploration_normal"
 const MODE_COMBAT_CLOSE: StringName = &"combat_close"
@@ -43,6 +44,15 @@ const MODE_INTERVAL_PRESETS: Dictionary = {
 	MODE_COMBAT_CLOSE: {"group": 0.72, "npc": 0.68},
 	MODE_RAID_ACTIVE: {"group": 0.58, "npc": 0.62},
 }
+static var _worker_priority_enabled: bool = true
+
+
+static func set_worker_priority_enabled(enabled: bool) -> void:
+	_worker_priority_enabled = enabled
+
+
+static func is_worker_priority_enabled() -> bool:
+	return _worker_priority_enabled
 
 static func get_bandit_group_scan_interval(ctx: Dictionary) -> float:
 	return float(get_bandit_group_scan_debug(ctx).get("interval", BanditTuning.group_scan_interval()))
@@ -141,9 +151,26 @@ static func get_behavior_tick_debug(ctx: Dictionary) -> Dictionary:
 	var is_sleeping: bool = bool(ctx.get("is_sleeping", false))
 	var in_combat: bool = bool(ctx.get("in_combat", false))
 	var recently_engaged: bool = bool(ctx.get("recently_engaged", false))
+	var is_worker_cycle_active: bool = bool(ctx.get("is_worker_cycle_active", false))
 
 	var multiplier: float = 1.0
 	var reasons: Array[String] = []
+	if is_worker_cycle_active and _worker_priority_enabled:
+		var worker_interval: float = clampf(WORKER_PRIORITY_TICK_INTERVAL, MIN_BEHAVIOR_TICK_INTERVAL, ACTIVE_WORK_LOOP_MAX_INTERVAL)
+		reasons.append("worker_priority")
+		return {
+			"interval": worker_interval,
+			"multiplier": 1.0,
+			"mode_multiplier": 1.0,
+			"mode": String(resolve_interval_mode(ctx)),
+			"dominant_reason": "worker_priority",
+			"reasons": reasons,
+			"bucket": _classify_bucket(worker_interval, base_interval),
+			"is_worker_cycle_active": true,
+			"worker_priority_enabled": true,
+		}
+	if is_worker_cycle_active and not _worker_priority_enabled:
+		reasons.append("worker_priority_disabled")
 	match intent:
 		"raiding":
 			multiplier = 0.5
@@ -229,6 +256,8 @@ static func get_behavior_tick_debug(ctx: Dictionary) -> Dictionary:
 		"dominant_reason": reasons[0] if not reasons.is_empty() else "baseline",
 		"reasons": reasons,
 		"bucket": _classify_bucket(interval, base_interval),
+		"is_worker_cycle_active": is_worker_cycle_active,
+		"worker_priority_enabled": _worker_priority_enabled,
 	}
 
 
