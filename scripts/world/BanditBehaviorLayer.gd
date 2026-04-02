@@ -616,8 +616,7 @@ func _get_all_resource_nodes() -> Array:
 # Lazy behavior creation
 # ---------------------------------------------------------------------------
 
-func _ensure_behavior_for_enemy(enemy_id_str: String, node: Node = null,
-		allow_runtime_fallback: bool = false) -> BanditWorldBehavior:
+func _ensure_behavior_for_enemy(enemy_id_str: String, node: Node = null) -> BanditWorldBehavior:
 	if _behaviors.has(enemy_id_str):
 		return _behaviors.get(enemy_id_str, null) as BanditWorldBehavior
 	if _npc_simulator == null:
@@ -629,14 +628,12 @@ func _ensure_behavior_for_enemy(enemy_id_str: String, node: Node = null,
 
 	var save_state: Dictionary = _get_save_state_for(enemy_id_str)
 	var group_id: String = String(save_state.get("group_id", ""))
-	if group_id == "" and allow_runtime_fallback and "group_id" in enemy_node:
-		group_id = String(enemy_node.get("group_id"))
 	if group_id == "":
 		return null
 
 	var role: String = String(save_state.get("role", ""))
 	if role == "":
-		role = "bodyguard" if allow_runtime_fallback else "scavenger"
+		role = "scavenger"
 
 	var faction_id: String = String(save_state.get("faction_id", ""))
 	if faction_id == "":
@@ -644,12 +641,6 @@ func _ensure_behavior_for_enemy(enemy_id_str: String, node: Node = null,
 		faction_id = String(g_fallback.get("faction_id", "bandits"))
 
 	var home_pos: Vector2 = _get_home_pos(save_state)
-	if home_pos == Vector2.ZERO and allow_runtime_fallback:
-		var g_home: Dictionary = _domain_ports.bandit_group_memory().get_group(group_id)
-		if g_home.has("home_world_pos"):
-			var hpos = g_home.get("home_world_pos", Vector2.ZERO)
-			if hpos is Vector2:
-				home_pos = hpos as Vector2
 	if home_pos == Vector2.ZERO and enemy_node is Node2D:
 		home_pos = (enemy_node as Node2D).global_position
 
@@ -671,9 +662,8 @@ func _ensure_behavior_for_enemy(enemy_id_str: String, node: Node = null,
 
 	_behaviors[enemy_id_str] = beh
 	_behavior_elapsed[enemy_id_str] = randf() * BanditTuningScript.behavior_tick_interval()
-	Debug.log("bandit_ai", "[BanditBL] behavior created id=%s role=%s group=%s cargo_cap=%d home=%s fallback=%s" % [
-		enemy_id_str, beh.role, beh.group_id, beh.cargo_capacity, str(beh.home_pos),
-		str(allow_runtime_fallback)])
+	Debug.log("bandit_ai", "[BanditBL] behavior created id=%s role=%s group=%s cargo_cap=%d home=%s" % [
+		enemy_id_str, beh.role, beh.group_id, beh.cargo_capacity, str(beh.home_pos)])
 	return beh
 
 
@@ -686,7 +676,7 @@ func _ensure_behaviors_for_active_enemies() -> void:
 		if node == null or not node.has_method("is_world_behavior_eligible") \
 				or not node.is_world_behavior_eligible():
 			continue
-		var beh: BanditWorldBehavior = _ensure_behavior_for_enemy(enemy_id_str, node, false)
+		var beh: BanditWorldBehavior = _ensure_behavior_for_enemy(enemy_id_str, node)
 		if beh == null:
 			continue
 		# Si el grupo tiene un assault pendiente (colocaciï¿½fÂ³n de estructura mientras no estaban spawneados)
@@ -966,15 +956,11 @@ func _dispatch_structure_members_slice(group_id: String, member_ids: Array, star
 			team_targets[team_key] = member_target
 			claimed_targets.append(member_target)
 		_apply_structure_assault_focus(node)
-		var beh_force: BanditWorldBehavior = _ensure_behavior_for_enemy(member_id, node, true)
+		var beh_force: BanditWorldBehavior = _ensure_behavior_for_enemy(member_id, node)
 		if beh_force != null and beh_force.group_id == group_id:
 			beh_force.enter_wall_assault(member_target)
 			redirected += 1
 			continue
-		var wb = node.get_node_or_null("WorldBehavior")
-		if wb != null and wb.has_method("enter_wall_assault"):
-			wb.call("enter_wall_assault", member_target)
-			redirected += 1
 	return redirected
 
 
@@ -1550,9 +1536,9 @@ func _redirect_overflow_to_staging(group_id: String, overflow_ids: Array[String]
 		var node: Node = resolved.get(mid, null)
 		if node == null:
 			continue
-		var wb: Node = node.get_node_or_null("WorldBehavior")
-		if wb != null and wb.has_method("enter_wall_assault"):
-			wb.call("enter_wall_assault", staging_pos)
+		var forced_beh: BanditWorldBehavior = _ensure_behavior_for_enemy(mid, node)
+		if forced_beh != null and forced_beh.group_id == group_id:
+			forced_beh.enter_wall_assault(staging_pos)
 
 
 ## Centro de la zona de espera: STRUCTURE_ASSAULT_STANDBY_DIST px en la dirección
