@@ -163,3 +163,7 @@ func clear_all() -> void:
 	_last_raid_time_by_group.clear()
 	_last_wall_probe_time_by_group.clear()
 	_run_summary.clear()
+
+
+func reset() -> void:
+	clear_all()
