@@ -39,6 +39,8 @@ var _queries_total: int = 0
 var _queries_with_hits: int = 0
 var _chunk_query_time_usec_total: int = 0
 var _chunk_query_calls: int = 0
+var _nearest_query_calls: int = 0
+var _nearest_candidates_evaluated_total: int = 0
 
 
 func setup(ctx: Dictionary) -> void:
@@ -91,11 +93,15 @@ func update_runtime_node(kind: StringName, node: Node) -> void:
 		register_runtime_node(kind, node)
 
 
-func get_runtime_nodes_near(kind: StringName, world_pos: Vector2, radius: float) -> Array:
+func get_runtime_nodes_near(kind: StringName, world_pos: Vector2, radius: float, query_ctx: Dictionary = {}) -> Array:
 	_queries_total += 1
 	var result: Array = []
-	var r2: float = radius * radius
-	for chunk_pos in _get_chunk_positions_for_radius(world_pos, radius):
+	var effective_radius: float = _resolve_contextual_radius(radius, kind, query_ctx)
+	var r2: float = effective_radius * effective_radius
+	var enough_threshold: int = maxi(int(query_ctx.get("enough_threshold", 0)), 0)
+	var max_candidates_eval: int = maxi(int(query_ctx.get("max_candidates_eval", 0)), 0)
+	var candidates_evaluated: int = 0
+	for chunk_pos in _get_chunk_positions_for_radius_ring_ordered(world_pos, effective_radius):
 		var bucket: Dictionary = _get_runtime_bucket(kind, chunk_pos)
 		if bucket.is_empty():
 			continue
@@ -110,12 +116,22 @@ func get_runtime_nodes_near(kind: StringName, world_pos: Vector2, radius: float)
 			if actual_chunk_pos != chunk_pos:
 				register_runtime_node(kind, node)
 				continue
+			candidates_evaluated += 1
 			if node2d.global_position.distance_squared_to(world_pos) <= r2:
 				result.append(node)
+				if enough_threshold > 0 and result.size() >= enough_threshold:
+					break
+			if max_candidates_eval > 0 and candidates_evaluated >= max_candidates_eval:
+				break
 		for stale_id in stale_ids:
 			_unregister_runtime_id(stale_id)
+		if (enough_threshold > 0 and result.size() >= enough_threshold) \
+				or (max_candidates_eval > 0 and candidates_evaluated >= max_candidates_eval):
+			break
 	if result.size() > 0:
 		_queries_with_hits += 1
+	_nearest_query_calls += 1
+	_nearest_candidates_evaluated_total += candidates_evaluated
 	return result
 
 
@@ -137,19 +153,33 @@ func get_all_runtime_nodes(kind: StringName) -> Array:
 	return result
 
 
-func get_placeables_by_item_ids_near(world_pos: Vector2, radius: float, item_ids: Array[String]) -> Array[Dictionary]:
+func get_placeables_by_item_ids_near(world_pos: Vector2, radius: float, item_ids: Array[String], query_ctx: Dictionary = {}) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var filter: Dictionary = _array_to_string_set(item_ids)
-	var r2: float = radius * radius
-	for chunk_pos in _get_chunk_positions_for_radius(world_pos, radius):
+	var effective_radius: float = _resolve_contextual_radius(radius, &"placeable", query_ctx)
+	var r2: float = effective_radius * effective_radius
+	var enough_threshold: int = maxi(int(query_ctx.get("enough_threshold", 0)), 0)
+	var max_candidates_eval: int = maxi(int(query_ctx.get("max_candidates_eval", 0)), 0)
+	var candidates_evaluated: int = 0
+	for chunk_pos in _get_chunk_positions_for_radius_ring_ordered(world_pos, effective_radius):
 		var entries: Array[Dictionary] = get_placeables_in_chunk(chunk_pos.x, chunk_pos.y, item_ids)
 		for entry in entries:
 			var item_id := String(entry.get("item_id", "")).strip_edges()
 			if not filter.is_empty() and not filter.has(item_id):
 				continue
+			candidates_evaluated += 1
 			var wpos := _entry_world_pos(entry)
 			if wpos.distance_squared_to(world_pos) <= r2:
 				result.append(entry)
+				if enough_threshold > 0 and result.size() >= enough_threshold:
+					break
+			if max_candidates_eval > 0 and candidates_evaluated >= max_candidates_eval:
+				break
+		if (enough_threshold > 0 and result.size() >= enough_threshold) \
+				or (max_candidates_eval > 0 and candidates_evaluated >= max_candidates_eval):
+			break
+	_nearest_query_calls += 1
+	_nearest_candidates_evaluated_total += candidates_evaluated
 	return result
 
 
@@ -296,6 +326,49 @@ func _get_chunk_positions_for_radius(world_pos: Vector2, radius: float) -> Array
 	return result
 
 
+func _get_chunk_positions_for_radius_ring_ordered(world_pos: Vector2, radius: float) -> Array[Vector2i]:
+	var center_chunk: Vector2i = _world_to_chunk_pos(world_pos)
+	var chunks: Array[Vector2i] = _get_chunk_positions_for_radius(world_pos, radius)
+	chunks.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var adx: int = absi(a.x - center_chunk.x)
+		var ady: int = absi(a.y - center_chunk.y)
+		var bdx: int = absi(b.x - center_chunk.x)
+		var bdy: int = absi(b.y - center_chunk.y)
+		var aring: int = maxi(adx, ady)
+		var bring: int = maxi(bdx, bdy)
+		if aring != bring:
+			return aring < bring
+		var adsq: int = adx * adx + ady * ady
+		var bdsq: int = bdx * bdx + bdy * bdy
+		if adsq != bdsq:
+			return adsq < bdsq
+		if a.y != b.y:
+			return a.y < b.y
+		return a.x < b.x
+	)
+	return chunks
+
+
+func _resolve_contextual_radius(radius: float, kind: Variant, query_ctx: Dictionary) -> float:
+	var base: float = maxf(radius, 0.0)
+	if query_ctx.is_empty():
+		return base
+	var intent: String = String(query_ctx.get("intent", ""))
+	var stage: String = String(query_ctx.get("stage", ""))
+	var scale: float = 1.0
+	if stage == "assault_member_target":
+		scale *= 0.75
+	elif stage == "assault_confirm":
+		scale *= 0.85
+	if intent == "raiding":
+		scale *= 0.82
+	elif intent == "hunting":
+		scale *= 0.90
+	if String(kind) == "world_resource" and (intent == "idle" or intent == ""):
+		scale *= 0.70
+	return maxf(1.0, base * clampf(scale, 0.45, 1.0))
+
+
 func _world_to_chunk_pos(world_pos: Vector2) -> Vector2i:
 	var tile := _world_to_tile(world_pos)
 	return _world_to_chunk(tile)
@@ -387,5 +460,7 @@ func get_debug_snapshot() -> Dictionary:
 		"query_hit_rate": float(_queries_with_hits) / float(maxi(_queries_total, 1)),
 		"chunk_query_calls": _chunk_query_calls,
 		"chunk_query_avg_usec": float(_chunk_query_time_usec_total) / float(maxi(_chunk_query_calls, 1)),
+		"nearest_query_calls": _nearest_query_calls,
+		"nearest_candidates_avg": float(_nearest_candidates_evaluated_total) / float(maxi(_nearest_query_calls, 1)),
 		"worldsave_chunk_key_codec": WorldSave.get_chunk_key_codec_metrics(),
 	}

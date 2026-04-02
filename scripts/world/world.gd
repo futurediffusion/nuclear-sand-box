@@ -1152,27 +1152,27 @@ func find_player_wall_samples_world_pos(world_pos: Vector2, radius: float, max_p
 		return []
 	return _player_wall_system.find_player_wall_samples_world_pos(world_pos, radius, max_points, min_separation)
 
-func find_nearest_player_workbench_world_pos(world_pos: Vector2, radius: float) -> Vector2:
-	return _find_nearest_player_placeable_world_pos_by_items(world_pos, radius, [BuildableCatalog.ID_WORKBENCH])
+func find_nearest_player_workbench_world_pos(world_pos: Vector2, radius: float, query_ctx: Dictionary = {}) -> Vector2:
+	return _find_nearest_player_placeable_world_pos_by_items(world_pos, radius, [BuildableCatalog.ID_WORKBENCH], query_ctx)
 
-func find_nearest_player_storage_world_pos(world_pos: Vector2, radius: float) -> Vector2:
+func find_nearest_player_storage_world_pos(world_pos: Vector2, radius: float, query_ctx: Dictionary = {}) -> Vector2:
 	return _find_nearest_player_placeable_world_pos_by_items(world_pos, radius, [
 		BuildableCatalog.ID_CHEST,
 		BuildableCatalog.ID_BARREL,
-	])
+	], query_ctx)
 
 
-func find_nearest_player_placeable_world_pos(world_pos: Vector2, radius: float) -> Vector2:
-	return _find_nearest_player_placeable_world_pos_by_items(world_pos, radius, _PLAYER_RAID_PLACEABLE_ITEM_IDS)
+func find_nearest_player_placeable_world_pos(world_pos: Vector2, radius: float, query_ctx: Dictionary = {}) -> Vector2:
+	return _find_nearest_player_placeable_world_pos_by_items(world_pos, radius, _PLAYER_RAID_PLACEABLE_ITEM_IDS, query_ctx)
 
 
 func _find_nearest_player_placeable_world_pos_by_items(world_pos: Vector2, radius: float,
-		item_ids: Array[String]) -> Vector2:
+		item_ids: Array[String], query_ctx: Dictionary = {}) -> Vector2:
 	if _world_spatial_index == null:
 		return Vector2(-1.0, -1.0)
 	var best_pos: Vector2 = Vector2(-1.0, -1.0)
 	var best_dsq: float = radius * radius
-	var entries: Array[Dictionary] = _world_spatial_index.get_placeables_by_item_ids_near(world_pos, radius, item_ids)
+	var entries: Array[Dictionary] = _world_spatial_index.get_placeables_by_item_ids_near(world_pos, radius, item_ids, query_ctx)
 	for entry in entries:
 		var tile_pos := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
 		if tile_pos.x <= -999999 or tile_pos.y <= -999999:
