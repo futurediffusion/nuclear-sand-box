@@ -7,6 +7,8 @@ on:
       - scripts/world/TavernAuthorityOrchestrator.gd
       - scripts/ci_guard_world_boundary.py
       - docs/world-gd-boundary.md
+      - docs/world-gd-reset-exceptions.md
+      - docs/runtime-architecture-pact.md
       - .github/workflows/world-boundary-guard.yml
 
 jobs:

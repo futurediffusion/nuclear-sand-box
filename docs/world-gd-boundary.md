@@ -13,6 +13,7 @@
 - No authority/sanction decision trees.
 - No defense posture decision rules.
 - No direct policy branching that selects sanctions/outcomes.
+- No direct `*.reset()` calls to domain systems (only explicit orchestration ports).
 
 ## Decision logic moved out
 
@@ -22,4 +23,4 @@
 ## PR review gate (mandatory)
 
 Any PR touching `scripts/world/world.gd` must pass `World boundary guard` workflow.
-The guard fails if `world.gd` reintroduces forbidden decision markers.
+The guard fails if `world.gd` reintroduces forbidden decision markers or direct `*.reset()` de dominio sin excepción aprobada.
