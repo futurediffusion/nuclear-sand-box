@@ -32,6 +32,7 @@ const BARREL_SPAWN_COLUMN_STEP:  float = 32.0   # px entre barriles adicionales
 
 const CARRY_STACK_BASE_Y:  float = -22.0  # Y del primer item cargado sobre el NPC
 const CARRY_STACK_STEP_Y:  float =   8.0  # desplazamiento Y por item adicional en el stack
+const DEPOSIT_TARGET_MAX_DIST_SQ: float = 180.0 * 180.0
 
 # group_id (String) -> instance_id (int) del barrel físico (runtime-only, no persisted)
 var _camp_barrels: Dictionary = {}
@@ -87,30 +88,50 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	if not beh._just_arrived_home_with_cargo:
 		return
 	beh._just_arrived_home_with_cargo = false
-	beh.cargo_count = 0
 
 	var spawn_pos: Vector2 = beh.home_pos
 	if enemy_node != null and is_instance_valid(enemy_node):
 		spawn_pos = (enemy_node as Node2D).global_position
 
-	# 1) Barril del campamento por group_id (lookup directo, sin proximity)
-	var chest: Node = null
-	if beh.group_id != "":
-		var barrel_id: int = int(_camp_barrels.get(beh.group_id, 0))
-		if barrel_id != 0 and is_instance_id_valid(barrel_id):
-			var bn := instance_from_id(barrel_id) as Node
-			if bn != null and is_instance_valid(bn) and not bn.is_queued_for_deletion():
-				chest = bn
+	if beh.cargo_count > 0 and beh._cargo_manifest.is_empty():
+		Debug.log("bandit_ai",
+				"[CampStashHook] deposit_attempt_abort npc=%s cause=manifest_empty_with_cargo cargo=%d" % [
+			beh.member_id,
+			beh.cargo_count,
+		])
+		beh.cargo_count = 0
+		beh.on_deposit_complete()
+		return
 
-	# 2) Fallback: cualquier interactable cercano con soporte de inserción
+	var resolution := _resolve_deposit_target(beh.group_id, spawn_pos)
+	var chest: Node = resolution.get("node", null) as Node
+	var target_source: String = String(resolution.get("source", "none"))
+	var missing_cause: String = String(resolution.get("missing_cause", "none"))
+
 	if chest == null:
-		for node in get_tree().get_nodes_in_group("interactable"):
-			if not _method_caps.has_method_cached(node, &"try_insert_item") \
-					or not _method_caps.has_method_cached(node, &"is_position_nearby"):
-				continue
-			if node.call("is_position_nearby", spawn_pos):
-				chest = node
-				break
+		var fallback_barrel := _spawn_camp_barrel(spawn_pos - Vector2(36.0, 0.0), 0)
+		if fallback_barrel != null:
+			chest = fallback_barrel
+			target_source = "spawned_fallback_barrel"
+			missing_cause = "none"
+			if beh.group_id != "":
+				_camp_barrels[beh.group_id] = fallback_barrel.get_instance_id()
+				_notify_deposit_pos(beh.group_id, fallback_barrel.global_position)
+
+	Debug.log("bandit_ai", "[CampStashHook] deposit_attempt npc=%s group=%s cargo=%d source=%s" % [
+		beh.member_id,
+		beh.group_id,
+		beh.cargo_count,
+		target_source,
+	])
+	if chest == null:
+		Debug.log("bandit_ai",
+				"[CampStashHook] deposit_target_missing npc=%s group=%s cause=%s pos=%s" % [
+			beh.member_id,
+			beh.group_id,
+			missing_cause,
+			str(spawn_pos),
+		])
 
 	var land_target: Vector2 = spawn_pos
 	if chest != null and chest is Node2D:
@@ -171,6 +192,10 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 					return
 				var inserted := int(chest.call("try_insert_item", cap_item_id, cap_amount))
 				if inserted > 0:
+					Debug.log("bandit_ai",
+							"[CampStashHook] deposit_success npc=%s group=%s item=%s amount=%d source=%s" % [
+						beh.member_id, cap_group_id, cap_item_id, inserted, target_source
+					])
 					if cap_sfx != null:
 						AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
 					cap_drop.queue_free()
@@ -243,6 +268,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			)
 
 	beh._cargo_manifest.clear()
+	beh.cargo_count = 0
 	beh.on_deposit_complete()
 	Debug.log("bandit_ai", "[CampStash] cargo depositado id=%s pos=%s chest=%s" % [
 		beh.member_id, str(spawn_pos), str(chest != null)])
@@ -452,3 +478,47 @@ func _spawn_camp_barrel(home_pos: Vector2, column: int = 0) -> Node:
 func _notify_deposit_pos(group_id: String, barrel_pos: Vector2) -> void:
 	if _update_deposit_pos_cb.is_valid():
 		_update_deposit_pos_cb.call(group_id, barrel_pos)
+
+
+func _resolve_deposit_target(group_id: String, near_pos: Vector2) -> Dictionary:
+	var result := {
+		"node": null,
+		"source": "none",
+		"missing_cause": "none",
+	}
+	# 1) Primario: barril asignado al grupo.
+	if group_id != "":
+		var barrel_id: int = int(_camp_barrels.get(group_id, 0))
+		if barrel_id == 0:
+			result["missing_cause"] = "group_barrel_id_missing"
+		elif not is_instance_id_valid(barrel_id):
+			result["missing_cause"] = "group_barrel_instance_invalid"
+		else:
+			var barrel := instance_from_id(barrel_id) as Node
+			if barrel == null or not is_instance_valid(barrel) or barrel.is_queued_for_deletion():
+				result["missing_cause"] = "group_barrel_deleted"
+			elif not _method_caps.has_method_cached(barrel, &"try_insert_item"):
+				result["missing_cause"] = "group_barrel_no_insert_method"
+			elif barrel is Node2D and near_pos.distance_squared_to(
+					(barrel as Node2D).global_position) > DEPOSIT_TARGET_MAX_DIST_SQ:
+				result["missing_cause"] = "group_barrel_out_of_range"
+			else:
+				result["node"] = barrel
+				result["source"] = "group_barrel"
+				result["missing_cause"] = "none"
+				return result
+
+	# 2) Fallback secundario: interactuable cercano con inserción.
+	for node in get_tree().get_nodes_in_group("interactable"):
+		if not _method_caps.has_method_cached(node, &"try_insert_item") \
+				or not _method_caps.has_method_cached(node, &"is_position_nearby"):
+			continue
+		if node.call("is_position_nearby", near_pos):
+			result["node"] = node
+			result["source"] = "nearby_interactable"
+			result["missing_cause"] = "none"
+			return result
+
+	if String(result["missing_cause"]) == "none":
+		result["missing_cause"] = "no_interactable_nearby"
+	return result
