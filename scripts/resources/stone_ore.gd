@@ -54,7 +54,7 @@ var _world_spatial_index: WorldSpatialIndex = null
 
 func _ready() -> void:
 	add_to_group("world_resource")
-	_register_in_world_index()
+	call_deferred("_register_in_world_index")
 	add_to_group("world_stone")
 	if remaining < 0:
 		remaining = randi_range(total_min, total_max)
