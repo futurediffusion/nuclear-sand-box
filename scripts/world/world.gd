@@ -582,12 +582,7 @@ func _ready() -> void:
 	_tavern_presence_monitor = TavernPresenceMonitor.new()
 	_tavern_presence_monitor.setup({
 		"incident_reporter": Callable(self, "report_tavern_incident"),
-		"get_candidates": func() -> Array:
-			var r: Array = []
-			r.append_array(get_tree().get_nodes_in_group("player"))
-			r.append_array(get_tree().get_nodes_in_group("enemy"))
-			r.append_array(get_tree().get_nodes_in_group("npc"))
-			return r,
+		"get_candidates": Callable(self, "_get_tavern_presence_candidates"),
 		"interior_bounds": Callable(self, "get_tavern_inner_bounds_world"),
 	})
 	_tavern_garrison_monitor = TavernGarrisonMonitor.new()
@@ -598,12 +593,7 @@ func _ready() -> void:
 	_tavern_brawl = TavernPerimeterBrawl.new()
 	_tavern_brawl.setup({
 		"get_sentinels":     func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
-		"get_nearby_enemies": func(pos: Vector2, radius: float) -> Array:
-			var result: Array = []
-			for e in get_tree().get_nodes_in_group("enemy"):
-				if is_instance_valid(e) and (e as Node2D).global_position.distance_to(pos) <= radius:
-					result.append(e)
-			return result,
+		"get_nearby_enemies": Callable(self, "_get_enemies_near_runtime"),
 		"get_tavern_center": func() -> Vector2:
 			var b: Rect2 = get_tavern_inner_bounds_world()
 			return b.get_center() if b.size != Vector2.ZERO else Vector2.ZERO,
@@ -1526,7 +1516,7 @@ func _register_tavern_containers() -> void:
 
 ## Encuentra el jugador más cercano a una posición world. Devuelve null si no hay.
 func _find_nearest_player(world_pos: Vector2) -> CharacterBody2D:
-	var players := get_tree().get_nodes_in_group("player")
+	var players: Array = _get_live_player_nodes()
 	if players.is_empty():
 		return null
 	if world_pos == Vector2.ZERO or players.size() == 1:
@@ -1694,9 +1684,55 @@ func _tick_player_territory() -> void:
 	if not _player_territory_dirty or _player_territory == null or _settlement_intel == null:
 		return
 	_player_territory_dirty = false
-	var wb_nodes: Array = get_tree().get_nodes_in_group("workbench")
+	var wb_nodes: Array = []
+	if _world_spatial_index != null:
+		wb_nodes = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH)
+	else:
+		wb_nodes = get_tree().get_nodes_in_group("workbench")
 	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_near(Vector2.ZERO, 999999.0)
 	_player_territory.rebuild(wb_nodes, bases)
+
+
+## Group-scan audit notes (world.gd):
+## - "tavern_sentinel"/"tavern_keeper" stays live-tree by design (site-local authority roles).
+## - "workbench" tick query migrated to WorldSpatialIndex runtime kind.
+## - "enemy" tavern scans migrated to npc_simulator active runtime registry.
+## - "npc"/"interactable"/"chest" stay live-tree for now (heterogeneous composition and sparse calls).
+func _get_tavern_presence_candidates() -> Array:
+	var result: Array = []
+	result.append_array(_get_live_player_nodes())
+	result.append_array(_get_live_enemy_nodes())
+	result.append_array(get_tree().get_nodes_in_group("npc"))
+	return result
+
+
+func _get_enemies_near_runtime(pos: Vector2, radius: float) -> Array:
+	var result: Array = []
+	var radius_sq: float = radius * radius
+	for e in _get_live_enemy_nodes():
+		if e == null or not is_instance_valid(e) or not (e is Node2D):
+			continue
+		if (e as Node2D).global_position.distance_squared_to(pos) <= radius_sq:
+			result.append(e)
+	return result
+
+
+func _get_live_enemy_nodes() -> Array:
+	var result: Array = []
+	if npc_simulator != null:
+		for enemy_node in npc_simulator.active_enemies.values():
+			if enemy_node != null and is_instance_valid(enemy_node):
+				result.append(enemy_node)
+		return result
+	return get_tree().get_nodes_in_group("enemy")
+
+
+func _get_live_player_nodes() -> Array:
+	var result: Array = []
+	if player != null and is_instance_valid(player):
+		result.append(player)
+		return result
+	return get_tree().get_nodes_in_group("player")
 
 func is_in_player_territory(world_pos: Vector2) -> bool:
 	if _player_territory == null:
