@@ -62,27 +62,16 @@ func setup(ctx: Dictionary) -> void:
 
 func _resolve_extortion_queue_port(ctx: Dictionary) -> Dictionary:
 	var port: Dictionary = ctx.get("extortion_queue_port", {})
-	if not port.is_empty():
-		return port
-	return {
-		"has_pending_for_group": Callable(ExtortionQueue, "has_pending_for_group"),
-		"get_last_request_time": Callable(ExtortionQueue, "get_last_request_time"),
-		"enqueue": Callable(ExtortionQueue, "enqueue"),
-	}
+	if port.is_empty():
+		push_warning("BanditGroupIntel requires injected extortion_queue_port; skipping extortion dispatch path.")
+	return port
 
 
 func _resolve_raid_queue_port(ctx: Dictionary) -> Dictionary:
 	var port: Dictionary = ctx.get("raid_queue_port", {})
-	if not port.is_empty():
-		return port
-	return {
-		"has_pending_for_group": Callable(RaidQueue, "has_pending_for_group"),
-		"get_last_raid_time": Callable(RaidQueue, "get_last_raid_time"),
-		"get_last_wall_probe_time": Callable(RaidQueue, "get_last_wall_probe_time"),
-		"enqueue_wall_probe": Callable(RaidQueue, "enqueue_wall_probe"),
-		"enqueue_light_raid": Callable(RaidQueue, "enqueue_light_raid"),
-		"enqueue_raid": Callable(RaidQueue, "enqueue_raid"),
-	}
+	if port.is_empty():
+		push_warning("BanditGroupIntel requires injected raid_queue_port; skipping raid dispatch path.")
+	return port
 
 
 func _queue_call(port: Dictionary, key: String, args: Array = [], fallback: Variant = null) -> Variant:
