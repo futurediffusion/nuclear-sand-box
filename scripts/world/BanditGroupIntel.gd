@@ -98,8 +98,19 @@ func _cooldown_remaining(now_ts: float, last_ts: float, cooldown: float) -> floa
 func tick(_delta: float) -> void:
 	if _cadence != null:
 		var pulses: int = _cadence.consume_lane(&"bandit_group_scan_slice")
+		var budget: Dictionary = _cadence.get_lane_budget(&"bandit_group_scan_slice")
+		var ops_budget: int = int(budget.get("ops_per_pulse", 0))
+		var ms_budget: float = float(budget.get("ms_per_pulse", -1.0))
 		for _pulse in pulses:
-			_scan_group_slice()
+			var started_usec: int = Time.get_ticks_usec()
+			var usage: Dictionary = _scan_group_slice(ops_budget, ms_budget)
+			var elapsed_ms: float = maxf(float(Time.get_ticks_usec() - started_usec) / 1000.0, 0.0)
+			_cadence.report_lane_budget_usage(
+				&"bandit_group_scan_slice",
+				elapsed_ms,
+				int(usage.get("ops_used", 0)),
+				1
+			)
 		return
 	push_warning("BanditGroupIntel.tick skipped: missing cadence injection for bandit_group_scan_slice lane.")
 
@@ -108,7 +119,7 @@ func tick(_delta: float) -> void:
 # Scan all registered groups
 # ---------------------------------------------------------------------------
 
-func _scan_group_slice() -> void:
+func _scan_group_slice(ops_budget: int = 0, ms_budget: float = -1.0) -> Dictionary:
 	var group_ids: Array = BanditGroupMemory.get_all_group_ids()
 	if group_ids.is_empty():
 		_scan_cursor = 0
@@ -116,12 +127,21 @@ func _scan_group_slice() -> void:
 		_lod_debug_last_group.clear()
 		_lod_debug_group_counts = {"fast": 0, "medium": 0, "slow": 0}
 		_scan_metrics_last_group.clear()
-		return
+		return {"ops_used": 0}
 	_prune_removed_groups(group_ids)
 	_lod_debug_last_group.clear()
 	_lod_debug_group_counts = {"fast": 0, "medium": 0, "slow": 0}
 	var per_slice: int = maxi(1, int(ceil(float(group_ids.size()) / float(maxi(GROUP_SCAN_SLICE_COUNT, 1)))))
-	for _i in per_slice:
+	var max_ops: int = per_slice
+	if ops_budget > 0:
+		max_ops = mini(max_ops, ops_budget)
+	var started_usec: int = Time.get_ticks_usec()
+	var used_ops: int = 0
+	for _i in max_ops:
+		if ms_budget > 0.0 and used_ops > 0:
+			var elapsed_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0
+			if elapsed_ms >= ms_budget:
+				break
 		if group_ids.is_empty():
 			break
 		if _scan_cursor >= group_ids.size():
@@ -137,6 +157,8 @@ func _scan_group_slice() -> void:
 			continue
 		_scan_group(group_id, g)
 		_scan_accumulator_by_group[group_id] = maxf(elapsed - interval, 0.0)
+		used_ops += 1
+	return {"ops_used": used_ops}
 
 
 
