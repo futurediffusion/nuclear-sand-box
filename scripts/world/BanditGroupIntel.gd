@@ -37,6 +37,7 @@ class GroupLodSignals:
 class ScanWorkBuffers:
 	var markers: Array[Dictionary] = []
 	var bases: Array[Dictionary] = []
+	var live_groups: Dictionary = {}
 
 var _get_markers_near: Callable
 var _get_bases_near: Callable
@@ -126,7 +127,8 @@ func _scan_group_slice() -> void:
 
 
 func _prune_removed_groups(group_ids: Array) -> void:
-	var live: Dictionary = {}
+	var live: Dictionary = _scan_work_buffers.live_groups
+	live.clear()
 	for gid in group_ids:
 		live[String(gid)] = true
 	for gid in _scan_accumulator_by_group.keys():
