@@ -47,6 +47,7 @@ var _log_worker_event_cb: Callable = Callable()
 var _is_worker_instrumentation_enabled_cb: Callable = Callable()
 var _get_work_tick_cb: Callable = Callable()
 var _get_work_cycle_id_cb: Callable = Callable()
+var _on_deposit_closed_cb: Callable = Callable()
 var _instrumentation_enabled: bool = true
 
 
@@ -134,6 +135,31 @@ func setup(ctx: Dictionary) -> void:
 func set_work_context(ctx: Dictionary) -> void:
 	_get_work_tick_cb = ctx.get("get_work_tick_cb", _get_work_tick_cb)
 	_get_work_cycle_id_cb = ctx.get("get_work_cycle_id_cb", _get_work_cycle_id_cb)
+	_on_deposit_closed_cb = ctx.get("on_deposit_closed_cb", _on_deposit_closed_cb)
+
+
+func _force_clear_cargo_after_deposit(beh: BanditWorldBehavior) -> void:
+	if beh == null:
+		return
+	beh.cargo_count = 0
+	beh._cargo_manifest.clear()
+
+
+func _close_deposit(beh: BanditWorldBehavior, spawn_pos: Vector2,
+		target_source: String, outcome: String) -> void:
+	if beh == null:
+		return
+	var had_cargo: bool = beh.cargo_count > 0 or not beh._cargo_manifest.is_empty()
+	_force_clear_cargo_after_deposit(beh)
+	beh.on_deposit_complete()
+	_clear_deposit_attempt_queue(beh)
+	_emit_worker_event("deposit_closed", beh, spawn_pos, "", {
+		"source": target_source,
+		"outcome": outcome,
+		"had_cargo": had_cargo,
+	})
+	if _on_deposit_closed_cb.is_valid():
+		_on_deposit_closed_cb.call(beh, spawn_pos, outcome, had_cargo)
 
 
 # ---------------------------------------------------------------------------
@@ -188,9 +214,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			beh.member_id,
 			beh.cargo_count,
 		])
-		beh.cargo_count = 0
-		beh.on_deposit_complete()
-		_clear_deposit_attempt_queue(beh)
+		_close_deposit(beh, spawn_pos, "manifest_guard", "manifest_empty_abort")
 		return
 
 	var resolution := _resolve_deposit_target(beh.group_id, spawn_pos)
@@ -287,6 +311,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 					return
 				var inserted := int(chest.call("try_insert_item", cap_item_id, cap_amount))
 				if inserted > 0:
+					_force_clear_cargo_after_deposit(beh)
 					_emit_worker_event("deposit_success", beh, spawn_pos, cap_item_id, {
 						"amount": inserted,
 						"source": target_source,
@@ -311,6 +336,11 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 							continue
 						var ins2 := int(bn2.call("try_insert_item", cap_item_id, cap_amount))
 						if ins2 > 0:
+							_force_clear_cargo_after_deposit(beh)
+							_emit_worker_event("deposit_success", beh, spawn_pos, cap_item_id, {
+								"amount": ins2,
+								"source": "extra_barrel_retarget",
+							})
 							_camp_barrels[cap_group_id] = bid
 							_notify_deposit_pos(cap_group_id, (bn2 as Node2D).global_position)
 							if cap_sfx != null:
@@ -330,7 +360,13 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 							_camp_barrels[cap_group_id + "_extra_%d" % col] = nrid
 							_camp_barrels[cap_group_id] = nrid
 							_notify_deposit_pos(cap_group_id, (new_barrel as Node2D).global_position)
-							new_barrel.call("try_insert_item", cap_item_id, cap_amount)
+							var inserted_new: int = int(new_barrel.call("try_insert_item", cap_item_id, cap_amount))
+							if inserted_new > 0:
+								_force_clear_cargo_after_deposit(beh)
+								_emit_worker_event("deposit_success", beh, spawn_pos, cap_item_id, {
+									"amount": inserted_new,
+									"source": "extra_barrel_spawn",
+								})
 							if cap_sfx != null:
 								AudioSystem.play_2d(cap_sfx, spawn_pos, null, &"SFX")
 							cap_drop.queue_free()
@@ -359,7 +395,13 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 					_camp_barrels[cap_group_id2] = new_barrel.get_instance_id()
 					_notify_deposit_pos(cap_group_id2, new_barrel.global_position)
 				if new_barrel != null:
-					new_barrel.call("try_insert_item", cap_item_id, cap_amount)
+					var inserted_fallback: int = int(new_barrel.call("try_insert_item", cap_item_id, cap_amount))
+					if inserted_fallback > 0:
+						_force_clear_cargo_after_deposit(beh)
+						_emit_worker_event("deposit_success", beh, spawn_pos, cap_item_id, {
+							"amount": inserted_fallback,
+							"source": "spawned_new_barrel",
+						})
 					if cap_sfx != null:
 						AudioSystem.play_2d(cap_sfx, cap_deposit, null, &"SFX")
 					cap_drop.queue_free()
@@ -376,10 +418,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 					cap_drop.set_process(true)
 			)
 
-	beh._cargo_manifest.clear()
-	beh.cargo_count = 0
-	beh.on_deposit_complete()
-	_clear_deposit_attempt_queue(beh)
+	_close_deposit(beh, spawn_pos, target_source, "deposit_closed")
 	Debug.log("bandit_ai", "[CampStash] cargo depositado id=%s pos=%s chest=%s" % [
 		beh.member_id, str(spawn_pos), str(chest != null)])
 

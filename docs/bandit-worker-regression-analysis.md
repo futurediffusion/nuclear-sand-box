@@ -153,3 +153,48 @@ Estado observado en código actual:
 ## Rollback
 
 **N/A (documentación).**
+
+---
+
+## Verificación operativa por logs (multi-NPC / multi-ciclo)
+
+Se añadió una verificación operativa en `tools/verify_bandit_work_cycles.py` para validar,
+por `npc_id` y `work_cycle_id`, el patrón completo:
+
+`detect -> mine -> pickup -> return -> deposit -> resume`
+
+### Uso recomendado
+
+1. Habilitar `Debug.bandit_pipeline`.
+2. Ejecutar una simulación con múltiples workers activos.
+3. Guardar logs y ejecutar:
+
+```bash
+python3 tools/verify_bandit_work_cycles.py /ruta/a/bandit_pipeline.log --min-npcs 2 --min-cycles-per-npc 2
+```
+
+### Criterio de done de fase
+
+- Deben calificar **múltiples NPCs** (no caso único).
+- Cada NPC calificado debe mostrar **múltiples iteraciones completas**.
+- El script falla si no se cumple ese umbral, incluyendo muestras de ciclos incompletos.
+
+### Límites conocidos (cuando el bloqueo es real)
+
+Si la validación falla por razones del entorno y no por transición de código, documentar explícitamente:
+
+- **Navegación bloqueada** (`return_home` no llega a cerrar depósito): obstáculos o pathing sin ruta válida.
+- **Ausencia de recurso/drop** (`detect` o `pickup` incompletos): no hay nodos minables/drop en rango.
+- **Depósito inaccesible o sin capacidad efectiva**: barril inválido/fuera de alcance y fallback fallido.
+
+En esos casos se considera bloqueo real del escenario, no una “falsa regresión”, pero debe quedar
+adjuntada la razón en el reporte de ejecución.
+
+### Rollback de fase
+
+El coordinador incluye un switch (`ENABLE_POST_DEPOSIT_RESUME_PHASE`) para volver al comportamiento
+previo post-depósito (sin reactivación explícita de búsqueda de recurso) manteniendo trazas:
+
+- `deposit_closed`
+- `deposit_closed_ack`
+- `work_cycle_resume_rollback`
