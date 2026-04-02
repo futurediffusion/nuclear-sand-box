@@ -1,10 +1,11 @@
 extends Node
 
 ## Compatibilidad temporal (Cut 3):
-## - Este servicio deja de mantener estado propio de hostilidad.
+## - Este wrapper solo mantiene señal/API legacy mientras terminamos la migración de listeners externos.
 ## - Owner canónico: FactionHostilityManager.
-## - Fecha objetivo de eliminación de este wrapper: 2026-06-30.
-const REMOVE_AFTER: String = "2026-06-30"
+## - Excepción temporal aprobada owner: Runtime-Hostility.
+## - Fecha de revisión: 2026-04-09. Fecha objetivo de retiro: 2026-05-15.
+const REMOVE_AFTER: String = "2026-05-15"
 
 signal hostility_score_changed(faction_id: String, new_points: float, new_level: int)
 

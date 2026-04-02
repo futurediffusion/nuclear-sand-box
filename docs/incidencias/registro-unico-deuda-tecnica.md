@@ -15,7 +15,7 @@
 ## Excepciones activas
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Estado |
 |---|---|---|---|---|---|---|---|---|---|
-| _Sin excepciones activas_ |  |  |  |  |  |  |  |  |  |
+| EXC-HOSTILITY-WRAPPER-001 | 2026-04-02 | N/A (higiene sprint temporal) | Wrapper legacy `FactionRelationService` con `REMOVE_AFTER` | Compat API/Signal bridge | Se conserva solo para absorber listeners externos no migrados al `FactionHostilityManager` canónico; no mantiene estado propio ni lógica de decisión. | Runtime-Hostility | 2026-04-09 | 2026-05-15 | Activa |
 
 ## Excepciones retiradas
 | ID | Fecha registro | PR | Olor prohibido | Categoría | Justificación aprobada | Responsable | Fecha de revisión | Fecha de retiro | Fecha retiro efectiva |

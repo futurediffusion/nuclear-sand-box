@@ -31,7 +31,6 @@ const RAID_STAGE_CLOSED: String = "closed"
 const RAID_RESULT_SUCCESS: String = "success"
 const RAID_RESULT_ABORT: String = "abort"
 const RAID_RESULT_RETREAT: String = "retreat"
-const TEMP_LEGACY_WALL_DAMAGE_FALLBACK_REMOVE_ON: String = "2026-04-15"
 
 
 func setup(ctx: Dictionary) -> void:
@@ -426,13 +425,10 @@ func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
 func _damage_player_wall_at(world_pos: Vector2) -> bool:
 	if _world_node == null:
 		return false
-	if _world_node.has_method("hit_wall_at_world_pos"):
-		return bool(_world_node.call("hit_wall_at_world_pos", world_pos, 1, 24.0, true))
-	# TEMP EXCEPTION (remove on 2026-04-15): legacy worlds still exposing old API.
-	if _world_node.has_method("damage_player_wall_at_world_pos"):
-		Debug.log("raid", "[BWC][temp-exception remove_on=%s] using legacy wall damage fallback" % TEMP_LEGACY_WALL_DAMAGE_FALLBACK_REMOVE_ON)
-		return bool(_world_node.call("damage_player_wall_at_world_pos", world_pos, 1))
-	return false
+	if not _world_node.has_method("hit_wall_at_world_pos"):
+		push_warning("BanditWorkCoordinator: world_node missing hit_wall_at_world_pos canonical API.")
+		return false
+	return bool(_world_node.call("hit_wall_at_world_pos", world_pos, 1, 24.0, true))
 
 
 func _try_wall_slash_strike(enemy_node: Node, world_pos: Vector2) -> bool:
