@@ -38,6 +38,8 @@ const RAID_ANCHOR_FALLBACK_HIT_RANGE_SQ: float = 112.0 * 112.0
 const RAID_LOCAL_WALL_PROBE_RADIUS: float = 180.0
 const RAID_LOCAL_WALL_STRIKE_RANGE_SQ: float = 164.0 * 164.0
 const RESOURCE_HIT_RECENCY_TICKS: int = 10
+const POST_HIT_CONTINUITY_WINDOW_TICKS: int = 3
+const POST_HIT_PICKUP_RETRY_LIMIT: int = 3
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
@@ -52,6 +54,8 @@ var _full_cycles_by_member: Dictionary = {}  # member_id -> completed_cycle_coun
 var _work_tick_seq: int = 0
 var _active_work_cycle_by_member: Dictionary = {}  # member_id -> work_cycle_id
 var _next_work_cycle_seq: int = 1
+var _post_hit_continuity_until_tick_by_member: Dictionary = {}  # member_id -> tick deadline
+var _post_hit_pickup_retry_by_member: Dictionary = {}  # member_id -> retry count
 var _log_worker_event_cb: Callable = Callable()
 var _is_worker_instrumentation_enabled_cb: Callable = Callable()
 var _instrumentation_enabled: bool = true
@@ -173,6 +177,7 @@ func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
 	_raid_attack_next_at.erase(beh.member_id)
 	_raid_loot_next_at.erase(beh.member_id)
 	_active_work_cycle_by_member.erase(beh.member_id)
+	_clear_post_hit_continuity(beh)
 
 
 func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
@@ -190,7 +195,8 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 
 	var cargo_before_work: int = beh.cargo_count
 	var member_pos: Vector2 = _effective_work_position(enemy_node)
-	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH:
+	var continuity_active: bool = _process_post_hit_continuity_window(beh, enemy_node, drops_cache)
+	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH and not continuity_active:
 		var res_center := _resolve_resource_center(beh, enemy_node)
 		_stash.sweep_collect_orbit(beh, enemy_node, res_center, drops_cache)
 	elif beh.pending_collect_id != 0:
@@ -304,6 +310,7 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	})
 	beh.last_valid_resource_node_id = mine_id
 	beh.last_resource_hit_tick = _work_tick_seq
+	_open_post_hit_continuity_window(beh)
 	_preserve_cycle_after_hit(beh, mine_id)
 	if enemy_node.has_method("queue_ai_attack_press"):
 		enemy_node.call("queue_ai_attack_press", res_pos)
@@ -654,6 +661,93 @@ func _preserve_cycle_after_hit(beh: BanditWorldBehavior, mine_id: int) -> void:
 	})
 
 
+func _open_post_hit_continuity_window(beh: BanditWorldBehavior) -> void:
+	if beh == null:
+		return
+	var member_id: String = beh.member_id
+	_post_hit_continuity_until_tick_by_member[member_id] = _work_tick_seq + POST_HIT_CONTINUITY_WINDOW_TICKS
+	_post_hit_pickup_retry_by_member[member_id] = 0
+	_emit_worker_event("post_hit_continuity_window_opened", beh, beh.home_pos, str(beh._resource_node_id), {
+		"until_tick": int(_post_hit_continuity_until_tick_by_member.get(member_id, _work_tick_seq)),
+		"window_ticks": POST_HIT_CONTINUITY_WINDOW_TICKS,
+	})
+
+
+func _clear_post_hit_continuity(beh: BanditWorldBehavior) -> void:
+	if beh == null:
+		return
+	_post_hit_continuity_until_tick_by_member.erase(beh.member_id)
+	_post_hit_pickup_retry_by_member.erase(beh.member_id)
+
+
+func _is_post_hit_window_active(beh: BanditWorldBehavior) -> bool:
+	if beh == null:
+		return false
+	var until_tick: int = int(_post_hit_continuity_until_tick_by_member.get(beh.member_id, 0))
+	return until_tick > 0 and _work_tick_seq <= until_tick
+
+
+func _has_worker_continuity(beh: BanditWorldBehavior) -> bool:
+	if beh == null:
+		return false
+	return _is_post_hit_window_active(beh) \
+			or beh.pending_collect_id != 0 \
+			or beh.pending_mine_id != 0 \
+			or beh.cargo_count > 0
+
+
+func _emit_cycle_abandon_reason(beh: BanditWorldBehavior, reason: String) -> void:
+	if beh == null:
+		return
+	_emit_worker_event("work_cycle_abandoned", beh, beh.home_pos, "", {
+		"reason": reason,
+		"pending_collect_id": beh.pending_collect_id,
+		"pending_mine_id": beh.pending_mine_id,
+		"cargo": beh.cargo_count,
+	})
+
+
+func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array) -> bool:
+	if beh == null or _stash == null:
+		return false
+	if not _is_post_hit_window_active(beh):
+		return false
+	if beh.is_cargo_full():
+		_request_return_home(beh, "post_hit_window_cargo_full")
+		return true
+
+	var member_pos: Vector2 = _effective_work_position(enemy_node)
+	var cargo_before: int = beh.cargo_count
+	var had_pending_before: bool = beh.pending_collect_id != 0
+	if had_pending_before:
+		_stash.sweep_collect_arrive(beh, enemy_node, member_pos, drops_cache)
+		if beh.cargo_count > cargo_before:
+			_clear_post_hit_continuity(beh)
+			return true
+
+	var still_without_pending: bool = beh.pending_collect_id == 0 and beh.cargo_count == cargo_before
+	if still_without_pending:
+		var res_center := _resolve_resource_center(beh, enemy_node)
+		_stash.sweep_collect_orbit(beh, enemy_node, res_center, drops_cache)
+		if beh.pending_collect_id == 0 and beh.cargo_count == cargo_before:
+			_stash.sweep_collect_orbit(beh, enemy_node, member_pos, drops_cache)
+		if beh.cargo_count > cargo_before:
+			_clear_post_hit_continuity(beh)
+			return true
+		if beh.pending_collect_id == 0:
+			var retries: int = int(_post_hit_pickup_retry_by_member.get(beh.member_id, 0)) + 1
+			_post_hit_pickup_retry_by_member[beh.member_id] = retries
+			if retries >= POST_HIT_PICKUP_RETRY_LIMIT:
+				_emit_cycle_abandon_reason(beh, "pickup_candidates_empty")
+				_clear_post_hit_continuity(beh)
+			else:
+				_emit_worker_event("drop_pickup_retry_scheduled", beh, member_pos, "", {
+					"retry": retries,
+					"retry_limit": POST_HIT_PICKUP_RETRY_LIMIT,
+				})
+	return true
+
+
 func _guard_resource_cycle_before_work(beh: BanditWorldBehavior) -> void:
 	if beh == null:
 		return
@@ -678,6 +772,22 @@ func _guard_resource_cycle_before_work(beh: BanditWorldBehavior) -> void:
 func _guard_resource_cycle_after_work(beh: BanditWorldBehavior) -> void:
 	if beh == null:
 		return
+	if beh.state == NpcWorldBehavior.State.IDLE_AT_HOME or beh.state == NpcWorldBehavior.State.PATROL:
+		if _has_worker_continuity(beh):
+			if beh.cargo_count > 0:
+				_request_return_home(beh, "continuity_guard_with_cargo")
+				return
+			if beh._resource_node_id != 0:
+				beh.enter_resource_watch(_resolve_resource_center(beh, null), beh._resource_node_id)
+				_emit_worker_event("state_lost_after_hit", beh, _resolve_resource_center(beh, null), str(beh._resource_node_id), {
+					"reason": "continuity_guard_blocked_idle_patrol",
+				})
+			else:
+				_emit_cycle_abandon_reason(beh, "state_lost_after_hit")
+				_clear_post_hit_continuity(beh)
+				beh.pending_collect_id = 0
+				beh.pending_mine_id = 0
+			return
 	if beh.pending_collect_id != 0 and beh.cargo_count >= beh.cargo_capacity:
 		# Transition cannot stay unresolved when capacity is full.
 		beh.pending_collect_id = 0
