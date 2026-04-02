@@ -207,6 +207,15 @@ var _tick_perf_avg_ms: float                      = 0.0
 var _tick_perf_last_query_delta: int              = 0
 var _tick_perf_query_delta_total: int             = 0
 var _tick_perf_query_delta_avg: float             = 0.0
+var _director_perf_last_ms: float                 = 0.0
+var _director_perf_avg_ms: float                  = 0.0
+var _behavior_lane_last_ms: float                 = 0.0
+var _behavior_lane_avg_ms: float                  = 0.0
+var _temp_alloc_est_last: int                     = 0
+var _temp_alloc_est_avg: float                    = 0.0
+var _livetree_scan_calls: int                     = 0
+var _livetree_scan_nodes_last: int                = 0
+var _livetree_scan_nodes_total: int               = 0
 
 
 # ---------------------------------------------------------------------------
@@ -510,10 +519,12 @@ func _process(delta: float) -> void:
 		_warned_missing_director_scheduler = true
 		push_warning("BanditBehaviorLayer has no cadence or director pulse adapter; directors are paused until a scheduler is injected.")
 	for _pulse in director_pulses:
+		var director_started_usec: int = Time.get_ticks_usec()
 		if _extortion_director != null:
 			_extortion_director.process_extortion(now)
 		if _raid_director != null:
 			_raid_director.process_raid()
+		_record_director_perf(Time.get_ticks_usec() - director_started_usec)
 	_process_pending_structure_dispatches()
 	var behavior_pulses: int = 0
 	if _cadence != null:
@@ -522,10 +533,12 @@ func _process(delta: float) -> void:
 		return
 
 	for _pulse in behavior_pulses:
+		var behavior_started_usec: int = Time.get_ticks_usec()
 		_ensure_behaviors_for_active_enemies()
 		_stash.ensure_barrels()
 		_tick_behaviors()
 		_prune_behaviors()
+		_record_behavior_lane_perf(Time.get_ticks_usec() - behavior_started_usec)
 
 
 # ---------------------------------------------------------------------------
@@ -688,12 +701,16 @@ func _build_res_info(node_pos: Vector2, all_resources: Array) -> Array:
 func _get_all_drop_nodes() -> Array:
 	# Runtime truth for tactical loot decisions is the live scene tree.
 	# Spatial index remains an optimization, never the semantic owner.
-	return get_tree().get_nodes_in_group("item_drop")
+	var nodes: Array = get_tree().get_nodes_in_group("item_drop")
+	_record_livetree_scan(nodes.size())
+	return nodes
 
 
 func _get_all_resource_nodes() -> Array:
 	# Runtime truth for resource watch is the live world_resource group.
-	return get_tree().get_nodes_in_group("world_resource")
+	var nodes: Array = get_tree().get_nodes_in_group("world_resource")
+	_record_livetree_scan(nodes.size())
+	return nodes
 
 
 func _get_runtime_nodes_for_behavior(
@@ -736,6 +753,24 @@ func _record_tick_perf(elapsed_usec: int, query_total_before: int, query_total_a
 	if query_delta >= 0:
 		_tick_perf_query_delta_total += query_delta
 		_tick_perf_query_delta_avg = float(_tick_perf_query_delta_total) / float(maxi(_tick_perf_samples, 1))
+	_temp_alloc_est_last = _behaviors.size() + _behavior_elapsed.size() + _lod_debug_last_npc.size()
+	_temp_alloc_est_avg = lerpf(_temp_alloc_est_avg, float(_temp_alloc_est_last), 1.0 / float(maxi(_tick_perf_samples, 1)))
+
+
+func _record_director_perf(elapsed_usec: int) -> void:
+	_director_perf_last_ms = maxf(float(elapsed_usec) / 1000.0, 0.0)
+	_director_perf_avg_ms = lerpf(_director_perf_avg_ms, _director_perf_last_ms, 0.1)
+
+
+func _record_behavior_lane_perf(elapsed_usec: int) -> void:
+	_behavior_lane_last_ms = maxf(float(elapsed_usec) / 1000.0, 0.0)
+	_behavior_lane_avg_ms = lerpf(_behavior_lane_avg_ms, _behavior_lane_last_ms, 0.1)
+
+
+func _record_livetree_scan(node_count: int) -> void:
+	_livetree_scan_calls += 1
+	_livetree_scan_nodes_last = node_count
+	_livetree_scan_nodes_total += maxi(node_count, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -1808,6 +1843,25 @@ func get_lod_debug_snapshot() -> Dictionary:
 			"avg_ms": _tick_perf_avg_ms,
 			"last_query_delta": _tick_perf_last_query_delta,
 			"avg_query_delta": _tick_perf_query_delta_avg,
+		},
+		"lane_perf": {
+			"director_pulse": {
+				"last_ms": _director_perf_last_ms,
+				"avg_ms": _director_perf_avg_ms,
+			},
+			"bandit_behavior_tick": {
+				"last_ms": _behavior_lane_last_ms,
+				"avg_ms": _behavior_lane_avg_ms,
+			},
+		},
+		"temp_alloc_estimate_per_tick": {
+			"last_objects": _temp_alloc_est_last,
+			"avg_objects": _temp_alloc_est_avg,
+		},
+		"live_tree_scans": {
+			"calls": _livetree_scan_calls,
+			"last_node_count": _livetree_scan_nodes_last,
+			"avg_node_count": float(_livetree_scan_nodes_total) / float(maxi(_livetree_scan_calls, 1)),
 		},
 	}
 
