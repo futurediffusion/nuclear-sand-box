@@ -70,18 +70,19 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 	if _stash == null:
 		return
 
+	var member_pos: Vector2 = _node_pos_for_work(enemy_node)
 	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH:
 		var res_center := _resolve_resource_center(beh, enemy_node)
 		_stash.sweep_collect_orbit(beh, enemy_node, res_center, drops_cache)
 	elif beh.pending_collect_id != 0:
 		_stash.sweep_collect_arrive(beh, enemy_node,
-			(enemy_node as Node2D).global_position, drops_cache)
+			member_pos, drops_cache)
 
 	_stash.handle_cargo_deposit(beh, enemy_node)
 
 
 func _resolve_resource_center(beh: BanditWorldBehavior, enemy_node: Node) -> Vector2:
-	var fallback := (enemy_node as Node2D).global_position
+	var fallback := _node_pos_for_work(enemy_node)
 	if beh._resource_node_id == 0 or not is_instance_id_valid(beh._resource_node_id):
 		if beh._resource_node_id != 0:
 			beh._resource_node_id = 0
@@ -107,7 +108,7 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		beh._resource_node_id = 0
 		return
 
-	var enemy_pos: Vector2 = (enemy_node as Node2D).global_position
+	var enemy_pos: Vector2 = _node_pos_for_work(enemy_node)
 	var res_pos: Vector2 = (res_node as Node2D).global_position
 	if enemy_pos.distance_squared_to(res_pos) > BanditTuningScript.mine_range_sq():
 		return
@@ -146,7 +147,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 	var member_anchor: Vector2 = _resolve_member_assault_anchor(beh, group_anchor)
 	var attack_anchor: Vector2 = member_anchor if _is_valid_target(member_anchor) else group_anchor
 
-	var enemy_pos: Vector2 = (enemy_node as Node2D).global_position
+	var enemy_pos: Vector2 = _node_pos_for_work(enemy_node)
 	if not _is_valid_target(attack_anchor):
 		attack_anchor = enemy_pos
 	elif has_raid_context:
@@ -258,6 +259,14 @@ func _resolve_assault_anchor(group_id: String, g: Dictionary) -> Vector2:
 		return anchor
 	var pending: Vector2 = BanditGroupMemory.get_assault_target(group_id)
 	return pending if _is_valid_target(pending) else INVALID_TARGET
+
+
+func _node_pos_for_work(enemy_node: Node) -> Vector2:
+	# Single helper to keep work/pickup queries consistent: member position is
+	# the authoritative actor-space for local loot collection and mining loops.
+	# Group/leader/camp anchors remain valid only for raid target selection.
+	var node2d := enemy_node as Node2D
+	return node2d.global_position if node2d != null else Vector2.ZERO
 
 
 func _resolve_member_assault_anchor(beh: BanditWorldBehavior, group_anchor: Vector2) -> Vector2:
