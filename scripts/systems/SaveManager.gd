@@ -18,10 +18,10 @@ func register_runtime_ports(ports: Dictionary = {}) -> void:
 func has_save() -> bool:
 	return FileAccess.file_exists(SAVE_PATH)
 
-func save_world() -> void:
+func save_world() -> bool:
 	if _world == null:
 		push_warning("SaveManager: no world registered")
-		return
+		return false
 
 	# Snapshot activo delegado a Coordination (world), no a Persistence.
 	_call_runtime_port("snapshot_before_save")
@@ -62,10 +62,11 @@ func save_world() -> void:
 	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
 		push_error("SaveManager: failed to open save file for writing: %s" % SAVE_PATH)
-		return
+		return false
 	file.store_string(json_str)
 	file.close()
 	Debug.log("save", "World saved to %s" % SAVE_PATH)
+	return true
 
 func load_world_save() -> bool:
 	if not FileAccess.file_exists(SAVE_PATH):
