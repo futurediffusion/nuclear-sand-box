@@ -10,9 +10,15 @@ class_name OcclusionController
 var _materials: Array[ShaderMaterial] = []
 var _tilemaps: Array[TileMap] = []
 var _screen_size: Vector2 = Vector2(1920, 1080)
+var _cadence_enabled: bool = false
+var _material_cursor: int = 0
 
 func _ready() -> void:
 	call_deferred("_find_materials")
+
+func configure_cadence(enabled: bool) -> void:
+	_cadence_enabled = enabled
+	set_process(not _cadence_enabled)
 
 func _find_materials() -> void:
 	_materials.clear()
@@ -68,20 +74,33 @@ func _collect_tilemaps_by_name(node: Node, out: Array[TileMap], names: Array, de
 		_collect_tilemaps_by_name(child, out, names, depth - 1)
 
 func _process(_delta: float) -> void:
-	if _materials.is_empty():
+	if _cadence_enabled:
 		return
+	_process_occlusion(1)
+
+func tick_from_cadence(pulses: int, material_budget_per_pulse: int = -1) -> int:
+	if pulses <= 0:
+		return 0
+	var max_updates: int = -1
+	if material_budget_per_pulse > 0:
+		max_updates = pulses * material_budget_per_pulse
+	return _process_occlusion(max_updates)
+
+func _process_occlusion(material_budget: int = -1) -> int:
+	if _materials.is_empty():
+		return 0
 
 	var players := get_tree().get_nodes_in_group("player")
 	if players.is_empty():
-		return
+		return 0
 
 	var player := players[0] as Node2D
 	if player == null:
-		return
+		return 0
 
 	var vp := get_viewport()
 	if vp == null:
-		return
+		return 0
 
 	var screen_pos: Vector2 = vp.get_canvas_transform() * player.global_position
 
@@ -90,7 +109,18 @@ func _process(_delta: float) -> void:
 	if size_changed:
 		_screen_size = current_size
 
-	for mat in _materials:
+	var total_mats: int = _materials.size()
+	if total_mats <= 0:
+		return 0
+	var updates: int = 0
+	var limit: int = total_mats if material_budget <= 0 else mini(total_mats, material_budget)
+	var start_index: int = _material_cursor
+	for step in limit:
+		var idx: int = (start_index + step) % total_mats
+		var mat := _materials[idx]
 		mat.set_shader_parameter("player_screen_pos", screen_pos)
 		if size_changed:
 			mat.set_shader_parameter("screen_size", _screen_size)
+		updates += 1
+	_material_cursor = (start_index + limit) % total_mats
+	return updates

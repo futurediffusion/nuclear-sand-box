@@ -31,6 +31,8 @@ const REPOP_LOG_SAMPLE_HEAVY: int = 6
 var _stone_scene:  PackedScene = null
 var _copper_scene: PackedScene = null
 var _tilemap: TileMap          = null
+var _cadence_enabled: bool = false
+var _cadence_tick_interval: float = 0.50
 
 # Each entry = seconds remaining before a spawn attempt
 var _stone_pending:  Array[float] = []
@@ -46,6 +48,11 @@ func setup(stone_scene: PackedScene, copper_scene: PackedScene, tilemap: TileMap
 	_copper_scene = copper_scene
 	_tilemap      = tilemap
 	add_to_group("resource_repopulator")
+
+func configure_cadence(tick_interval: float) -> void:
+	_cadence_enabled = tick_interval > 0.0
+	_cadence_tick_interval = maxf(0.05, tick_interval)
+	set_process(not _cadence_enabled)
 
 
 # ---------------------------------------------------------------------------
@@ -69,16 +76,29 @@ func on_resource_depleted(kind: String) -> void:
 # ---------------------------------------------------------------------------
 
 func _process(delta: float) -> void:
+	if _cadence_enabled:
+		return
 	_tick(delta, _stone_pending,  _stone_scene,  max_stone,  "world_stone",  "stone")
 	_tick(delta, _copper_pending, _copper_scene, max_copper, "world_copper", "copper")
 
+func tick_from_cadence(pulses: int) -> int:
+	if not _cadence_enabled or pulses <= 0:
+		return 0
+	var total_ops: int = 0
+	for _pulse in pulses:
+		total_ops += _tick(_cadence_tick_interval, _stone_pending,  _stone_scene,  max_stone,  "world_stone",  "stone")
+		total_ops += _tick(_cadence_tick_interval, _copper_pending, _copper_scene, max_copper, "world_copper", "copper")
+	return total_ops
+
 
 func _tick(delta: float, timers: Array[float],
-		scene: PackedScene, cap: int, group: String, kind: String) -> void:
+		scene: PackedScene, cap: int, group: String, kind: String) -> int:
 	if timers.is_empty():
-		return
+		return 0
+	var ops: int = 0
 	for i in timers.size():
 		timers[i] -= delta
+		ops += 1
 	var i := 0
 	while i < timers.size():
 		if timers[i] > 0.0:
@@ -92,6 +112,7 @@ func _tick(delta: float, timers: Array[float],
 			timers.remove_at(i)
 			if _should_log_repop("%s_cap_met" % kind, REPOP_LOG_SAMPLE_HEAVY):
 				Debug.log("resource_repop", "[Repop] %s cap met (%d/%d), pending discarded" % [kind, live, cap])
+			ops += 1
 			continue
 		var pos := _pick_random_floor_pos()
 		if pos == Vector2.INF:
@@ -100,9 +121,12 @@ func _tick(delta: float, timers: Array[float],
 			i += 1
 			if _should_log_repop("%s_retry_no_tile" % kind, REPOP_LOG_SAMPLE_HEAVY):
 				Debug.log("resource_repop", "[Repop] %s no valid tile, retry in 8s" % kind)
+			ops += 1
 			continue
 		_spawn(scene, pos, kind)
 		timers.remove_at(i)
+		ops += 1
+	return ops
 
 
 # ---------------------------------------------------------------------------

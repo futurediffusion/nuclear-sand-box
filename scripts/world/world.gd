@@ -140,6 +140,7 @@ var _current_posture:    int         = TavernDefensePosture.NORMAL
 ## Permite restaurar patrullas al salir de FORTIFIED.
 var _perimeter_patrol_cache: Dictionary = {}
 var _resource_repopulator: ResourceRepopulator
+var _occlusion_controller: OcclusionController
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
 var _wall_feedback: WallFeedback
@@ -205,6 +206,28 @@ const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColl
 const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd")
 const WorldCadenceCoordinatorScript := preload("res://scripts/world/WorldCadenceCoordinator.gd")
 const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.gd")
+const LANE_SHORT_PULSE: StringName = &"short_pulse"
+const LANE_MEDIUM_PULSE: StringName = &"medium_pulse"
+const LANE_DIRECTOR_PULSE: StringName = &"director_pulse"
+const LANE_CHUNK_PULSE: StringName = &"chunk_pulse"
+const LANE_AUTOSAVE: StringName = &"autosave"
+const LANE_SETTLEMENT_BASE_SCAN: StringName = &"settlement_base_scan"
+const LANE_SETTLEMENT_WORKBENCH_SCAN: StringName = &"settlement_workbench_scan"
+const LANE_OCCLUSION_PULSE: StringName = &"occlusion_pulse"
+const LANE_RESOURCE_REPOP_PULSE: StringName = &"resource_repop_pulse"
+const OCCLUSION_INTERVAL_SEC: float = 0.10
+const RESOURCE_REPOP_INTERVAL_SEC: float = 0.50
+const SHORT_PULSE_PHASE: float = 0.15
+const MEDIUM_PULSE_PHASE: float = 0.42
+const DIRECTOR_PULSE_PHASE: float = 0.67
+const CHUNK_PULSE_PHASE: float = 0.68
+const AUTOSAVE_PHASE: float = 0.31
+const OCCLUSION_PHASE: float = 0.07
+const RESOURCE_REPOP_PHASE: float = 0.53
+const BUDGET_WALL_REFRESH_PER_PULSE: int = 1
+const BUDGET_TILE_ERASE_PER_PULSE: int = 2
+const BUDGET_OCCLUSION_MATERIALS_PER_PULSE: int = 8
+const BUDGET_RESOURCE_REPOP_OPS_PER_PULSE: int = 8
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -228,13 +251,15 @@ func _ready() -> void:
 	# maintenance, chunk/autosave work, and directors that coordinate multiple
 	# systems. Specialized inner loops can still keep local clocks when their
 	# timing is inherently private/incremental.
-	_cadence.configure_lane(&"short_pulse", 0.12, 0.15)
-	_cadence.configure_lane(&"medium_pulse", 0.50, 0.42)
-	_cadence.configure_lane(&"director_pulse", 0.12, 0.67)
-	_cadence.configure_lane(&"chunk_pulse", chunk_check_interval, 0.68)
-	_cadence.configure_lane(&"autosave", autosave_interval, 0.31, 1)
-	_cadence.configure_lane(&"settlement_base_scan", SettlementIntel.BASE_RESCAN_INTERVAL, SettlementIntel.BASE_SCAN_PHASE_RATIO, 1)
-	_cadence.configure_lane(&"settlement_workbench_scan", SettlementIntel.WORKBENCH_RESCAN_INTERVAL, SettlementIntel.WORKBENCH_SCAN_PHASE_RATIO, 1)
+	_cadence.configure_lane(LANE_SHORT_PULSE, 0.12, SHORT_PULSE_PHASE, WorldCadenceCoordinator.DEFAULT_MAX_CATCHUP, BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE)
+	_cadence.configure_lane(LANE_MEDIUM_PULSE, 0.50, MEDIUM_PULSE_PHASE)
+	_cadence.configure_lane(LANE_DIRECTOR_PULSE, 0.12, DIRECTOR_PULSE_PHASE)
+	_cadence.configure_lane(LANE_CHUNK_PULSE, chunk_check_interval, CHUNK_PULSE_PHASE)
+	_cadence.configure_lane(LANE_AUTOSAVE, autosave_interval, AUTOSAVE_PHASE, 1)
+	_cadence.configure_lane(LANE_SETTLEMENT_BASE_SCAN, SettlementIntel.BASE_RESCAN_INTERVAL, SettlementIntel.BASE_SCAN_PHASE_RATIO, 1)
+	_cadence.configure_lane(LANE_SETTLEMENT_WORKBENCH_SCAN, SettlementIntel.WORKBENCH_RESCAN_INTERVAL, SettlementIntel.WORKBENCH_SCAN_PHASE_RATIO, 1)
+	_cadence.configure_lane(LANE_OCCLUSION_PULSE, OCCLUSION_INTERVAL_SEC, OCCLUSION_PHASE, 1, BUDGET_OCCLUSION_MATERIALS_PER_PULSE)
+	_cadence.configure_lane(LANE_RESOURCE_REPOP_PULSE, RESOURCE_REPOP_INTERVAL_SEC, RESOURCE_REPOP_PHASE, 1, BUDGET_RESOURCE_REPOP_OPS_PER_PULSE)
 	_chunk_wall_collider_cache = ChunkWallColliderCacheScript.new()
 	_chunk_wall_collider_cache.setup({
 		"walls_tilemap": walls_tilemap,
@@ -357,9 +382,11 @@ func _ready() -> void:
 
 	player = get_node_or_null("../Player")
 
-	var occ_ctrl := OcclusionController.new()
-	occ_ctrl.name = "OcclusionController"
-	add_child(occ_ctrl)
+	_occlusion_controller = OcclusionController.new()
+	_occlusion_controller.name = "OcclusionController"
+	add_child(_occlusion_controller)
+	if _occlusion_controller != null:
+		_occlusion_controller.configure_cadence(_cadence != null)
 
 	tavern_chunk = _tile_to_chunk(Vector2i(width / 2, height / 2))
 	spawn_tile = get_tavern_center_tile(tavern_chunk)
@@ -531,6 +558,7 @@ func _ready() -> void:
 	_resource_repopulator.name = "ResourceRepopulator"
 	add_child(_resource_repopulator)
 	_resource_repopulator.setup(stone_ore_scene, copper_ore_scene, tilemap)
+	_resource_repopulator.configure_cadence(RESOURCE_REPOP_INTERVAL_SEC)
 
 	_vegetation_root.setup({
 		"ground_tilemap": ground_tilemap,
@@ -698,8 +726,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		SaveManager.new_game()
 		get_tree().reload_current_scene()
 
-func _process_tile_erase_queue() -> void:
-	var budget := 2
+func _process_tile_erase_queue(max_erases_per_frame: int = BUDGET_TILE_ERASE_PER_PULSE) -> void:
+	var budget := maxi(0, max_erases_per_frame)
 	while budget > 0 and not _pending_tile_erases.is_empty():
 		var cpos: Vector2i = _pending_tile_erases.pop_front()
 		if loaded_chunks.has(cpos):
@@ -738,23 +766,37 @@ func _process(delta: float) -> void:
 	if _tavern_brawl != null:
 		_tavern_brawl.tick(delta)
 	_tick_defense_posture(delta)
-	var medium_pulses: int = _cadence.consume_lane(&"medium_pulse") if _cadence != null else 1
+	var medium_pulses: int = _cadence.consume_lane(LANE_MEDIUM_PULSE) if _cadence != null else 1
 	for _pulse in medium_pulses:
 		_tick_player_territory()
 	pipeline.process(delta)
-	var short_pulses: int = _cadence.consume_lane(&"short_pulse") if _cadence != null else 1
+	var short_pulses: int = _cadence.consume_lane(LANE_SHORT_PULSE) if _cadence != null else 1
+	var short_lane_ops: int = 0
 	for _pulse in short_pulses:
-		_process_wall_refresh_queue(1)
-		_process_tile_erase_queue()
+		_process_wall_refresh_queue(BUDGET_WALL_REFRESH_PER_PULSE)
+		_process_tile_erase_queue(BUDGET_TILE_ERASE_PER_PULSE)
+		short_lane_ops += BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE
+	if _cadence != null and short_pulses > 0:
+		_cadence.report_lane_work(LANE_SHORT_PULSE, short_lane_ops, BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE)
+	var occlusion_pulses: int = _cadence.consume_lane(LANE_OCCLUSION_PULSE) if _cadence != null else 0
+	if _occlusion_controller != null and occlusion_pulses > 0:
+		var occlusion_updates: int = _occlusion_controller.tick_from_cadence(occlusion_pulses, BUDGET_OCCLUSION_MATERIALS_PER_PULSE)
+		if _cadence != null:
+			_cadence.report_lane_work(LANE_OCCLUSION_PULSE, occlusion_updates, BUDGET_OCCLUSION_MATERIALS_PER_PULSE * occlusion_pulses)
+	var repop_pulses: int = _cadence.consume_lane(LANE_RESOURCE_REPOP_PULSE) if _cadence != null else 1
+	if _resource_repopulator != null and repop_pulses > 0:
+		var repop_ops: int = _resource_repopulator.tick_from_cadence(repop_pulses)
+		if _cadence != null:
+			_cadence.report_lane_work(LANE_RESOURCE_REPOP_PULSE, repop_ops, BUDGET_RESOURCE_REPOP_OPS_PER_PULSE * repop_pulses)
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
 	_update_cliff_occlusion()
 	_process_chunk_perf_debug(delta)
 	if _world_sim_telemetry != null:
 		_world_sim_telemetry.tick(delta)
-	if _cadence != null and _cadence.consume_lane(&"autosave") > 0:
+	if _cadence != null and _cadence.consume_lane(LANE_AUTOSAVE) > 0:
 		_perform_world_save("autosave")
-	if _cadence != null and _cadence.consume_lane(&"chunk_pulse") <= 0:
+	if _cadence != null and _cadence.consume_lane(LANE_CHUNK_PULSE) <= 0:
 		return
 	if not player:
 		return
@@ -2021,7 +2063,7 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 	var loaded_count: int = loaded_chunks.size()
 	var generated_count: int = pipeline.generated_chunks.size() if pipeline != null else 0
 	var terrain_pending: int = pipeline.terrain_paint_center_ring0_pending if pipeline != null else 0
-	var autosave_due: int = _cadence.lane_due(&"autosave") if _cadence != null else 0
+	var autosave_due: int = _cadence.lane_due(LANE_AUTOSAVE) if _cadence != null else 0
 	var last_save_age: float = -1.0
 	if _last_save_time_msec >= 0:
 		last_save_age = float(Time.get_ticks_msec() - _last_save_time_msec) / 1000.0
@@ -2037,5 +2079,10 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 			"due": autosave_due,
 			"save_count": _save_count,
 			"last_save_age": snappedf(last_save_age, 0.01) if last_save_age >= 0.0 else -1.0,
+		},
+		"lane_inventory": {
+			"occlusion_controller": {"script": "scripts/world/OcclusionController.gd", "lane": String(LANE_OCCLUSION_PULSE), "interval": OCCLUSION_INTERVAL_SEC, "budget": BUDGET_OCCLUSION_MATERIALS_PER_PULSE},
+			"resource_repopulator": {"script": "scripts/world/ResourceRepopulator.gd", "lane": String(LANE_RESOURCE_REPOP_PULSE), "interval": RESOURCE_REPOP_INTERVAL_SEC, "budget": BUDGET_RESOURCE_REPOP_OPS_PER_PULSE},
+			"maintenance_short_pulse": {"script": "scripts/world/world.gd::_process", "lane": String(LANE_SHORT_PULSE), "interval": 0.12, "budget": BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE},
 		},
 	}
