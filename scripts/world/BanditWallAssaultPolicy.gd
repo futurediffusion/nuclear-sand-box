@@ -278,7 +278,12 @@ static func _find_nearest_player_structure_node(world_node: Node, enemy_pos: Vec
 
 	var best: Node2D = null
 	var best_dsq: float = INF
-	for node in world_node.get_tree().get_nodes_in_group("player_placeable"):
+	var candidates: Array = []
+	if world_node.has_method("get_runtime_group_nodes"):
+		candidates = world_node.call("get_runtime_group_nodes", "player_placeable")
+	else:
+		candidates = world_node.get_tree().get_nodes_in_group("player_placeable")
+	for node in candidates:
 		var n2d := node as Node2D
 		if n2d == null or not is_instance_valid(n2d) or n2d.is_queued_for_deletion():
 			continue
