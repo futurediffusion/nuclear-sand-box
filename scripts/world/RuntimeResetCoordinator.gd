@@ -6,6 +6,7 @@ extends RefCounted
 ##   1) PlacementSystem: limpia referencias runtime para evitar punteros colgantes.
 ##   2) Faction/Site/Npc profile registries: limpia estado de dominio persistido en memoria.
 ##   3) BanditGroupMemory/ExtortionQueue: vacía colas y memoria táctica derivada.
+##      Incluye RaidQueue para evitar intents huérfanos post-reset.
 ##   4) RunClock/WorldTime: reinicia tiempo de run a estado base.
 ##   5) FactionHostilityManager: limpia estado de hostilidad, dependiente de reloj limpio.
 ## - Dependencias mínimas:
@@ -21,6 +22,7 @@ func reset_new_game() -> void:
 	NpcProfileSystem.reset()
 	BanditGroupMemory.reset()
 	ExtortionQueue.reset()
+	RaidQueue.reset()
 	RunClock.reset()
 	WorldTime.load_save_data({})
 	FactionHostilityManager.reset()
