@@ -411,6 +411,12 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 
 	if drop_id == 0 or not is_instance_id_valid(drop_id):
 		return
+	Debug.log("bandit_ai", "[CampStashHook] drop_pickup_attempt npc=%s drop_id=%d cargo=%d/%d" % [
+		beh.member_id,
+		drop_id,
+		beh.cargo_count,
+		beh.cargo_capacity,
+	])
 	var drop_obj: Object = instance_from_id(drop_id)
 	if drop_obj == null or not is_instance_valid(drop_obj):
 		return

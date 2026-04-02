@@ -33,6 +33,7 @@ const MIN_GROUP_SCAN_INTERVAL: float = 2.0
 const MAX_GROUP_SCAN_INTERVAL: float = 16.0
 const MIN_BEHAVIOR_TICK_INTERVAL: float = 0.25
 const MAX_BEHAVIOR_TICK_INTERVAL: float = 1.5
+const ACTIVE_WORK_LOOP_MAX_INTERVAL: float = 0.35
 const MODE_CONTEXTUAL: StringName = &"contextual"
 const MODE_EXPLORATION_NORMAL: StringName = &"exploration_normal"
 const MODE_COMBAT_CLOSE: StringName = &"combat_close"
@@ -210,6 +211,16 @@ static func get_behavior_tick_debug(ctx: Dictionary) -> Dictionary:
 		reasons.push_front("distance_floor")
 	if mode != MODE_CONTEXTUAL:
 		reasons.push_front("mode_%s" % String(mode))
+	# Work-loop continuity guard:
+	# mining/pickup/return/deposit must not drift into slow LOD buckets even when
+	# far from player; we cap only active logistics states to keep responsiveness.
+	var is_active_work_loop: bool = state_name == "RESOURCE_WATCH" \
+			or state_name == "LOOT_APPROACH" \
+			or state_name == "RETURN_HOME" \
+			or has_cargo
+	if is_active_work_loop:
+		interval = minf(interval, ACTIVE_WORK_LOOP_MAX_INTERVAL)
+		reasons.push_front("work_loop_cap")
 	return {
 		"interval": interval,
 		"multiplier": multiplier,

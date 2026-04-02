@@ -196,7 +196,7 @@ var _cadence:        WorldCadenceCoordinator  = null
 
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _behavior_elapsed: Dictionary = {}
-var _tick_timer: float     = BanditTuningScript.behavior_tick_interval() * 0.35
+var _work_loop_fallback_timer: float = 0.0
 var _director_fallback_timer: float = 0.08
 
 var _extortion_director: BanditExtortionDirector = null
@@ -418,29 +418,39 @@ func _process(delta: float) -> void:
 		if _raid_director != null:
 			_raid_director.process_raid()
 	_process_pending_structure_dispatches()
-	_tick_timer += delta
-	if _tick_timer < BanditTuningScript.behavior_tick_interval():
+	var work_loop_pulses: int = 0
+	if _cadence != null:
+		work_loop_pulses = _cadence.consume_lane(&"bandit_work_loop")
+	else:
+		_work_loop_fallback_timer += delta
+		if _work_loop_fallback_timer >= 0.25:
+			_work_loop_fallback_timer -= 0.25
+			work_loop_pulses = 1
+	if work_loop_pulses <= 0:
 		return
-	_tick_timer = 0.0
 
-	_ensure_behaviors_for_active_enemies()
-	_stash.ensure_barrels()
-	var mode_signals: Dictionary = _get_global_lod_mode_signals()
-	var active_mode: StringName = SimulationLODPolicyScript.resolve_interval_mode({
-		"mode_signals": mode_signals,
-	})
-	var behavior_start_usec: int = Time.get_ticks_usec()
-	_tick_behaviors()
-	var behavior_elapsed_ms: float = float(Time.get_ticks_usec() - behavior_start_usec) / 1000.0
-	_record_mode_frame_time(active_mode, behavior_elapsed_ms)
-	_prune_behaviors()
+	for _work_pulse in work_loop_pulses:
+		_ensure_behaviors_for_active_enemies()
+		_stash.ensure_barrels()
+		var mode_signals: Dictionary = _get_global_lod_mode_signals()
+		var active_mode: StringName = SimulationLODPolicyScript.resolve_interval_mode({
+			"mode_signals": mode_signals,
+		})
+		var behavior_start_usec: int = Time.get_ticks_usec()
+		var work_units: int = _tick_behaviors()
+		var behavior_elapsed_ms: float = float(Time.get_ticks_usec() - behavior_start_usec) / 1000.0
+		_record_mode_frame_time(active_mode, behavior_elapsed_ms)
+		if _cadence != null:
+			var lane_budget: int = _cadence.lane_budget(&"bandit_work_loop", -1)
+			_cadence.report_lane_work(&"bandit_work_loop", work_units, lane_budget)
+		_prune_behaviors()
 
 
 # ---------------------------------------------------------------------------
 # Behavior tick
 # ---------------------------------------------------------------------------
 
-func _tick_behaviors() -> void:
+func _tick_behaviors() -> int:
 	# Ownership boundary:
 	# 1) behavior.tick() decides locomotion/state evolution from current intent.
 	# 2) work_coordinator performs world side effects + guarded transition requests.
@@ -449,6 +459,7 @@ func _tick_behaviors() -> void:
 	_prune_behavior_timers()
 	_lod_debug_last_npc.clear()
 	_lod_debug_npc_counts = {"fast": 0, "medium": 0, "slow": 0}
+	var work_units: int = 0
 	var drop_nodes_snapshot: Array = _get_all_drop_nodes()
 	var res_nodes_snapshot: Array = _get_all_resource_nodes()
 	var leader_pos_by_group: Dictionary = {}
@@ -501,6 +512,7 @@ func _tick_behaviors() -> void:
 		# Pasar tick_interval como delta (tiempo real desde ï¿½fÂºltimo tick),
 		# no elapsed que puede ser mayor que tick_interval.
 		beh.tick(tick_interval, ctx)
+		work_units += 1
 		var lod_mode: StringName = StringName(String(_lod_debug_last_npc.get(beh.member_id, {}).get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))))
 		_record_mode_reaction_latency(lod_mode, reaction_latency)
 		_maybe_show_recognition_bubble(beh, node, node_pos)
@@ -514,6 +526,7 @@ func _tick_behaviors() -> void:
 
 		if _work_coordinator != null:
 			_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
+	return work_units
 
 
 # ---------------------------------------------------------------------------
