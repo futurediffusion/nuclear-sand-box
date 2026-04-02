@@ -7,7 +7,7 @@ const RECENT_ACTIVITY_DECAY_WINDOW: float = 5.0
 var _lanes: Dictionary = {}
 var _time: float = 0.0
 
-func configure_lane(name: StringName, interval: float, phase_ratio: float = 0.0, max_catchup: int = DEFAULT_MAX_CATCHUP) -> void:
+func configure_lane(name: StringName, interval: float, phase_ratio: float = 0.0, max_catchup: int = DEFAULT_MAX_CATCHUP, budget_units: int = -1) -> void:
 	if interval <= 0.0:
 		push_warning("WorldCadenceCoordinator lane %s needs interval > 0" % String(name))
 		return
@@ -25,6 +25,12 @@ func configure_lane(name: StringName, interval: float, phase_ratio: float = 0.0,
 		"last_catchup_generated": 0,
 		"last_tick_time": 0.0,
 		"last_consume_time": -1.0,
+		"budget_units": budget_units,
+		"last_work": 0,
+		"total_work": 0,
+		"recent_work": 0.0,
+		"last_utilization": 0.0,
+		"recent_utilization": 0.0,
 	}
 
 func reset_time(seed_time: float = 0.0) -> void:
@@ -59,6 +65,8 @@ func advance(delta: float) -> void:
 			var decay := clampf(1.0 - (delta / RECENT_ACTIVITY_DECAY_WINDOW), 0.0, 1.0)
 			lane["recent_consumed"] = float(lane.get("recent_consumed", 0.0)) * decay
 			lane["recent_catchup"] = float(lane.get("recent_catchup", 0.0)) * decay
+			lane["recent_work"] = float(lane.get("recent_work", 0.0)) * decay
+			lane["recent_utilization"] = float(lane.get("recent_utilization", 0.0)) * decay
 		lane["due"] = due
 		lane["last_generated_due"] = generated_due
 		lane["last_catchup_generated"] = maxi(0, generated_due - 1)
@@ -85,6 +93,27 @@ func lane_due(name: StringName) -> int:
 		return 0
 	return int(_lanes[name].get("due", 0))
 
+func lane_budget(name: StringName, fallback: int = -1) -> int:
+	if not _lanes.has(name):
+		return fallback
+	return int(_lanes[name].get("budget_units", fallback))
+
+func report_lane_work(name: StringName, work_units: int, budget_units: int = -1) -> void:
+	if not _lanes.has(name):
+		return
+	var lane: Dictionary = _lanes[name]
+	var effective_budget: int = budget_units if budget_units >= 0 else int(lane.get("budget_units", -1))
+	var utilization: float = -1.0
+	if effective_budget > 0:
+		utilization = clampf(float(work_units) / float(effective_budget), 0.0, 4.0)
+	lane["last_work"] = maxi(0, work_units)
+	lane["total_work"] = int(lane.get("total_work", 0)) + maxi(0, work_units)
+	lane["recent_work"] = float(lane.get("recent_work", 0.0)) + float(maxi(0, work_units))
+	lane["last_utilization"] = utilization
+	if utilization >= 0.0:
+		lane["recent_utilization"] = float(lane.get("recent_utilization", 0.0)) + utilization
+	_lanes[name] = lane
+
 
 func get_debug_snapshot() -> Dictionary:
 	var lanes: Dictionary = {}
@@ -107,6 +136,12 @@ func get_debug_snapshot() -> Dictionary:
 			"last_generated_due": int(lane.get("last_generated_due", 0)),
 			"last_catchup_generated": int(lane.get("last_catchup_generated", 0)),
 			"total_consumed": int(lane.get("total_consumed", 0)),
+			"budget_units": int(lane.get("budget_units", -1)),
+			"last_work": int(lane.get("last_work", 0)),
+			"total_work": int(lane.get("total_work", 0)),
+			"recent_work": snappedf(float(lane.get("recent_work", 0.0)), 0.01),
+			"last_utilization": snappedf(float(lane.get("last_utilization", -1.0)), 0.01),
+			"recent_utilization": snappedf(float(lane.get("recent_utilization", 0.0)), 0.01),
 			"activity": activity,
 		}
 	return {

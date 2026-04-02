@@ -178,13 +178,19 @@ func build_overlay_lines() -> PackedStringArray:
 
 func _format_cadence_line(lanes: Dictionary) -> String:
 	var parts: Array[String] = []
-	for lane_name in ["short_pulse", "medium_pulse", "director_pulse", "chunk_pulse", "autosave", "settlement_base_scan", "settlement_workbench_scan"]:
+	for lane_name in ["short_pulse", "medium_pulse", "director_pulse", "chunk_pulse", "autosave", "settlement_base_scan", "settlement_workbench_scan", "occlusion_pulse", "resource_repop_pulse"]:
 		if lanes.has(lane_name):
 			var lane: Dictionary = lanes[lane_name]
-			parts.append("%s=%s/%.2f%s" % [
+			var utilization: float = float(lane.get("last_utilization", -1.0))
+			var utilization_suffix: String = ""
+			if utilization >= 0.0:
+				utilization_suffix = " util=%d%%" % int(round(utilization * 100.0))
+			parts.append("%s=%s/%.2f work=%d%s%s" % [
 				lane_name,
 				str(lane.get("recent_consumed", 0.0)),
 				float(lane.get("interval", 0.0)),
+				int(lane.get("last_work", 0)),
+				utilization_suffix,
 				" catchup" if float(lane.get("recent_catchup", 0.0)) > 0.0 else "",
 			])
 	return ", ".join(parts)
