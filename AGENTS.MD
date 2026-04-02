@@ -61,6 +61,8 @@ Script orquestador: `scripts/world/world.gd`
 | `GroundPainter` | RefCounted | — | Terreno de GroundTileMap (dirt/grass) |
 | `CollisionBuilder` | RefCounted | — | `StaticBody2D` de muros por chunk, caché por hash |
 | `PropSpawner` | RefCounted | — | Ores, props, campamentos |
+| `RuntimeGroupIndex` | RefCounted | `scripts/world/RuntimeGroupIndex.gd` | Índice runtime cacheado para grupos con `WeakRef`+TTL (reduce scans globales repetidos) |
+| `WorldRuntimePortsFacade` | RefCounted | `scripts/world/WorldRuntimePortsFacade.gd` | Puertos explícitos para lookups runtime (keeper/sentinels/enemies/npc/workbench/player + contenedores de taberna) |
 
 #### Ciclo de vida de un chunk
 

@@ -168,6 +168,8 @@ var _player_territory_facade
 var _placement_reaction_facade
 var _telemetry_facade
 var _chunk_pipeline_facade
+var _runtime_group_index
+var _runtime_ports_facade
 
 # === [DOMAIN: HIGH-LEVEL REACTION DISPATCH] ===================================
 # Placement reaction
@@ -234,6 +236,8 @@ const PlayerTerritoryFacadeScript := preload("res://scripts/world/PlayerTerritor
 const PlacementReactionFacadeScript := preload("res://scripts/world/PlacementReactionFacade.gd")
 const WorldTelemetryFacadeScript := preload("res://scripts/world/WorldTelemetryFacade.gd")
 const ChunkPipelineFacadeScript := preload("res://scripts/world/ChunkPipelineFacade.gd")
+const RuntimeGroupIndexScript := preload("res://scripts/world/RuntimeGroupIndex.gd")
+const WorldRuntimePortsFacadeScript := preload("res://scripts/world/WorldRuntimePortsFacade.gd")
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -278,6 +282,15 @@ func _ready() -> void:
 	})
 	_chunk_wall_collider_cache.clear_all()
 	add_to_group("world")
+	_runtime_group_index = RuntimeGroupIndexScript.new()
+	_runtime_group_index.setup({"tree_getter": Callable(self, "get_tree")})
+	_runtime_ports_facade = WorldRuntimePortsFacadeScript.new()
+	_runtime_ports_facade.setup({
+		"group_index": _runtime_group_index,
+		"player_getter": Callable(self, "_get_player_node"),
+		"npc_simulator_getter": Callable(self, "_get_npc_simulator"),
+		"world_spatial_index_getter": Callable(self, "_get_world_spatial_index"),
+	})
 	get_tree().set_auto_accept_quit(false)
 	_player_wall_system = PlayerWallSystemScript.new()
 	_wall_persistence = WallPersistenceScript.new()
@@ -1502,17 +1515,16 @@ func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> 
 
 
 func _get_tavern_keeper_node() -> TavernKeeper:
-	if _tavern_keeper_cached != null and is_instance_valid(_tavern_keeper_cached):
-		return _tavern_keeper_cached
-	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
-	if not keepers.is_empty() and keepers[0] is TavernKeeper:
-		_tavern_keeper_cached = keepers[0] as TavernKeeper
-		return _tavern_keeper_cached
-	return null
+	if _runtime_ports_facade == null:
+		return _tavern_keeper_cached if _tavern_keeper_cached != null and is_instance_valid(_tavern_keeper_cached) else null
+	var result: Dictionary = _runtime_ports_facade.get_tavern_keeper(_tavern_keeper_cached)
+	_tavern_keeper_cached = result.get("cached_keeper")
+	return result.get("keeper")
 
 func _get_tavern_sentinel_nodes() -> Array:
-	# Excepción deliberada: set pequeño y semántica estrictamente local de autoridad.
-	return get_tree().get_nodes_in_group("tavern_sentinel")
+	if _runtime_ports_facade == null:
+		return []
+	return _runtime_ports_facade.get_tavern_sentinels()
 
 
 ## Cablea el reporter de incidentes y el service_check de memoria en el keeper activo.
@@ -1530,22 +1542,11 @@ func _wire_keeper_incident_reporter() -> void:
 ## Solo registra los que existan en este momento (post-spawn del chunk de taberna).
 ## TODO(Paso 4): registrar también contenedores colocados por el player después del spawn.
 func _register_tavern_containers() -> void:
-	var bounds: Rect2 = get_tavern_inner_bounds_world()
-	if bounds.size == Vector2.ZERO:
+	if _runtime_ports_facade == null:
 		return
-	var search_bounds := bounds.grow(32.0)
+	var bounds: Rect2 = get_tavern_inner_bounds_world()
 	var reporter := Callable(self, "report_tavern_incident")
-	var registered: int = 0
-	for group_name in ["chest", "interactable"]:
-		for node in get_tree().get_nodes_in_group(group_name):
-			if not is_instance_valid(node) or not (node is Node2D):
-				continue
-			if not (node as Node2D).global_position.is_zero_approx() \
-					and not search_bounds.has_point((node as Node2D).global_position):
-				continue
-			if node.has_method("set_civil_incident_reporter"):
-				node.call("set_civil_incident_reporter", reporter)
-				registered += 1
+	var registered: int = _runtime_ports_facade.register_tavern_containers(bounds, reporter)
 	Debug.log("authority", "[TAVERN] containers registrados con reporter: %d" % registered)
 
 
@@ -1604,6 +1605,15 @@ func _get_player_world_pos() -> Vector2:
 	if player == null:
 		return Vector2.ZERO
 	return player.global_position
+
+func _get_player_node() -> Node2D:
+	return player
+
+func _get_npc_simulator() -> NpcSimulator:
+	return npc_simulator
+
+func _get_world_spatial_index() -> WorldSpatialIndex:
+	return _world_spatial_index
 
 func _on_wall_drop_for_intel(tile_pos: Vector2i, _item_id: String, _amount: int) -> void:
 	if _settlement_intel != null:
@@ -1693,45 +1703,33 @@ func _get_tavern_presence_candidates() -> Array:
 
 
 func _get_enemies_near_runtime(pos: Vector2, radius: float) -> Array:
-	var result: Array = []
-	var radius_sq: float = radius * radius
-	for e in _get_live_enemy_nodes():
-		if e == null or not is_instance_valid(e) or not (e is Node2D):
-			continue
-		if (e as Node2D).global_position.distance_squared_to(pos) <= radius_sq:
-			result.append(e)
-	return result
+	if _runtime_ports_facade == null:
+		return []
+	return _runtime_ports_facade.get_enemies_near_runtime(pos, radius)
 
 
 func _get_live_enemy_nodes() -> Array:
-	var result: Array = []
-	if npc_simulator != null:
-		for enemy_node in npc_simulator.active_enemies.values():
-			if enemy_node != null and is_instance_valid(enemy_node):
-				result.append(enemy_node)
-		return result
-	return get_tree().get_nodes_in_group("enemy")
+	if _runtime_ports_facade == null:
+		return []
+	return _runtime_ports_facade.get_live_enemy_nodes()
 
 
 func _get_live_npc_nodes() -> Array:
-	# Excepción deliberada: "npc" combina actores heterogéneos no indexados todavía
-	# en WorldSpatialIndex. El callsite corre en pulses de 0.4s y el costo es acotado.
-	return get_tree().get_nodes_in_group("npc")
+	if _runtime_ports_facade == null:
+		return []
+	return _runtime_ports_facade.get_live_npc_nodes()
 
 
 func _get_runtime_workbench_nodes() -> Array:
-	if _world_spatial_index != null:
-		return _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH)
-	# Fallback defensivo: no debería ocurrir en runtime normal.
-	return get_tree().get_nodes_in_group("workbench")
+	if _runtime_ports_facade == null:
+		return []
+	return _runtime_ports_facade.get_runtime_workbench_nodes()
 
 
 func _get_live_player_nodes() -> Array:
-	var result: Array = []
-	if player != null and is_instance_valid(player):
-		result.append(player)
-		return result
-	return get_tree().get_nodes_in_group("player")
+	if _runtime_ports_facade == null:
+		return []
+	return _runtime_ports_facade.get_live_player_nodes()
 
 func is_in_player_territory(world_pos: Vector2) -> bool:
 	if _player_territory_facade == null:
