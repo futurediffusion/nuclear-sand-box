@@ -29,6 +29,7 @@ const MethodCapabilityCacheScript := preload("res://scripts/utils/MethodCapabili
 # ---------------------------------------------------------------------------
 const BARREL_SPAWN_OFFSET_BASE:  float = 64.0   # px desde home_pos al primer barril
 const BARREL_SPAWN_COLUMN_STEP:  float = 32.0   # px entre barriles adicionales
+const KIND_ITEM_DROP: StringName = WorldSpatialIndex.KIND_ITEM_DROP
 
 const CARRY_STACK_BASE_Y:  float = -22.0  # Y del primer item cargado sobre el NPC
 const CARRY_STACK_STEP_Y:  float =   8.0  # desplazamiento Y por item adicional en el stack
@@ -188,14 +189,14 @@ func ensure_barrels() -> void:
 
 ## Recoge drops en radio de órbita (desde el centro del recurso).
 func sweep_collect_orbit(beh: BanditWorldBehavior, enemy_node: Node,
-		orbit_center: Vector2, drops_cache: Array) -> void:
-	_sweep(beh, enemy_node, orbit_center, BanditTuningScript.orbit_collect_radius_sq(), drops_cache)
+		orbit_center: Vector2, query_budget_ctx: Dictionary = {}) -> void:
+	_sweep(beh, enemy_node, orbit_center, BanditTuningScript.orbit_collect_radius_sq(), query_budget_ctx)
 
 
 ## Recoge todos los drops cercanos al llegar a un drop objetivo.
 func sweep_collect_arrive(beh: BanditWorldBehavior, enemy_node: Node,
-		arrive_pos: Vector2, drops_cache: Array) -> void:
-	_sweep(beh, enemy_node, arrive_pos, BanditTuningScript.loot_arrive_collect_radius_sq(), drops_cache)
+		arrive_pos: Vector2, query_budget_ctx: Dictionary = {}) -> void:
+	_sweep(beh, enemy_node, arrive_pos, BanditTuningScript.loot_arrive_collect_radius_sq(), query_budget_ctx)
 
 
 ## Deposita el cargo en el barril del campamento (animación de caída + inserción).
@@ -539,20 +540,45 @@ func _resolve_enemy_pos(enemy_node: Node) -> Vector2:
 	return node2d.global_position if node2d != null else Vector2.ZERO
 
 func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
-		check_pos: Vector2, radius_sq: float, drops_cache: Array) -> void:
+		check_pos: Vector2, radius_sq: float, query_budget_ctx: Dictionary = {}) -> void:
 	if beh.is_cargo_full():
 		return
-	var found_candidate: bool = false
-	var sound_idx := 0
-	for drop in drops_cache:
-		if beh.is_cargo_full():
-			break
-		var drop_node := drop as Node2D
-		if not is_instance_valid(drop_node) or drop_node.is_queued_for_deletion():
+	var actor_pos: Vector2 = _resolve_enemy_pos(enemy_node)
+	var query_radius: float = sqrt(maxf(radius_sq, 0.0))
+	var query_ctx: Dictionary = {
+		"intent": "idle",
+		"stage": "drop_collect",
+		"max_candidates_eval": 32,
+	}
+	for key in query_budget_ctx.keys():
+		query_ctx[key] = query_budget_ctx[key]
+	var max_candidates_eval: int = maxi(int(query_ctx.get("max_candidates_eval", 0)), 0)
+	var candidates := WorldSpatialIndex.get_runtime_nodes_near(
+		KIND_ITEM_DROP,
+		check_pos,
+		query_radius,
+		query_ctx
+	)
+	var candidate_nodes: Array[Node2D] = []
+	for raw_drop in candidates:
+		var drop_node := raw_drop as Node2D
+		if drop_node == null or not is_instance_valid(drop_node) \
+				or drop_node.is_queued_for_deletion():
 			continue
 		if not drop_node.is_in_group("item_drop"):
 			continue
-		if check_pos.distance_squared_to(drop_node.global_position) > radius_sq:
+		candidate_nodes.append(drop_node)
+	candidate_nodes.sort_custom(func(a: Node2D, b: Node2D) -> bool:
+		return actor_pos.distance_squared_to(a.global_position) < actor_pos.distance_squared_to(b.global_position)
+	)
+	if max_candidates_eval > 0 and candidate_nodes.size() > max_candidates_eval:
+		candidate_nodes = candidate_nodes.slice(0, max_candidates_eval)
+	var found_candidate: bool = false
+	var sound_idx := 0
+	for drop_node in candidate_nodes:
+		if beh.is_cargo_full():
+			break
+		if actor_pos.distance_squared_to(drop_node.global_position) > radius_sq:
 			continue
 		found_candidate = true
 		beh.pending_collect_id = drop_node.get_instance_id()
@@ -565,7 +591,8 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 	if not found_candidate:
 		_emit_worker_event("pickup_candidates_empty", beh, check_pos, "", {
 			"radius_sq": snappedf(radius_sq, 0.01),
-			"cache_size": drops_cache.size(),
+			"candidate_count": candidate_nodes.size(),
+			"query_radius": snappedf(query_radius, 0.01),
 		})
 
 
