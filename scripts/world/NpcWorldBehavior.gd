@@ -74,6 +74,7 @@ var member_id: String  = ""
 # ── Cargo (simple counter — no item details) ─────────────────────────────────
 var cargo_count: int    = 0
 var cargo_capacity: int = 3
+var deposit_lock_active: bool = false
 
 # ── Coordinator output ───────────────────────────────────────────────────────
 # Set by behavior when arriving at a loot target; BanditBehaviorLayer reads + clears.
@@ -486,6 +487,8 @@ func _enter_patrol(ctx: Dictionary) -> void:
 
 
 func _enter_return_home() -> void:
+	if cargo_count > 0:
+		deposit_lock_active = true
 	state         = State.RETURN_HOME
 	_state_timer  = 0.0
 	_detour_timer = 0.0
@@ -527,6 +530,7 @@ func export_state() -> Dictionary:
 		"wb_state_timer":      _state_timer,
 		"wb_cargo_count":      cargo_count,
 		"wb_cargo_cap":        cargo_capacity,
+		"wb_deposit_lock_active": deposit_lock_active,
 		"wb_res_watch_pos":    _resource_watch_pos,
 		"wb_res_watch_timer":  _resource_watch_timer,
 		"wb_orbit_radius":     _resource_orbit_radius,
@@ -555,6 +559,7 @@ func import_state(data: Dictionary) -> void:
 	_state_timer          = float(data.get("wb_state_timer",     0.0))
 	cargo_count           = int(data.get("wb_cargo_count",       cargo_count))
 	cargo_capacity        = int(data.get("wb_cargo_cap",         cargo_capacity))
+	deposit_lock_active   = bool(data.get("wb_deposit_lock_active", false))
 	var rwp = data.get("wb_res_watch_pos", Vector2.ZERO)
 	_resource_watch_pos    = rwp if rwp is Vector2 else Vector2.ZERO
 	_resource_watch_timer  = float(data.get("wb_res_watch_timer",  0.0))
