@@ -2,7 +2,7 @@ extends Node2D
 class_name BanditCamp
 
 @export var bandit_scene: PackedScene
-@export var max_bandits_alive: int = 4
+@export var max_bandits_alive: int = 2
 @export var respawn_time: float = 6.0
 @export var spawn_radius_px: float = 48.0
 

@@ -314,7 +314,7 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	# Pick and record best interest point
 	var interest = _pick_best_interest(markers, bases)
 	if interest != null:
-		BanditGroupMemory.record_interest(group_id, interest.pos, interest.kind)
+		BanditGroupMemory.record_interest(group_id, interest.get("pos", Vector2.ZERO), interest.get("kind", ""))
 		if _should_log_bandit_intel("scan_summary", BANDIT_INTEL_LOG_SAMPLE_HEAVY):
 			Debug.log("bandit_intel", "[BGI] group=%s score=%.1f eff=%.1f intent=%s lv%d a=%.1f h=%.1f t=%.1f cd=%.1f" % [
 				group_id, score, effective_score, new_intent, h_level, effective_t_alerted, effective_t_hunting, intent_time, internal_cd])
@@ -326,7 +326,7 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	else:
 		# hunting/extorting: clear scout (leader + bodyguards handle it)
 		BanditGroupMemory.set_scout(group_id, "")
-
+ 
 	if interest != null and bool(policy.get("can_extort_now", false)):
 		_maybe_enqueue_extortion(group_id, g, interest, score, markers, bases)
 

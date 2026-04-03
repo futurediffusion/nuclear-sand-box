@@ -1703,8 +1703,8 @@ func is_worker_cycle_active(npc: BanditWorldBehavior) -> bool:
 		state_name = NpcWorldBehavior.State.keys()[npc.state]
 	return state_name == "RESOURCE_WATCH" \
 			or state_name == "RETURN_HOME" \
-			or String(npc.pending_mine_id) != "" \
-			or String(npc.pending_collect_id) != "" \
+			or str(npc.pending_mine_id) != "" \
+			or str(npc.pending_collect_id) != "" \
 			or int(npc.cargo_count) > 0
 
 

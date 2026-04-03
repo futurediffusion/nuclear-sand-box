@@ -76,6 +76,7 @@ var _save_state_applied: bool = false
 var _last_chunk_pos: Vector2 = Vector2.INF
 var _sep_timer: float = 0.0
 var _is_lite_mode: bool = false
+var _hit_wake_until: float = -1.0
 var external_ai_override: bool = false
 var _pending_scripted_melee_action: bool = false
 var _scripted_control_timer: float = 0.0
@@ -508,6 +509,8 @@ func enter_lite_mode() -> void:
 		return
 	if hp <= 0 or dying:
 		return
+	if RunClock.now() < _hit_wake_until:
+		return
 	_is_lite_mode = true
 	attacking = false
 	attack_t = 0.0
@@ -722,9 +725,19 @@ func notify_player_hit() -> void:
 	_last_hit_was_from_player = true
 	FactionHostilityManager.add_hostility(faction_id, 0.0, "member_attacked",
 		{"entity_id": entity_uid, "position": global_position})
-	# Autodefensa: aunque el perfil de facción no permita atacar, este enemy puede responder
+	# Autodefensa: aunque el perfil de facción no permita atacar, este enemy puede responder.
+	# Si está en lite mode (lejos del jugador), forzar wake para que procese el provoke.
+	# _hit_wake_until bloquea que NpcSimulator lo vuelva a dormir durante 15s.
+	_hit_wake_until = RunClock.now() + 15.0
+	if _is_lite_mode:
+		exit_lite_mode()
 	if ai_component != null:
 		ai_component.notify_provoked(15.0)
+		# Forzar CHASE sin esperar acquire_radius — el jugador ya nos pegó, sabemos dónde está.
+		if ai_component.player != null and is_instance_valid(ai_component.player):
+			ai_component.set_current_target(ai_component.player)
+			ai_component.last_seen_player_pos = ai_component.player.global_position
+		ai_component.current_state = AIComponent.AIState.CHASE
 	# Alertar a aliados cercanos de la misma facción
 	_alert_nearby_allies(250.0, 15.0)
 
@@ -741,13 +754,22 @@ func _alert_nearby_allies(radius: float, duration: float) -> void:
 			continue
 		if global_position.distance_to((e as Node2D).global_position) > radius:
 			continue
+		# Sacar del lite mode si aplica
+		if e.has_method("is_lite_mode") and bool(e.call("is_lite_mode")):
+			if "hit_wake_until" in e or e.has_method("exit_lite_mode"):
+				e.set("_hit_wake_until", RunClock.now() + duration)
+				e.call("exit_lite_mode")
 		var ally_ai = e.get_node_or_null("AIComponent")
 		if ally_ai == null:
 			continue
-		if ally_ai.has_method("wake_now"):
-			ally_ai.wake_now()
 		if ally_ai.has_method("notify_provoked"):
 			ally_ai.notify_provoked(duration)
+		# Forzar CHASE hacia el jugador igual que el enemigo golpeado
+		if ally_ai.has_method("set_current_target") and ally_ai.player != null \
+				and is_instance_valid(ally_ai.player):
+			ally_ai.set_current_target(ally_ai.player)
+			ally_ai.last_seen_player_pos = ally_ai.player.global_position
+		ally_ai.current_state = AIComponent.AIState.CHASE
 
 
 func _trigger_death_shake() -> void:

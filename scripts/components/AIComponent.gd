@@ -95,6 +95,8 @@ var _warmup_tick_timer: float = 0.0
 var _awaiting_first_full_tick: bool = false
 var _disengage_anchor: Vector2 = Vector2.ZERO
 var _perimeter_anchor: Vector2 = Vector2.ZERO
+var _strafe_dir: float = 1.0
+var _strafe_timer: float = 0.0
 var _current_downed_target_id: int = -1
 var _contract_valid: bool = false
 var _path_id: String = ""   # agent_id for NpcPathService cache (lazy-init)
@@ -746,6 +748,13 @@ func _execute_state(delta: float) -> void:
 					if dist_to_target <= _get_effective_acquire_radius() \
 					else last_seen_player_pos
 			var dir: Vector2 = owner_entity.global_position.direction_to(chase_goal)
+			# Zigzag mientras persigue al jugador provocado — dificulta el puntería con arco.
+			if RunClock.now() < _provoked_until:
+				_strafe_timer -= delta
+				if _strafe_timer <= 0.0:
+					_strafe_dir = _rng.randf_range(0.6, 1.0) * sign(_rng.randf() - 0.5)
+					_strafe_timer = _rng.randf_range(0.25, 0.55)
+				dir = (dir + dir.orthogonal() * _strafe_dir * 0.55).normalized()
 			var target_velocity: Vector2 = dir * float(owner_entity.max_speed)
 			owner_entity.velocity = owner_entity.velocity.move_toward(target_velocity, owner_entity.acceleration * delta)
 		AIState.ATTACK:

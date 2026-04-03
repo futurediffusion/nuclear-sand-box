@@ -39,13 +39,13 @@ func clear_instance(obj: Object) -> void:
 
 
 func _build_class_key(obj: Object) -> String:
-	var class_name: String = obj.get_class()
+	var obj_class_name: String = obj.get_class()
 	var script_key: String = ""
 	var script_ref = obj.get_script()
 	if script_ref != null:
 		var script_path: String = String(script_ref.get("resource_path"))
 		script_key = script_path if script_path != "" else String(script_ref)
-	return "%s|%s" % [class_name, script_key]
+	return "%s|%s" % [obj_class_name, script_key]
 
 
 func _track_node_lifecycle(obj: Object, instance_id: int) -> void:

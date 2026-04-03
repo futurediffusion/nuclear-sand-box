@@ -499,8 +499,8 @@ func _rebuild_placeables_cache_full() -> void:
 		if chunk_pos.x <= -999999:
 			continue
 		var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[chunk_key]
-		for uid in chunk_dict.keys():
-			var entry: Dictionary = chunk_dict[uid]
+		for entry_key in chunk_dict.keys():
+			var entry: Dictionary = chunk_dict[entry_key]
 			var item_id := String(entry.get("item_id", "")).strip_edges()
 			if item_id == "":
 				continue

@@ -63,11 +63,12 @@ func _run_warmup_impl() -> void:
 		await _warm_scene_instance(packed, warmup_container)
 
 	warmup_container.queue_free()
-	await get_tree().process_frame
+	if get_tree() != null:
+		await get_tree().process_frame
 
 	var elapsed_sec := float(Time.get_ticks_msec() - start_ms) * 0.001
 	Debug.log("boot", "Warmup finished in %.3fs" % elapsed_sec)
-	if elapsed_sec < min_warmup_seconds:
+	if elapsed_sec < min_warmup_seconds and get_tree() != null:
 		await get_tree().create_timer(min_warmup_seconds - elapsed_sec).timeout
 
 func _warm_scene_instance(packed: PackedScene, warmup_container: Node) -> void:
@@ -84,11 +85,13 @@ func _warm_scene_instance(packed: PackedScene, warmup_container: Node) -> void:
 		(instance as Node2D).global_position = Vector2(-100000.0, -100000.0)
 
 	warmup_container.add_child(instance)
-	await get_tree().process_frame
+	if get_tree() != null:
+		await get_tree().process_frame
 
 	if is_instance_valid(instance):
 		instance.queue_free()
-	await get_tree().process_frame
+	if get_tree() != null:
+		await get_tree().process_frame
 
 func _set_node_processing_recursive(root: Node, should_process: bool) -> void:
 	root.set_process(should_process)
