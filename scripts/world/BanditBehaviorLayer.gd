@@ -1695,13 +1695,6 @@ func _enforce_cargo_return_priority(beh: BanditWorldBehavior, member_pos: Vector
 			"stage": stage,
 		})
 		return
-	# Before deposit lock engages, allow scavengers to finish the current node.
-	if not beh.deposit_lock_active \
-			and beh.state == NpcWorldBehavior.State.RESOURCE_WATCH \
-			and beh._resource_node_id != 0 \
-			and is_instance_id_valid(beh._resource_node_id) \
-			and not beh.is_cargo_full():
-		return
 	if beh.deposit_lock_active:
 		log_worker_event("deposit_lock_retry", {
 			"npc_id": beh.member_id,
