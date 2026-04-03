@@ -116,6 +116,8 @@ const RECOGNITION_PHRASES: Dictionary = {
 const RECOGNITION_RANGE_SQ: float = 350.0 * 350.0
 ## Cooldown mï¿½fÂ­nimo (s) entre burbujas de reconocimiento por NPC.
 const RECOGNITION_COOLDOWN: float = 45.0
+const DROP_SCAN_ENOUGH_THRESHOLD: int = 10
+const DROP_SCAN_MAX_CANDIDATES_EVAL: int = 40
 
 # ---------------------------------------------------------------------------
 # Diï¿½fÂ¡logo ambiental Ã¢ï¿½,ï¿½ï¿½?ï¿½ frases de mundo mientras el NPC estï¿½fÂ¡ ocioso o patrullando
@@ -506,7 +508,6 @@ func _tick_behaviors() -> int:
 	_lod_debug_last_npc.clear()
 	_lod_debug_npc_counts = {"fast": 0, "medium": 0, "slow": 0}
 	var work_units: int = 0
-	var drop_nodes_snapshot: Array = _get_all_drop_nodes()
 	var res_nodes_snapshot: Array = _get_all_resource_nodes()
 	var leader_pos_by_group: Dictionary = {}
 	for enemy_id in _behaviors:
@@ -522,7 +523,7 @@ func _tick_behaviors() -> int:
 		var node = _npc_simulator.get_enemy_node(enemy_id)
 		if not _is_world_behavior_eligible(node):
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
+				_work_coordinator.process_post_behavior(beh, node)
 			continue
 
 		var node_pos: Vector2 = _effective_work_position(node)
@@ -532,7 +533,7 @@ func _tick_behaviors() -> int:
 		_behavior_elapsed[enemy_id] = elapsed
 		if elapsed < tick_interval:
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
+				_work_coordinator.process_post_behavior(beh, node)
 			continue
 		# Resetear a 0 en vez de acumular residual para evitar que elapsed crezca
 		# indefinidamente cuando tick_interval es corto (ej. 0.25s con jugador cerca).
@@ -542,7 +543,7 @@ func _tick_behaviors() -> int:
 		var reaction_latency: float = maxf(elapsed - tick_interval, 0.0)
 		_behavior_elapsed[enemy_id] = 0.0
 
-		_fill_drops_info_buffer(node_pos, drop_nodes_snapshot, _tick_scan_buffers.drops)
+		_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
 		_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
 		var ctx: Dictionary = _tick_scan_buffers.ctx
 		ctx.clear()
@@ -573,7 +574,7 @@ func _tick_behaviors() -> int:
 			save_state_ref["world_behavior"] = beh.export_state()
 
 		if _work_coordinator != null:
-			_work_coordinator.process_post_behavior(beh, node, drop_nodes_snapshot)
+			_work_coordinator.process_post_behavior(beh, node)
 	return work_units
 
 
@@ -588,10 +589,40 @@ func _effective_work_position(enemy_node: Node) -> Vector2:
 	var node2d := enemy_node as Node2D
 	return node2d.global_position if node2d != null else Vector2.ZERO
 
-func _fill_drops_info_buffer(node_pos: Vector2, all_drops: Array, out: Array[Dictionary]) -> void:
+func _fill_drops_info_buffer(node_pos: Vector2, out: Array[Dictionary]) -> void:
 	var r2: float = BanditTuningScript.loot_scan_radius_sq()
+	var radius: float = sqrt(r2)
+	var drops_source: Array = []
+	if _world_spatial_index != null:
+		drops_source = _world_spatial_index.get_runtime_nodes_near(
+			WorldSpatialIndex.KIND_ITEM_DROP,
+			node_pos,
+			radius,
+			{
+				"intent": "idle",
+				"stage": "drop_scan",
+				"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
+				"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
+			}
+		)
+	else:
+		var candidates_seen: int = 0
+		for raw_drop in get_tree().get_nodes_in_group("item_drop"):
+			var drop_node := raw_drop as Node2D
+			if drop_node == null or not is_instance_valid(drop_node) \
+					or drop_node.is_queued_for_deletion():
+				continue
+			candidates_seen += 1
+			if node_pos.distance_squared_to(drop_node.global_position) > r2:
+				if candidates_seen >= DROP_SCAN_MAX_CANDIDATES_EVAL:
+					break
+				continue
+			drops_source.append(drop_node)
+			if drops_source.size() >= DROP_SCAN_ENOUGH_THRESHOLD \
+					or candidates_seen >= DROP_SCAN_MAX_CANDIDATES_EVAL:
+				break
 	var write_idx: int = 0
-	for drop in all_drops:
+	for drop in drops_source:
 		var drop_node := drop as Node2D
 		if drop_node == null or not is_instance_valid(drop_node) \
 				or drop_node.is_queued_for_deletion():
@@ -679,12 +710,6 @@ func _fill_res_info_buffer(beh: BanditWorldBehavior, node_pos: Vector2,
 		write_idx += 1
 	if write_idx < out.size():
 		out.resize(write_idx)
-
-
-func _get_all_drop_nodes() -> Array:
-	if _world_spatial_index != null:
-		return _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_ITEM_DROP)
-	return get_tree().get_nodes_in_group("item_drop")
 
 
 func _get_all_resource_nodes() -> Array:
