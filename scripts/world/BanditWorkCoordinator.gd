@@ -66,6 +66,7 @@ var _post_hit_continuity_until_tick_by_member: Dictionary = {}  # member_id -> t
 var _post_hit_pickup_retry_by_member: Dictionary = {}  # member_id -> retry count
 var _log_worker_event_cb: Callable = Callable()
 var _is_worker_instrumentation_enabled_cb: Callable = Callable()
+var _emit_group_event_cb: Callable = Callable()
 var _instrumentation_enabled: bool = true
 var _resource_reservations: Dictionary = {}  # resource_id -> {member_id, group_id, expires_at, last_heartbeat, target_id}
 var _drop_reservations: Dictionary = {}  # drop_id -> {member_id, group_id, expires_at, last_heartbeat, target_id}
@@ -73,6 +74,8 @@ var _slot_reservations: Dictionary = {}  # slot_id -> {member_id, group_id, expi
 var _reservation_double_bookings_prevented: int = 0
 var _reservation_expired_total: int = 0
 var _reservation_reassignments_total: int = 0
+var _last_leader_id_by_group: Dictionary = {}
+var _last_group_mode_by_group: Dictionary = {}
 
 
 func _fmt_pos(value: Vector2) -> String:
@@ -145,12 +148,56 @@ func setup(ctx: Dictionary) -> void:
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 	_log_worker_event_cb = ctx.get("log_worker_event_cb", Callable())
 	_is_worker_instrumentation_enabled_cb = ctx.get("is_worker_instrumentation_enabled_cb", Callable())
+	_emit_group_event_cb = ctx.get("emit_group_event_cb", Callable())
 	_instrumentation_enabled = bool(ctx.get("worker_instrumentation_enabled", true))
 	if _stash != null:
 		_stash.set_work_context({
 			"on_deposit_closed_cb": Callable(self, "notify_deposit_closed"),
 		})
 
+
+
+
+func _emit_group_event(event_name: String, beh: BanditWorldBehavior, payload: Dictionary = {}) -> void:
+	if beh == null:
+		return
+	var normalized: Dictionary = payload.duplicate(true)
+	normalized["event"] = event_name
+	normalized["npc_id"] = String(normalized.get("npc_id", beh.member_id))
+	normalized["group_id"] = String(normalized.get("group_id", beh.group_id))
+	normalized["camp_id"] = String(normalized.get("camp_id", beh.group_id))
+	if not normalized.has("target_id"):
+		normalized["target_id"] = ""
+	if _emit_group_event_cb.is_valid():
+		_emit_group_event_cb.call(event_name, normalized)
+	var used_pos: Vector2 = normalized.get("world_pos", beh.home_pos) as Vector2
+	if used_pos == Vector2.ZERO and normalized.get("position", null) is Vector2:
+		used_pos = normalized.get("position") as Vector2
+	_emit_worker_event("group_event_" + event_name, beh, used_pos, String(normalized.get("target_id", "")), normalized)
+
+
+func _sample_group_status_events(beh: BanditWorldBehavior) -> void:
+	if beh == null or beh.group_id == "":
+		return
+	var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
+	if g.is_empty():
+		return
+	var leader_id: String = String(g.get("leader_id", ""))
+	var prev_leader: String = String(_last_leader_id_by_group.get(beh.group_id, ""))
+	if prev_leader != "" and prev_leader != leader_id:
+		_emit_group_event("leader_changed", beh, {
+			"leader_id": leader_id,
+			"previous_leader_id": prev_leader,
+		})
+	_last_leader_id_by_group[beh.group_id] = leader_id
+	var mode: String = String(g.get("current_group_intent", "idle"))
+	var prev_mode: String = String(_last_group_mode_by_group.get(beh.group_id, ""))
+	if prev_mode != "" and prev_mode != mode:
+		_emit_group_event("group_mode_changed", beh, {
+			"group_mode": mode,
+			"previous_group_mode": prev_mode,
+		})
+	_last_group_mode_by_group[beh.group_id] = mode
 
 func get_work_tick_seq() -> int:
 	return _work_tick_seq
@@ -177,6 +224,7 @@ func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, pulse_dro
 		_handle_missing_enemy(beh)
 		return
 	_refresh_member_reservations(beh, enemy_node)
+	_sample_group_status_events(beh)
 
 	_maybe_drop_carry_on_aggro(beh, enemy_node)
 	_guard_resource_cycle_before_work(beh)
@@ -198,6 +246,7 @@ func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
 	_raid_loot_next_at.erase(beh.member_id)
 	_active_work_cycle_by_member.erase(beh.member_id)
 	_release_member_reservations(beh.member_id, "missing_enemy")
+	_emit_group_event("member_died", beh, {"reason": "missing_enemy_runtime"})
 	_clear_post_hit_continuity(beh)
 
 
@@ -307,6 +356,10 @@ func _request_replan(beh: BanditWorldBehavior, fallback_pos: Vector2, reason: St
 		"reason": reason,
 		"state": int(beh.state),
 	})
+	_emit_group_event("target_invalidated", beh, {
+		"reason": reason,
+		"world_pos": fallback_pos,
+	})
 	if beh.state != NpcWorldBehavior.State.RETURN_HOME:
 		beh.enter_patrol(fallback_pos)
 
@@ -357,6 +410,7 @@ func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> v
 		return
 	var ai_comp := enemy_node.get_node_or_null("AIComponent")
 	if ai_comp != null and ai_comp.get("target") != null:
+		_emit_group_event("threat_seen", beh, {"threat_level": 1.0})
 		_stash.drop_carry_on_aggro(beh, enemy_node)
 
 
@@ -385,6 +439,10 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 		_emit_worker_event("cargo_updated", beh, member_pos, "", {
 			"cargo_before": cargo_before_work,
 			"cargo_after": beh.cargo_count,
+		})
+		_emit_group_event("drop_collected", beh, {
+			"world_pos": member_pos,
+			"amount": maxi(1, beh.cargo_count - cargo_before_work),
 		})
 
 	if beh.cargo_count > 0:
@@ -489,12 +547,17 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	_emit_worker_event("resource_acquired", beh, _effective_work_position(enemy_node), str(mine_id), {
 		"stage": "mining_pending",
 	}, true)
+	_emit_group_event("resource_discovered", beh, {
+		"target_id": str(mine_id),
+		"world_pos": _effective_work_position(enemy_node),
+	})
 	beh.pending_mine_id = 0
 	if not is_instance_id_valid(mine_id):
 		beh._resource_node_id = 0
 		_emit_worker_event("resource_index_missing", beh, _effective_work_position(enemy_node), str(mine_id), {
 			"stage": "pending_mine_invalid",
 		})
+		_emit_group_event("resource_depleted", beh, {"target_id": str(mine_id), "reason": "pending_mine_invalid"})
 		return
 
 	var res_node: Node = instance_from_id(mine_id) as Node
@@ -503,6 +566,7 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		_emit_worker_event("resource_index_missing", beh, _effective_work_position(enemy_node), str(mine_id), {
 			"stage": "resource_node_missing",
 		})
+		_emit_group_event("resource_depleted", beh, {"target_id": str(mine_id), "reason": "resource_node_missing"})
 		return
 
 	var enemy_pos: Vector2 = _effective_work_position(enemy_node)
@@ -526,6 +590,11 @@ func _handle_mining(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	res_node.hit(enemy_node)
 	_emit_worker_event("resource_hit", beh, enemy_pos, str(mine_id), {
 		"resource_pos": _fmt_pos(res_pos),
+	})
+	_emit_group_event("drop_spawned", beh, {
+		"target_id": str(mine_id),
+		"position": res_pos,
+		"amount": 1,
 	})
 	beh.last_valid_resource_node_id = mine_id
 	beh.last_resource_hit_tick = _work_tick_seq
@@ -586,6 +655,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 
 	var target: Dictionary = _resolve_structure_attack_target(attack_anchor, enemy_pos)
 	if target.is_empty():
+		_emit_group_event("target_invalidated", beh, {"reason": "assault_target_empty", "world_pos": attack_anchor})
 		# Fallback: si estamos pegados al ancla de asalto y no hay target resoluble,
 		# intentar daño directo de pared cerca del ancla para evitar quedarse trabado.
 		var fallback_hit: bool = false
@@ -597,7 +667,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 		for fallback_pos in fallback_positions:
 			if fallback_pos != enemy_pos and enemy_pos.distance_squared_to(fallback_pos) > RAID_ANCHOR_FALLBACK_HIT_RANGE_SQ:
 				continue
-			if not _damage_player_wall_at(fallback_pos):
+			if not _damage_player_wall_at(fallback_pos, beh):
 				continue
 			if enemy_node.has_method("queue_ai_attack_press"):
 				enemy_node.call("queue_ai_attack_press", fallback_pos)
@@ -639,7 +709,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 			node.call("hit", enemy_node)
 			attacked = true
 	elif target_kind == "wall":
-		attacked = _damage_player_wall_at(target_pos)
+		attacked = _damage_player_wall_at(target_pos, beh)
 
 	if not attacked:
 		if target_kind == "wall":
@@ -947,6 +1017,7 @@ func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: N
 	if not _is_post_hit_window_active(beh):
 		return false
 	if beh.is_cargo_full():
+		_emit_group_event("deposit_full", beh, {"reason": "post_hit_window_cargo_full", "cargo": beh.cargo_count})
 		_request_return_home(beh, "post_hit_window_cargo_full")
 		return true
 
@@ -1027,6 +1098,7 @@ func _guard_resource_cycle_after_work(beh: BanditWorldBehavior) -> void:
 	if beh.pending_collect_id != 0 and beh.cargo_count >= beh.cargo_capacity:
 		# Transition cannot stay unresolved when capacity is full.
 		beh.pending_collect_id = 0
+		_emit_group_event("deposit_full", beh, {"reason": "collect_intent_while_full", "cargo": beh.cargo_count})
 		_request_return_home(beh, "collect_intent_while_full")
 
 
@@ -1168,14 +1240,17 @@ func _is_player_structure_node(node: Node2D) -> bool:
 	return true
 
 
-func _damage_player_wall_at(world_pos: Vector2) -> bool:
+func _damage_player_wall_at(world_pos: Vector2, beh: BanditWorldBehavior = null) -> bool:
 	if _world_node == null:
 		return false
+	var hit_ok: bool = false
 	if _world_node.has_method("hit_wall_at_world_pos"):
-		return bool(_world_node.call("hit_wall_at_world_pos", world_pos, 1, 24.0, true))
-	if _world_node.has_method("damage_player_wall_at_world_pos"):
-		return bool(_world_node.call("damage_player_wall_at_world_pos", world_pos, 1))
-	return false
+		hit_ok = bool(_world_node.call("hit_wall_at_world_pos", world_pos, 1, 24.0, true))
+	elif _world_node.has_method("damage_player_wall_at_world_pos"):
+		hit_ok = bool(_world_node.call("damage_player_wall_at_world_pos", world_pos, 1))
+	if hit_ok and beh != null:
+		_emit_group_event("wall_breached", beh, {"world_pos": world_pos, "threat_level": 2.0})
+	return hit_ok
 
 
 func _is_valid_target(pos: Vector2) -> bool:
@@ -1214,7 +1289,7 @@ func _try_local_wall_strike(beh: BanditWorldBehavior, enemy_node: Node, enemy_po
 		return false
 	if best_dsq > RAID_LOCAL_WALL_STRIKE_RANGE_SQ:
 		return false
-	if not _damage_player_wall_at(best_wall):
+	if not _damage_player_wall_at(best_wall, beh):
 		return false
 
 	_trigger_wall_melee_animation(enemy_node, best_wall)

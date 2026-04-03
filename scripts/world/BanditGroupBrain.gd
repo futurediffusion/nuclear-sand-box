@@ -19,11 +19,91 @@ const MACRO_STATES: Array[String] = [
 var _bodyguard_controller: BodyguardController = BodyguardControllerScript.new()
 var _scavenger_controller: ScavengerController = ScavengerControllerScript.new()
 
+const GROUP_ORDER_CACHE_TTL_SECONDS: float = 0.9
+const POLLING_REVIEW_INTERVAL_SECONDS: float = 20.0
+
+var _dirty_groups: Dictionary = {}
+var _cached_orders_by_group: Dictionary = {}
+var _cached_orders_expires_at: Dictionary = {}
+var _last_signature_by_group: Dictionary = {}
+var _event_recompute_count: int = 0
+var _periodic_recompute_count: int = 0
+var _cache_hit_count: int = 0
+var _last_polling_review_at: float = 0.0
+
+
+func setup(_ctx: Dictionary = {}) -> void:
+	_dirty_groups.clear()
+	_cached_orders_by_group.clear()
+	_cached_orders_expires_at.clear()
+	_last_signature_by_group.clear()
+	_event_recompute_count = 0
+	_periodic_recompute_count = 0
+	_cache_hit_count = 0
+	_last_polling_review_at = 0.0
+
+
+func ingest_work_event(event_name: String, payload: Dictionary = {}) -> void:
+	var group_id: String = String(payload.get("group_id", payload.get("camp_id", "")))
+	if group_id == "":
+		return
+	var member_id: String = String(payload.get("npc_id", ""))
+	var now: float = RunClock.now()
+	var pos: Vector2 = payload.get("world_pos", Vector2.ZERO) as Vector2
+	if pos == Vector2.ZERO:
+		var pos_raw: Variant = payload.get("position", null)
+		if pos_raw is Vector2:
+			pos = pos_raw as Vector2
+	match event_name:
+		"resource_discovered":
+			if pos != Vector2.ZERO:
+				BanditGroupMemory.bb_write_known_resources(group_id, [{"id": int(payload.get("target_id", 0)), "pos": pos}], 45.0, "event_resource_discovered")
+		"resource_depleted":
+			BanditGroupMemory.bb_set_status(group_id, "last_resource_depleted_at", now, 30.0, "event_resource_depleted")
+		"drop_spawned":
+			if pos != Vector2.ZERO:
+				BanditGroupMemory.bb_write_known_drops(group_id, [{"id": int(payload.get("target_id", 0)), "pos": pos, "amount": int(payload.get("amount", 1))}], 20.0, "event_drop_spawned")
+		"drop_collected":
+			BanditGroupMemory.bb_set_status(group_id, "last_drop_collected_at", now, 20.0, "event_drop_collected")
+		"member_died":
+			if member_id != "":
+				BanditGroupMemory.bb_clear_assignment(group_id, member_id)
+		"target_invalidated":
+			if member_id != "":
+				BanditGroupMemory.bb_clear_assignment(group_id, member_id)
+		"threat_seen":
+			BanditGroupMemory.bb_write_threat_level(group_id, maxf(1.0, float(payload.get("threat_level", 1.0))), "event_threat_seen")
+			BanditGroupMemory.bb_write_group_mode(group_id, "alerted", "event_threat_seen")
+		"deposit_full":
+			BanditGroupMemory.bb_write_group_mode(group_id, "depositing", "event_deposit_full")
+		"wall_breached":
+			BanditGroupMemory.bb_write_group_mode(group_id, "raiding", "event_wall_breached")
+			BanditGroupMemory.bb_write_threat_level(group_id, maxf(2.0, float(payload.get("threat_level", 2.0))), "event_wall_breached")
+		"leader_changed":
+			BanditGroupMemory.bb_set_status(group_id, "leader_id", String(payload.get("leader_id", "")), 90.0, "event_leader_changed")
+		"group_mode_changed":
+			BanditGroupMemory.bb_write_group_mode(group_id, String(payload.get("group_mode", "idle")), "event_group_mode_changed")
+		_:
+			pass
+	_dirty_groups[group_id] = true
+	Debug.log("bandit_group", "[BGB][event] group=%s event=%s member=%s" % [group_id, event_name, member_id])
+
 
 func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
 	if group_id == "" or members.is_empty():
 		return out
+	var now: float = RunClock.now()
+	var signature: String = _build_group_signature(members, group_ctx)
+	var force_recompute: bool = bool(_dirty_groups.get(group_id, false)) or _last_signature_by_group.get(group_id, "") != signature
+	if not force_recompute and now < float(_cached_orders_expires_at.get(group_id, 0.0)) and _cached_orders_by_group.has(group_id):
+		_cache_hit_count += 1
+		_maybe_log_polling_review(now)
+		return (_cached_orders_by_group[group_id] as Dictionary).duplicate(true)
+	if force_recompute:
+		_event_recompute_count += 1
+	else:
+		_periodic_recompute_count += 1
 	var macro_state: String = _resolve_macro_state(group_ctx)
 	BanditGroupMemory.bb_write_group_mode(group_id, macro_state, "group_brain")
 	for item in members:
@@ -38,7 +118,34 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 		order["macro_state"] = macro_state
 		out[member_id] = order
 		BanditGroupMemory.bb_set_assignment(group_id, member_id, order, 2.0, "group_brain")
+	_cached_orders_by_group[group_id] = out.duplicate(true)
+	_cached_orders_expires_at[group_id] = now + GROUP_ORDER_CACHE_TTL_SECONDS
+	_last_signature_by_group[group_id] = signature
+	_dirty_groups[group_id] = false
+	_maybe_log_polling_review(now)
 	return out
+
+
+func _build_group_signature(members: Array, group_ctx: Dictionary) -> String:
+	var ids: Array[String] = []
+	for raw in members:
+		if raw is Dictionary:
+			ids.append(String((raw as Dictionary).get("member_id", "")))
+	ids.sort()
+	var mode: String = String(group_ctx.get("group_mode", "idle"))
+	var interest_pos: Vector2 = group_ctx.get("interest_pos", Vector2.ZERO) as Vector2
+	return "%s|%s|%s" % [mode, str(interest_pos), ",".join(ids)]
+
+
+func _maybe_log_polling_review(now: float) -> void:
+	if now - _last_polling_review_at < POLLING_REVIEW_INTERVAL_SECONDS:
+		return
+	_last_polling_review_at = now
+	Debug.log("bandit_group", "[BGB][polling_review] cache_hit=%d event_recompute=%d periodic_recompute=%d" % [
+		_cache_hit_count,
+		_event_recompute_count,
+		_periodic_recompute_count,
+	])
 
 
 func _resolve_macro_state(group_ctx: Dictionary) -> String:
