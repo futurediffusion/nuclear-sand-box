@@ -77,3 +77,44 @@ Sugerencia de pasada manual:
 2. Aplicar daño mixto melee + flechas hasta romper algunas.
 3. Salir del chunk y volver.
 4. Guardar/cargar y repetir daño en las restantes.
+
+## 6) Escenario de validación de stress (40–80 NPC + destrucción + minería)
+
+Objetivo: validar estabilidad de frame y continuidad de ciclo worker bajo presión combinada.
+
+### Setup sugerido
+
+- [ ] Forzar actividad simultánea de **40–80 NPCs** en zona con campamento activo.
+- [ ] Ejecutar destrucción simultánea de `wallwood` + placeables (chest/barrel/table/stool/workbench).
+- [ ] Ejecutar minería repetida de nodos (`copper_ore`, `stone_ore`, `tree_wood`) durante la misma ventana.
+- [ ] Mantener ventana de observación mínima: **5 minutos** en la misma sesión.
+
+### Métricas a recolectar (logs)
+
+Desde `perf_telemetry` + `BANDIT_WORKER_EVENT`:
+
+- `FPS` (promedio y mínimo observado).
+- `frame_spike_alerts` (conteo de `[chunk_perf] ALERT` como proxy de spikes duros).
+- `item_drop_count`.
+- `merged_drop_events`.
+- `deposit_compact_path_hits`.
+- `drop_processing_budget_hits`.
+- workers con ciclos `mine -> pickup -> return -> deposit` completos.
+
+### Comando de validación
+
+```bash
+python3 tools/validate_bandit_stress_log.py <ruta_log> \
+  --min-fps 28 \
+  --max-frame-spike-alerts 20 \
+  --max-item-drops 260 \
+  --max-budget-hits 120 \
+  --min-workers 4 \
+  --min-cycles-per-worker 1
+```
+
+### Criterio de aceptación
+
+- [ ] Sin freeze/stutter duro (sin explosión de `frame_spike_alerts` sobre umbral).
+- [ ] Drops contenidos (`item_drop_count` y `drop_processing_budget_hits` bajo umbral acordado).
+- [ ] Worker loop sigue cerrando ciclo productivo (`mine -> pickup -> return -> deposit`) en múltiples NPC.
