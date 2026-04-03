@@ -20,15 +20,20 @@ var _bodyguard_controller: BodyguardController = BodyguardControllerScript.new()
 var _scavenger_controller: ScavengerController = ScavengerControllerScript.new()
 
 const GROUP_ORDER_CACHE_TTL_SECONDS: float = 0.9
+const GROUP_RECOMPUTE_SAFETY_TTL_TICKS: int = 12
 const POLLING_REVIEW_INTERVAL_SECONDS: float = 20.0
 
 var _dirty_groups: Dictionary = {}
 var _cached_orders_by_group: Dictionary = {}
 var _cached_orders_expires_at: Dictionary = {}
 var _last_signature_by_group: Dictionary = {}
-var _event_recompute_count: int = 0
-var _periodic_recompute_count: int = 0
+var _last_signature_parts_by_group: Dictionary = {}
+var _last_recompute_tick_by_group: Dictionary = {}
+var _group_tick_counter_by_group: Dictionary = {}
+var _group_recompute_total: int = 0
+var _group_recompute_reason_breakdown: Dictionary = {}
 var _cache_hit_count: int = 0
+var _cache_query_count: int = 0
 var _last_polling_review_at: float = 0.0
 
 
@@ -37,9 +42,19 @@ func setup(_ctx: Dictionary = {}) -> void:
 	_cached_orders_by_group.clear()
 	_cached_orders_expires_at.clear()
 	_last_signature_by_group.clear()
-	_event_recompute_count = 0
-	_periodic_recompute_count = 0
+	_last_signature_parts_by_group.clear()
+	_last_recompute_tick_by_group.clear()
+	_group_tick_counter_by_group.clear()
+	_group_recompute_total = 0
+	_group_recompute_reason_breakdown = {
+		"target_changed": 0,
+		"cargo_changed": 0,
+		"role_reassigned": 0,
+		"phase_changed": 0,
+		"ttl_expired": 0,
+	}
 	_cache_hit_count = 0
+	_cache_query_count = 0
 	_last_polling_review_at = 0.0
 
 
@@ -94,25 +109,32 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 	if group_id == "" or members.is_empty():
 		return out
 	var now: float = RunClock.now()
-	var signature: String = _build_group_signature(members, group_ctx)
-	var has_active_scavenger_resource_work: bool = _has_active_scavenger_resource_work(members)
-	var force_recompute: bool = bool(_dirty_groups.get(group_id, false)) \
-			or _last_signature_by_group.get(group_id, "") != signature \
-			or has_active_scavenger_resource_work
+	_cache_query_count += 1
+	var signature_data: Dictionary = _build_group_state_signature(members, group_ctx)
+	var signature: String = String(signature_data.get("fingerprint", ""))
+	var current_parts: Dictionary = signature_data.get("parts", {}) as Dictionary
+	var previous_parts: Dictionary = _last_signature_parts_by_group.get(group_id, {}) as Dictionary
+	var group_tick: int = int(_group_tick_counter_by_group.get(group_id, 0)) + 1
+	_group_tick_counter_by_group[group_id] = group_tick
+	var ticks_since_recompute: int = group_tick - int(_last_recompute_tick_by_group.get(group_id, 0))
+	var ttl_expired: bool = ticks_since_recompute >= GROUP_RECOMPUTE_SAFETY_TTL_TICKS
+	var reason: String = _resolve_recompute_reason(previous_parts, current_parts, ttl_expired)
+	var force_recompute: bool = reason != ""
 	if not force_recompute and now < float(_cached_orders_expires_at.get(group_id, 0.0)) and _cached_orders_by_group.has(group_id):
 		_cache_hit_count += 1
 		Debug.log("bandit_group", "[BGB][cache_hit] group=%s signature=%s" % [group_id, signature])
 		_maybe_log_polling_review(now)
 		return (_cached_orders_by_group[group_id] as Dictionary).duplicate(true)
-	if force_recompute:
-		_event_recompute_count += 1
-	else:
-		_periodic_recompute_count += 1
-	Debug.log("bandit_group", "[BGB][recompute] group=%s dirty=%s sig_changed=%s disable_cache_for_active_scavenger=%s" % [
+	if reason == "":
+		reason = "ttl_expired"
+	_group_recompute_total += 1
+	_group_recompute_reason_breakdown[reason] = int(_group_recompute_reason_breakdown.get(reason, 0)) + 1
+	Debug.log("bandit_group", "[BGB][recompute] group=%s cache_invalidated_reason=%s sig_changed=%s ttl_ticks=%d/%d" % [
 		group_id,
-		str(bool(_dirty_groups.get(group_id, false))),
+		reason,
 		str(_last_signature_by_group.get(group_id, "") != signature),
-		str(has_active_scavenger_resource_work),
+		ticks_since_recompute,
+		GROUP_RECOMPUTE_SAFETY_TTL_TICKS,
 	])
 	var macro_state: String = _resolve_macro_state(group_ctx)
 	BanditGroupMemory.bb_write_group_mode(group_id, macro_state, "group_brain")
@@ -133,59 +155,61 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 		order["macro_state"] = macro_state
 		out[member_id] = order
 		BanditGroupMemory.bb_set_assignment(group_id, member_id, order, 8.0, "group_brain")
-	if not has_active_scavenger_resource_work:
-		_cached_orders_by_group[group_id] = out.duplicate(true)
-		_cached_orders_expires_at[group_id] = now + GROUP_ORDER_CACHE_TTL_SECONDS
-	else:
-		_cached_orders_by_group.erase(group_id)
-		_cached_orders_expires_at.erase(group_id)
+	_cached_orders_by_group[group_id] = out.duplicate(true)
+	_cached_orders_expires_at[group_id] = now + GROUP_ORDER_CACHE_TTL_SECONDS
 	_last_signature_by_group[group_id] = signature
+	_last_signature_parts_by_group[group_id] = current_parts.duplicate(true)
+	_last_recompute_tick_by_group[group_id] = group_tick
 	_dirty_groups[group_id] = false
 	_maybe_log_polling_review(now)
 	return out
 
 
-func _build_group_signature(members: Array, group_ctx: Dictionary) -> String:
+func _build_group_state_signature(members: Array, group_ctx: Dictionary) -> Dictionary:
 	var ids: Array[String] = []
+	var member_role_tokens: Array[String] = []
 	var member_cargo_tokens: Array[String] = []
-	var member_active_tokens: Array[String] = []
-	var member_resource_tokens: Array[String] = []
 	for raw in members:
 		if raw is Dictionary:
 			var member: Dictionary = raw as Dictionary
 			var member_id: String = String(member.get("member_id", ""))
 			ids.append(member_id)
-			member_cargo_tokens.append("%s:%d" % [member_id, int(member.get("cargo_count", 0))])
-			member_active_tokens.append("%s:%s" % [member_id, str(bool(member.get("has_active_task", false)))])
-			member_resource_tokens.append("%s:%d:%d" % [
+			member_role_tokens.append("%s:%s" % [member_id, String(member.get("role", "scavenger"))])
+			member_cargo_tokens.append("%s:%d/%d" % [
 				member_id,
-				int(member.get("current_resource_id", 0)),
-				int(member.get("pending_mine_id", 0)),
+				int(member.get("cargo_count", 0)),
+				int(member.get("cargo_capacity", 0)),
 			])
 	ids.sort()
+	member_role_tokens.sort()
 	member_cargo_tokens.sort()
-	member_active_tokens.sort()
-	member_resource_tokens.sort()
-	var mode: String = String(group_ctx.get("group_mode", "idle"))
+	var phase: String = _resolve_group_phase(members, group_ctx)
 	var interest_pos: Vector2 = group_ctx.get("interest_pos", Vector2.ZERO) as Vector2
 	var prioritized_resource_ids: Array[String] = _extract_target_ids(group_ctx.get("prioritized_resources", []))
 	var prioritized_drop_ids: Array[String] = _extract_target_ids(group_ctx.get("prioritized_drops", []))
-	var any_scavenger_busy: bool = bool(group_ctx.get("any_scavenger_busy", false))
-	var any_member_threatened: bool = bool(group_ctx.get("any_member_threatened", false))
-	var structure_assault_active: bool = bool(group_ctx.get("structure_assault_active", false))
-	return "%s|%s|members=%s|res=%s|drops=%s|cargo=%s|active=%s|mine=%s|busy=%s|threat=%s|assault=%s" % [
-		mode,
+	var target_signature: String = "%s|res=%s|drops=%s" % [
 		str(interest_pos),
-		",".join(ids),
 		",".join(prioritized_resource_ids),
 		",".join(prioritized_drop_ids),
-		",".join(member_cargo_tokens),
-		",".join(member_active_tokens),
-		",".join(member_resource_tokens),
-		str(any_scavenger_busy),
-		str(any_member_threatened),
-		str(structure_assault_active),
 	]
+	var role_signature: String = "%s|roles=%s" % [",".join(ids), ",".join(member_role_tokens)]
+	var cargo_signature: String = ",".join(member_cargo_tokens)
+	var phase_signature: String = phase
+	var fingerprint: String = "target=%s|cargo=%s|roles=%s|phase=%s" % [
+		target_signature,
+		cargo_signature,
+		role_signature,
+		phase_signature,
+	]
+	return {
+		"fingerprint": fingerprint,
+		"parts": {
+			"target": target_signature,
+			"cargo": cargo_signature,
+			"role": role_signature,
+			"phase": phase_signature,
+		},
+	}
 
 
 func _extract_target_ids(raw_list: Variant) -> Array[String]:
@@ -196,6 +220,33 @@ func _extract_target_ids(raw_list: Variant) -> Array[String]:
 		out.append(str(int(entry.get("id", 0))))
 	out.sort()
 	return out
+
+
+func _resolve_group_phase(members: Array, group_ctx: Dictionary) -> String:
+	if bool(group_ctx.get("structure_assault_active", false)):
+		return "assault"
+	var mode: String = _resolve_macro_state(group_ctx)
+	if mode == "retreating" or mode == "depositing":
+		return "egress"
+	if _has_active_scavenger_resource_work(members):
+		return "loot"
+	return "loot" if _has_pending_loot_targets(group_ctx) else "egress"
+
+
+func _resolve_recompute_reason(previous_parts: Dictionary, current_parts: Dictionary, ttl_expired: bool) -> String:
+	if previous_parts.is_empty():
+		return "target_changed"
+	if String(previous_parts.get("target", "")) != String(current_parts.get("target", "")):
+		return "target_changed"
+	if String(previous_parts.get("cargo", "")) != String(current_parts.get("cargo", "")):
+		return "cargo_changed"
+	if String(previous_parts.get("role", "")) != String(current_parts.get("role", "")):
+		return "role_reassigned"
+	if String(previous_parts.get("phase", "")) != String(current_parts.get("phase", "")):
+		return "phase_changed"
+	if ttl_expired:
+		return "ttl_expired"
+	return ""
 
 
 func _has_active_scavenger_resource_work(members: Array) -> bool:
@@ -212,14 +263,35 @@ func _has_active_scavenger_resource_work(members: Array) -> bool:
 	return false
 
 
+func _has_pending_loot_targets(group_ctx: Dictionary) -> bool:
+	return not (group_ctx.get("prioritized_resources", []) as Array).is_empty() \
+			or not (group_ctx.get("prioritized_drops", []) as Array).is_empty()
+
+
+func get_cache_stats() -> Dictionary:
+	var ratio: float = 0.0
+	if _cache_query_count > 0:
+		ratio = float(_cache_hit_count) / float(_cache_query_count)
+	return {
+		"group_recompute_total": _group_recompute_total,
+		"group_recompute_reason_breakdown": _group_recompute_reason_breakdown.duplicate(true),
+		"group_cache_hit_ratio": ratio,
+	}
+
+
 func _maybe_log_polling_review(now: float) -> void:
 	if now - _last_polling_review_at < POLLING_REVIEW_INTERVAL_SECONDS:
 		return
 	_last_polling_review_at = now
-	Debug.log("bandit_group", "[BGB][polling_review] cache_hit=%d event_recompute=%d periodic_recompute=%d" % [
+	var ratio: float = 0.0
+	if _cache_query_count > 0:
+		ratio = float(_cache_hit_count) / float(_cache_query_count)
+	Debug.log("bandit_group", "[BGB][polling_review] cache_hit=%d cache_query=%d group_recompute_total=%d group_cache_hit_ratio=%.2f breakdown=%s" % [
 		_cache_hit_count,
-		_event_recompute_count,
-		_periodic_recompute_count,
+		_cache_query_count,
+		_group_recompute_total,
+		ratio,
+		str(_group_recompute_reason_breakdown),
 	])
 
 
