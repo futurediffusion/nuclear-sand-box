@@ -120,12 +120,15 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 	var ttl_expired: bool = ticks_since_recompute >= GROUP_RECOMPUTE_SAFETY_TTL_TICKS
 	var reason: String = _resolve_recompute_reason(previous_parts, current_parts, ttl_expired)
 	var force_recompute: bool = reason != ""
-	if not force_recompute and now < float(_cached_orders_expires_at.get(group_id, 0.0)) and _cached_orders_by_group.has(group_id):
+	var use_group_cache: bool = BanditTuning.rollout_opt_task_5_group_order_cache()
+	if use_group_cache and not force_recompute and now < float(_cached_orders_expires_at.get(group_id, 0.0)) and _cached_orders_by_group.has(group_id):
 		_cache_hit_count += 1
 		Debug.log("bandit_group", "[BGB][cache_hit] group=%s signature=%s" % [group_id, signature])
 		_maybe_log_polling_review(now)
 		return (_cached_orders_by_group[group_id] as Dictionary).duplicate(true)
-	if reason == "":
+	if not use_group_cache:
+		reason = "ttl_expired"
+	elif reason == "":
 		reason = "ttl_expired"
 	_group_recompute_total += 1
 	_group_recompute_reason_breakdown[reason] = int(_group_recompute_reason_breakdown.get(reason, 0)) + 1
@@ -276,6 +279,9 @@ func get_cache_stats() -> Dictionary:
 		"group_recompute_total": _group_recompute_total,
 		"group_recompute_reason_breakdown": _group_recompute_reason_breakdown.duplicate(true),
 		"group_cache_hit_ratio": ratio,
+		"rollout_optimization_flags": {
+			"task_5_group_order_cache": BanditTuning.rollout_opt_task_5_group_order_cache(),
+		},
 	}
 
 

@@ -68,6 +68,11 @@ const LOOT_ARRIVE_COLLECT_RADIUS: float = 40.0
 const ASSAULT_PICKUP_GROUP_LOOTER_CAP: int = 2
 const ASSAULT_PICKUP_SCAVENGER_ONLY: bool = true
 const ASSAULT_PICKUP_ROTATION_INTERVAL_TICKS: int = 12
+const ROLLOUT_OPT_TASK_1_ASSAULT_GROUP_CAP: bool = true
+const ROLLOUT_OPT_TASK_2_ASSAULT_SCAVENGER_ONLY: bool = true
+const ROLLOUT_OPT_TASK_3_ASSAULT_ROTATION: bool = true
+const ROLLOUT_OPT_TASK_4_ASSAULT_CONTEXT_CACHE: bool = true
+const ROLLOUT_OPT_TASK_5_GROUP_ORDER_CACHE: bool = true
 
 # ---------------------------------------------------------------------------
 # Cargo deposit animation / audio
@@ -154,6 +159,45 @@ static func assault_pickup_scavenger_only() -> bool:
 
 static func assault_pickup_rotation_interval_ticks() -> int:
 	return ASSAULT_PICKUP_ROTATION_INTERVAL_TICKS
+
+static func rollout_opt_task_1_assault_group_cap() -> bool:
+	return _read_rollout_flag(
+		"bandit/rollout_opt_task_1_assault_group_cap",
+		ROLLOUT_OPT_TASK_1_ASSAULT_GROUP_CAP
+	)
+
+static func rollout_opt_task_2_assault_scavenger_only() -> bool:
+	return _read_rollout_flag(
+		"bandit/rollout_opt_task_2_assault_scavenger_only",
+		ROLLOUT_OPT_TASK_2_ASSAULT_SCAVENGER_ONLY
+	)
+
+static func rollout_opt_task_3_assault_rotation() -> bool:
+	return _read_rollout_flag(
+		"bandit/rollout_opt_task_3_assault_rotation",
+		ROLLOUT_OPT_TASK_3_ASSAULT_ROTATION
+	)
+
+static func rollout_opt_task_4_assault_context_cache() -> bool:
+	return _read_rollout_flag(
+		"bandit/rollout_opt_task_4_assault_context_cache",
+		ROLLOUT_OPT_TASK_4_ASSAULT_CONTEXT_CACHE
+	)
+
+static func rollout_opt_task_5_group_order_cache() -> bool:
+	return _read_rollout_flag(
+		"bandit/rollout_opt_task_5_group_order_cache",
+		ROLLOUT_OPT_TASK_5_GROUP_ORDER_CACHE
+	)
+
+static func rollout_optimization_flags_snapshot() -> Dictionary:
+	return {
+		"task_1_assault_group_cap": rollout_opt_task_1_assault_group_cap(),
+		"task_2_assault_scavenger_only": rollout_opt_task_2_assault_scavenger_only(),
+		"task_3_assault_rotation": rollout_opt_task_3_assault_rotation(),
+		"task_4_assault_context_cache": rollout_opt_task_4_assault_context_cache(),
+		"task_5_group_order_cache": rollout_opt_task_5_group_order_cache(),
+	}
 
 # ---------------------------------------------------------------------------
 # Cargo deposit accessors
@@ -277,3 +321,9 @@ static func structure_no_target_close_grace() -> float:
 
 static func assault_suppress_generic_drop_pickup() -> bool:
 	return ASSAULT_SUPPRESS_GENERIC_DROP_PICKUP
+
+
+static func _read_rollout_flag(setting_key: String, fallback: bool) -> bool:
+	if ProjectSettings.has_setting(setting_key):
+		return bool(ProjectSettings.get_setting(setting_key, fallback))
+	return fallback
