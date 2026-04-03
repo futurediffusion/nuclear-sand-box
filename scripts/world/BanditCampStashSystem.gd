@@ -164,11 +164,27 @@ func set_work_context(ctx: Dictionary) -> void:
 	_on_deposit_closed_cb = ctx.get("on_deposit_closed_cb", _on_deposit_closed_cb)
 
 
+
+
+func _set_deposit_lock(beh: BanditWorldBehavior, spawn_pos: Vector2, event_name: String, extra := {}) -> void:
+	if beh == null:
+		return
+	beh.deposit_lock_active = true
+	_emit_worker_event(event_name, beh, spawn_pos, "", extra)
+
+
+func _clear_deposit_lock(beh: BanditWorldBehavior, spawn_pos: Vector2, event_name: String, extra := {}) -> void:
+	if beh == null:
+		return
+	beh.deposit_lock_active = false
+	_emit_worker_event(event_name, beh, spawn_pos, "", extra)
+
 func _force_clear_cargo_after_deposit(beh: BanditWorldBehavior) -> void:
 	if beh == null:
 		return
 	beh.cargo_count = 0
 	beh._cargo_manifest.clear()
+	beh.deposit_lock_active = false
 
 
 func _is_drop_pressure_stage_6(beh: BanditWorldBehavior) -> bool:
@@ -301,6 +317,7 @@ func _close_deposit(beh: BanditWorldBehavior, spawn_pos: Vector2,
 		return
 	var had_cargo: bool = beh.cargo_count > 0 or not beh._cargo_manifest.is_empty()
 	_force_clear_cargo_after_deposit(beh)
+	_clear_deposit_lock(beh, spawn_pos, "deposit_lock_cleared_success", {"outcome": outcome})
 	beh.on_deposit_complete()
 	_clear_deposit_attempt_queue(beh)
 	_emit_worker_event("deposit_closed", beh, spawn_pos, "", {
@@ -367,6 +384,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var spawn_pos: Vector2 = beh.home_pos
 	if enemy_node != null and is_instance_valid(enemy_node):
 		spawn_pos = (enemy_node as Node2D).global_position
+	_set_deposit_lock(beh, spawn_pos, "deposit_lock_activated", {"reason": "deposit_attempt_begin", "cargo": beh.cargo_count})
 
 	if beh.cargo_count > 0 and beh._cargo_manifest.is_empty():
 		Debug.log("bandit_ai",
@@ -403,6 +421,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			"cause": missing_cause,
 		})
 		_queue_deposit_attempt(beh, missing_cause, target_source)
+		_set_deposit_lock(beh, spawn_pos, "deposit_lock_retry", {"cause": missing_cause, "source": target_source})
 		_emit_worker_event("cargo_not_returning", beh, spawn_pos, "", {
 			"reason": "deposit_target_unavailable",
 			"cause": missing_cause,
@@ -476,13 +495,14 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			var fallback_drop: ItemDrop = null
 			if ITEM_DROP_SCENE != null:
 				fallback_drop = ITEM_DROP_SCENE.instantiate() as ItemDrop
-			if fallback_drop == null:
-				_emit_worker_event("cargo_not_returning", beh, spawn_pos, fallback_item_id, {
-					"reason": "deposit_blocked",
-					"cause": "stash_full",
-					"source": String(fallback_entry.get("source", target_source)),
-				})
-				continue
+				if fallback_drop == null:
+					_emit_worker_event("cargo_not_returning", beh, spawn_pos, fallback_item_id, {
+						"reason": "deposit_blocked",
+						"cause": "stash_full",
+						"source": String(fallback_entry.get("source", target_source)),
+					})
+					_set_deposit_lock(beh, spawn_pos, "deposit_lock_blocked", {"cause": "stash_full"})
+					continue
 			fallback_drop.item_id = fallback_item_id
 			fallback_drop.amount = fallback_amount
 			get_tree().current_scene.add_child(fallback_drop)
@@ -626,6 +646,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 					"cause": "stash_full",
 					"source": target_source,
 				})
+				_set_deposit_lock(beh, spawn_pos, "deposit_lock_blocked", {"cause": "stash_full"})
 				cap_drop.add_to_group("item_drop")
 				cap_drop.set_deferred("collision_layer", orig_layer)
 				cap_drop.set_deferred("monitoring",      true)
@@ -660,6 +681,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 						"cause": "spawn_fallback_failed",
 						"source": target_source,
 					})
+					_set_deposit_lock(beh, spawn_pos, "deposit_lock_blocked", {"cause": "spawn_fallback_failed"})
 					cap_drop.add_to_group("item_drop")
 					cap_drop.set_deferred("collision_layer", orig_layer)
 					cap_drop.set_deferred("monitoring",      true)
@@ -774,6 +796,7 @@ func drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	beh._cargo_manifest.clear()
 	beh.cargo_count                   = 0
 	beh._just_arrived_home_with_cargo = false
+	_clear_deposit_lock(beh, drop_pos, "deposit_lock_cleared_drop_on_aggro")
 	_clear_deposit_attempt_queue(beh)
 	Debug.log("bandit_ai", "[CampStash] carry soltado al entrar en combate id=%s" % beh.member_id)
 

@@ -652,6 +652,7 @@ func _tick_behaviors() -> int:
 			"pos": node.global_position,
 			"cargo_count": beh.cargo_count,
 			"cargo_capacity": beh.cargo_capacity,
+			"deposit_lock_active": beh.deposit_lock_active,
 			"current_state": state_name,
 			"current_resource_id": beh._resource_node_id,
 			"pending_mine_id": beh.pending_mine_id,
@@ -741,6 +742,9 @@ func _tick_behaviors() -> int:
 		ctx["find_nearest_player_workbench"] = _find_workbench_cb
 		ctx["find_nearest_player_storage"] = _find_storage_cb
 		ctx["find_nearest_player_placeable"] = _find_placeable_cb
+		var runtime_signals_ctx: Dictionary = _get_runtime_lod_signals(node)
+		ctx["in_combat"] = bool(runtime_signals_ctx.get("is_in_direct_combat", false))
+		ctx["recently_engaged"] = bool(runtime_signals_ctx.get("was_recently_engaged", false))
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
 			if guard_slots_by_member.has(beh.member_id):
@@ -910,6 +914,18 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 	var order_type: String = String(order.get("order", ""))
 	if order_type == "":
 		return
+	var deposit_lock_engaged: bool = beh.deposit_lock_active and beh.cargo_count > 0
+	var combat_override: bool = bool(ctx.get("in_combat", false)) or bool(ctx.get("recently_engaged", false))
+	if deposit_lock_engaged and order_type != "return_home":
+		if order_type != "attack_target" or not combat_override:
+			log_worker_event("tactical_order_ignored_deposit_lock", {
+				"npc_id": beh.member_id,
+				"group_id": beh.group_id,
+				"order": order_type,
+				"cargo": beh.cargo_count,
+				"deposit_lock_active": true,
+			})
+			return
 	match order_type:
 		"follow_slot":
 			ctx["follow_slot_name"] = String(order.get("slot_name", ctx.get("follow_slot_name", "")))
@@ -1679,14 +1695,21 @@ func _enforce_cargo_return_priority(beh: BanditWorldBehavior, member_pos: Vector
 			"stage": stage,
 		})
 		return
-	# Don't interrupt a scavenger who is actively mining — let them finish the
-	# resource before depositing. The work coordinator handles the return once
-	# the resource is gone or cargo is full.
-	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH \
+	# Before deposit lock engages, allow scavengers to finish the current node.
+	if not beh.deposit_lock_active \
+			and beh.state == NpcWorldBehavior.State.RESOURCE_WATCH \
 			and beh._resource_node_id != 0 \
 			and is_instance_id_valid(beh._resource_node_id) \
 			and not beh.is_cargo_full():
 		return
+	if beh.deposit_lock_active:
+		log_worker_event("deposit_lock_retry", {
+			"npc_id": beh.member_id,
+			"group_id": beh.group_id,
+			"cargo": beh.cargo_count,
+			"state_before": str(int(beh.state)),
+			"stage": stage,
+		})
 	var prev_state: int = int(beh.state)
 	beh.force_return_home()
 	log_worker_event("cargo_not_returning", {
