@@ -61,9 +61,15 @@ var _debug_last_pickup_queries_per_pulse: int = 0
 var _debug_last_drop_candidates_total: int = 0
 var _debug_last_budget_hits: int = 0
 var _debug_last_compact_hits: int = 0
+var _debug_sweep_attempts_blocked_by_role_in_pulse: int = 0
+var _debug_sweep_attempts_blocked_by_group_cap_in_pulse: int = 0
+var _debug_last_sweep_attempts_blocked_by_role: int = 0
+var _debug_last_sweep_attempts_blocked_by_group_cap: int = 0
 var _debug_drop_pressure_mode: String = "normal"
+var _eligible_looters_per_group: Dictionary = {}
 var _pickup_sfx_last_ms_by_member: Dictionary = {}
 var _pickup_sfx_last_pulse_by_member: Dictionary = {}
+var _authorized_assault_looters_by_group: Dictionary = {}
 
 # Callable(group_id: String, barrel_pos: Vector2) -> void
 # Implementado por BanditBehaviorLayer para propagar deposit_pos a los behaviors.
@@ -322,17 +328,154 @@ func _pickup_budget_scale() -> float:
 	return clampf(scale, 0.35, 1.0)
 
 
+func _assault_pickup_group_looter_cap() -> int:
+	return maxi(BanditTuningScript.assault_pickup_group_looter_cap(), 1)
+
+
+func _assault_pickup_scavenger_only() -> bool:
+	return BanditTuningScript.assault_pickup_scavenger_only()
+
+
+func _assault_pickup_rotation_interval_ticks() -> int:
+	return maxi(BanditTuningScript.assault_pickup_rotation_interval_ticks(), 1)
+
+
+func _normalize_group_pickup_mode(beh: BanditWorldBehavior) -> String:
+	if beh == null:
+		return "normal"
+	var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
+	var mode: String = String(g.get("current_group_intent", "idle"))
+	if BanditGroupMemory.is_structure_assault_active(beh.group_id) \
+			or mode == "raiding" \
+			or mode == "hunting" \
+			or mode == "alerted":
+		return "assault"
+	if mode == "retreating" or mode == "depositing":
+		return "retreat"
+	return "normal"
+
+
+func _is_strike_or_cover_unit(beh: BanditWorldBehavior) -> bool:
+	if beh == null:
+		return false
+	if beh.state == NpcWorldBehavior.State.FOLLOW_LEADER \
+			or beh.state == NpcWorldBehavior.State.EXTORT_APPROACH \
+			or beh.state == NpcWorldBehavior.State.EXTORT_RETREAT:
+		return true
+	if BanditGroupMemory.is_structure_assault_active(beh.group_id):
+		return true
+	return false
+
+
+func _is_assault_pickup_task_active(beh: BanditWorldBehavior) -> bool:
+	if beh == null:
+		return false
+	if beh.state == NpcWorldBehavior.State.LOOT_APPROACH:
+		return true
+	return beh.pending_collect_id != 0 or beh.cargo_count > 0
+
+
+func _resolve_authorized_assault_looters(group_id: String, looter_cap: int) -> Dictionary:
+	if group_id == "":
+		return {}
+	var now_tick: int = _current_tick()
+	var cap: int = maxi(looter_cap, 1)
+	var persisted: Dictionary = _authorized_assault_looters_by_group.get(group_id, {}) as Dictionary
+	var members_source: Array = (BanditGroupMemory.get_group(group_id).get("member_ids", []) as Array)
+	var candidates: Array[String] = []
+	for raw_member_id in members_source:
+		var member_id: String = String(raw_member_id)
+		if member_id != "":
+			candidates.append(member_id)
+	candidates.sort()
+	var chosen: Array[String] = []
+	var prev_allowed: Array = persisted.get("member_ids", []) as Array
+	for raw_prev in prev_allowed:
+		var prev_id: String = String(raw_prev)
+		if candidates.has(prev_id) and chosen.size() < cap:
+			chosen.append(prev_id)
+	var cursor: int = int(persisted.get("cursor", 0))
+	var interval_ticks: int = _assault_pickup_rotation_interval_ticks()
+	var refresh_due: bool = persisted.is_empty() \
+			or now_tick >= int(persisted.get("next_refresh_tick", 0))
+	if refresh_due and candidates.size() > 0 and chosen.size() < cap:
+		var start_idx: int = posmod(cursor, candidates.size())
+		var idx: int = start_idx
+		var visited: int = 0
+		while visited < candidates.size() and chosen.size() < cap:
+			var candidate_id: String = candidates[idx]
+			if not chosen.has(candidate_id):
+				chosen.append(candidate_id)
+			idx = (idx + 1) % candidates.size()
+			visited += 1
+		cursor = idx
+	var resolved := {
+		"member_ids": chosen,
+		"cursor": cursor,
+		"next_refresh_tick": now_tick + interval_ticks,
+	}
+	_authorized_assault_looters_by_group[group_id] = resolved
+	return resolved
+
+
+func _is_sweep_eligible(beh: BanditWorldBehavior, query_ctx: Dictionary) -> Dictionary:
+	var fallback := {
+		"eligible": false,
+		"blocked_by": "invalid_behavior",
+		"mode": "normal",
+		"eligible_count": 0,
+	}
+	if beh == null:
+		return fallback
+	var mode: String = _normalize_group_pickup_mode(beh)
+	var result := {
+		"eligible": true,
+		"blocked_by": "",
+		"mode": mode,
+		"eligible_count": 0,
+	}
+	if mode != "assault":
+		result["eligible_count"] = 0
+		return result
+	if beh.role == "bodyguard" or beh.role == "leader" or _is_strike_or_cover_unit(beh):
+		result["eligible"] = false
+		result["blocked_by"] = "role"
+		return result
+	var scavenger_only: bool = _assault_pickup_scavenger_only()
+	if scavenger_only and beh.role != "scavenger":
+		result["eligible"] = false
+		result["blocked_by"] = "role"
+		return result
+	if _is_assault_pickup_task_active(beh):
+		result["eligible_count"] = 1
+		return result
+	var looter_cap: int = maxi(int(query_ctx.get("assault_pickup_group_looter_cap", _assault_pickup_group_looter_cap())), 1)
+	var authorized: Dictionary = _resolve_authorized_assault_looters(beh.group_id, looter_cap)
+	var allowed_ids: Array = authorized.get("member_ids", []) as Array
+	result["eligible_count"] = allowed_ids.size()
+	if allowed_ids.has(beh.member_id):
+		return result
+	result["eligible"] = false
+	result["blocked_by"] = "group_cap"
+	return result
+
+
 func begin_drop_pulse(pulse_id: int, drop_pressure_mode: String = "normal") -> void:
 	if pulse_id != _debug_drop_pulse_id:
 		_debug_last_pickup_queries_per_pulse = _debug_pickup_queries_in_pulse
 		_debug_last_drop_candidates_total = _debug_drop_candidates_total_in_pulse
 		_debug_last_budget_hits = _debug_budget_hits_in_pulse
 		_debug_last_compact_hits = _debug_compact_hits_in_pulse
+		_debug_last_sweep_attempts_blocked_by_role = _debug_sweep_attempts_blocked_by_role_in_pulse
+		_debug_last_sweep_attempts_blocked_by_group_cap = _debug_sweep_attempts_blocked_by_group_cap_in_pulse
 		_debug_drop_pulse_id = pulse_id
 		_debug_pickup_queries_in_pulse = 0
 		_debug_drop_candidates_total_in_pulse = 0
 		_debug_budget_hits_in_pulse = 0
 		_debug_compact_hits_in_pulse = 0
+		_debug_sweep_attempts_blocked_by_role_in_pulse = 0
+		_debug_sweep_attempts_blocked_by_group_cap_in_pulse = 0
+		_eligible_looters_per_group.clear()
 	_debug_drop_pressure_mode = drop_pressure_mode
 
 
@@ -348,6 +491,12 @@ func get_debug_snapshot() -> Dictionary:
 		budget_hits = _debug_last_budget_hits
 	if compact_hits <= 0 and _debug_last_compact_hits > 0:
 		compact_hits = _debug_last_compact_hits
+	var blocked_by_role: int = _debug_sweep_attempts_blocked_by_role_in_pulse
+	var blocked_by_group_cap: int = _debug_sweep_attempts_blocked_by_group_cap_in_pulse
+	if blocked_by_role <= 0 and _debug_last_sweep_attempts_blocked_by_role > 0:
+		blocked_by_role = _debug_last_sweep_attempts_blocked_by_role
+	if blocked_by_group_cap <= 0 and _debug_last_sweep_attempts_blocked_by_group_cap > 0:
+		blocked_by_group_cap = _debug_last_sweep_attempts_blocked_by_group_cap
 	return {
 		"drop_pulse_id": _debug_drop_pulse_id,
 		"pickup_queries_per_pulse": pickup_queries_per_pulse,
@@ -357,6 +506,12 @@ func get_debug_snapshot() -> Dictionary:
 		"drop_pressure_mode": _debug_drop_pressure_mode,
 		"drop_processing_budget_hits_total": _drop_processing_budget_hits,
 		"deposit_compact_path_hits_total": deposit_compact_path_hits,
+		"eligible_looters_per_group": _eligible_looters_per_group.duplicate(true),
+		"sweep_attempts_blocked_by_role": blocked_by_role,
+		"sweep_attempts_blocked_by_group_cap": blocked_by_group_cap,
+		"assault_pickup_group_looter_cap": _assault_pickup_group_looter_cap(),
+		"assault_pickup_scavenger_only": _assault_pickup_scavenger_only(),
+		"assault_pickup_rotation_interval_ticks": _assault_pickup_rotation_interval_ticks(),
 	}
 
 
@@ -1024,6 +1179,24 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 	}
 	for key in query_budget_ctx.keys():
 		query_ctx[key] = query_budget_ctx[key]
+	var eligibility: Dictionary = _is_sweep_eligible(beh, query_ctx)
+	var mode: String = String(eligibility.get("mode", "normal"))
+	if mode == "assault":
+		var group_key: String = beh.group_id if beh.group_id != "" else "_ungrouped"
+		_eligible_looters_per_group[group_key] = int(eligibility.get("eligible_count", 0))
+	if not bool(eligibility.get("eligible", true)):
+		var blocked_by: String = String(eligibility.get("blocked_by", "role"))
+		if blocked_by == "group_cap":
+			_debug_sweep_attempts_blocked_by_group_cap_in_pulse += 1
+		else:
+			_debug_sweep_attempts_blocked_by_role_in_pulse += 1
+		_emit_worker_event("pickup_sweep_blocked", beh, check_pos, "", {
+			"blocked_by": blocked_by,
+			"group_pickup_mode": mode,
+			"group_looter_cap": int(query_ctx.get("assault_pickup_group_looter_cap", _assault_pickup_group_looter_cap())),
+			"scavenger_only": _assault_pickup_scavenger_only(),
+		})
+		return
 	var npc_budget_ctx: Dictionary = query_ctx.get("drops_npc_counter_ctx", {}) as Dictionary
 	var local_budget_max: int = _get_npc_max(query_ctx, npc_budget_ctx)
 	var local_processed: int = _get_npc_processed(npc_budget_ctx)

@@ -65,6 +65,9 @@ const ALLY_SEP_FORCE:  float = 55.0
 const ORBIT_COLLECT_RADIUS:       float = 56.0
 # Radio de recogida al llegar a un drop objetivo (barre todo lo cercano)
 const LOOT_ARRIVE_COLLECT_RADIUS: float = 40.0
+const ASSAULT_PICKUP_GROUP_LOOTER_CAP: int = 2
+const ASSAULT_PICKUP_SCAVENGER_ONLY: bool = true
+const ASSAULT_PICKUP_ROTATION_INTERVAL_TICKS: int = 12
 
 # ---------------------------------------------------------------------------
 # Cargo deposit animation / audio
@@ -142,6 +145,15 @@ static func orbit_collect_radius_sq() -> float:
 
 static func loot_arrive_collect_radius_sq() -> float:
 	return LOOT_ARRIVE_COLLECT_RADIUS * LOOT_ARRIVE_COLLECT_RADIUS
+
+static func assault_pickup_group_looter_cap() -> int:
+	return ASSAULT_PICKUP_GROUP_LOOTER_CAP
+
+static func assault_pickup_scavenger_only() -> bool:
+	return ASSAULT_PICKUP_SCAVENGER_ONLY
+
+static func assault_pickup_rotation_interval_ticks() -> int:
+	return ASSAULT_PICKUP_ROTATION_INTERVAL_TICKS
 
 # ---------------------------------------------------------------------------
 # Cargo deposit accessors
