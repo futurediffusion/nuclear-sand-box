@@ -67,14 +67,21 @@ func _print_perf_to_console() -> void:
 		if int(npc_reasons[r]) > top_count:
 			top_count = int(npc_reasons[r])
 			top_reason = String(r)
+	var drop_metrics: Dictionary = snapshot.get("drop_metrics", {})
+	var item_drop_count: int = int(drop_metrics.get("item_drop_count", 0))
+	var merged_drop_events: int = int(drop_metrics.get("merged_drop_events", 0))
+	var deposit_compact_hits: int = int(drop_metrics.get("deposit_compact_path_hits", 0))
+	var drop_budget_hits: int = int(drop_metrics.get("drop_processing_budget_hits", 0))
+	var fps: float = Engine.get_frames_per_second()
 	Debug.log("perf_telemetry", (
-		"chunk gen=%.2fms ent=%.2fms | npc sim=%.2fms (active=%d data=%d) dist[%s] | "
+		"chunk gen=%.2fms ent=%.2fms fps=%.1f | npc sim=%.2fms (active=%d data=%d) dist[%s] | "
 		+ "bandits g[%s] npc[%s] top=%s | "
 		+ "lod-mode npc[%s] group[%s] | "
 		+ "settlement wb=%.1f/30s base=%.1f/10s bases=%d | "
+		+ "drops count=%d merged=%d compact=%d budget=%d | "
 		+ "spatial hit=%d%% (%d q)"
 	) % [
-		gen_p50, ent_p50,
+		gen_p50, ent_p50, fps,
 		npc_ms,
 		_npc_sim.active_enemies.size() if _npc_sim != null else 0,
 		_npc_sim._data_behaviors.size() if _npc_sim != null else 0,
@@ -87,6 +94,10 @@ func _print_perf_to_console() -> void:
 		float(timers.get("workbench_rescan_timer", 0.0)),
 		float(timers.get("base_rescan_timer", 0.0)),
 		int(settlement.get("bases_detected", 0)),
+		item_drop_count,
+		merged_drop_events,
+		deposit_compact_hits,
+		drop_budget_hits,
 		hit_pct, q_total,
 	])
 
