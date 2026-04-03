@@ -216,9 +216,11 @@ const LANE_SETTLEMENT_WORKBENCH_SCAN: StringName = &"settlement_workbench_scan"
 const LANE_OCCLUSION_PULSE: StringName = &"occlusion_pulse"
 const LANE_RESOURCE_REPOP_PULSE: StringName = &"resource_repop_pulse"
 const LANE_BANDIT_WORK_LOOP: StringName = &"bandit_work_loop"
+const LANE_DROP_COMPACT_PULSE: StringName = &"drop_compact_pulse"
 const OCCLUSION_INTERVAL_SEC: float = 0.10
 const RESOURCE_REPOP_INTERVAL_SEC: float = 0.50
 const BANDIT_WORK_LOOP_INTERVAL_SEC: float = 0.25
+const DROP_COMPACT_INTERVAL_SEC: float = 0.40
 const SHORT_PULSE_PHASE: float = 0.15
 const MEDIUM_PULSE_PHASE: float = 0.42
 const DIRECTOR_PULSE_PHASE: float = 0.67
@@ -227,11 +229,13 @@ const AUTOSAVE_PHASE: float = 0.31
 const OCCLUSION_PHASE: float = 0.07
 const RESOURCE_REPOP_PHASE: float = 0.53
 const BANDIT_WORK_LOOP_PHASE: float = 0.24
+const DROP_COMPACT_PHASE: float = 0.59
 const BUDGET_WALL_REFRESH_PER_PULSE: int = 1
 const BUDGET_TILE_ERASE_PER_PULSE: int = 2
 const BUDGET_OCCLUSION_MATERIALS_PER_PULSE: int = 8
 const BUDGET_RESOURCE_REPOP_OPS_PER_PULSE: int = 8
 const BUDGET_BANDIT_WORK_TICKS_PER_PULSE: int = 24
+const BUDGET_DROP_COMPACT_PULSES_PER_FRAME: int = 1
 const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(0, 0),
 	Vector2i(-1, 0),
@@ -243,10 +247,24 @@ const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(-1, 1),
 	Vector2i(1, 1),
 ]
+const DROP_COMPACT_HOTSPOT_MAX_TRACKED: int = 32
 
 # Biome IDs used by PropSpawner via get_spawn_biome()
 const BIOME_ID_GRASSLAND: int = 1
 const BIOME_ID_DENSE_GRASS: int = 2
+
+@export_group("Drop Compaction")
+@export var drop_compaction_enabled: bool = true
+@export var drop_compaction_radius_px: float = 44.0
+@export var drop_compaction_max_nodes_inspected: int = 96
+@export var drop_compaction_max_merges_per_exec: int = 16
+@export var drop_compaction_hotspot_ttl_sec: float = 12.0
+@export var drop_compaction_hotspot_radius_px: float = 220.0
+@export var drop_compaction_min_cluster_size: int = 3
+@export_group("")
+
+var merged_drop_events: int = 0
+var _drop_compaction_hotspots: Array[Dictionary] = []
 
 func _ready() -> void:
 	_wall_refresh_queue = WallRefreshQueueScript.new()
@@ -269,6 +287,7 @@ func _ready() -> void:
 	# - Budget counts behavior ticks per pulse (not physics ops).
 	# - Heavy scan/pathfinding remains LOD-gated inside BanditBehaviorLayer.
 	_cadence.configure_lane(LANE_BANDIT_WORK_LOOP, BANDIT_WORK_LOOP_INTERVAL_SEC, BANDIT_WORK_LOOP_PHASE, 1, BUDGET_BANDIT_WORK_TICKS_PER_PULSE)
+	_cadence.configure_lane(LANE_DROP_COMPACT_PULSE, DROP_COMPACT_INTERVAL_SEC, DROP_COMPACT_PHASE, 1, BUDGET_DROP_COMPACT_PULSES_PER_FRAME)
 	_chunk_wall_collider_cache = ChunkWallColliderCacheScript.new()
 	_chunk_wall_collider_cache.setup({
 		"walls_tilemap": walls_tilemap,
@@ -763,6 +782,190 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 		_wall_refresh_queue.confirm_rebuild(chunk_pos, result.revision)
 		rebuild_budget -= 1
 
+
+func _register_drop_compaction_hotspot(world_pos: Vector2, score: int = 1) -> void:
+	if world_pos == Vector2.INF:
+		return
+	var now_sec: float = float(Time.get_ticks_msec()) / 1000.0
+	var ttl: float = maxf(1.0, drop_compaction_hotspot_ttl_sec)
+	var merge_radius: float = maxf(16.0, drop_compaction_hotspot_radius_px)
+	var merge_radius_sq: float = merge_radius * merge_radius
+	for i in _drop_compaction_hotspots.size():
+		var entry: Dictionary = _drop_compaction_hotspots[i]
+		var pos: Vector2 = entry.get("pos", Vector2.INF)
+		if pos == Vector2.INF:
+			continue
+		if pos.distance_squared_to(world_pos) <= merge_radius_sq:
+			entry["score"] = int(entry.get("score", 1)) + maxi(1, score)
+			entry["last_seen"] = now_sec
+			entry["expires_at"] = now_sec + ttl
+			_drop_compaction_hotspots[i] = entry
+			return
+	_drop_compaction_hotspots.append({
+		"pos": world_pos,
+		"score": maxi(1, score),
+		"last_seen": now_sec,
+		"expires_at": now_sec + ttl,
+	})
+	while _drop_compaction_hotspots.size() > DROP_COMPACT_HOTSPOT_MAX_TRACKED:
+		_drop_compaction_hotspots.pop_front()
+
+
+func _prune_drop_compaction_hotspots(now_sec: float) -> void:
+	for i in range(_drop_compaction_hotspots.size() - 1, -1, -1):
+		var entry: Dictionary = _drop_compaction_hotspots[i]
+		if now_sec > float(entry.get("expires_at", -1.0)):
+			_drop_compaction_hotspots.remove_at(i)
+
+
+func _build_drop_compaction_anchor_list() -> Array[Vector2]:
+	var anchors: Array[Vector2] = []
+	var seen_tiles: Dictionary = {}
+	var now_sec: float = float(Time.get_ticks_msec()) / 1000.0
+	_prune_drop_compaction_hotspots(now_sec)
+	var weighted_hotspots: Array[Dictionary] = []
+	for entry in _drop_compaction_hotspots:
+		var pos: Vector2 = entry.get("pos", Vector2.INF)
+		if pos == Vector2.INF:
+			continue
+		var age: float = maxf(0.0, now_sec - float(entry.get("last_seen", now_sec)))
+		var freshness: float = maxf(0.10, 1.0 - (age / maxf(1.0, drop_compaction_hotspot_ttl_sec)))
+		weighted_hotspots.append({
+			"pos": pos,
+			"weight": float(entry.get("score", 1)) * freshness,
+		})
+	weighted_hotspots.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("weight", 0.0)) > float(b.get("weight", 0.0))
+	)
+	for entry in weighted_hotspots:
+		var pos: Vector2 = entry.get("pos", Vector2.INF)
+		if pos == Vector2.INF:
+			continue
+		var tile: Vector2i = _world_to_tile(pos)
+		if seen_tiles.has(tile):
+			continue
+		seen_tiles[tile] = true
+		anchors.append(pos)
+	var drops: Array = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_ITEM_DROP) \
+		if _world_spatial_index != null else []
+	var density_by_chunk: Dictionary = {}
+	var chunk_center_by_chunk: Dictionary = {}
+	for raw_node in drops:
+		var drop_node := raw_node as ItemDrop
+		if drop_node == null or not is_instance_valid(drop_node) or drop_node.is_queued_for_deletion():
+			continue
+		var cpos: Vector2i = _tile_to_chunk(_world_to_tile(drop_node.global_position))
+		density_by_chunk[cpos] = int(density_by_chunk.get(cpos, 0)) + 1
+		if not chunk_center_by_chunk.has(cpos):
+			chunk_center_by_chunk[cpos] = _tile_to_world(cpos * chunk_size + Vector2i(chunk_size / 2, chunk_size / 2))
+	var density_rank: Array[Dictionary] = []
+	for cpos in density_by_chunk.keys():
+		var count: int = int(density_by_chunk[cpos])
+		if count < maxi(drop_compaction_min_cluster_size, 2):
+			continue
+		density_rank.append({
+			"pos": chunk_center_by_chunk[cpos],
+			"count": count,
+		})
+	density_rank.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("count", 0)) > int(b.get("count", 0))
+	)
+	for entry in density_rank:
+		var pos: Vector2 = entry.get("pos", Vector2.INF)
+		if pos == Vector2.INF:
+			continue
+		var tile: Vector2i = _world_to_tile(pos)
+		if seen_tiles.has(tile):
+			continue
+		seen_tiles[tile] = true
+		anchors.append(pos)
+	var max_anchors: int = maxi(4, int(float(maxi(0, drop_compaction_max_nodes_inspected)) / 12.0))
+	if anchors.size() > max_anchors:
+		anchors.resize(max_anchors)
+	return anchors
+
+
+func _compact_item_drops_once() -> int:
+	if not drop_compaction_enabled or _world_spatial_index == null:
+		return 0
+	var max_inspect: int = maxi(drop_compaction_max_nodes_inspected, 0)
+	var max_merges: int = maxi(drop_compaction_max_merges_per_exec, 0)
+	if max_inspect <= 0 or max_merges <= 0:
+		return 0
+	var anchors: Array[Vector2] = _build_drop_compaction_anchor_list()
+	if anchors.is_empty():
+		return 0
+	var inspected: int = 0
+	var merges: int = 0
+	var consumed_ids: Dictionary = {}
+	var scan_radius: float = maxf(8.0, drop_compaction_radius_px)
+	var scan_radius_sq: float = scan_radius * scan_radius
+	for anchor in anchors:
+		if inspected >= max_inspect or merges >= max_merges:
+			break
+		var candidates: Array = _world_spatial_index.get_runtime_nodes_near(
+			WorldSpatialIndex.KIND_ITEM_DROP,
+			anchor,
+			scan_radius,
+			{"max_candidates_eval": max_inspect - inspected}
+		)
+		var by_item_id: Dictionary = {}
+		for raw_node in candidates:
+			if inspected >= max_inspect:
+				break
+			var drop_node := raw_node as ItemDrop
+			if drop_node == null or not is_instance_valid(drop_node) or drop_node.is_queued_for_deletion():
+				continue
+			inspected += 1
+			var iid: int = drop_node.get_instance_id()
+			if consumed_ids.has(iid):
+				continue
+			var id_key: String = String(drop_node.item_id).strip_edges()
+			if id_key == "":
+				continue
+			if not by_item_id.has(id_key):
+				by_item_id[id_key] = []
+			(by_item_id[id_key] as Array).append(drop_node)
+		for item_id in by_item_id.keys():
+			if merges >= max_merges:
+				break
+			var cluster: Array = by_item_id[item_id]
+			if cluster.size() < 2:
+				continue
+			cluster.sort_custom(func(a: ItemDrop, b: ItemDrop) -> bool:
+				var ad: float = a.global_position.distance_squared_to(anchor)
+				var bd: float = b.global_position.distance_squared_to(anchor)
+				return ad < bd
+			)
+			var target := cluster[0] as ItemDrop
+			if target == null or not is_instance_valid(target) or target.is_queued_for_deletion():
+				continue
+			for idx in range(1, cluster.size()):
+				if merges >= max_merges:
+					break
+				var source := cluster[idx] as ItemDrop
+				if source == null or not is_instance_valid(source) or source.is_queued_for_deletion():
+					continue
+				if consumed_ids.has(source.get_instance_id()) or source == target:
+					continue
+				if target.global_position.distance_squared_to(source.global_position) > scan_radius_sq:
+					continue
+				var src_amount: int = maxi(int(source.amount), 0)
+				if src_amount <= 0:
+					continue
+				target.amount = maxi(0, int(target.amount)) + src_amount
+				consumed_ids[source.get_instance_id()] = true
+				if source.is_in_group("item_drop"):
+					source.remove_from_group("item_drop")
+				_world_spatial_index.unregister_runtime_node(source)
+				source.queue_free()
+				merges += 1
+				merged_drop_events += 1
+				_register_drop_compaction_hotspot(target.global_position, 1)
+				if merges >= max_merges:
+					break
+	return merges
+
 func _process(delta: float) -> void:
 	if _cadence != null:
 		_cadence.advance(delta)
@@ -797,6 +1000,13 @@ func _process(delta: float) -> void:
 		var repop_ops: int = _resource_repopulator.tick_from_cadence(repop_pulses)
 		if _cadence != null:
 			_cadence.report_lane_work(LANE_RESOURCE_REPOP_PULSE, repop_ops, BUDGET_RESOURCE_REPOP_OPS_PER_PULSE * repop_pulses)
+	var compact_pulses: int = _cadence.consume_lane(LANE_DROP_COMPACT_PULSE) if _cadence != null else 0
+	if compact_pulses > 0:
+		var compact_ops: int = 0
+		for _pulse in compact_pulses:
+			compact_ops += _compact_item_drops_once()
+		if _cadence != null:
+			_cadence.report_lane_work(LANE_DROP_COMPACT_PULSE, compact_ops, BUDGET_DROP_COMPACT_PULSES_PER_FRAME * compact_pulses)
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
 	_update_cliff_occlusion()
@@ -1787,6 +1997,7 @@ func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
 	if _wall_refresh_queue != null:
 		var cpos: Vector2i = _tile_to_chunk(tile_pos)
 		_wall_refresh_queue.record_activity(cpos)
+	_register_drop_compaction_hotspot(_tile_to_world(tile_pos), 2)
 	# Comparar en coordenadas de tile (enteras) para evitar ambigüedad de float.
 	# has_point en world-space fallaba en tiles exactamente en el borde del bounds
 	# (norte/este dependiendo del offset de map_to_local).
@@ -1824,6 +2035,7 @@ func _get_player_world_pos() -> Vector2:
 func _on_wall_drop_for_intel(tile_pos: Vector2i, _item_id: String, _amount: int) -> void:
 	if _settlement_intel != null:
 		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_pos))
+	_register_drop_compaction_hotspot(_tile_to_world(tile_pos), maxi(1, _amount))
 	_player_territory_dirty = true
 
 func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
@@ -1991,6 +2203,10 @@ func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionar
 		_settlement_intel.record_interest_event(kind, world_pos, metadata)
 	if _world_territory_policy != null:
 		_world_territory_policy.record_interest_event(kind, world_pos)
+	if kind in ["copper_mined", "stone_mined", "wood_chopped"]:
+		_register_drop_compaction_hotspot(world_pos, 3)
+	elif kind.find("destroy") >= 0:
+		_register_drop_compaction_hotspot(world_pos, 2)
 	# Estructura colocada o workbench → reconstruir mapa de territorio del jugador
 	if kind == "workbench" or kind == "structure_placed":
 		_player_territory_dirty = true
@@ -2089,10 +2305,19 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 			"save_count": _save_count,
 			"last_save_age": snappedf(last_save_age, 0.01) if last_save_age >= 0.0 else -1.0,
 		},
+		"drop_compaction": {
+			"enabled": drop_compaction_enabled,
+			"merged_drop_events": merged_drop_events,
+			"hotspots": _drop_compaction_hotspots.size(),
+			"radius_px": drop_compaction_radius_px,
+			"max_nodes_inspected": drop_compaction_max_nodes_inspected,
+			"max_merges_per_exec": drop_compaction_max_merges_per_exec,
+		},
 		"lane_inventory": {
 			"occlusion_controller": {"script": "scripts/world/OcclusionController.gd", "lane": String(LANE_OCCLUSION_PULSE), "interval": OCCLUSION_INTERVAL_SEC, "budget": BUDGET_OCCLUSION_MATERIALS_PER_PULSE},
 			"resource_repopulator": {"script": "scripts/world/ResourceRepopulator.gd", "lane": String(LANE_RESOURCE_REPOP_PULSE), "interval": RESOURCE_REPOP_INTERVAL_SEC, "budget": BUDGET_RESOURCE_REPOP_OPS_PER_PULSE},
 			"bandit_work_loop": {"script": "scripts/world/BanditBehaviorLayer.gd::_process", "lane": String(LANE_BANDIT_WORK_LOOP), "interval": BANDIT_WORK_LOOP_INTERVAL_SEC, "budget": BUDGET_BANDIT_WORK_TICKS_PER_PULSE},
 			"maintenance_short_pulse": {"script": "scripts/world/world.gd::_process", "lane": String(LANE_SHORT_PULSE), "interval": 0.12, "budget": BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE},
+			"drop_compaction": {"script": "scripts/world/world.gd::_compact_item_drops_once", "lane": String(LANE_DROP_COMPACT_PULSE), "interval": DROP_COMPACT_INTERVAL_SEC, "budget": BUDGET_DROP_COMPACT_PULSES_PER_FRAME},
 		},
 	}
