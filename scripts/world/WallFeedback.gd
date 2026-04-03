@@ -84,6 +84,8 @@ func play_player_wall_drop_feedback(
 	var overrides := {
 		"drop_scene": drop_scene,
 		"aggregate_spawn": true,
+		"from_break_event": true,
+		"break_event_kind": "wall_break",
 	}
 	LootSystem.spawn_drop(null, drop_item_id, drop_amount, origin, owner, overrides, source_uid)
 

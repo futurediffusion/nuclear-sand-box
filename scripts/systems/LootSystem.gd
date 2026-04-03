@@ -11,6 +11,7 @@ const DROP_AGGREGATION_WINDOW_MAX_SEC: float = 0.25
 const DROP_AGGREGATION_WINDOW_DEFAULT_SEC: float = 0.16
 const DROP_AGGREGATION_CELL_SIZE_PX: float = 24.0
 const DROP_AGGREGATION_MERGE_RADIUS: float = 26.0
+const BREAK_EVENT_STATE_TTL_MULT: float = 1.5
 const DESTRUCTION_AGGREGATE_ITEM_IDS: Array[String] = [
 	"wallwood",
 	"doorwood",
@@ -37,6 +38,10 @@ var _drop_pressure_snapshot: Dictionary = {
 	"item_drop_count": 0,
 	"drop_pressure_stage": 0,
 }
+var max_drop_entities_per_break_event: int = 4
+var _break_event_state: Dictionary = {} # event_key -> {spawned_entities, expires_at, cap}
+var _drops_spawned_raw: int = 0
+var _drops_spawned_compacted: int = 0
 
 func set_drop_pressure_snapshot(snapshot: Dictionary) -> void:
 	_drop_pressure_snapshot = snapshot.duplicate(true)
@@ -81,6 +86,7 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 	var aggregation_overrides := overrides.duplicate(true)
 	aggregation_overrides["item_id"] = resolved_id
 	var resolved_source_uid: String = _resolve_effective_source_uid(resolved_id, origin, overrides, source_uid)
+	_drops_spawned_raw += 1
 	var merged_drop := _try_merge_spawn_aggregate(
 		target_parent,
 		resolved_id,
@@ -93,6 +99,25 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 		if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
 			GameEvents.emit_loot_spawned(resolved_id, amount, origin, resolved_source_uid)
 		return merged_drop
+
+	var now_sec: float = float(Time.get_ticks_msec()) / 1000.0
+	var break_event_key: String = _resolve_break_event_key(overrides, origin, now_sec)
+	var break_event_cap: int = _resolve_break_event_cap(overrides)
+	if break_event_key != "":
+		if not _can_spawn_new_break_event_entity(break_event_key, break_event_cap, now_sec, _resolve_aggregation_window_sec(overrides)):
+			var capped_merge := _try_merge_break_event_stack(
+				target_parent,
+				resolved_id,
+				amount,
+				origin,
+				break_event_key,
+				now_sec,
+				_resolve_aggregation_window_sec(overrides)
+			)
+			if capped_merge != null:
+				if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
+					GameEvents.emit_loot_spawned(resolved_id, amount, origin, resolved_source_uid)
+				return capped_merge
 
 	var drop := scene.instantiate()
 	if drop == null:
@@ -120,7 +145,9 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 
 	target_parent.add_child(drop)
 	_tag_drop_aggregation_meta(drop, resolved_id, origin, aggregation_overrides, resolved_source_uid)
+	_tag_break_event_meta(drop, break_event_key, now_sec)
 	_apply_drop_spawn_motion(drop, origin, overrides)
+	_drops_spawned_compacted += 1
 
 	print("[LootSystem] spawned drop item_id=", resolved_id, " amount=", amount)
 	if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
@@ -350,3 +377,97 @@ func _quantize_drop_origin(origin: Vector2) -> Vector2i:
 		int(floor(origin.x / cell_size)),
 		int(floor(origin.y / cell_size))
 	)
+
+
+func _resolve_break_event_cap(overrides: Dictionary) -> int:
+	var override_cap: int = int(overrides.get("max_drop_entities_per_break_event", max_drop_entities_per_break_event))
+	return maxi(1, override_cap)
+
+
+func _resolve_break_event_key(overrides: Dictionary, origin: Vector2, now_sec: float) -> String:
+	var explicit_key := String(overrides.get("break_event_key", "")).strip_edges()
+	if explicit_key != "":
+		return explicit_key
+	var from_break_event: bool = bool(overrides.get("from_break_event", false))
+	var kind: String = String(overrides.get("break_event_kind", "")).strip_edges().to_lower()
+	if not from_break_event and kind == "":
+		return ""
+	if kind == "":
+		kind = "break"
+	var cell: Vector2i = _quantize_drop_origin(origin)
+	var window_sec := _resolve_aggregation_window_sec(overrides)
+	var batch_bucket: int = int(floor(now_sec / maxf(0.01, window_sec)))
+	return "%s|%d,%d|%d" % [kind, cell.x, cell.y, batch_bucket]
+
+
+func _can_spawn_new_break_event_entity(event_key: String, cap: int, now_sec: float, window_sec: float) -> bool:
+	_prune_break_event_state(now_sec)
+	var state: Dictionary = _break_event_state.get(event_key, {}) as Dictionary
+	var spawned_entities: int = int(state.get("spawned_entities", 0))
+	if spawned_entities >= cap:
+		return false
+	state["spawned_entities"] = spawned_entities + 1
+	state["cap"] = cap
+	state["expires_at"] = now_sec + maxf(0.08, window_sec * BREAK_EVENT_STATE_TTL_MULT)
+	_break_event_state[event_key] = state
+	return true
+
+
+func _try_merge_break_event_stack(
+	parent: Node,
+	item_id: String,
+	amount: int,
+	origin: Vector2,
+	break_event_key: String,
+	now_sec: float,
+	window_sec: float
+) -> ItemDrop:
+	if parent == null or item_id == "" or amount <= 0 or break_event_key == "":
+		return null
+	var merge_radius: float = DROP_AGGREGATION_MERGE_RADIUS
+	var radius_sq: float = merge_radius * merge_radius
+	for child in parent.get_children():
+		var drop := child as ItemDrop
+		if drop == null or not is_instance_valid(drop) or drop.is_queued_for_deletion():
+			continue
+		if String(drop.item_id) != item_id:
+			continue
+		if String(drop.get_meta("break_event_key", "")) != break_event_key:
+			continue
+		if drop.global_position.distance_squared_to(origin) > radius_sq:
+			continue
+		var tagged_at: float = float(drop.get_meta("break_event_t", now_sec))
+		if absf(now_sec - tagged_at) > maxf(0.10, window_sec * BREAK_EVENT_STATE_TTL_MULT):
+			continue
+		drop.amount = maxi(0, int(drop.amount)) + amount
+		drop.set_meta("break_event_t", now_sec)
+		return drop
+	return null
+
+
+func _tag_break_event_meta(drop: Node, break_event_key: String, now_sec: float) -> void:
+	var item_drop := drop as ItemDrop
+	if item_drop == null or break_event_key == "":
+		return
+	item_drop.set_meta("break_event_key", break_event_key)
+	item_drop.set_meta("break_event_t", now_sec)
+
+
+func _prune_break_event_state(now_sec: float) -> void:
+	if _break_event_state.is_empty():
+		return
+	for key in _break_event_state.keys():
+		var state: Dictionary = _break_event_state.get(key, {}) as Dictionary
+		if now_sec > float(state.get("expires_at", 0.0)):
+			_break_event_state.erase(key)
+
+
+func get_drop_spawn_metrics() -> Dictionary:
+	var ratio: float = 1.0
+	if _drops_spawned_raw > 0:
+		ratio = float(_drops_spawned_compacted) / float(_drops_spawned_raw)
+	return {
+		"drops_spawned_raw": _drops_spawned_raw,
+		"drops_spawned_compacted": _drops_spawned_compacted,
+		"drop_compaction_ratio": snappedf(ratio, 0.0001),
+	}

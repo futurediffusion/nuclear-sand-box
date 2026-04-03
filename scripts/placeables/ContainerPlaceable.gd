@@ -51,6 +51,7 @@ var _civil_incident_reporter: Callable = Callable()
 ## Hooks de persistencia por UID (contenido interno serializable).
 var stored_slots: Array = []
 var _world_spatial_index: WorldSpatialIndex = null
+var _last_hit_was_enemy: bool = false
 
 
 func _ready() -> void:
@@ -122,6 +123,7 @@ func _input(event: InputEvent) -> void:
 
 
 func hit(_by: Node) -> void:
+	_last_hit_was_enemy = (_by != null and _by.is_in_group("enemy"))
 	_play_hit_feedback()
 	# Barriles de facción: solo el player puede romperlos.
 	# Enemies (incluyendo sus dueños) solo producen tambaleo — no acumulan daño.
@@ -165,12 +167,14 @@ func _destroy() -> void:
 	var overrides := {
 		"drop_scene": ITEM_DROP_SCENE,
 		"scatter_mode": "prop_radial_short",
+		"from_break_event": true,
+		"break_event_kind": "structure_assault" if _last_hit_was_enemy else "container_break",
 	}
 	var resolved_drop_item_id := drop_item_id.strip_edges()
 	if resolved_drop_item_id == "":
 		resolved_drop_item_id = BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_CHEST)
 	if faction_owner_id == "":
-		LootSystem.spawn_drop(null, resolved_drop_item_id, 1, global_position, world_node, overrides)
+		LootSystem.spawn_drop(null, resolved_drop_item_id, 1, global_position, world_node, overrides, _build_break_source_uid("shell"))
 	_drop_internal_contents(world_node, overrides)
 
 	if placed_uid != "":
@@ -193,8 +197,15 @@ func _drop_internal_contents(world_node: Node, overrides: Dictionary) -> void:
 			amount = int(slot.get("amount", 0))
 		if item_id == "" or amount <= 0:
 			continue
-		LootSystem.spawn_drop(null, item_id, amount, global_position, world_node, overrides)
+		LootSystem.spawn_drop(null, item_id, amount, global_position, world_node, overrides, _build_break_source_uid("slot_%d" % i))
 	stored_slots.clear()
+
+
+func _build_break_source_uid(suffix: String) -> String:
+	var uid_base := placed_uid.strip_edges()
+	if uid_base == "":
+		uid_base = "container_%d" % get_instance_id()
+	return "%s_%s" % [uid_base, suffix]
 
 
 func _on_body_entered(body: Node) -> void:
