@@ -446,11 +446,7 @@ func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
 		})
 
 	if beh.cargo_count > 0:
-		var still_mining: bool = beh.state == NpcWorldBehavior.State.RESOURCE_WATCH \
-				and beh._resource_node_id != 0 \
-				and is_instance_id_valid(beh._resource_node_id)
-		if not still_mining or beh.is_cargo_full():
-			_request_return_home(beh, "cargo_loaded")
+		_request_return_home(beh, "cargo_loaded")
 
 	_stash.handle_cargo_deposit(beh, enemy_node)
 

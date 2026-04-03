@@ -11,8 +11,6 @@ const MACRO_HUNTING := "hunting"
 func build_order(ctx: Dictionary) -> Dictionary:
 	var macro_state: String = String(ctx.get("macro_state", "idle"))
 	var carry_count: int = int(ctx.get("cargo_count", 0))
-	var capacity: int = max(1, int(ctx.get("cargo_capacity", 1)))
-	var deposit_lock_active: bool = bool(ctx.get("deposit_lock_active", false))
 	var group_blackboard: Dictionary = ctx.get("group_blackboard", {})
 	var perception: Dictionary = group_blackboard.get("perception", {})
 	var drops: Array = ctx.get("prioritized_drops", [])
@@ -37,7 +35,9 @@ func build_order(ctx: Dictionary) -> Dictionary:
 	if macro_state == MACRO_RETREATING:
 		return {"order": "return_home"}
 
-	if (carry_count > 0 and deposit_lock_active) or carry_count >= capacity or macro_state == MACRO_DEPOSITING:
+	# Delivery is absolute priority once any cargo is carried.
+	# deposit_lock_active is still consumed by lower layers for hard tactical guards/retries.
+	if carry_count > 0 or macro_state == MACRO_DEPOSITING:
 		return {"order": "return_home"}
 
 	if combat_interruption:

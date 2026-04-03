@@ -35,6 +35,7 @@ const CARRY_STACK_BASE_Y:  float = -22.0  # Y del primer item cargado sobre el N
 const CARRY_STACK_STEP_Y:  float =   8.0  # desplazamiento Y por item adicional en el stack
 const DEPOSIT_TARGET_MAX_DIST_SQ: float = 180.0 * 180.0
 const DEPOSIT_ZONE_RADIUS: float = 72.0  # NPC dentro de este radio de deposit_pos → depósito automático
+const DEPOSIT_ZONE_LOCK_RADIUS: float = 96.0  # lock activo + dentro de esta zona => bypass gate estricto por nodo
 const ENABLE_SECONDARY_DEPOSIT_FALLBACK: bool = false
 const drops_per_npc_per_tick_max: int = 2
 const drops_global_per_pulse_max: int = 18
@@ -395,7 +396,9 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		_close_deposit(beh, spawn_pos, "manifest_guard", "manifest_empty_abort")
 		return
 
-	var resolution := _resolve_deposit_target(beh.group_id, spawn_pos)
+	var in_delivery_zone: bool = beh.deposit_pos != Vector2.ZERO \
+			and spawn_pos.distance_to(beh.deposit_pos) <= DEPOSIT_ZONE_LOCK_RADIUS
+	var resolution := _resolve_deposit_target(beh.group_id, spawn_pos, beh.deposit_lock_active and in_delivery_zone)
 	var chest: Node = resolution.get("node", null) as Node
 	var target_source: String = String(resolution.get("source", "none"))
 	var missing_cause: String = String(resolution.get("missing_cause", "none"))
@@ -1063,7 +1066,7 @@ func _notify_deposit_pos(group_id: String, barrel_pos: Vector2) -> void:
 		_update_deposit_pos_cb.call(group_id, barrel_pos)
 
 
-func _resolve_deposit_target(group_id: String, near_pos: Vector2) -> Dictionary:
+func _resolve_deposit_target(group_id: String, near_pos: Vector2, bypass_range_gate: bool = false) -> Dictionary:
 	var result := {
 		"node": null,
 		"source": "none",
@@ -1084,7 +1087,7 @@ func _resolve_deposit_target(group_id: String, near_pos: Vector2) -> Dictionary:
 					result["missing_cause"] = "group_barrel_deleted"
 				elif not _method_caps.has_method_cached(barrel, &"try_insert_item"):
 					result["missing_cause"] = "group_barrel_no_insert_method"
-				elif barrel is Node2D and near_pos.distance_squared_to(
+				elif not bypass_range_gate and barrel is Node2D and near_pos.distance_squared_to(
 						(barrel as Node2D).global_position) > DEPOSIT_TARGET_MAX_DIST_SQ:
 					result["missing_cause"] = "pathing_or_out_of_range"
 				else:
