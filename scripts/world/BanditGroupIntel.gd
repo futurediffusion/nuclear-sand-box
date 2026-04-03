@@ -156,6 +156,9 @@ func _get_group_scan_interval(group_id: String, g: Dictionary) -> float:
 			is_visible = bool(leader.is_on_screen())
 	var current_intent: String = String(g.get("current_group_intent", "idle"))
 	var group_signals: GroupLodSignals = _get_group_lod_signals(leader, current_intent, g)
+	var threat_detected: bool = current_intent == "alerted" or current_intent == "hunting" \
+			or current_intent == "extorting" or current_intent == "raiding"
+	var player_proximity_event: bool = distance_to_player <= SimulationLODPolicyScript.GROUP_NEAR_DISTANCE
 	var lod_debug: Dictionary = SimulationLODPolicyScript.get_bandit_group_scan_debug({
 		"base_interval": BanditTuning.group_scan_interval(),
 		"distance_to_player": distance_to_player,
@@ -165,6 +168,8 @@ func _get_group_scan_interval(group_id: String, g: Dictionary) -> float:
 		"recently_engaged": group_signals.was_recently_engaged,
 		"has_player_signal": group_signals.is_alerted_to_player_activity,
 		"has_base_signal": String(g.get("last_interest_kind", "")) == "base_detected",
+		"threat_detected": threat_detected,
+		"player_proximity_event": player_proximity_event,
 		"mode_signals": _get_global_lod_mode_signals(),
 	})
 	_record_group_lod_debug(group_id, current_intent, lod_debug, group_signals)

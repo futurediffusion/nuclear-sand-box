@@ -146,6 +146,7 @@ const SIM_PROFILE_OBEDIENT: StringName = &"obedient"
 const SIM_PROFILE_DECORATIVE: StringName = &"decorative"
 const OBEDIENT_PLAYER_NEAR_DISTANCE_SQ: float = 460.0 * 460.0
 const DECORATIVE_PLAYER_FAR_DISTANCE_SQ: float = 980.0 * 980.0
+const LOD_MAX_FULL_PER_GROUP: int = 3
 
 # ---------------------------------------------------------------------------
 # Diï¿½fÂ¡logo ambiental Ã¢ï¿½,ï¿½ï¿½?ï¿½ frases de mundo mientras el NPC estï¿½fÂ¡ ocioso o patrullando
@@ -265,6 +266,8 @@ var _perf_window_accum: Dictionary               = {}
 var _perf_baseline_snapshots: Dictionary         = {}
 var _group_perception_elapsed: Dictionary        = {}
 var _group_scan_owner_cache: Dictionary          = {}
+var _group_lod_profile_decisions: Dictionary     = {}
+var _lod_profile_last_by_member: Dictionary      = {}
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +645,7 @@ func _tick_behaviors() -> int:
 			leader_forward_by_group[beh.group_id] = leader_fwd
 	var guard_slots_by_member: Dictionary = _build_guard_slots_by_member(members_by_group, leader_pos_by_group, leader_forward_by_group)
 	orders_by_member = _compute_group_orders(members_by_group, leader_pos_by_group)
+	_group_lod_profile_decisions = _build_group_lod_profile_decisions(orders_by_member)
 
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
@@ -683,7 +687,8 @@ func _tick_behaviors() -> int:
 		var member_order: Dictionary = {}
 		if beh.group_id != "":
 			member_order = orders_by_member.get(beh.member_id, {})
-		var sim_profile: StringName = _resolve_member_simulation_profile(beh, node, node_pos, member_order)
+		var sim_decision: Dictionary = _resolve_member_simulation_profile_decision(beh, node, node_pos, member_order)
+		var sim_profile: StringName = StringName(String(sim_decision.get("profile", String(SIM_PROFILE_FULL))))
 		_apply_member_simulation_profile(node, sim_profile)
 		var has_group_blackboard_data: bool = false
 		if sim_profile == SIM_PROFILE_FULL and BanditTuningScript.enable_group_perception_pulse():
@@ -721,6 +726,7 @@ func _tick_behaviors() -> int:
 				ctx["group_scan_owner_id"] = String(owner_entry.get("owner_id", ""))
 		if sim_profile == SIM_PROFILE_FULL:
 			scans_by_npc[beh.member_id] = int(scans_by_npc.get(beh.member_id, 0)) + 1
+		_record_profile_stability_metrics(beh.member_id, beh.group_id, sim_profile, sim_decision)
 
 		# Pasar tick_interval como delta (tiempo real desde ï¿½fÂºltimo tick),
 		# no elapsed que puede ser mayor que tick_interval.
@@ -886,19 +892,25 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 				beh.enter_extort_approach(attack_pos)
 
 
-func _resolve_member_simulation_profile(
+func _resolve_member_simulation_profile_decision(
 		beh: BanditWorldBehavior,
 		node: Node,
 		node_pos: Vector2,
-		member_order: Dictionary) -> StringName:
-	if beh.role == "leader":
-		return SIM_PROFILE_FULL
+		member_order: Dictionary) -> Dictionary:
+	if _group_lod_profile_decisions.has(beh.member_id):
+		return _group_lod_profile_decisions[beh.member_id] as Dictionary
+	if beh.role == "leader" or beh.role == "bodyguard":
+		return {
+			"profile": String(SIM_PROFILE_FULL),
+			"reason": "forced_role",
+			"event_triggered": false,
+		}
 	var player_dist_sq: float = INF
 	if _player != null and is_instance_valid(_player):
 		player_dist_sq = node_pos.distance_squared_to(_player.global_position)
 	var runtime_signals: Dictionary = _get_runtime_lod_signals(node)
-	var in_combat: bool = bool(runtime_signals.get("in_combat", false))
-	var recently_engaged: bool = bool(runtime_signals.get("recently_engaged", false))
+	var in_combat: bool = bool(runtime_signals.get("is_in_direct_combat", false))
+	var recently_engaged: bool = bool(runtime_signals.get("was_recently_engaged", false))
 	var has_active_task: bool = is_worker_cycle_active(beh) \
 			or beh.pending_collect_id != 0 \
 			or beh.pending_mine_id != 0 \
@@ -907,13 +919,98 @@ func _resolve_member_simulation_profile(
 	var is_near_player: bool = player_dist_sq <= OBEDIENT_PLAYER_NEAR_DISTANCE_SQ
 	var is_far_player: bool = player_dist_sq >= DECORATIVE_PLAYER_FAR_DISTANCE_SQ
 	if in_combat or recently_engaged or is_near_player:
-		return SIM_PROFILE_FULL
-	var eligible_obedient: bool = beh.role == "bodyguard" or beh.role == "scavenger"
-	if eligible_obedient and (has_active_task or has_order):
-		return SIM_PROFILE_OBEDIENT
-	if eligible_obedient and is_far_player:
-		return SIM_PROFILE_DECORATIVE
-	return SIM_PROFILE_FULL
+		return {
+			"profile": String(SIM_PROFILE_FULL),
+			"reason": "fallback_event",
+			"event_triggered": true,
+		}
+	if has_active_task or has_order:
+		return {
+			"profile": String(SIM_PROFILE_OBEDIENT),
+			"reason": "fallback_task_obedient",
+			"event_triggered": false,
+		}
+	if is_far_player:
+		return {
+			"profile": String(SIM_PROFILE_DECORATIVE),
+			"reason": "fallback_far_decorative",
+			"event_triggered": false,
+		}
+	return {
+		"profile": String(SIM_PROFILE_OBEDIENT),
+		"reason": "fallback_obedient",
+		"event_triggered": false,
+	}
+
+
+func _build_group_lod_profile_decisions(orders_by_member: Dictionary) -> Dictionary:
+	var members_by_group: Dictionary = {}
+	for enemy_id in _behaviors.keys():
+		var beh: BanditWorldBehavior = _behaviors.get(enemy_id) as BanditWorldBehavior
+		if beh == null or beh.group_id == "":
+			continue
+		var node: Node = _npc_simulator.get_enemy_node(enemy_id)
+		if node == null:
+			continue
+		var node_pos: Vector2 = _effective_work_position(node)
+		var player_dist_sq: float = INF
+		if _player != null and is_instance_valid(_player):
+			player_dist_sq = node_pos.distance_squared_to(_player.global_position)
+		var runtime_signals: Dictionary = _get_runtime_lod_signals(node)
+		var intent: String = String(BanditGroupMemory.get_group(beh.group_id).get("current_group_intent", "idle"))
+		var threat_detected: bool = intent == "alerted" or intent == "hunting" or intent == "extorting" or intent == "raiding"
+		if not members_by_group.has(beh.group_id):
+			members_by_group[beh.group_id] = []
+		(members_by_group[beh.group_id] as Array).append({
+			"member_id": beh.member_id,
+			"role": beh.role,
+			"in_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
+			"recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
+			"threat_detected": threat_detected,
+			"player_near": player_dist_sq <= OBEDIENT_PLAYER_NEAR_DISTANCE_SQ,
+			"player_mid": player_dist_sq <= DECORATIVE_PLAYER_FAR_DISTANCE_SQ,
+			"player_far": player_dist_sq >= DECORATIVE_PLAYER_FAR_DISTANCE_SQ,
+			"has_order": orders_by_member.has(beh.member_id) and not (orders_by_member.get(beh.member_id, {}) as Dictionary).is_empty(),
+			"has_active_task": is_worker_cycle_active(beh) or beh.pending_collect_id != 0 or beh.pending_mine_id != 0 or beh.cargo_count > 0,
+			"is_worker_cycle_active": is_worker_cycle_active(beh),
+			"is_visible": (node as CanvasItem).is_visible_in_tree() if node is CanvasItem else false,
+			"has_cargo": beh.cargo_count > 0,
+		})
+	var decisions: Dictionary = {}
+	for group_id in members_by_group.keys():
+		var assignment: Dictionary = SimulationLODPolicyScript.assign_group_member_profiles({
+			"members": members_by_group[group_id],
+			"max_full_per_group": LOD_MAX_FULL_PER_GROUP,
+		})
+		var group_decisions: Dictionary = assignment.get("decisions", {})
+		var full_budget: int = int(assignment.get("budget", LOD_MAX_FULL_PER_GROUP))
+		var full_count: int = int(assignment.get("full_count", 0))
+		for member_id in group_decisions.keys():
+			var entry: Dictionary = group_decisions[member_id] as Dictionary
+			entry["group_id"] = String(group_id)
+			entry["full_budget"] = full_budget
+			entry["full_count"] = full_count
+			group_decisions[member_id] = entry
+		decisions.merge(group_decisions, true)
+	return decisions
+
+
+func _record_profile_stability_metrics(member_id: String, _group_id: String, profile: StringName, decision: Dictionary) -> void:
+	var previous_profile: String = String(_lod_profile_last_by_member.get(member_id, ""))
+	var current_profile: String = String(profile)
+	_lod_profile_last_by_member[member_id] = current_profile
+	var budget_exceeded: bool = String(decision.get("reason", "")).begins_with("budget_exceeded")
+	var reactivation_by_event: bool = previous_profile != String(SIM_PROFILE_FULL) \
+			and current_profile == String(SIM_PROFILE_FULL) \
+			and bool(decision.get("event_triggered", false))
+	_accumulate_perf_window({
+		"profile_full_count": 1 if current_profile == String(SIM_PROFILE_FULL) else 0,
+		"profile_obedient_count": 1 if current_profile == String(SIM_PROFILE_OBEDIENT) else 0,
+		"profile_decorative_count": 1 if current_profile == String(SIM_PROFILE_DECORATIVE) else 0,
+		"profile_switches_total": 1 if previous_profile != "" and previous_profile != current_profile else 0,
+		"profile_budget_downgrades": 1 if budget_exceeded else 0,
+		"profile_event_reactivations": 1 if reactivation_by_event else 0,
+	})
 
 
 func _apply_member_simulation_profile(node: Node, profile: StringName) -> void:
@@ -2266,6 +2363,9 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 		ai_state_name = NpcWorldBehavior.State.keys()[beh.state]
 	var worker_cycle_active: bool = is_worker_cycle_active(beh)
 	var runtime_signals: Dictionary = _get_runtime_lod_signals(node)
+	var threat_detected: bool = group_intent == "alerted" or group_intent == "hunting" \
+			or group_intent == "extorting" or group_intent == "raiding"
+	var player_proximity_event: bool = distance_to_player <= SimulationLODPolicyScript.ACTOR_NEAR_DISTANCE
 	var lod_debug: Dictionary = SimulationLODPolicyScript.get_behavior_tick_debug({
 		"base_interval": BanditTuningScript.behavior_tick_interval(),
 		"distance_to_player": distance_to_player,
@@ -2277,6 +2377,8 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 		"is_sleeping": bool(node.has_method("is_sleeping") and node.is_sleeping()),
 		"in_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
 		"recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
+		"threat_detected": threat_detected,
+		"player_proximity_event": player_proximity_event,
 		"mode_signals": _get_global_lod_mode_signals(),
 		"is_worker_cycle_active": worker_cycle_active,
 	})
@@ -2356,6 +2458,7 @@ func get_lod_debug_snapshot() -> Dictionary:
 	return {
 		"npc_counts": _lod_debug_npc_counts.duplicate(true),
 		"npc_intervals": _lod_debug_last_npc.duplicate(true),
+		"group_profile_decisions": _group_lod_profile_decisions.duplicate(true),
 		"mode_perf": _snapshot_mode_perf(),
 		"drop_metrics": _stash.get_debug_snapshot() if _stash != null else {},
 		"group_scan": _group_intel.get_lod_debug_snapshot() if _group_intel != null else {},
@@ -2428,6 +2531,12 @@ func _reset_perf_window_metrics() -> void:
 		"worker_active_count_frames": 0,
 		"followers_without_task_samples": 0,
 		"followers_without_task_frames": 0,
+		"profile_full_count": 0,
+		"profile_obedient_count": 0,
+		"profile_decorative_count": 0,
+		"profile_switches_total": 0,
+		"profile_budget_downgrades": 0,
+		"profile_event_reactivations": 0,
 		"scan_by_group": {},
 		"scan_by_npc": {},
 	}
@@ -2483,6 +2592,11 @@ func get_perf_window_snapshot() -> Dictionary:
 	var behavior_calls: int = int(_perf_window_accum.get("behavior_tick_calls", 0))
 	var workers_frames: int = maxi(int(_perf_window_accum.get("worker_active_count_frames", 0)), 1)
 	var followers_frames: int = maxi(int(_perf_window_accum.get("followers_without_task_frames", 0)), 1)
+	var profile_samples: int = maxi(
+			int(_perf_window_accum.get("profile_full_count", 0))
+			+ int(_perf_window_accum.get("profile_obedient_count", 0))
+			+ int(_perf_window_accum.get("profile_decorative_count", 0)),
+			1)
 	var scan_by_group: Dictionary = _perf_window_accum.get("scan_by_group", {})
 	var scan_by_npc: Dictionary = _perf_window_accum.get("scan_by_npc", {})
 	var physics_avg: float = float(_perf_window_accum.get("physics_process_total_ms", 0.0)) / float(maxi(physics_calls, 1))
@@ -2510,6 +2624,12 @@ func get_perf_window_snapshot() -> Dictionary:
 			"double_reservations_avoided": int(_perf_window_accum.get("double_reservations_avoided", 0)),
 			"expired_reservations": int(_perf_window_accum.get("expired_reservations", 0)),
 			"assignment_replans": int(_perf_window_accum.get("assignment_replans", 0)),
+			"profile_full_ratio": float(_perf_window_accum.get("profile_full_count", 0)) / float(profile_samples),
+			"profile_obedient_ratio": float(_perf_window_accum.get("profile_obedient_count", 0)) / float(profile_samples),
+			"profile_decorative_ratio": float(_perf_window_accum.get("profile_decorative_count", 0)) / float(profile_samples),
+			"profile_switches_total": int(_perf_window_accum.get("profile_switches_total", 0)),
+			"profile_budget_downgrades": int(_perf_window_accum.get("profile_budget_downgrades", 0)),
+			"profile_event_reactivations": int(_perf_window_accum.get("profile_event_reactivations", 0)),
 		},
 		"scan_by_group": scan_by_group.duplicate(true),
 		"scan_by_npc": scan_by_npc.duplicate(true),
