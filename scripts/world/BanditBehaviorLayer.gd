@@ -642,12 +642,22 @@ func _tick_behaviors() -> int:
 			members_by_group[beh.group_id] = []
 		var members: Array = members_by_group[beh.group_id] as Array
 		var _rs: Dictionary = _get_runtime_lod_signals(node)
+		var state_name: String = ""
+		if beh.state >= 0 and beh.state < NpcWorldBehavior.State.size():
+			state_name = NpcWorldBehavior.State.keys()[beh.state]
+		var current_assignment: Dictionary = BanditGroupMemory.bb_get_assignment(beh.group_id, beh.member_id)
 		members.append({
 			"member_id": beh.member_id,
 			"role": beh.role,
 			"pos": node.global_position,
 			"cargo_count": beh.cargo_count,
 			"cargo_capacity": beh.cargo_capacity,
+			"current_state": state_name,
+			"current_resource_id": beh._resource_node_id,
+			"pending_mine_id": beh.pending_mine_id,
+			"pending_collect_id": beh.pending_collect_id,
+			"last_valid_resource_node_id": beh.last_valid_resource_node_id,
+			"current_assignment": current_assignment,
 			"has_active_task": is_worker_cycle_active(beh) \
 					or beh.pending_collect_id != 0 \
 					or beh.pending_mine_id != 0 \
@@ -916,8 +926,26 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 			# _mine_tick_timer and pending_mine_id, preventing hits from ever landing.
 			var already_watching: bool = beh.state == NpcWorldBehavior.State.RESOURCE_WATCH \
 					and beh._resource_node_id == mine_id and mine_id != 0
-			if mine_pos != Vector2.ZERO and not already_watching:
+			var same_pending: bool = beh.pending_mine_id != 0 and beh.pending_mine_id == mine_id
+			var same_last_valid: bool = beh.last_valid_resource_node_id != 0 and beh.last_valid_resource_node_id == mine_id
+			if mine_pos != Vector2.ZERO and not already_watching and not same_pending and not same_last_valid:
+				log_worker_event("tactical_mine_target_changed", {
+					"npc_id": beh.member_id,
+					"group_id": beh.group_id,
+					"from_resource_id": beh._resource_node_id,
+					"to_resource_id": mine_id,
+					"state_before": _state_name_from_enum(beh.state),
+				})
 				beh.enter_resource_watch(mine_pos, mine_id)
+			elif mine_id != 0:
+				log_worker_event("tactical_mine_target_preserved", {
+					"npc_id": beh.member_id,
+					"group_id": beh.group_id,
+					"target_id": mine_id,
+					"already_watching": already_watching,
+					"same_pending": same_pending,
+					"same_last_valid": same_last_valid,
+				})
 		"pickup_target":
 			var target_id: int = int(order.get("target_id", 0))
 			# Don't re-enter loot approach for a drop already being chased.
@@ -2447,12 +2475,16 @@ func _get_behavior_tick_interval(beh: BanditWorldBehavior, node: Node, node_pos:
 	return float(lod_debug.get("interval", BanditTuningScript.behavior_tick_interval()))
 
 
+func _state_name_from_enum(state_value: int) -> String:
+	if state_value >= 0 and state_value < NpcWorldBehavior.State.size():
+		return NpcWorldBehavior.State.keys()[state_value]
+	return ""
+
+
 func is_worker_cycle_active(npc: BanditWorldBehavior) -> bool:
 	if npc == null:
 		return false
-	var state_name: String = ""
-	if npc.state >= 0 and npc.state < NpcWorldBehavior.State.size():
-		state_name = NpcWorldBehavior.State.keys()[npc.state]
+	var state_name: String = _state_name_from_enum(npc.state)
 	return state_name == "RESOURCE_WATCH" \
 			or state_name == "RETURN_HOME" \
 			or str(npc.pending_mine_id) != "" \
