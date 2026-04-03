@@ -248,6 +248,12 @@ const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(1, 1),
 ]
 const DROP_COMPACT_HOTSPOT_MAX_TRACKED: int = 32
+const DROP_PRESSURE_NORMAL: StringName = &"normal"
+const DROP_PRESSURE_HIGH: StringName = &"high"
+const DROP_PRESSURE_CRITICAL: StringName = &"critical"
+const DROP_PRESSURE_STAGE_NORMAL: int = 0
+const DROP_PRESSURE_STAGE_HIGH: int = 5
+const DROP_PRESSURE_STAGE_CRITICAL: int = 6
 
 # Biome IDs used by PropSpawner via get_spawn_biome()
 const BIOME_ID_GRASSLAND: int = 1
@@ -261,10 +267,25 @@ const BIOME_ID_DENSE_GRASS: int = 2
 @export var drop_compaction_hotspot_ttl_sec: float = 12.0
 @export var drop_compaction_hotspot_radius_px: float = 220.0
 @export var drop_compaction_min_cluster_size: int = 3
+@export_group("Drop Pressure")
+@export var drop_pressure_high_item_drop_count: int = 180
+@export var drop_pressure_critical_item_drop_count: int = 320
+@export var drop_pressure_high_merge_radius_mult: float = 1.30
+@export var drop_pressure_high_nodes_mult: float = 1.30
+@export var drop_pressure_high_merges_mult: float = 1.50
+@export var drop_pressure_critical_merge_radius_mult: float = 1.80
+@export var drop_pressure_critical_nodes_mult: float = 1.70
+@export var drop_pressure_critical_merges_mult: float = 2.00
+@export var drop_pressure_high_orphan_ttl_sec: float = 25.0
 @export_group("")
 
 var merged_drop_events: int = 0
 var _drop_compaction_hotspots: Array[Dictionary] = []
+var _drop_pressure_snapshot: Dictionary = {
+	"level": String(DROP_PRESSURE_NORMAL),
+	"item_drop_count": 0,
+	"drop_pressure_stage": DROP_PRESSURE_STAGE_NORMAL,
+}
 
 func _ready() -> void:
 	_wall_refresh_queue = WallRefreshQueueScript.new()
@@ -288,6 +309,7 @@ func _ready() -> void:
 	# - Heavy scan/pathfinding remains LOD-gated inside BanditBehaviorLayer.
 	_cadence.configure_lane(LANE_BANDIT_WORK_LOOP, BANDIT_WORK_LOOP_INTERVAL_SEC, BANDIT_WORK_LOOP_PHASE, 1, BUDGET_BANDIT_WORK_TICKS_PER_PULSE)
 	_cadence.configure_lane(LANE_DROP_COMPACT_PULSE, DROP_COMPACT_INTERVAL_SEC, DROP_COMPACT_PHASE, 1, BUDGET_DROP_COMPACT_PULSES_PER_FRAME)
+	_update_drop_pressure_snapshot()
 	_chunk_wall_collider_cache = ChunkWallColliderCacheScript.new()
 	_chunk_wall_collider_cache.setup({
 		"walls_tilemap": walls_tilemap,
@@ -885,11 +907,69 @@ func _build_drop_compaction_anchor_list() -> Array[Vector2]:
 	return anchors
 
 
+func _get_drop_pressure_level_for_count(item_drop_count: int) -> StringName:
+	if item_drop_count >= maxi(drop_pressure_critical_item_drop_count, drop_pressure_high_item_drop_count + 1):
+		return DROP_PRESSURE_CRITICAL
+	if item_drop_count >= maxi(0, drop_pressure_high_item_drop_count):
+		return DROP_PRESSURE_HIGH
+	return DROP_PRESSURE_NORMAL
+
+
+func _update_drop_pressure_snapshot() -> void:
+	if _world_spatial_index == null:
+		return
+	var item_drop_count: int = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_ITEM_DROP).size()
+	var level: StringName = _get_drop_pressure_level_for_count(item_drop_count)
+	var stage: int = DROP_PRESSURE_STAGE_NORMAL
+	if level == DROP_PRESSURE_HIGH:
+		stage = DROP_PRESSURE_STAGE_HIGH
+	elif level == DROP_PRESSURE_CRITICAL:
+		stage = DROP_PRESSURE_STAGE_CRITICAL
+	_drop_pressure_snapshot = {
+		"level": String(level),
+		"item_drop_count": item_drop_count,
+		"drop_pressure_stage": stage,
+		"force_compact_deposit": level != DROP_PRESSURE_NORMAL,
+		"high_orphan_ttl_sec": drop_pressure_high_orphan_ttl_sec if level != DROP_PRESSURE_NORMAL else 0.0,
+		"pickup_budget_scale": 0.80 if level != DROP_PRESSURE_NORMAL else 1.0,
+		"updated_at_msec": Time.get_ticks_msec(),
+	}
+	if LootSystem != null and LootSystem.has_method("set_drop_pressure_snapshot"):
+		LootSystem.set_drop_pressure_snapshot(_drop_pressure_snapshot)
+
+
+func _drop_pressure_scaled_int(base_value: int, high_mult: float, critical_mult: float) -> int:
+	var level: String = String(_drop_pressure_snapshot.get("level", String(DROP_PRESSURE_NORMAL)))
+	var scaled: float = float(base_value)
+	if level == String(DROP_PRESSURE_HIGH):
+		scaled *= maxf(1.0, high_mult)
+	elif level == String(DROP_PRESSURE_CRITICAL):
+		scaled *= maxf(1.0, critical_mult)
+	return maxi(int(ceil(scaled)), 1)
+
+
+func _drop_pressure_scaled_float(base_value: float, high_mult: float, critical_mult: float) -> float:
+	var level: String = String(_drop_pressure_snapshot.get("level", String(DROP_PRESSURE_NORMAL)))
+	if level == String(DROP_PRESSURE_HIGH):
+		return base_value * maxf(1.0, high_mult)
+	if level == String(DROP_PRESSURE_CRITICAL):
+		return base_value * maxf(1.0, critical_mult)
+	return base_value
+
+
 func _compact_item_drops_once() -> int:
 	if not drop_compaction_enabled or _world_spatial_index == null:
 		return 0
-	var max_inspect: int = maxi(drop_compaction_max_nodes_inspected, 0)
-	var max_merges: int = maxi(drop_compaction_max_merges_per_exec, 0)
+	var max_inspect: int = maxi(_drop_pressure_scaled_int(
+		drop_compaction_max_nodes_inspected,
+		drop_pressure_high_nodes_mult,
+		drop_pressure_critical_nodes_mult
+	), 0)
+	var max_merges: int = maxi(_drop_pressure_scaled_int(
+		drop_compaction_max_merges_per_exec,
+		drop_pressure_high_merges_mult,
+		drop_pressure_critical_merges_mult
+	), 0)
 	if max_inspect <= 0 or max_merges <= 0:
 		return 0
 	var anchors: Array[Vector2] = _build_drop_compaction_anchor_list()
@@ -898,7 +978,11 @@ func _compact_item_drops_once() -> int:
 	var inspected: int = 0
 	var merges: int = 0
 	var consumed_ids: Dictionary = {}
-	var scan_radius: float = maxf(8.0, drop_compaction_radius_px)
+	var scan_radius: float = maxf(8.0, _drop_pressure_scaled_float(
+		drop_compaction_radius_px,
+		drop_pressure_high_merge_radius_mult,
+		drop_pressure_critical_merge_radius_mult
+	))
 	var scan_radius_sq: float = scan_radius * scan_radius
 	for anchor in anchors:
 		if inspected >= max_inspect or merges >= max_merges:
@@ -980,6 +1064,7 @@ func _process(delta: float) -> void:
 	_tick_defense_posture(delta)
 	var medium_pulses: int = _cadence.consume_lane(LANE_MEDIUM_PULSE) if _cadence != null else 1
 	for _pulse in medium_pulses:
+		_update_drop_pressure_snapshot()
 		_tick_player_territory()
 	pipeline.process(delta)
 	var short_pulses: int = _cadence.consume_lane(LANE_SHORT_PULSE) if _cadence != null else 1
@@ -2266,6 +2351,10 @@ func get_debug_snapshot() -> Dictionary:
 	return _world_sim_telemetry.get_debug_snapshot()
 
 
+func get_drop_pressure_snapshot() -> Dictionary:
+	return _drop_pressure_snapshot.duplicate(true)
+
+
 func dump_debug_summary() -> String:
 	if _world_sim_telemetry == null:
 		return "WORLD SIM\n- telemetry: unavailable"
@@ -2312,6 +2401,7 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 			"radius_px": drop_compaction_radius_px,
 			"max_nodes_inspected": drop_compaction_max_nodes_inspected,
 			"max_merges_per_exec": drop_compaction_max_merges_per_exec,
+			"pressure": _drop_pressure_snapshot.duplicate(true),
 		},
 		"lane_inventory": {
 			"occlusion_controller": {"script": "scripts/world/OcclusionController.gd", "lane": String(LANE_OCCLUSION_PULSE), "interval": OCCLUSION_INTERVAL_SEC, "budget": BUDGET_OCCLUSION_MATERIALS_PER_PULSE},

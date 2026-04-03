@@ -38,6 +38,7 @@ const ENABLE_SECONDARY_DEPOSIT_FALLBACK: bool = false
 const drops_per_npc_per_tick_max: int = 2
 const drops_global_per_pulse_max: int = 18
 const COMPACT_DEPOSIT_MANIFEST_THRESHOLD: int = 8
+const DROP_PRESSURE_STAGE_HIGH: int = 5
 const DROP_PRESSURE_STAGE_COMPACT: int = 6
 
 # group_id (String) -> instance_id (int) del barrel físico (runtime-only, no persisted)
@@ -152,6 +153,9 @@ func _force_clear_cargo_after_deposit(beh: BanditWorldBehavior) -> void:
 
 
 func _is_drop_pressure_stage_6(beh: BanditWorldBehavior) -> bool:
+	var snapshot := _get_drop_pressure_snapshot()
+	if int(snapshot.get("drop_pressure_stage", 0)) >= DROP_PRESSURE_STAGE_COMPACT:
+		return true
 	if beh == null or beh.group_id == "":
 		return false
 	var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
@@ -167,6 +171,23 @@ func _is_drop_pressure_stage_6(beh: BanditWorldBehavior) -> bool:
 		if int(g.get(String(key), 0)) >= DROP_PRESSURE_STAGE_COMPACT:
 			return true
 	return false
+
+
+func _get_drop_pressure_snapshot() -> Dictionary:
+	if LootSystem != null and LootSystem.has_method("get_drop_pressure_snapshot"):
+		return LootSystem.get_drop_pressure_snapshot() as Dictionary
+	return {}
+
+
+func _is_drop_pressure_high_or_worse() -> bool:
+	var snapshot := _get_drop_pressure_snapshot()
+	return int(snapshot.get("drop_pressure_stage", 0)) >= DROP_PRESSURE_STAGE_HIGH
+
+
+func _pickup_budget_scale() -> float:
+	var snapshot := _get_drop_pressure_snapshot()
+	var scale: float = float(snapshot.get("pickup_budget_scale", 1.0))
+	return clampf(scale, 0.35, 1.0)
 
 
 func _insert_into_group_barrels(beh: BanditWorldBehavior, spawn_pos: Vector2, target_source: String,
@@ -331,7 +352,8 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	var fall_time:   float = BanditTuningScript.cargo_fall_time()
 	var sfx_stagger: float = BanditTuningScript.cargo_sfx_stagger()
 	var compact_mode: bool = beh._cargo_manifest.size() > COMPACT_DEPOSIT_MANIFEST_THRESHOLD \
-			or _is_drop_pressure_stage_6(beh)
+			or _is_drop_pressure_stage_6(beh) \
+			or _is_drop_pressure_high_or_worse()
 	if compact_mode:
 		deposit_compact_path_hits += 1
 		var batches: Dictionary = {}
@@ -756,12 +778,13 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 		return
 	var actor_pos: Vector2 = _resolve_enemy_pos(enemy_node)
 	var query_radius: float = sqrt(maxf(radius_sq, 0.0))
+	var budget_scale: float = _pickup_budget_scale()
 	var query_ctx: Dictionary = {
 		"intent": "idle",
 		"stage": "drop_collect",
 		"max_candidates_eval": 32,
-		"drops_per_npc_per_tick_max": drops_per_npc_per_tick_max,
-		"drops_global_per_pulse_max": drops_global_per_pulse_max,
+		"drops_per_npc_per_tick_max": maxi(1, int(floor(float(drops_per_npc_per_tick_max) * budget_scale))),
+		"drops_global_per_pulse_max": maxi(1, int(floor(float(drops_global_per_pulse_max) * budget_scale))),
 	}
 	for key in query_budget_ctx.keys():
 		query_ctx[key] = query_budget_ctx[key]
