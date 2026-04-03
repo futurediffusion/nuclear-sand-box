@@ -65,6 +65,9 @@ var _tile_painter := TilePainter.new()
 @export var structural_wall_default_hp: int = 3
 @export_group("")
 
+@export_group("Camp Config")
+@export var camp_members_per_camp: int = 10
+
 @export_group("Spawn Density")
 @export var copper_grass_min: int = 0
 @export var copper_grass_max: int = 1
@@ -463,6 +466,7 @@ func _ready() -> void:
 	# Create subsystems before wiring them together
 	npc_simulator = NpcSimulator.new()
 	npc_simulator.name = "NpcSimulator"
+	npc_simulator.camp_members_per_camp = camp_members_per_camp
 	add_child(npc_simulator)
 
 	entity_coordinator = EntitySpawnCoordinator.new()

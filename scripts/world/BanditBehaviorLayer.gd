@@ -326,6 +326,7 @@ func setup(ctx: Dictionary) -> void:
 	_stash.name = "BanditCampStashSystem"
 	add_child(_stash)
 	_stash.setup({
+		"world_spatial_index": _world_spatial_index,
 		"update_deposit_pos_cb": Callable(self, "_update_deposit_pos"),
 		"log_worker_event_cb": Callable(self, "log_worker_event"),
 		"is_worker_instrumentation_enabled_cb": Callable(self, "is_worker_instrumentation_enabled"),

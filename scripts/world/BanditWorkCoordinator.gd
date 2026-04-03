@@ -491,8 +491,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 			)
 		return
 
-	if enemy_node.has_method("queue_ai_attack_press"):
-		enemy_node.call("queue_ai_attack_press", target_pos)
+	_trigger_wall_melee_animation(enemy_node, target_pos)
 	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
 	Debug.log("raid", "[BWC] structure hit npc=%s group=%s kind=%s pos=%s" % [
 		beh.member_id, beh.group_id, target_kind, str(target_pos)
@@ -1055,13 +1054,32 @@ func _try_local_wall_strike(beh: BanditWorldBehavior, enemy_node: Node, enemy_po
 	if not _damage_player_wall_at(best_wall):
 		return false
 
-	if enemy_node.has_method("queue_ai_attack_press"):
-		enemy_node.call("queue_ai_attack_press", best_wall)
+	_trigger_wall_melee_animation(enemy_node, best_wall)
 	_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
 	Debug.log("raid", "[BWC] local wall strike npc=%s group=%s wall=%s" % [
 		beh.member_id, beh.group_id, str(best_wall)
 	])
 	return true
+
+
+## Fuerza ironpipe y dispara animación de slash visible al atacar una wall.
+## Usa begin_scripted_melee_action para que el weapon controller tickee incluso
+## cuando el enemy está fuera del rango normal de AI activa.
+func _trigger_wall_melee_animation(enemy_node: Node, wall_pos: Vector2) -> void:
+	if enemy_node == null or not is_instance_valid(enemy_node):
+		return
+	# Asegurar que tenga ironpipe equipado — no atacar walls con el arco
+	var wc = enemy_node.get_node_or_null("WeaponComponent")
+	if wc != null and wc.has_method("equip_weapon_id"):
+		wc.equip_weapon_id("ironpipe")
+		if enemy_node.has_method("_on_weapon_equipped_apply_visuals"):
+			enemy_node.call("_on_weapon_equipped_apply_visuals", "ironpipe")
+	# Usar begin_scripted_melee_action para activar _pending_scripted_melee_action
+	# y que el weapon controller corra aunque la IA esté en lite/sleep mode
+	if enemy_node.has_method("begin_scripted_melee_action"):
+		enemy_node.call("begin_scripted_melee_action", wall_pos, RAID_ATTACK_COOLDOWN * 0.8)
+	elif enemy_node.has_method("queue_ai_attack_press"):
+		enemy_node.call("queue_ai_attack_press", wall_pos)
 
 
 func _format_loot_entries(entries: Array) -> String:

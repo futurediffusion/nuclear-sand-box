@@ -65,6 +65,7 @@ var _pickup_sfx_last_pulse_by_member: Dictionary = {}
 
 # Callable(group_id: String, barrel_pos: Vector2) -> void
 # Implementado por BanditBehaviorLayer para propagar deposit_pos a los behaviors.
+var _world_spatial_index: WorldSpatialIndex = null
 var _update_deposit_pos_cb: Callable = Callable()
 var _log_worker_event_cb: Callable = Callable()
 var _is_worker_instrumentation_enabled_cb: Callable = Callable()
@@ -147,6 +148,7 @@ func _clear_deposit_attempt_queue(beh: BanditWorldBehavior) -> void:
 
 
 func setup(ctx: Dictionary) -> void:
+	_world_spatial_index = ctx.get("world_spatial_index", null)
 	_update_deposit_pos_cb = ctx.get("update_deposit_pos_cb", Callable())
 	_log_worker_event_cb = ctx.get("log_worker_event_cb", Callable())
 	_is_worker_instrumentation_enabled_cb = ctx.get("is_worker_instrumentation_enabled_cb", Callable())
@@ -861,7 +863,7 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 		_mark_budget_hit(beh, check_pos, query_ctx, "npc", local_processed, local_budget_max)
 		return
 	var max_candidates_eval: int = maxi(int(query_ctx.get("max_candidates_eval", 0)), 0)
-	var candidates := WorldSpatialIndex.get_runtime_nodes_near(
+	var candidates := _world_spatial_index.get_runtime_nodes_near(
 		KIND_ITEM_DROP,
 		check_pos,
 		query_radius,
@@ -876,11 +878,8 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 		if not drop_node.is_in_group("item_drop"):
 			continue
 		candidate_nodes.append(drop_node)
-	candidate_nodes.sort_custom(func(a: Node2D, b: Node2D) -> bool:
-		return actor_pos.distance_squared_to(a.global_position) < actor_pos.distance_squared_to(b.global_position)
-	)
-	if max_candidates_eval > 0 and candidate_nodes.size() > max_candidates_eval:
-		candidate_nodes = candidate_nodes.slice(0, max_candidates_eval)
+		if max_candidates_eval > 0 and candidate_nodes.size() >= max_candidates_eval:
+			break
 	_debug_pickup_queries_in_pulse += 1
 	_debug_drop_candidates_total_in_pulse += candidate_nodes.size()
 	var found_candidate: bool = false

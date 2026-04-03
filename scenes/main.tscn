@@ -91,6 +91,7 @@ bandit_camp_scene = ExtResource("24_camp")
 bandit_scene = ExtResource("25_bandit")
 tavern_keeper_scene = ExtResource("26_keeper")
 sentinel_scene = ExtResource("31_sentinel")
+camp_members_per_camp = 15
 stone_dirt_max = 5
 tree_grass_max = 20
 tree_dirt_min = 3

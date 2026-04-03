@@ -46,6 +46,7 @@ var _scatter_elapsed: float = 0.0
 var _scatter_arc_height: float = 0.0
 
 var _world_spatial_index: WorldSpatialIndex = null
+var _last_indexed_pos: Vector2 = Vector2(-999999.0, -999999.0)
 
 func _ready() -> void:
 	add_to_group("item_drop")
@@ -99,7 +100,10 @@ func _resolve_item_data() -> void:
 		print("[ItemDrop] using legacy item_id=", item_id)
 
 func _process(delta: float) -> void:
-	_update_world_index()
+	# Solo actualizar índice si el drop se está moviendo (throw, scatter, magnet).
+	# Cuando está estático flotando la posición no cambia — evitar el update cada frame.
+	if _throwing or _scattering or (_magnet_on and _player != null):
+		_update_world_index()
 	var carry = get_node_or_null("CarryableComponent")
 	if carry != null and carry._is_carried:
 		# If being carried, don't do any floating/magnet/throw processing
@@ -307,13 +311,19 @@ func _register_in_world_index() -> void:
 	_world_spatial_index = get_tree().get_first_node_in_group("world_spatial_index") as WorldSpatialIndex
 	if _world_spatial_index != null:
 		_world_spatial_index.register_runtime_node(WorldSpatialIndex.KIND_ITEM_DROP, self)
+		_last_indexed_pos = global_position
 
 
 func _update_world_index() -> void:
 	if _world_spatial_index == null:
 		_register_in_world_index()
-	if _world_spatial_index != null:
-		_world_spatial_index.update_runtime_node(WorldSpatialIndex.KIND_ITEM_DROP, self)
+	if _world_spatial_index == null:
+		return
+	# Solo actualizar si nos movimos al menos 4px desde el último update.
+	if global_position.distance_squared_to(_last_indexed_pos) < 16.0:
+		return
+	_last_indexed_pos = global_position
+	_world_spatial_index.update_runtime_node(WorldSpatialIndex.KIND_ITEM_DROP, self)
 
 
 func _unregister_from_world_index() -> void:

@@ -30,6 +30,7 @@ var chunk_entities: Dictionary = {}      # chunk_pos -> Array[Node]
 var chunk_saveables: Dictionary = {}     # chunk_pos -> Array[Node]
 var queued_entity_chunks: Dictionary = {}
 var entities_spawned_chunks: Dictionary = {}
+var _entity_jobs_enqueued_chunks: Dictionary = {}  # guard anti-duplicado de camps/enemies
 
 var _spawn_queue: SpawnBudgetQueue = null
 
@@ -90,6 +91,13 @@ func load_chunk(chunk_pos: Vector2i) -> void:
 	_enqueue_structure_tile_stage.call(chunk_pos)
 
 func enqueue_entities(chunk_pos: Vector2i) -> void:
+	# Guard: si ya encolamos jobs para este chunk, no volver a encolar.
+	# Previene duplicación de camps/enemies cuando load_chunk se llama en un
+	# chunk ya activo (ej. job skipped + wall placement re-trigger).
+	if _entity_jobs_enqueued_chunks.has(chunk_pos):
+		queued_entity_chunks.erase(chunk_pos)
+		return
+	_entity_jobs_enqueued_chunks[chunk_pos] = true
 	var t0: int = Time.get_ticks_usec()
 	var cx: int = chunk_pos.x
 	var cy: int = chunk_pos.y
@@ -315,6 +323,8 @@ func unload_entities(chunk_pos: Vector2i) -> void:
 		_spawn_queue.cancel_chunk(chunk_key)
 	npc_simulator.on_chunk_unloaded(chunk_key)
 	queued_entity_chunks.erase(chunk_pos)
+	entities_spawned_chunks.erase(chunk_pos)
+	_entity_jobs_enqueued_chunks.erase(chunk_pos)
 
 	if not chunk_entities.has(chunk_pos):
 		return

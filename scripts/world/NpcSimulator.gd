@@ -2,10 +2,13 @@ extends Node
 class_name NpcSimulator
 const MethodCapabilityCacheScript := preload("res://scripts/utils/MethodCapabilityCache.gd")
 
+@export_group("Camp Spawn")
+@export var camp_members_per_camp: int = 10
+
 @export_group("Lite Mode")
 @export var lite_enabled: bool = true
-@export var lite_radius: float = 420.0
-@export var lite_hysteresis: float = 60.0
+@export var lite_radius: float = 700.0
+@export var lite_hysteresis: float = 80.0
 @export var lite_check_interval: float = 0.25
 @export var lite_debug: bool = false
 
@@ -434,13 +437,10 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 		var camp_tile: Vector2i = camp.get("tile", Vector2i.ZERO)
 		var camp_world: Vector2 = _tile_to_world.call(camp_tile)
 		var primary_offsets: Array[Vector2] = [
-			Vector2(-28, -18), Vector2(32, -10), Vector2(-20, 30), Vector2(28, 24),
-			Vector2(-60, -10), Vector2(60, -10), Vector2(-60, 20), Vector2(60, 20),
-			Vector2(0, -50), Vector2(0, 50),
-			Vector2(-40, -45), Vector2(40, -45), Vector2(-40, 45), Vector2(40, 45),
-			Vector2(-80, 0), Vector2(80, 0),
-			Vector2(-70, -35), Vector2(70, -35), Vector2(-70, 35), Vector2(70, 35),
-		]
+				Vector2(-28, -18), Vector2(32, -10), Vector2(-20, 30), Vector2(28, 24),
+				Vector2(-60, -10), Vector2(60, -10), Vector2(-60, 20), Vector2(60, 20),
+				Vector2(0, -50), Vector2(0, 50),
+			]
 		var fallback_offsets: Array[Vector2] = [
 			Vector2(-48, 0), Vector2(48, 0), Vector2(0, -48), Vector2(0, 48),
 			Vector2(-96, 0), Vector2(96, 0), Vector2(0, -96), Vector2(0, 96),
@@ -449,7 +449,8 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 		var camp_group_id: String = "camp:%s:%03d" % [chunk_key, camp_index]
 
 		var camp_member_index: int = 0
-		for offset in primary_offsets:
+		var capped_offsets: Array[Vector2] = primary_offsets.slice(0, clampi(camp_members_per_camp, 1, primary_offsets.size()))
+		for offset in capped_offsets:
 			var enemy_id: String = "e:%s:%03d" % [chunk_key, spawn_index]
 			var chosen_offset: Vector2 = offset
 			if _cliff_gen != null and _world_to_tile.is_valid():
@@ -462,9 +463,14 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 							break
 			var enemy_pos: Vector2 = camp_world + chosen_offset
 			var member_role: String
-			match camp_member_index:
-				0:    member_role = "leader"
-				_:    member_role = "bodyguard" if camp_member_index <= 9 else "scavenger"
+			var _total: int = capped_offsets.size()
+			var _bodyguard_count: int = maxi(1, int(_total * 0.2))
+			if camp_member_index == 0:
+				member_role = "leader"
+			elif camp_member_index <= _bodyguard_count:
+				member_role = "bodyguard"
+			else:
+				member_role = "scavenger"
 
 			var record: Dictionary = {
 				"spawn_index":    spawn_index,

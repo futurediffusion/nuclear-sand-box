@@ -5,6 +5,7 @@
 
 [node name="BanditCamp" type="Node2D"]
 script = ExtResource("2_kojof")
+max_bandits_alive = 1
 
 [node name="SpawnPoint1" type="Marker2D" parent="."]
 

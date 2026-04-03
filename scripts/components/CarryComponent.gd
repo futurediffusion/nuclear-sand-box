@@ -29,12 +29,39 @@ func try_pickup(node: Node2D) -> bool:
 
 	var carryable = node.get_node("CarryableComponent")
 	if carryable.has_method("pickup"):
+		# Detectar si le estamos robando a un enemy — alertarlo antes de levantar
+		var original_parent: Node = node.get_parent()
+		if original_parent != null and original_parent is CharacterBody2D \
+				and original_parent.is_in_group("enemy"):
+			_alert_stolen_from(original_parent as CharacterBody2D)
+
 		carryable.pickup(_carry_anchor)
 		_carried_nodes.append(node)
 		_update_stack_positions()
 		return true
 
 	return false
+
+## Alerta al enemy robado y a sus vecinos de facción.
+func _alert_stolen_from(enemy: CharacterBody2D) -> void:
+	if enemy.has_method("notify_player_hit"):
+		enemy.call("notify_player_hit")
+	# Alertar vecinos dentro de 300px de la misma facción
+	var faction_id: String = String(enemy.get("faction_id") if "faction_id" in enemy else "")
+	if faction_id == "":
+		return
+	var carrier := get_parent() as Node2D
+	if carrier == null:
+		return
+	for e in enemy.get_tree().get_nodes_in_group("enemy"):
+		if e == enemy or not is_instance_valid(e):
+			continue
+		if not "faction_id" in e or String(e.get("faction_id")) != faction_id:
+			continue
+		if (e as Node2D).global_position.distance_to(enemy.global_position) > 300.0:
+			continue
+		if e.has_method("notify_player_hit"):
+			e.call("notify_player_hit")
 
 func release_all() -> void:
 	_drop_all(false)
