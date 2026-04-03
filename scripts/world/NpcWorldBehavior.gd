@@ -44,6 +44,7 @@ const ARRIVED_DIST_SQ: float        = 12.0 * 12.0
 const DEPOSIT_ARRIVED_DIST_SQ: float = 52.0 * 52.0
 const COLLECT_DIST_SQ: float     = 44.0 * 44.0  # must exceed ally separation so LOOT_APPROACH can actually collect
 const FOLLOW_STOP_DIST_SQ: float = 20.0 * 20.0
+const FOLLOW_SLOT_RADIUS_DEFAULT: float = 28.0
 const DEFAULT_HOME_RETURN_DIST: float = 192.0
 
 # ── Timing ───────────────────────────────────────────────────────────────────
@@ -364,8 +365,15 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 
 		State.FOLLOW_LEADER:
 			var leader_pos: Vector2 = ctx.get("leader_pos", home_pos)
-			if node_pos.distance_squared_to(leader_pos) > FOLLOW_STOP_DIST_SQ:
-				_desired_velocity = _pathfind_dir(node_pos, leader_pos) * _get_speed()
+			var follow_target: Vector2 = ctx.get("follow_slot_pos", leader_pos)
+			var stop_radius: float = float(ctx.get("follow_slot_radius", FOLLOW_SLOT_RADIUS_DEFAULT))
+			var stop_dist_sq: float = maxf(stop_radius, 1.0)
+			stop_dist_sq *= stop_dist_sq
+			# Compat fallback: if no slot is assigned, use legacy leader stop distance.
+			if not ctx.has("follow_slot_pos"):
+				stop_dist_sq = FOLLOW_STOP_DIST_SQ
+			if node_pos.distance_squared_to(follow_target) > stop_dist_sq:
+				_desired_velocity = _pathfind_dir(node_pos, follow_target) * _get_speed()
 
 		State.LOOT_APPROACH:
 			_tick_loot_approach(node_pos)

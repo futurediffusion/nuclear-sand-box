@@ -121,6 +121,25 @@ const DROP_SCAN_MAX_CANDIDATES_EVAL: int = 40
 const drops_per_npc_per_tick_max: int = 2
 const drops_global_per_pulse_max: int = 18
 const METRICS_WINDOW_SECONDS: float = 5.0
+const GUARD_SLOT_RADIUS_DEFAULT: float = 34.0
+const GUARD_SLOT_RADIUS_ESCORT: float = 42.0
+const GUARD_SLOT_LOCAL_OFFSETS: Dictionary = {
+	"frontal": Vector2(68.0, 0.0),
+	"lateral_left": Vector2(20.0, -54.0),
+	"lateral_right": Vector2(20.0, 54.0),
+	"rearguard": Vector2(-64.0, 0.0),
+	"escort_left": Vector2(-10.0, -92.0),
+	"escort_right": Vector2(-10.0, 92.0),
+}
+const GUARD_SLOT_PRIORITY: Array[String] = [
+	"frontal",
+	"lateral_left",
+	"lateral_right",
+	"rearguard",
+	"escort_left",
+	"escort_right",
+]
+const LOCAL_SEPARATION_NEIGHBOR_LIMIT: int = 6
 
 # ---------------------------------------------------------------------------
 # Diï¿½fÂ¡logo ambiental Ã¢ï¿½,ï¿½ï¿½?ï¿½ frases de mundo mientras el NPC estï¿½fÂ¡ ocioso o patrullando
@@ -417,7 +436,7 @@ func _physics_process(_delta: float) -> void:
 			member_buffer.nodes.append(node)
 			member_buffer.positions.append(node.global_position)
 
-	# Pass 2: ally separation
+	# Pass 2: ally separation (local-neighborhood only; no O(n²) all-vs-all).
 	separation_start_usec = Time.get_ticks_usec()
 	for gid in group_nodes:
 		var member_buffer: GroupMemberBuffer = group_nodes[gid] as GroupMemberBuffer
@@ -429,20 +448,35 @@ func _physics_process(_delta: float) -> void:
 		separation_group_scans += 1
 		separation_npc_scans += member_count
 		for i in member_count:
-			var a_pos: Vector2 = member_buffer.positions[i]
 			var a_node = member_buffer.nodes[i]
+			if a_node == null or not is_instance_valid(a_node):
+				continue
+			var a_pos: Vector2 = member_buffer.positions[i]
 			var sep: Vector2 = Vector2.ZERO
-			for j in member_count:
-				if i == j:
+			var chunk_opt: Variant = EnemyRegistry.world_to_chunk(a_pos)
+			if chunk_opt == null:
+				continue
+			var nearby: Array[Node2D] = EnemyRegistry.get_bucket_neighborhood(chunk_opt as Vector2i)
+			if nearby.is_empty():
+				continue
+			var checked: int = 0
+			for other in nearby:
+				if checked >= LOCAL_SEPARATION_NEIGHBOR_LIMIT:
+					break
+				if other == a_node or other == null or not is_instance_valid(other):
 					continue
-				var diff: Vector2 = a_pos - member_buffer.positions[j]
+				if String(other.get("group_id")) != String(gid):
+					continue
+				if other.has_method("is_sleeping") and other.is_sleeping():
+					continue
+				checked += 1
+				var diff: Vector2 = a_pos - other.global_position
 				var d: float = diff.length()
 				if d < BanditTuningScript.ally_sep_radius() and d > 0.5:
 					sep += diff.normalized() * (BanditTuningScript.ally_sep_radius() - d) \
 						/ BanditTuningScript.ally_sep_radius() * BanditTuningScript.ally_sep_force()
 			if sep.length_squared() > 0.01:
-				if a_node != null:
-					a_node.velocity += sep
+				a_node.velocity += sep
 	separation_elapsed_ms = float(Time.get_ticks_usec() - separation_start_usec) / 1000.0
 
 	if _extortion_director != null:
@@ -564,6 +598,8 @@ func _tick_behaviors() -> int:
 	var res_nodes_snapshot: Array = _get_all_resource_nodes()
 	var group_perception_payload: Dictionary = _build_group_perception_payload(res_nodes_snapshot)
 	var leader_pos_by_group: Dictionary = {}
+	var leader_forward_by_group: Dictionary = {}
+	var members_by_group: Dictionary = {}
 	var scans_by_group: Dictionary = {}
 	var scans_by_npc: Dictionary = {}
 	var worker_active_count: int = 0
@@ -574,11 +610,28 @@ func _tick_behaviors() -> int:
 	var tick_total_ms: float = 0.0
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
-		if beh.role != "leader" or beh.group_id == "":
+		if beh.group_id == "":
 			continue
 		var node = _npc_simulator.get_enemy_node(enemy_id)
-		if node != null:
+		if node == null:
+			continue
+		if not members_by_group.has(beh.group_id):
+			members_by_group[beh.group_id] = []
+		var members: Array = members_by_group[beh.group_id] as Array
+		members.append({
+			"member_id": beh.member_id,
+			"role": beh.role,
+			"pos": node.global_position,
+		})
+		members_by_group[beh.group_id] = members
+		if beh.role == "leader":
 			leader_pos_by_group[beh.group_id] = node.global_position
+			var desired_vel: Vector2 = beh.get_desired_velocity()
+			var leader_fwd: Vector2 = desired_vel.normalized() if desired_vel.length_squared() > 0.1 else node.velocity.normalized()
+			if leader_fwd.length_squared() < 0.1:
+				leader_fwd = Vector2.RIGHT
+			leader_forward_by_group[beh.group_id] = leader_fwd
+	var guard_slots_by_member: Dictionary = _build_guard_slots_by_member(members_by_group, leader_pos_by_group, leader_forward_by_group)
 
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
@@ -634,6 +687,11 @@ func _tick_behaviors() -> int:
 		ctx["find_nearest_player_placeable"] = _find_placeable_cb
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
+			if guard_slots_by_member.has(beh.member_id):
+				var slot_info: Dictionary = guard_slots_by_member[beh.member_id] as Dictionary
+				ctx["follow_slot_pos"] = slot_info.get("slot_pos", beh.home_pos)
+				ctx["follow_slot_radius"] = float(slot_info.get("radius", GUARD_SLOT_RADIUS_DEFAULT))
+				ctx["follow_slot_name"] = String(slot_info.get("slot_name", ""))
 			scans_by_group[beh.group_id] = int(scans_by_group.get(beh.group_id, 0)) + 1
 			var owner_entry: Dictionary = group_perception_payload.get(beh.group_id, {})
 			if not owner_entry.is_empty():
@@ -682,6 +740,68 @@ func _tick_behaviors() -> int:
 	_merge_nested_counter("scan_by_group", scans_by_group)
 	_merge_nested_counter("scan_by_npc", scans_by_npc)
 	return work_units
+
+
+func _build_guard_slots_by_member(
+		members_by_group: Dictionary,
+		leader_pos_by_group: Dictionary,
+		leader_forward_by_group: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for group_id_var in members_by_group.keys():
+		var group_id: String = str(group_id_var)
+		if not leader_pos_by_group.has(group_id):
+			continue
+		var members: Array = members_by_group[group_id] as Array
+		if members.is_empty():
+			continue
+		var bodyguards: Array = []
+		var others: Array = []
+		for item in members:
+			var member: Dictionary = item as Dictionary
+			if String(member.get("role", "")) == "leader":
+				continue
+			if String(member.get("role", "")) == "bodyguard":
+				bodyguards.append(member)
+			else:
+				others.append(member)
+		var candidates: Array = []
+		candidates.append_array(bodyguards)
+		candidates.append_array(others)
+		if candidates.is_empty():
+			continue
+		var anchor_pos: Vector2 = leader_pos_by_group[group_id] as Vector2
+		var forward: Vector2 = leader_forward_by_group.get(group_id, Vector2.RIGHT)
+		if forward.length_squared() < 0.01:
+			forward = Vector2.RIGHT
+		forward = forward.normalized()
+		var right: Vector2 = Vector2(-forward.y, forward.x)
+		var available_slots: Array[String] = GUARD_SLOT_PRIORITY.duplicate()
+		for member_data in candidates:
+			if available_slots.is_empty():
+				break
+			var member: Dictionary = member_data as Dictionary
+			var member_pos: Vector2 = member.get("pos", anchor_pos)
+			var best_slot_idx: int = 0
+			var best_slot_dist_sq: float = INF
+			for idx in available_slots.size():
+				var slot_name: String = available_slots[idx]
+				var local: Vector2 = GUARD_SLOT_LOCAL_OFFSETS.get(slot_name, Vector2.ZERO)
+				var slot_pos := anchor_pos + forward * local.x + right * local.y
+				var dist_sq := member_pos.distance_squared_to(slot_pos)
+				if dist_sq < best_slot_dist_sq:
+					best_slot_dist_sq = dist_sq
+					best_slot_idx = idx
+			var chosen_slot_name: String = available_slots[best_slot_idx]
+			available_slots.remove_at(best_slot_idx)
+			var chosen_local: Vector2 = GUARD_SLOT_LOCAL_OFFSETS.get(chosen_slot_name, Vector2.ZERO)
+			var chosen_pos := anchor_pos + forward * chosen_local.x + right * chosen_local.y
+			var slot_radius := GUARD_SLOT_RADIUS_ESCORT if chosen_slot_name.begins_with("escort") else GUARD_SLOT_RADIUS_DEFAULT
+			out[String(member.get("member_id", ""))] = {
+				"slot_name": chosen_slot_name,
+				"slot_pos": chosen_pos,
+				"radius": slot_radius,
+			}
+	return out
 
 
 # ---------------------------------------------------------------------------
@@ -2243,6 +2363,9 @@ func get_perf_window_snapshot() -> Dictionary:
 	var followers_frames: int = maxi(int(_perf_window_accum.get("followers_without_task_frames", 0)), 1)
 	var scan_by_group: Dictionary = _perf_window_accum.get("scan_by_group", {})
 	var scan_by_npc: Dictionary = _perf_window_accum.get("scan_by_npc", {})
+	var physics_avg: float = float(_perf_window_accum.get("physics_process_total_ms", 0.0)) / float(maxi(physics_calls, 1))
+	var behavior_avg: float = float(_perf_window_accum.get("behavior_tick_total_ms", 0.0)) / float(maxi(behavior_calls, 1))
+	var phase1_reduction: Dictionary = _build_phase1_physics_reduction_snapshot(physics_avg)
 	return {
 		"window_seconds": elapsed,
 		"cost_ms": {
@@ -2251,8 +2374,8 @@ func get_perf_window_snapshot() -> Dictionary:
 			"behavior_tick_total": float(_perf_window_accum.get("behavior_tick_total_ms", 0.0)),
 		},
 		"cost_ms_avg": {
-			"physics_process_avg": float(_perf_window_accum.get("physics_process_total_ms", 0.0)) / float(maxi(physics_calls, 1)),
-			"behavior_tick_avg": float(_perf_window_accum.get("behavior_tick_total_ms", 0.0)) / float(maxi(behavior_calls, 1)),
+			"physics_process_avg": physics_avg,
+			"behavior_tick_avg": behavior_avg,
 		},
 		"counters": {
 			"work_units": int(_perf_window_accum.get("work_units", 0)),
@@ -2268,6 +2391,40 @@ func get_perf_window_snapshot() -> Dictionary:
 		},
 		"scan_by_group": scan_by_group.duplicate(true),
 		"scan_by_npc": scan_by_npc.duplicate(true),
+		"baseline_compare": {
+			"phase1_physics_reduction": phase1_reduction,
+		},
+	}
+
+
+func _build_phase1_physics_reduction_snapshot(current_physics_avg: float) -> Dictionary:
+	var baseline_keys: Array[String] = ["phase_1", "phase1", "fase_1", "fase1", "small"]
+	var selected_key: String = ""
+	var selected: Dictionary = {}
+	for key in baseline_keys:
+		if _perf_baseline_snapshots.has(key):
+			selected_key = key
+			selected = _perf_baseline_snapshots[key] as Dictionary
+			break
+	if selected.is_empty():
+		return {"available": false}
+	var window: Dictionary = selected.get("window", {})
+	var cost_avg: Dictionary = window.get("cost_ms_avg", {})
+	var baseline_physics_avg: float = float(cost_avg.get("physics_process_avg", 0.0))
+	if baseline_physics_avg <= 0.0001:
+		return {
+			"available": false,
+			"baseline_label": selected_key,
+		}
+	var reduction_abs: float = baseline_physics_avg - current_physics_avg
+	var reduction_pct: float = (reduction_abs / baseline_physics_avg) * 100.0
+	return {
+		"available": true,
+		"baseline_label": selected_key,
+		"baseline_physics_avg_ms": baseline_physics_avg,
+		"current_physics_avg_ms": current_physics_avg,
+		"reduction_ms": reduction_abs,
+		"reduction_pct": reduction_pct,
 	}
 
 
