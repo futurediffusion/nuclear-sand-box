@@ -231,6 +231,8 @@ var _structure_work_buffers: StructureWorkBuffers = StructureWorkBuffers.new()
 var _dispatch_work_buffers: DispatchWorkBuffers  = DispatchWorkBuffers.new()
 var _method_caps: MethodCapabilityCache          = MethodCapabilityCacheScript.new()
 var _worker_instrumentation_enabled: bool        = true
+var _worker_loop_enabled: bool                   = true
+var _missing_world_index_error_logged: bool      = false
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +279,10 @@ func setup(ctx: Dictionary) -> void:
 	_player         = ctx.get("player")
 	_bubble_manager = ctx.get("speech_bubble_manager")
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
+	_worker_loop_enabled = _world_spatial_index != null
+	assert(_worker_loop_enabled, "BanditBehaviorLayer.setup requires world_spatial_index before worker loop startup.")
+	if not _worker_loop_enabled:
+		_log_missing_world_spatial_index_once("setup")
 	_world_node = ctx.get("world_node")
 	# Temporal governance boundary:
 	# world cadence drives cross-system directors so extortion/raid orchestration
@@ -469,6 +475,8 @@ func _process(delta: float) -> void:
 		if _raid_director != null:
 			_raid_director.process_raid()
 	_process_pending_structure_dispatches()
+	if not _worker_loop_enabled:
+		return
 	var work_loop_pulses: int = 0
 	if _cadence != null:
 		work_loop_pulses = _cadence.consume_lane(&"bandit_work_loop")
@@ -608,35 +616,21 @@ func _effective_work_position(enemy_node: Node) -> Vector2:
 func _fill_drops_info_buffer(node_pos: Vector2, out: Array[Dictionary]) -> void:
 	var r2: float = BanditTuningScript.loot_scan_radius_sq()
 	var radius: float = sqrt(r2)
-	var drops_source: Array = []
-	if _world_spatial_index != null:
-		drops_source = _world_spatial_index.get_runtime_nodes_near(
-			WorldSpatialIndex.KIND_ITEM_DROP,
-			node_pos,
-			radius,
-			{
-				"intent": "idle",
-				"stage": "drop_scan",
-				"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
-				"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
-			}
-		)
-	else:
-		var candidates_seen: int = 0
-		for raw_drop in get_tree().get_nodes_in_group("item_drop"):
-			var drop_node := raw_drop as Node2D
-			if drop_node == null or not is_instance_valid(drop_node) \
-					or drop_node.is_queued_for_deletion():
-				continue
-			candidates_seen += 1
-			if node_pos.distance_squared_to(drop_node.global_position) > r2:
-				if candidates_seen >= DROP_SCAN_MAX_CANDIDATES_EVAL:
-					break
-				continue
-			drops_source.append(drop_node)
-			if drops_source.size() >= DROP_SCAN_ENOUGH_THRESHOLD \
-					or candidates_seen >= DROP_SCAN_MAX_CANDIDATES_EVAL:
-				break
+	if _world_spatial_index == null:
+		_log_missing_world_spatial_index_once("drop_scan")
+		out.clear()
+		return
+	var drops_source: Array = _world_spatial_index.get_runtime_nodes_near(
+		WorldSpatialIndex.KIND_ITEM_DROP,
+		node_pos,
+		radius,
+		{
+			"intent": "idle",
+			"stage": "drop_scan",
+			"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
+			"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
+		}
+	)
 	var write_idx: int = 0
 	for drop in drops_source:
 		var drop_node := drop as Node2D
@@ -732,6 +726,13 @@ func _get_all_resource_nodes() -> Array:
 	if _world_spatial_index != null:
 		return _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORLD_RESOURCE)
 	return get_tree().get_nodes_in_group("world_resource")
+
+
+func _log_missing_world_spatial_index_once(stage: String) -> void:
+	if _missing_world_index_error_logged:
+		return
+	_missing_world_index_error_logged = true
+	push_error("BanditBehaviorLayer initialization error: world_spatial_index is null (stage=%s)." % stage)
 
 
 # ---------------------------------------------------------------------------
