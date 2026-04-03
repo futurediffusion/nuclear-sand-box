@@ -623,6 +623,13 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 
 	var group_anchor: Vector2 = _resolve_assault_anchor(beh.group_id, g)
 	var member_anchor: Vector2 = _resolve_member_assault_anchor(beh, group_anchor)
+	if not _is_valid_target(member_anchor) and not _is_valid_target(group_anchor):
+		_emit_worker_event("per_npc_structure_query_skipped_due_to_no_target", beh, _effective_work_position(enemy_node), "", {
+			"reason": "missing_group_and_member_anchor",
+			"structure_assault_active": assault_active,
+			"group_intent": intent,
+		})
+		return
 	var attack_anchor: Vector2 = member_anchor if _is_valid_target(member_anchor) else group_anchor
 
 	var enemy_pos: Vector2 = _effective_work_position(enemy_node)

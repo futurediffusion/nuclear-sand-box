@@ -19,6 +19,8 @@ const STRUCTURE_APPROACH_TIMEOUT: float = 180.0
 const STRUCTURE_ATTACK_DURATION: float = 120.0
 const STRUCTURE_MAX_DURATION: float = 360.0
 const DISPATCH_JITTER_RATIO: float = 0.16
+const STRUCTURE_NO_TARGET_NEAR_RADIUS: float = 260.0
+const STRUCTURE_NO_TARGET_NEAR_RADIUS_SQ: float = STRUCTURE_NO_TARGET_NEAR_RADIUS * STRUCTURE_NO_TARGET_NEAR_RADIUS
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
@@ -253,14 +255,25 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 		job["base_center"] = latest_interest
 	var target_pos: Vector2 = _resolve_structure_target(anchor, true, true)
 	if not _is_valid_target(target_pos):
+		var near_assault_area: bool = _is_group_near_assault_area(gid, anchor)
 		if float(job.get("no_target_since", 0.0)) <= 0.0:
 			job["no_target_since"] = now
-			Debug.log("raid", "[RF] structure assault no-target window started group=%s anchor=%s" % [
-				gid, str(anchor)
+			Debug.log("raid", "[RF] structure_assault_no_target_started group=%s anchor=%s near=%s" % [
+				gid, str(anchor), str(near_assault_area)
 			])
+		var no_target_elapsed: float = now - float(job.get("no_target_since", now))
+		if near_assault_area and no_target_elapsed >= BanditTuning.structure_no_target_close_grace():
+			job["_finish_reason"] = "no_targets_close_fast"
+			BanditGroupMemory.clear_structure_assault_active(gid)
+			Debug.log("raid", "[RF] structure_assault_finished_fast group=%s elapsed=%.2fs anchor=%s" % [
+				gid, no_target_elapsed, str(anchor)
+			])
+			Debug.log("raid", "[RF] structure_assault_active_released group=%s reason=no_targets_close_fast" % gid)
 		job["wall_assault_next_at"] = _next_dispatch_at(gid, BanditTuning.wall_probe_wall_interval())
 		return
 
+	if float(job.get("no_target_since", 0.0)) > 0.0:
+		Debug.log("raid", "[RF] structure_assault_no_target_cleared group=%s target=%s" % [gid, str(target_pos)])
 	job["no_target_since"] = 0.0
 	BanditGroupMemory.record_interest(gid, target_pos, "structure_assault_target")
 	var requested: int = int(job.get("probe_squad_size", -1))
@@ -330,6 +343,9 @@ func _tick_attacking(job: Dictionary, gid: String) -> bool:
 
 
 func _structure_assault_finish_reason(job: Dictionary) -> String:
+	var preset_reason: String = String(job.get("_finish_reason", ""))
+	if preset_reason != "":
+		return preset_reason
 	var now: float = RunClock.now()
 	var total_elapsed: float = now - float(job.get("started_at", now))
 	if total_elapsed >= BanditTuning.structure_assault_max_total_safety():
@@ -382,6 +398,7 @@ func _finish_raid(gid: String, reason: String) -> void:
 		resolved_reason = finish_reason
 	if raid_type == "structure_assault":
 		BanditGroupMemory.clear_structure_assault_active(gid)
+		Debug.log("raid", "[RF] structure_assault_active_released group=%s reason=%s" % [gid, resolved_reason])
 
 	var social_cd: float
 	match raid_type:
@@ -405,6 +422,28 @@ func _finish_raid(gid: String, reason: String) -> void:
 			"entity_id": gid + ":raid",
 		})
 	Debug.log("raid", "[RF] raid finished group=%s type=%s reason=%s" % [gid, raid_type, resolved_reason])
+
+
+func _is_group_near_assault_area(gid: String, anchor: Vector2) -> bool:
+	if not _is_valid_target(anchor):
+		return false
+	if _npc_simulator == null:
+		return false
+	var g: Dictionary = BanditGroupMemory.get_group(gid)
+	if g.is_empty():
+		return false
+	var member_ids: Array = g.get("member_ids", [])
+	for raw_mid in member_ids:
+		var member_id: String = String(raw_mid)
+		if member_id == "":
+			continue
+		var node = _npc_simulator.get_enemy_node(member_id)
+		if node == null or not (node is Node2D):
+			continue
+		var pos: Vector2 = (node as Node2D).global_position
+		if pos.distance_squared_to(anchor) <= STRUCTURE_NO_TARGET_NEAR_RADIUS_SQ:
+			return true
+	return false
 
 
 func _has_active_job(gid: String) -> bool:

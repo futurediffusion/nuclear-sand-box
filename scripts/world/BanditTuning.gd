@@ -39,9 +39,10 @@ const GROUP_INTENT_HYSTERESIS_GRACE: float = 10.0
 const WALL_PROBE_ATTACK_DURATION: float = 22.0  # s — tiempo golpeando la pared
 const WALL_PROBE_MAX_DURATION:    float = 55.0  # s — abort total del job
 const WALL_PROBE_WALL_INTERVAL:   float = 2.5   # s — cada cuánto redirige al muro
-const STRUCTURE_NO_TARGET_GRACE: float = 20.0
+const STRUCTURE_NO_TARGET_GRACE: float = 6.0
 const STRUCTURE_ASSAULT_MAX_TOTAL_SAFETY: float = 1200.0
-const STRUCTURE_ASSAULT_ACTIVE_TTL: float = 8.0
+const STRUCTURE_ASSAULT_ACTIVE_TTL: float = 3.0
+const STRUCTURE_NO_TARGET_CLOSE_GRACE: float = 1.75
 const ASSAULT_SUPPRESS_GENERIC_DROP_PICKUP: bool = true
 const ENABLE_WORKER_RESOURCE_FALLBACK: bool = true
 const ENABLE_GROUP_PERCEPTION_PULSE: bool = true
@@ -258,6 +259,9 @@ static func structure_assault_max_total_safety() -> float:
 
 static func structure_assault_active_ttl() -> float:
 	return STRUCTURE_ASSAULT_ACTIVE_TTL
+
+static func structure_no_target_close_grace() -> float:
+	return STRUCTURE_NO_TARGET_CLOSE_GRACE
 
 static func assault_suppress_generic_drop_pickup() -> bool:
 	return ASSAULT_SUPPRESS_GENERIC_DROP_PICKUP
