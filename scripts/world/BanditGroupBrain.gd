@@ -95,15 +95,25 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 		return out
 	var now: float = RunClock.now()
 	var signature: String = _build_group_signature(members, group_ctx)
-	var force_recompute: bool = bool(_dirty_groups.get(group_id, false)) or _last_signature_by_group.get(group_id, "") != signature
+	var has_active_scavenger_resource_work: bool = _has_active_scavenger_resource_work(members)
+	var force_recompute: bool = bool(_dirty_groups.get(group_id, false)) \
+			or _last_signature_by_group.get(group_id, "") != signature \
+			or has_active_scavenger_resource_work
 	if not force_recompute and now < float(_cached_orders_expires_at.get(group_id, 0.0)) and _cached_orders_by_group.has(group_id):
 		_cache_hit_count += 1
+		Debug.log("bandit_group", "[BGB][cache_hit] group=%s signature=%s" % [group_id, signature])
 		_maybe_log_polling_review(now)
 		return (_cached_orders_by_group[group_id] as Dictionary).duplicate(true)
 	if force_recompute:
 		_event_recompute_count += 1
 	else:
 		_periodic_recompute_count += 1
+	Debug.log("bandit_group", "[BGB][recompute] group=%s dirty=%s sig_changed=%s disable_cache_for_active_scavenger=%s" % [
+		group_id,
+		str(bool(_dirty_groups.get(group_id, false))),
+		str(_last_signature_by_group.get(group_id, "") != signature),
+		str(has_active_scavenger_resource_work),
+	])
 	var macro_state: String = _resolve_macro_state(group_ctx)
 	BanditGroupMemory.bb_write_group_mode(group_id, macro_state, "group_brain")
 	for item in members:
@@ -114,12 +124,21 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 		if member_id == "":
 			continue
 		var role: String = String(member.get("role", "scavenger"))
-		var order: Dictionary = _build_order_for_member(role, group_ctx, member)
+		var member_ctx: Dictionary = member.duplicate(true)
+		var memory_assignment: Dictionary = BanditGroupMemory.bb_get_assignment(group_id, member_id)
+		if memory_assignment.is_empty():
+			memory_assignment = member_ctx.get("current_assignment", {}) as Dictionary
+		member_ctx["existing_assignment"] = memory_assignment
+		var order: Dictionary = _build_order_for_member(role, group_ctx, member_ctx)
 		order["macro_state"] = macro_state
 		out[member_id] = order
-		BanditGroupMemory.bb_set_assignment(group_id, member_id, order, 2.0, "group_brain")
-	_cached_orders_by_group[group_id] = out.duplicate(true)
-	_cached_orders_expires_at[group_id] = now + GROUP_ORDER_CACHE_TTL_SECONDS
+		BanditGroupMemory.bb_set_assignment(group_id, member_id, order, 8.0, "group_brain")
+	if not has_active_scavenger_resource_work:
+		_cached_orders_by_group[group_id] = out.duplicate(true)
+		_cached_orders_expires_at[group_id] = now + GROUP_ORDER_CACHE_TTL_SECONDS
+	else:
+		_cached_orders_by_group.erase(group_id)
+		_cached_orders_expires_at.erase(group_id)
 	_last_signature_by_group[group_id] = signature
 	_dirty_groups[group_id] = false
 	_maybe_log_polling_review(now)
@@ -128,13 +147,67 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 
 func _build_group_signature(members: Array, group_ctx: Dictionary) -> String:
 	var ids: Array[String] = []
+	var member_cargo_tokens: Array[String] = []
+	var member_active_tokens: Array[String] = []
+	var member_resource_tokens: Array[String] = []
 	for raw in members:
 		if raw is Dictionary:
-			ids.append(String((raw as Dictionary).get("member_id", "")))
+			var member: Dictionary = raw as Dictionary
+			var member_id: String = String(member.get("member_id", ""))
+			ids.append(member_id)
+			member_cargo_tokens.append("%s:%d" % [member_id, int(member.get("cargo_count", 0))])
+			member_active_tokens.append("%s:%s" % [member_id, str(bool(member.get("has_active_task", false)))])
+			member_resource_tokens.append("%s:%d:%d" % [
+				member_id,
+				int(member.get("current_resource_id", 0)),
+				int(member.get("pending_mine_id", 0)),
+			])
 	ids.sort()
+	member_cargo_tokens.sort()
+	member_active_tokens.sort()
+	member_resource_tokens.sort()
 	var mode: String = String(group_ctx.get("group_mode", "idle"))
 	var interest_pos: Vector2 = group_ctx.get("interest_pos", Vector2.ZERO) as Vector2
-	return "%s|%s|%s" % [mode, str(interest_pos), ",".join(ids)]
+	var prioritized_resource_ids: Array[String] = _extract_target_ids(group_ctx.get("prioritized_resources", []))
+	var prioritized_drop_ids: Array[String] = _extract_target_ids(group_ctx.get("prioritized_drops", []))
+	var any_scavenger_busy: bool = bool(group_ctx.get("any_scavenger_busy", false))
+	var any_member_threatened: bool = bool(group_ctx.get("any_member_threatened", false))
+	return "%s|%s|members=%s|res=%s|drops=%s|cargo=%s|active=%s|mine=%s|busy=%s|threat=%s" % [
+		mode,
+		str(interest_pos),
+		",".join(ids),
+		",".join(prioritized_resource_ids),
+		",".join(prioritized_drop_ids),
+		",".join(member_cargo_tokens),
+		",".join(member_active_tokens),
+		",".join(member_resource_tokens),
+		str(any_scavenger_busy),
+		str(any_member_threatened),
+	]
+
+
+func _extract_target_ids(raw_list: Variant) -> Array[String]:
+	var out: Array[String] = []
+	var values: Array = raw_list as Array
+	for raw in values:
+		var entry: Dictionary = raw as Dictionary
+		out.append(str(int(entry.get("id", 0))))
+	out.sort()
+	return out
+
+
+func _has_active_scavenger_resource_work(members: Array) -> bool:
+	for raw in members:
+		if not (raw is Dictionary):
+			continue
+		var member: Dictionary = raw as Dictionary
+		if String(member.get("role", "")) != "scavenger":
+			continue
+		var current_resource_id: int = int(member.get("current_resource_id", 0))
+		var pending_mine_id: int = int(member.get("pending_mine_id", 0))
+		if bool(member.get("has_active_task", false)) and (current_resource_id != 0 or pending_mine_id != 0):
+			return true
+	return false
 
 
 func _maybe_log_polling_review(now: float) -> void:
