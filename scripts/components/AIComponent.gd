@@ -649,6 +649,9 @@ func focus_on_structure_for(duration: float = 15.0) -> void:
 func is_structure_focus_active() -> bool:
 	return RunClock.now() < _structure_focus_until
 
+func clear_structure_focus() -> void:
+	_structure_focus_until = 0.0
+
 
 ## Devuelve true si este AI puede iniciar una persecución no provocada contra el player.
 ## Respeta el perfil de hostilidad de la facción; siempre permite autodefensa.

@@ -56,7 +56,7 @@ const DEPOSIT_SLOT_RADIUS_RANGE: int   = 20      # varianza adicional (hash % N)
 const DEPOSIT_REASSIGN_GUARD_SQ: float = 72.0 * 72.0  # no reasignar si ya estï¿½fÂ¡ cerca
 
 const DEBUG_ALERTED_CHASE: bool = true
-const STRUCTURE_ASSAULT_FOCUS_SECONDS: float = 24.0
+const STRUCTURE_ASSAULT_FOCUS_SECONDS: float = 8.0
 const STRUCTURE_MEMBER_QUERY_RADIUS: float = 320.0
 const STRUCTURE_MEMBER_QUERY_RING_RADIUS: float = 96.0
 const STRUCTURE_MEMBER_TARGET_SEPARATION_SQ: float = 88.0 * 88.0
@@ -918,10 +918,11 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 	if order_type == "":
 		return
 	var structure_assault_active: bool = BanditGroupMemory.is_structure_assault_active(beh.group_id)
+	var structure_target_alive: bool = _group_has_live_structure_target(beh.group_id)
 	var is_generic_override: bool = order_type == "follow_slot" \
 			or order_type == "move_to_target" \
 			or order_type == "attack_target"
-	if structure_assault_active and is_generic_override:
+	if structure_assault_active and is_generic_override and structure_target_alive:
 		log_worker_event("structure_assault_target_overwritten", {
 			"npc_id": beh.member_id,
 			"group_id": beh.group_id,
@@ -938,6 +939,19 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 				"group_id": beh.group_id,
 			})
 		return
+	elif structure_assault_active and is_generic_override and not structure_target_alive:
+		BanditGroupMemory.clear_structure_assault_active(beh.group_id)
+		log_worker_event("normal_work_resumed_after_structure_assault", {
+			"npc_id": beh.member_id,
+			"group_id": beh.group_id,
+			"order": order_type,
+		})
+		if _npc_simulator != null:
+			var node = _npc_simulator.get_enemy_node(beh.member_id)
+			if node != null:
+				var ai = node.get_node_or_null("AIComponent")
+				if ai != null and ai.has_method("clear_structure_focus"):
+					ai.call("clear_structure_focus")
 	var delivery_lock_engaged: bool = beh.delivery_lock_active and beh.cargo_count > 0
 	var combat_override: bool = bool(ctx.get("in_combat", false)) or bool(ctx.get("recently_engaged", false))
 	if delivery_lock_engaged and order_type != "return_home":
@@ -2453,6 +2467,21 @@ func _apply_structure_assault_focus(enemy_node: Node) -> void:
 		ai.call("wake_now")
 	if ai.has_method("focus_on_structure_for"):
 		ai.call("focus_on_structure_for", STRUCTURE_ASSAULT_FOCUS_SECONDS)
+
+
+func _group_has_live_structure_target(group_id: String) -> bool:
+	if group_id == "":
+		return false
+	var pending_target: Vector2 = BanditGroupMemory.get_assault_target(group_id)
+	if _is_valid_structure_target(pending_target) and _is_structure_target_still_valid(pending_target):
+		return true
+	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	if g.is_empty():
+		return false
+	if String(g.get("last_interest_kind", "")) != "structure_assault_target":
+		return false
+	var interest_target: Vector2 = g.get("last_interest_pos", INVALID_STRUCTURE_TARGET) as Vector2
+	return _is_valid_structure_target(interest_target) and _is_structure_target_still_valid(interest_target)
 
 
 # ---------------------------------------------------------------------------
