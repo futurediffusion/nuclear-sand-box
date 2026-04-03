@@ -120,6 +120,7 @@ const DROP_SCAN_ENOUGH_THRESHOLD: int = 10
 const DROP_SCAN_MAX_CANDIDATES_EVAL: int = 40
 const drops_per_npc_per_tick_max: int = 2
 const drops_global_per_pulse_max: int = 18
+const METRICS_WINDOW_SECONDS: float = 5.0
 
 # ---------------------------------------------------------------------------
 # Diï¿½fÂ¡logo ambiental Ã¢ï¿½,ï¿½ï¿½?ï¿½ frases de mundo mientras el NPC estï¿½fÂ¡ ocioso o patrullando
@@ -233,6 +234,9 @@ var _method_caps: MethodCapabilityCache          = MethodCapabilityCacheScript.n
 var _worker_instrumentation_enabled: bool        = true
 var _worker_loop_enabled: bool                   = true
 var _missing_world_index_error_logged: bool      = false
+var _perf_window_elapsed_s: float                = 0.0
+var _perf_window_accum: Dictionary               = {}
+var _perf_baseline_snapshots: Dictionary         = {}
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +284,7 @@ func setup(ctx: Dictionary) -> void:
 	_bubble_manager = ctx.get("speech_bubble_manager")
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 	_worker_loop_enabled = _world_spatial_index != null
+	_reset_perf_window_metrics()
 	assert(_worker_loop_enabled, "BanditBehaviorLayer.setup requires world_spatial_index before worker loop startup.")
 	if not _worker_loop_enabled:
 		_log_missing_world_spatial_index_once("setup")
@@ -387,6 +392,11 @@ func setup_group_intel(ctx: Dictionary) -> void:
 func _physics_process(_delta: float) -> void:
 	if _npc_simulator == null:
 		return
+	var physics_start_usec: int = Time.get_ticks_usec()
+	var separation_start_usec: int = 0
+	var separation_elapsed_ms: float = 0.0
+	var separation_group_scans: int = 0
+	var separation_npc_scans: int = 0
 
 	# Pass 1: apply desired velocities + collect per-group node positions
 	var group_nodes: Dictionary = {}
@@ -406,6 +416,7 @@ func _physics_process(_delta: float) -> void:
 			member_buffer.positions.append(node.global_position)
 
 	# Pass 2: ally separation
+	separation_start_usec = Time.get_ticks_usec()
 	for gid in group_nodes:
 		var member_buffer: GroupMemberBuffer = group_nodes[gid] as GroupMemberBuffer
 		if member_buffer == null:
@@ -413,6 +424,8 @@ func _physics_process(_delta: float) -> void:
 		var member_count: int = member_buffer.nodes.size()
 		if member_count < 2:
 			continue
+		separation_group_scans += 1
+		separation_npc_scans += member_count
 		for i in member_count:
 			var a_pos: Vector2 = member_buffer.positions[i]
 			var a_node = member_buffer.nodes[i]
@@ -428,6 +441,7 @@ func _physics_process(_delta: float) -> void:
 			if sep.length_squared() > 0.01:
 				if a_node != null:
 					a_node.velocity += sep
+	separation_elapsed_ms = float(Time.get_ticks_usec() - separation_start_usec) / 1000.0
 
 	if _extortion_director != null:
 		_extortion_director.apply_extortion_movement(BanditTuningScript.friction_compensation())
@@ -450,6 +464,14 @@ func _physics_process(_delta: float) -> void:
 				snode.velocity = to_p.normalized() * (
 					BanditTuningScript.alerted_scout_chase_speed(gid) + BanditTuningScript.friction_compensation()
 				)
+	var physics_elapsed_ms: float = float(Time.get_ticks_usec() - physics_start_usec) / 1000.0
+	_accumulate_perf_window({
+		"physics_process_calls": 1,
+		"physics_process_total_ms": physics_elapsed_ms,
+		"ally_separation_total_ms": separation_elapsed_ms,
+		"separation_group_scans": separation_group_scans,
+		"separation_npc_scans": separation_npc_scans,
+	})
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +481,7 @@ func _physics_process(_delta: float) -> void:
 func _process(delta: float) -> void:
 	if _npc_simulator == null:
 		return
+	_perf_window_elapsed_s += delta
 	if RunClock.now() >= _structure_cache_gc_at:
 		_structure_cache_gc_at = RunClock.now() + 1.5
 		_prune_structure_target_caches()
@@ -477,6 +500,7 @@ func _process(delta: float) -> void:
 			_raid_director.process_raid()
 	_process_pending_structure_dispatches()
 	if not _worker_loop_enabled:
+		_flush_perf_window_if_needed()
 		return
 	var work_loop_pulses: int = 0
 	if _cadence != null:
@@ -487,6 +511,7 @@ func _process(delta: float) -> void:
 			_work_loop_fallback_timer -= 0.25
 			work_loop_pulses = 1
 	if work_loop_pulses <= 0:
+		_flush_perf_window_if_needed()
 		return
 
 	for _work_pulse in work_loop_pulses:
@@ -504,6 +529,7 @@ func _process(delta: float) -> void:
 			var lane_budget: int = _cadence.lane_budget(&"bandit_work_loop", -1)
 			_cadence.report_lane_work(&"bandit_work_loop", work_units, lane_budget)
 		_prune_behaviors()
+	_flush_perf_window_if_needed()
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +561,14 @@ func _tick_behaviors() -> int:
 	}
 	var res_nodes_snapshot: Array = _get_all_resource_nodes()
 	var leader_pos_by_group: Dictionary = {}
+	var scans_by_group: Dictionary = {}
+	var scans_by_npc: Dictionary = {}
+	var worker_active_count: int = 0
+	var followers_without_task: int = 0
+	var collect_claims: Dictionary = {}
+	var mine_claims: Dictionary = {}
+	var tick_calls: int = 0
+	var tick_total_ms: float = 0.0
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
 		if beh.role != "leader" or beh.group_id == "":
@@ -546,6 +580,18 @@ func _tick_behaviors() -> int:
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
 		var node = _npc_simulator.get_enemy_node(enemy_id)
+		if is_worker_cycle_active(beh):
+			worker_active_count += 1
+		if beh.role != "leader" and not is_worker_cycle_active(beh) \
+				and beh.pending_collect_id == 0 and beh.pending_mine_id == 0 \
+				and beh.cargo_count <= 0:
+			followers_without_task += 1
+		if beh.pending_collect_id != 0:
+			var collect_key: String = str(beh.pending_collect_id)
+			collect_claims[collect_key] = int(collect_claims.get(collect_key, 0)) + 1
+		if beh.pending_mine_id != 0:
+			var mine_key: String = str(beh.pending_mine_id)
+			mine_claims[mine_key] = int(mine_claims.get(mine_key, 0)) + 1
 		if not _is_world_behavior_eligible(node):
 			if _work_coordinator != null:
 				_work_coordinator.process_post_behavior(beh, node, pulse_drop_budget_ctx)
@@ -581,10 +627,15 @@ func _tick_behaviors() -> int:
 		ctx["find_nearest_player_placeable"] = _find_placeable_cb
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
+			scans_by_group[beh.group_id] = int(scans_by_group.get(beh.group_id, 0)) + 1
+		scans_by_npc[beh.member_id] = int(scans_by_npc.get(beh.member_id, 0)) + 1
 
 		# Pasar tick_interval como delta (tiempo real desde ï¿½fÂºltimo tick),
 		# no elapsed que puede ser mayor que tick_interval.
+		var tick_start_usec: int = Time.get_ticks_usec()
 		beh.tick(tick_interval, ctx)
+		tick_total_ms += float(Time.get_ticks_usec() - tick_start_usec) / 1000.0
+		tick_calls += 1
 		_enforce_cargo_return_priority(beh, node_pos, "post_tick")
 		work_units += 1
 		var lod_mode: StringName = StringName(String(_lod_debug_last_npc.get(beh.member_id, {}).get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))))
@@ -600,6 +651,20 @@ func _tick_behaviors() -> int:
 
 		if _work_coordinator != null:
 			_work_coordinator.process_post_behavior(beh, node, pulse_drop_budget_ctx)
+	var assignment_conflicts: int = _count_assignment_conflicts(collect_claims) + _count_assignment_conflicts(mine_claims)
+	_accumulate_perf_window({
+		"behavior_tick_calls": tick_calls,
+		"behavior_tick_total_ms": tick_total_ms,
+		"work_units": work_units,
+		"worker_active_count_samples": worker_active_count,
+		"worker_active_count_frames": 1,
+		"followers_without_task_samples": followers_without_task,
+		"followers_without_task_frames": 1,
+		"assignment_conflicts_total": assignment_conflicts,
+		"scan_total": _dict_int_sum(scans_by_npc),
+	})
+	_merge_nested_counter("scan_by_group", scans_by_group)
+	_merge_nested_counter("scan_by_npc", scans_by_npc)
 	return work_units
 
 
@@ -1813,6 +1878,8 @@ func get_lod_debug_snapshot() -> Dictionary:
 		"mode_perf": _snapshot_mode_perf(),
 		"drop_metrics": _stash.get_debug_snapshot() if _stash != null else {},
 		"group_scan": _group_intel.get_lod_debug_snapshot() if _group_intel != null else {},
+		"behavior_metrics_window": get_perf_window_snapshot(),
+		"behavior_metrics_baselines": get_perf_baseline_snapshots(),
 	}
 
 
@@ -1858,3 +1925,122 @@ func _record_mode_reaction_latency(mode: StringName, latency_s: float) -> void:
 
 func _snapshot_mode_perf() -> Dictionary:
 	return _lod_mode_perf.duplicate(true)
+
+
+func _reset_perf_window_metrics() -> void:
+	_perf_window_elapsed_s = 0.0
+	_perf_window_accum = {
+		"physics_process_calls": 0,
+		"physics_process_total_ms": 0.0,
+		"ally_separation_total_ms": 0.0,
+		"behavior_tick_calls": 0,
+		"behavior_tick_total_ms": 0.0,
+		"work_units": 0,
+		"scan_total": 0,
+		"separation_group_scans": 0,
+		"separation_npc_scans": 0,
+		"assignment_conflicts_total": 0,
+		"worker_active_count_samples": 0,
+		"worker_active_count_frames": 0,
+		"followers_without_task_samples": 0,
+		"followers_without_task_frames": 0,
+		"scan_by_group": {},
+		"scan_by_npc": {},
+	}
+
+
+func _accumulate_perf_window(delta: Dictionary) -> void:
+	for key_var in delta.keys():
+		var key: String = str(key_var)
+		var value = delta[key_var]
+		if value is int:
+			_perf_window_accum[key] = int(_perf_window_accum.get(key, 0)) + int(value)
+		elif value is float:
+			_perf_window_accum[key] = float(_perf_window_accum.get(key, 0.0)) + float(value)
+		else:
+			_perf_window_accum[key] = value
+
+
+func _merge_nested_counter(key: String, source: Dictionary) -> void:
+	var target: Dictionary = _perf_window_accum.get(key, {})
+	for item in source.keys():
+		var name: String = str(item)
+		target[name] = int(target.get(name, 0)) + int(source[item])
+	_perf_window_accum[key] = target
+
+
+func _flush_perf_window_if_needed() -> void:
+	if _perf_window_elapsed_s < METRICS_WINDOW_SECONDS:
+		return
+	var snapshot: Dictionary = get_perf_window_snapshot()
+	Debug.log("perf_telemetry", "[BanditBehaviorMetrics][window] %s" % JSON.stringify(snapshot))
+	_reset_perf_window_metrics()
+
+
+func _dict_int_sum(src: Dictionary) -> int:
+	var total: int = 0
+	for k in src.keys():
+		total += int(src[k])
+	return total
+
+
+func _count_assignment_conflicts(claims: Dictionary) -> int:
+	var conflicts: int = 0
+	for k in claims.keys():
+		var claim_count: int = int(claims[k])
+		if claim_count > 1:
+			conflicts += claim_count - 1
+	return conflicts
+
+
+func get_perf_window_snapshot() -> Dictionary:
+	var elapsed: float = maxf(_perf_window_elapsed_s, 0.0001)
+	var physics_calls: int = int(_perf_window_accum.get("physics_process_calls", 0))
+	var behavior_calls: int = int(_perf_window_accum.get("behavior_tick_calls", 0))
+	var workers_frames: int = maxi(int(_perf_window_accum.get("worker_active_count_frames", 0)), 1)
+	var followers_frames: int = maxi(int(_perf_window_accum.get("followers_without_task_frames", 0)), 1)
+	var scan_by_group: Dictionary = _perf_window_accum.get("scan_by_group", {})
+	var scan_by_npc: Dictionary = _perf_window_accum.get("scan_by_npc", {})
+	return {
+		"window_seconds": elapsed,
+		"cost_ms": {
+			"physics_process_total": float(_perf_window_accum.get("physics_process_total_ms", 0.0)),
+			"ally_separation_total": float(_perf_window_accum.get("ally_separation_total_ms", 0.0)),
+			"behavior_tick_total": float(_perf_window_accum.get("behavior_tick_total_ms", 0.0)),
+		},
+		"cost_ms_avg": {
+			"physics_process_avg": float(_perf_window_accum.get("physics_process_total_ms", 0.0)) / float(maxi(physics_calls, 1)),
+			"behavior_tick_avg": float(_perf_window_accum.get("behavior_tick_total_ms", 0.0)) / float(maxi(behavior_calls, 1)),
+		},
+		"counters": {
+			"work_units": int(_perf_window_accum.get("work_units", 0)),
+			"scan_total": int(_perf_window_accum.get("scan_total", 0)),
+			"separation_group_scans": int(_perf_window_accum.get("separation_group_scans", 0)),
+			"separation_npc_scans": int(_perf_window_accum.get("separation_npc_scans", 0)),
+			"workers_active_avg": float(_perf_window_accum.get("worker_active_count_samples", 0)) / float(workers_frames),
+			"followers_without_task_avg": float(_perf_window_accum.get("followers_without_task_samples", 0)) / float(followers_frames),
+			"assignment_conflicts_total": int(_perf_window_accum.get("assignment_conflicts_total", 0)),
+		},
+		"scan_by_group": scan_by_group.duplicate(true),
+		"scan_by_npc": scan_by_npc.duplicate(true),
+	}
+
+
+func save_perf_baseline_snapshot(label: String) -> Dictionary:
+	var normalized_label: String = label.strip_edges().to_lower()
+	if normalized_label == "":
+		normalized_label = "custom"
+	var snapshot: Dictionary = {
+		"saved_at_unix": Time.get_unix_time_from_system(),
+		"window": get_perf_window_snapshot(),
+	}
+	_perf_baseline_snapshots[normalized_label] = snapshot
+	Debug.log("perf_telemetry", "[BanditBehaviorMetrics][baseline_saved] label=%s payload=%s" % [
+		normalized_label,
+		JSON.stringify(snapshot),
+	])
+	return snapshot
+
+
+func get_perf_baseline_snapshots() -> Dictionary:
+	return _perf_baseline_snapshots.duplicate(true)
