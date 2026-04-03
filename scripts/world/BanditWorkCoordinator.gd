@@ -45,6 +45,9 @@ const DROP_SCAN_ENOUGH_THRESHOLD: int = 10
 const DROP_SCAN_MAX_CANDIDATES_EVAL: int = 40
 const drops_per_npc_per_tick_max: int = 2
 const drops_global_per_pulse_max: int = 18
+const RESERVATION_TIMEOUT_SECONDS: float = 6.0
+const RESERVATION_HEARTBEAT_GRACE_SECONDS: float = 2.5
+const DEPOSIT_SLOT_MODULO: int = 16
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
@@ -64,6 +67,12 @@ var _post_hit_pickup_retry_by_member: Dictionary = {}  # member_id -> retry coun
 var _log_worker_event_cb: Callable = Callable()
 var _is_worker_instrumentation_enabled_cb: Callable = Callable()
 var _instrumentation_enabled: bool = true
+var _resource_reservations: Dictionary = {}  # resource_id -> {member_id, group_id, expires_at, last_heartbeat, target_id}
+var _drop_reservations: Dictionary = {}  # drop_id -> {member_id, group_id, expires_at, last_heartbeat, target_id}
+var _slot_reservations: Dictionary = {}  # slot_id -> {member_id, group_id, expires_at, last_heartbeat, target_id}
+var _reservation_double_bookings_prevented: int = 0
+var _reservation_expired_total: int = 0
+var _reservation_reassignments_total: int = 0
 
 
 func _fmt_pos(value: Vector2) -> String:
@@ -163,9 +172,11 @@ func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, pulse_dro
 	if beh == null:
 		return
 	_work_tick_seq += 1
+	_expire_stale_reservations()
 	if enemy_node == null or not is_instance_valid(enemy_node):
 		_handle_missing_enemy(beh)
 		return
+	_refresh_member_reservations(beh, enemy_node)
 
 	_maybe_drop_carry_on_aggro(beh, enemy_node)
 	_guard_resource_cycle_before_work(beh)
@@ -186,7 +197,159 @@ func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
 	_raid_attack_next_at.erase(beh.member_id)
 	_raid_loot_next_at.erase(beh.member_id)
 	_active_work_cycle_by_member.erase(beh.member_id)
+	_release_member_reservations(beh.member_id, "missing_enemy")
 	_clear_post_hit_continuity(beh)
+
+
+func _refresh_member_reservations(beh: BanditWorldBehavior, enemy_node: Node) -> void:
+	if beh == null:
+		return
+	_release_member_reservations(beh.member_id, "heartbeat_refresh")
+	var now: float = RunClock.now()
+	var member_pos: Vector2 = _effective_work_position(enemy_node)
+	if beh.pending_mine_id != 0:
+		if not is_instance_id_valid(beh.pending_mine_id):
+			beh.pending_mine_id = 0
+			_request_replan(beh, member_pos, "resource_target_disappeared")
+		else:
+			_try_reserve_target(_resource_reservations, str(beh.pending_mine_id), beh, now, "resource")
+	if beh.pending_collect_id != 0:
+		if not is_instance_id_valid(beh.pending_collect_id):
+			beh.pending_collect_id = 0
+			_request_replan(beh, member_pos, "drop_target_disappeared")
+		else:
+			_try_reserve_target(_drop_reservations, str(beh.pending_collect_id), beh, now, "drop")
+	var slot_id: String = _member_slot_key(beh)
+	if slot_id != "":
+		_try_reserve_target(_slot_reservations, slot_id, beh, now, "slot")
+
+
+func _try_reserve_target(reservations: Dictionary, target_id: String, beh: BanditWorldBehavior,
+		now: float, reservation_kind: String) -> bool:
+	if target_id == "" or beh == null:
+		return false
+	var existing: Dictionary = reservations.get(target_id, {}) as Dictionary
+	if not existing.is_empty():
+		var holder_id: String = String(existing.get("member_id", ""))
+		if holder_id != "" and holder_id != beh.member_id:
+			var holder_heartbeat: float = float(existing.get("last_heartbeat", 0.0))
+			var holder_expires_at: float = float(existing.get("expires_at", 0.0))
+			if now <= holder_expires_at and (now - holder_heartbeat) <= RESERVATION_HEARTBEAT_GRACE_SECONDS:
+				_reservation_double_bookings_prevented += 1
+				_request_replan(beh, beh.home_pos, "%s_reserved_by_other" % reservation_kind)
+				if reservation_kind == "resource":
+					beh.pending_mine_id = 0
+				elif reservation_kind == "drop":
+					beh.pending_collect_id = 0
+				return false
+			_reservation_expired_total += 1
+			_reservation_reassignments_total += 1
+	reservations[target_id] = {
+		"member_id": beh.member_id,
+		"group_id": beh.group_id,
+		"target_id": target_id,
+		"last_heartbeat": now,
+		"expires_at": now + RESERVATION_TIMEOUT_SECONDS,
+	}
+	return true
+
+
+func _expire_stale_reservations() -> void:
+	var now: float = RunClock.now()
+	_expire_map_stale(_resource_reservations, now)
+	_expire_map_stale(_drop_reservations, now)
+	_expire_map_stale(_slot_reservations, now)
+
+
+func _expire_map_stale(reservations: Dictionary, now: float) -> void:
+	if reservations.is_empty():
+		return
+	var to_remove: Array = []
+	for key in reservations.keys():
+		var entry: Dictionary = reservations.get(key, {}) as Dictionary
+		if entry.is_empty():
+			to_remove.append(key)
+			continue
+		var expires_at: float = float(entry.get("expires_at", 0.0))
+		var last_heartbeat: float = float(entry.get("last_heartbeat", 0.0))
+		if now > expires_at or (now - last_heartbeat) > RESERVATION_HEARTBEAT_GRACE_SECONDS:
+			to_remove.append(key)
+	for key in to_remove:
+		reservations.erase(key)
+		_reservation_expired_total += 1
+
+
+func _release_member_reservations(member_id: String, _reason: String = "") -> void:
+	if member_id == "":
+		return
+	_release_member_from_map(_resource_reservations, member_id)
+	_release_member_from_map(_drop_reservations, member_id)
+	_release_member_from_map(_slot_reservations, member_id)
+
+
+func _release_member_from_map(reservations: Dictionary, member_id: String) -> void:
+	if reservations.is_empty():
+		return
+	var to_remove: Array = []
+	for key in reservations.keys():
+		var entry: Dictionary = reservations.get(key, {}) as Dictionary
+		if String(entry.get("member_id", "")) == member_id:
+			to_remove.append(key)
+	for key in to_remove:
+		reservations.erase(key)
+
+
+func _request_replan(beh: BanditWorldBehavior, fallback_pos: Vector2, reason: String) -> void:
+	if beh == null:
+		return
+	_reservation_reassignments_total += 1
+	_emit_worker_event("assignment_replan", beh, fallback_pos, "", {
+		"reason": reason,
+		"state": int(beh.state),
+	})
+	if beh.state != NpcWorldBehavior.State.RETURN_HOME:
+		beh.enter_patrol(fallback_pos)
+
+
+func _member_slot_key(beh: BanditWorldBehavior) -> String:
+	if beh == null or beh.group_id == "":
+		return ""
+	if beh.deposit_pos == Vector2.ZERO:
+		return ""
+	if beh.state != NpcWorldBehavior.State.RETURN_HOME and beh.state != NpcWorldBehavior.State.IDLE_AT_HOME:
+		return ""
+	var slot_idx: int = absi(int(hash(beh.member_id))) % DEPOSIT_SLOT_MODULO
+	return "%s:%d" % [beh.group_id, slot_idx]
+
+
+func get_reservation_owner_maps() -> Dictionary:
+	return {
+		"resource_id_to_member_id": _snapshot_owner_map(_resource_reservations),
+		"drop_id_to_member_id": _snapshot_owner_map(_drop_reservations),
+		"slot_id_to_member_id": _snapshot_owner_map(_slot_reservations),
+	}
+
+
+func consume_reservation_conflict_metrics() -> Dictionary:
+	var snapshot: Dictionary = {
+		"double_reservations_avoided": _reservation_double_bookings_prevented,
+		"expired_reservations": _reservation_expired_total,
+		"assignment_replans": _reservation_reassignments_total,
+	}
+	_reservation_double_bookings_prevented = 0
+	_reservation_expired_total = 0
+	_reservation_reassignments_total = 0
+	return snapshot
+
+
+func _snapshot_owner_map(reservations: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for key in reservations.keys():
+		var entry: Dictionary = reservations.get(key, {}) as Dictionary
+		var owner_id: String = String(entry.get("member_id", ""))
+		if owner_id != "":
+			out[key] = owner_id
+	return out
 
 
 func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> void:
