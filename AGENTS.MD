@@ -616,6 +616,30 @@ de modo que el movimiento efectivo ≈ velocidad objetivo del behavior.
 RefCounted. Scanner de inteligencia a nivel de grupo. Ticks cada `SCAN_INTERVAL=8s`.
 Para cada grupo con leader vivo, consulta `SettlementIntel` y actualiza `BanditGroupMemory`.
 
+### `GroupBlackboard` en `BanditGroupMemory` (`scripts/systems/BanditGroupMemory.gd`)
+Memoria compartida por grupo con estructura fija por secciones:
+
+- `perception`: conocimiento efímero compartido (`known_resources`, `known_drops`)
+- `assignments`: espacio reservado para asignaciones compartidas de trabajo
+- `status`: estado agregado (`threat_level`, `leader_id`, `group_mode`)
+- `expirations`: metadatos de vencimiento por rama para trazabilidad
+
+Cada entrada se almacena con contrato TTL explícito:
+`{value, timestamp, expires_at, ttl_seconds, source}`.
+
+**Invalidación:**
+- prune por tiempo en lecturas/escrituras de blackboard.
+- entradas expiradas se eliminan sin tocar lógica de combate/movimiento.
+
+**Wiring pasivo actual (sin cambiar locomoción/combate):**
+- `BanditGroupIntel` escribe `threat_level` y `group_mode` después del scan/policy.
+- `BanditBehaviorLayer` escribe `known_drops` y `known_resources` desde buffers de sensores por tick.
+- eventos de liderazgo (`register/promote/remove`) sincronizan `status.leader_id`.
+
+**Logs de consistencia:**
+- `BanditGroupMemory` emite `[BGM][BB] consistency ...` (rate-limited) para validar
+  que perception/status se llenan con datos compartidos en runtime.
+
 **Flujo:**
 1. `BanditGroupIntel.tick(delta)` llamado desde `BanditBehaviorLayer._process()`
 2. Para cada grupo en `BanditGroupMemory`, si hay leader vivo:
