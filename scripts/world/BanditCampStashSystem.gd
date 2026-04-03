@@ -191,6 +191,99 @@ func _force_clear_cargo_after_deposit(beh: BanditWorldBehavior) -> void:
 	beh.delivery_lock_active = false
 
 
+func _consume_carried_visual_nodes_for_deposit(beh: BanditWorldBehavior,
+		chest_pos: Vector2, animate: bool) -> Dictionary:
+	var result := {
+		"scheduled": 0,
+		"freed": 0,
+		"missing": 0,
+		"sfx": null,
+	}
+	if beh == null or beh._cargo_manifest.is_empty():
+		return result
+	_emit_worker_event("deposit_visual_cleanup_started", beh, chest_pos, "", {
+		"cargo": beh.cargo_count,
+		"animate": animate,
+		"manifest_size": beh._cargo_manifest.size(),
+	})
+	var scene_root: Node = get_tree().current_scene
+	var fall_time: float = BanditTuningScript.cargo_fall_time()
+	var sfx_stagger: float = BanditTuningScript.cargo_sfx_stagger()
+	var cleanup_index: int = 0
+	var one_shot_sfx: AudioStream = null
+	for entry in beh._cargo_manifest:
+		if not (entry is Dictionary):
+			continue
+		var data := entry as Dictionary
+		var node_id: int = int(data.get("node_id", 0))
+		if node_id == 0 or not is_instance_id_valid(node_id):
+			result["missing"] = int(result.get("missing", 0)) + 1
+			_emit_worker_event("deposit_visual_node_missing", beh, chest_pos, "", {
+				"reason": "invalid_node_id",
+				"node_id": node_id,
+			})
+			continue
+		var obj := instance_from_id(node_id)
+		if obj == null or not is_instance_valid(obj) or not (obj is ItemDrop):
+			result["missing"] = int(result.get("missing", 0)) + 1
+			_emit_worker_event("deposit_visual_node_missing", beh, chest_pos, "", {
+				"reason": "missing_or_not_item_drop",
+				"node_id": node_id,
+			})
+			continue
+		var drop_node := obj as ItemDrop
+		if drop_node.is_queued_for_deletion():
+			result["missing"] = int(result.get("missing", 0)) + 1
+			_emit_worker_event("deposit_visual_node_missing", beh, chest_pos, "", {
+				"reason": "already_queued_for_deletion",
+				"node_id": node_id,
+			})
+			continue
+		if one_shot_sfx == null:
+			one_shot_sfx = drop_node.get("pickup_sfx") as AudioStream
+		if not animate:
+			drop_node.queue_free()
+			result["freed"] = int(result.get("freed", 0)) + 1
+			_emit_worker_event("deposit_visual_node_freed", beh, chest_pos, "", {
+				"mode": "instant",
+				"node_id": node_id,
+			})
+			continue
+		var carry_pos := drop_node.global_position
+		if scene_root != null and drop_node.get_parent() != scene_root:
+			drop_node.reparent(scene_root, false)
+		drop_node.global_position = carry_pos
+		var offset := Vector2(randf_range(-8.0, 8.0), randf_range(-4.0, 4.0))
+		var target_pos := chest_pos + offset
+		var tw := create_tween()
+		tw.tween_property(drop_node, "global_position", target_pos, fall_time) \
+			.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		var cap_drop := drop_node
+		var cap_node_id := node_id
+		var cap_pos := chest_pos
+		var free_delay := fall_time + float(cleanup_index) * sfx_stagger
+		cleanup_index += 1
+		result["scheduled"] = int(result.get("scheduled", 0)) + 1
+		get_tree().create_timer(free_delay).timeout.connect(func() -> void:
+			if not is_instance_valid(cap_drop) or cap_drop.is_queued_for_deletion():
+				return
+			cap_drop.queue_free()
+			_emit_worker_event("deposit_visual_node_freed", beh, cap_pos, "", {
+				"mode": "animated",
+				"node_id": cap_node_id,
+			})
+		)
+	if one_shot_sfx != null:
+		result["sfx"] = one_shot_sfx
+	_emit_worker_event("deposit_visual_cleanup_complete", beh, chest_pos, "", {
+		"scheduled": int(result.get("scheduled", 0)),
+		"freed": int(result.get("freed", 0)),
+		"missing": int(result.get("missing", 0)),
+		"animate": animate,
+	})
+	return result
+
+
 func _is_drop_pressure_stage_6(beh: BanditWorldBehavior) -> bool:
 	var snapshot := _get_drop_pressure_snapshot()
 	if int(snapshot.get("drop_pressure_stage", 0)) >= DROP_PRESSURE_STAGE_COMPACT:
@@ -463,21 +556,16 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 		deposit_compact_path_hits += 1
 		_debug_compact_hits_in_pulse += 1
 		var batches: Dictionary = {}
-		var one_shot_sfx: AudioStream = null
 		for i in beh._cargo_manifest.size():
 			var entry: Dictionary = beh._cargo_manifest[i]
-			var node_id: int = int(entry.get("node_id", 0))
 			var item_id: String = String(entry.get("item_id", ""))
 			var amount: int = int(entry.get("amount", 1))
 			if item_id == "" or amount <= 0:
 				continue
 			batches[item_id] = int(batches.get(item_id, 0)) + amount
-			if one_shot_sfx == null and node_id != 0 and is_instance_id_valid(node_id):
-				var obj := instance_from_id(node_id) as ItemDrop
-				if obj != null and is_instance_valid(obj) and not obj.is_queued_for_deletion():
-					one_shot_sfx = obj.get("pickup_sfx") as AudioStream
 		var fallback_batches: Array = []
 		var inserted_any: bool = false
+		var inserted_total: int = 0
 		for item_id in batches.keys():
 			var packed_amount: int = int(batches.get(item_id, 0))
 			if packed_amount <= 0:
@@ -487,12 +575,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			var source_used: String = String(ins_res.get("source", target_source))
 			if inserted > 0:
 				inserted_any = true
-				_force_clear_cargo_after_deposit(beh)
-				_emit_worker_event("deposit_success", beh, spawn_pos, String(item_id), {
-					"amount": inserted,
-					"source": source_used,
-				})
-				_clear_deposit_attempt_queue(beh)
+				inserted_total += inserted
 			var leftover: int = maxi(0, packed_amount - inserted)
 			if leftover > 0:
 				fallback_batches.append({
@@ -500,8 +583,8 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 					"amount": leftover,
 					"source": source_used,
 				})
-		if inserted_any and one_shot_sfx != null:
-			AudioSystem.play_2d(one_shot_sfx, spawn_pos, null, &"SFX")
+		var unresolved_fallback: bool = false
+		var fallback_dropped_any: bool = false
 		for fallback_entry in fallback_batches:
 			var fallback_item_id: String = String(fallback_entry.get("item_id", ""))
 			var fallback_amount: int = int(fallback_entry.get("amount", 0))
@@ -511,6 +594,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			if ITEM_DROP_SCENE != null:
 				fallback_drop = ITEM_DROP_SCENE.instantiate() as ItemDrop
 				if fallback_drop == null:
+					unresolved_fallback = true
 					_emit_worker_event("cargo_not_returning", beh, spawn_pos, fallback_item_id, {
 						"reason": "deposit_blocked",
 						"cause": "stash_full",
@@ -526,14 +610,51 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			fallback_drop.set_deferred("monitoring", true)
 			fallback_drop.set_process(true)
 			fallback_drop.add_to_group("item_drop")
+			fallback_dropped_any = true
 			_emit_worker_event("cargo_not_returning", beh, spawn_pos, fallback_item_id, {
 				"reason": "deposit_blocked",
 				"cause": "stash_full",
 				"source": String(fallback_entry.get("source", target_source)),
 			})
-		_close_deposit(beh, spawn_pos, target_source, "deposit_closed")
+		var has_visualized_resolution: bool = inserted_any or fallback_dropped_any
+		if not has_visualized_resolution or unresolved_fallback:
+			_emit_worker_event("deposit_retry", beh, spawn_pos, "", {
+				"cause": "compact_unresolved",
+				"source": target_source,
+				"inserted_total": inserted_total,
+				"fallback_batches": fallback_batches.size(),
+				"unresolved_fallback": unresolved_fallback,
+			})
+			_set_deposit_lock(beh, spawn_pos, "deposit_lock_retry", {
+				"cause": "compact_unresolved",
+				"source": target_source,
+			})
+			beh._just_arrived_home_with_cargo = true
+			beh.force_return_home()
+			return
+		var visual_cleanup := _consume_carried_visual_nodes_for_deposit(beh, land_target, true)
+		var one_shot_sfx: AudioStream = visual_cleanup.get("sfx", null) as AudioStream
+		if one_shot_sfx != null:
+			AudioSystem.play_2d(one_shot_sfx, spawn_pos, null, &"SFX")
+		_force_clear_cargo_after_deposit(beh)
+		if inserted_any:
+			_emit_worker_event("deposit_success_logical", beh, spawn_pos, "", {
+				"inserted_total": inserted_total,
+				"source": target_source,
+			})
+			_emit_worker_event("deposit_success", beh, spawn_pos, "", {
+				"amount": inserted_total,
+				"source": target_source,
+			})
+		_emit_worker_event("deposit_success_visual", beh, spawn_pos, "", {
+			"scheduled": int(visual_cleanup.get("scheduled", 0)),
+			"freed": int(visual_cleanup.get("freed", 0)),
+			"missing": int(visual_cleanup.get("missing", 0)),
+		})
+		_clear_deposit_attempt_queue(beh)
 		Debug.log("bandit_ai", "[CampStash] cargo depositado id=%s pos=%s chest=%s compact=true" % [
 			beh.member_id, str(spawn_pos), str(chest != null)])
+		_close_deposit(beh, spawn_pos, target_source, "deposit_closed")
 		return
 
 	if not ENABLE_LEGACY_DETAILED_DEPOSIT_PATH:
