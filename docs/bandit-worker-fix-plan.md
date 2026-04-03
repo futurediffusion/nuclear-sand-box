@@ -9,6 +9,12 @@ Restaurar el ciclo worker bandido sin **big rewrite**, con ejecución incrementa
 - Cada fase cierra con evidencia medible en logs/telemetría.
 - Si una fase falla su gate, se revierte **solo esa fase** y no el plan completo.
 
+## Gobernanza de alcance (AI Squad Refactor)
+- **Regla de trabajo:** no añadir nuevos comportamientos de NPC fuera del roadmap de migración de este plan por fases.
+- Toda feature nueva de NPC que no corresponda a la fase activa se clasifica como **backlog** y no se implementa en el mismo PR.
+- Cada PR debe incluir el checklist obligatorio: **“¿Este cambio pertenece a una fase activa del refactor?”**.
+- Criterio de salida de fase obligatorio: baseline de rendimiento **medido y documentado** (before/after) para la métrica principal de la fase.
+
 ## Evidencia mínima transversal (todas las fases)
 - Log estructurado por worker y etapa (`worker_id`, `group_id`, `phase`, `event`, `reason`, `tick`).
 - Escena/escenario de prueba repetible con múltiples NPCs (mínimo 5 workers simultáneos).
