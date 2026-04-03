@@ -34,6 +34,7 @@ const RAID_LOOT_RANGE_SQ: float = 76.0 * 76.0
 const RAID_TARGET_SEARCH_RADIUS: float = 180.0
 const RAID_ATTACK_COOLDOWN: float = 0.45
 const RAID_LOOT_COOLDOWN: float = 1.10
+const ASSAULT_CONTEXT_TTL_SECONDS: float = 0.20
 const RAID_ANCHOR_FALLBACK_HIT_RANGE_SQ: float = 112.0 * 112.0
 const RAID_LOCAL_WALL_PROBE_RADIUS: float = 180.0
 const RAID_LOCAL_WALL_STRIKE_RANGE_SQ: float = 164.0 * 164.0
@@ -76,6 +77,14 @@ var _reservation_expired_total: int = 0
 var _reservation_reassignments_total: int = 0
 var _last_leader_id_by_group: Dictionary = {}
 var _last_group_mode_by_group: Dictionary = {}
+var _assault_context_cache_by_group: Dictionary = {}  # group_id -> context snapshot
+var _assault_context_build_ms_total: float = 0.0
+var _assault_context_build_count: int = 0
+var _assault_context_hits: int = 0
+var _assault_per_npc_before_ms_total: float = 0.0
+var _assault_per_npc_before_count: int = 0
+var _assault_per_npc_after_ms_total: float = 0.0
+var _assault_per_npc_after_count: int = 0
 
 
 func _fmt_pos(value: Vector2) -> String:
@@ -245,6 +254,8 @@ func _handle_missing_enemy(beh: BanditWorldBehavior) -> void:
 	_raid_attack_next_at.erase(beh.member_id)
 	_raid_loot_next_at.erase(beh.member_id)
 	_active_work_cycle_by_member.erase(beh.member_id)
+	if beh.group_id != "":
+		_assault_context_cache_by_group.erase(beh.group_id)
 	_release_member_reservations(beh.member_id, "missing_enemy")
 	_emit_group_event("member_died", beh, {"reason": "missing_enemy_runtime"})
 	_clear_post_hit_continuity(beh)
@@ -388,10 +399,27 @@ func consume_reservation_conflict_metrics() -> Dictionary:
 		"double_reservations_avoided": _reservation_double_bookings_prevented,
 		"expired_reservations": _reservation_expired_total,
 		"assignment_replans": _reservation_reassignments_total,
+		"assault_context_build_ms": _assault_context_build_ms_total,
+		"assault_context_hits": _assault_context_hits,
+		"assault_per_npc_ms_before_after": {
+			"before_total_ms": _assault_per_npc_before_ms_total,
+			"before_calls": _assault_per_npc_before_count,
+			"before_avg_ms": _assault_per_npc_before_ms_total / float(maxi(_assault_per_npc_before_count, 1)),
+			"after_total_ms": _assault_per_npc_after_ms_total,
+			"after_calls": _assault_per_npc_after_count,
+			"after_avg_ms": _assault_per_npc_after_ms_total / float(maxi(_assault_per_npc_after_count, 1)),
+		},
 	}
 	_reservation_double_bookings_prevented = 0
 	_reservation_expired_total = 0
 	_reservation_reassignments_total = 0
+	_assault_context_build_ms_total = 0.0
+	_assault_context_build_count = 0
+	_assault_context_hits = 0
+	_assault_per_npc_before_ms_total = 0.0
+	_assault_per_npc_before_count = 0
+	_assault_per_npc_after_ms_total = 0.0
+	_assault_per_npc_after_count = 0
 	return snapshot
 
 
@@ -612,25 +640,28 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 	if beh.group_id == "":
 		return
 
+	var assault_start_us: int = Time.get_ticks_usec()
 	var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
 	if g.is_empty():
 		return
 	var intent: String = String(g.get("current_group_intent", ""))
 	var assault_active: bool = BanditGroupMemory.is_structure_assault_active(beh.group_id)
-	var has_raid_context: bool = assault_active \
-			or intent == "raiding" \
-			or BanditGroupMemory.has_placement_react_lock(beh.group_id)
 
-	var group_anchor: Vector2 = _resolve_assault_anchor(beh.group_id, g)
-	var member_anchor: Vector2 = _resolve_member_assault_anchor(beh, group_anchor)
-	if not _is_valid_target(member_anchor) and not _is_valid_target(group_anchor):
+	var member_anchor: Vector2 = _resolve_member_assault_anchor(beh, INVALID_TARGET)
+	var assault_ctx: Dictionary = _get_or_build_assault_context(beh.group_id, g, member_anchor)
+	var has_raid_context: bool = bool(assault_ctx.get("has_raid_context", false))
+	var group_anchor: Vector2 = assault_ctx.get("group_anchor", INVALID_TARGET) as Vector2
+	var resolved_member_anchor: Vector2 = assault_ctx.get("member_anchor", INVALID_TARGET) as Vector2
+	if not _is_valid_target(resolved_member_anchor) and not _is_valid_target(group_anchor):
 		_emit_worker_event("per_npc_structure_query_skipped_due_to_no_target", beh, _effective_work_position(enemy_node), "", {
 			"reason": "missing_group_and_member_anchor",
 			"structure_assault_active": assault_active,
 			"group_intent": intent,
 		})
+		_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+		_assault_per_npc_after_count += 1
 		return
-	var attack_anchor: Vector2 = member_anchor if _is_valid_target(member_anchor) else group_anchor
+	var attack_anchor: Vector2 = resolved_member_anchor if _is_valid_target(resolved_member_anchor) else group_anchor
 
 	var enemy_pos: Vector2 = _effective_work_position(enemy_node)
 	if not _is_valid_target(attack_anchor):
@@ -638,29 +669,40 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 	elif has_raid_context:
 		var engaged_by_group: bool = _is_valid_target(group_anchor) \
 				and enemy_pos.distance_squared_to(group_anchor) <= RAID_ENGAGE_RADIUS_SQ
-		var engaged_by_member: bool = _is_valid_target(member_anchor) \
-				and enemy_pos.distance_squared_to(member_anchor) <= RAID_ENGAGE_RADIUS_SQ
+		var engaged_by_member: bool = _is_valid_target(resolved_member_anchor) \
+				and enemy_pos.distance_squared_to(resolved_member_anchor) <= RAID_ENGAGE_RADIUS_SQ
 		if not engaged_by_group and not engaged_by_member:
+			_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+			_assault_per_npc_after_count += 1
 			return
 	else:
 		var local_leash_sq: float = RAID_TARGET_SEARCH_RADIUS * RAID_TARGET_SEARCH_RADIUS
 		if enemy_pos.distance_squared_to(attack_anchor) > local_leash_sq:
+			_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+			_assault_per_npc_after_count += 1
 			return
 
 	var now: float = RunClock.now()
 	var member_id: String = beh.member_id
 
 	if now >= float(_raid_loot_next_at.get(member_id, 0.0)):
-		var looted: bool = _try_loot_nearby_container(beh, enemy_node, attack_anchor, enemy_pos)
+		var looted: bool = _try_loot_nearby_container(beh, enemy_node, attack_anchor, enemy_pos, assault_ctx)
 		if looted:
 			_raid_loot_next_at[member_id] = now + RAID_LOOT_COOLDOWN
 			_raid_attack_next_at[member_id] = now + RAID_ATTACK_COOLDOWN
+			_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+			_assault_per_npc_after_count += 1
 			return
 
 	if now < float(_raid_attack_next_at.get(member_id, 0.0)):
+		_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+		_assault_per_npc_after_count += 1
 		return
 
-	var target: Dictionary = _resolve_structure_attack_target(attack_anchor, enemy_pos)
+	var target: Dictionary = _resolve_structure_attack_target(attack_anchor, enemy_pos, assault_ctx)
+	if target.is_empty() and not assault_ctx.is_empty():
+		# Safe fallback: if cached context got stale/invalid mid-tick, recompute once.
+		target = _resolve_structure_attack_target(attack_anchor, enemy_pos, {})
 	if target.is_empty():
 		_emit_group_event("target_invalidated", beh, {"reason": "assault_target_empty", "world_pos": attack_anchor})
 		# Fallback: si estamos pegados al ancla de asalto y no hay target resoluble,
@@ -691,9 +733,13 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 			Debug.log("raid", "[BWC] structure no-target → return home with cargo npc=%s group=%s cargo=%d" % [
 				beh.member_id, beh.group_id, beh.cargo_count
 			])
+		_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+		_assault_per_npc_after_count += 1
 		return
 	var target_pos: Vector2 = target.get("pos", INVALID_TARGET) as Vector2
 	if not _is_valid_target(target_pos):
+		_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+		_assault_per_npc_after_count += 1
 		return
 	if enemy_pos.distance_squared_to(target_pos) > RAID_ATTACK_RANGE_SQ:
 		_try_local_wall_strike(
@@ -705,6 +751,8 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 			now,
 			member_id
 		)
+		_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+		_assault_per_npc_after_count += 1
 		return
 
 	var attacked: bool = false
@@ -729,6 +777,8 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 				now,
 				member_id
 			)
+		_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+		_assault_per_npc_after_count += 1
 		return
 
 	_trigger_wall_melee_animation(enemy_node, target_pos)
@@ -736,6 +786,54 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 	Debug.log("raid", "[BWC] structure hit npc=%s group=%s kind=%s pos=%s" % [
 		beh.member_id, beh.group_id, target_kind, str(target_pos)
 	])
+	_assault_per_npc_after_ms_total += float(Time.get_ticks_usec() - assault_start_us) / 1000.0
+	_assault_per_npc_after_count += 1
+
+
+func _get_or_build_assault_context(group_id: String, g: Dictionary, member_anchor: Vector2) -> Dictionary:
+	var now: float = RunClock.now()
+	var cached: Dictionary = _assault_context_cache_by_group.get(group_id, {}) as Dictionary
+	var group_anchor: Vector2 = _resolve_assault_anchor(group_id, g)
+	var should_build: bool = true
+	if not cached.is_empty():
+		var expires_at: float = float(cached.get("expires_at", 0.0))
+		var cache_anchor: Vector2 = cached.get("group_anchor", INVALID_TARGET) as Vector2
+		if now <= expires_at and cache_anchor == group_anchor:
+			should_build = false
+	if should_build:
+		var build_start_us: int = Time.get_ticks_usec()
+		var built: Dictionary = _build_assault_context(group_id, g, group_anchor, member_anchor, now)
+		_assault_context_cache_by_group[group_id] = built
+		_assault_context_build_ms_total += float(Time.get_ticks_usec() - build_start_us) / 1000.0
+		_assault_context_build_count += 1
+		_assault_per_npc_before_ms_total += float(Time.get_ticks_usec() - build_start_us) / 1000.0
+		_assault_per_npc_before_count += 1
+		return built
+	_assault_context_hits += 1
+	cached["member_anchor"] = member_anchor if _is_valid_target(member_anchor) else (cached.get("group_anchor", INVALID_TARGET) as Vector2)
+	_assault_context_cache_by_group[group_id] = cached
+	return cached
+
+
+func _build_assault_context(group_id: String, g: Dictionary, group_anchor: Vector2,
+		member_anchor: Vector2, now: float) -> Dictionary:
+	var intent: String = String(g.get("current_group_intent", ""))
+	var assault_active: bool = BanditGroupMemory.is_structure_assault_active(group_id)
+	var has_raid_context: bool = assault_active \
+			or intent == "raiding" \
+			or BanditGroupMemory.has_placement_react_lock(group_id)
+	var attack_anchor: Vector2 = member_anchor if _is_valid_target(member_anchor) else group_anchor
+
+	var target: Dictionary = _resolve_structure_attack_target(attack_anchor, attack_anchor, {})
+	var container: ContainerPlaceable = _find_nearest_raidable_container(attack_anchor, attack_anchor, {})
+	return {
+		"expires_at": now + ASSAULT_CONTEXT_TTL_SECONDS,
+		"group_anchor": group_anchor,
+		"member_anchor": member_anchor if _is_valid_target(member_anchor) else group_anchor,
+		"has_raid_context": has_raid_context,
+		"target": target,
+		"container": container,
+	}
 
 
 func _resolve_assault_anchor(group_id: String, g: Dictionary) -> Vector2:
@@ -764,7 +862,19 @@ func _resolve_member_assault_anchor(beh: BanditWorldBehavior, group_anchor: Vect
 	return group_anchor if _is_valid_target(group_anchor) else INVALID_TARGET
 
 
-func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector2) -> Dictionary:
+func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector2,
+		assault_context: Dictionary = {}) -> Dictionary:
+	if not assault_context.is_empty():
+		var cached: Dictionary = assault_context.get("target", {}) as Dictionary
+		var cached_kind: String = String(cached.get("kind", ""))
+		if cached_kind == "placeable":
+			var cached_node: Node = cached.get("node") as Node
+			if cached_node != null and is_instance_valid(cached_node) and not cached_node.is_queued_for_deletion():
+				return cached
+		elif cached_kind == "wall":
+			var cached_pos: Vector2 = cached.get("pos", INVALID_TARGET) as Vector2
+			if _is_valid_target(cached_pos):
+				return cached
 	var query_ctx: Dictionary = {
 		"intent": "raiding",
 		"stage": "assault_member_target",
@@ -779,7 +889,7 @@ func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector
 	for center in search_centers:
 		if not _is_valid_target(center):
 			continue
-		placeable_node = _find_nearest_player_structure_node(enemy_pos, center)
+		placeable_node = _find_nearest_player_structure_node(enemy_pos, center, assault_context)
 		if placeable_node != null:
 			break
 	var placeable_pos: Vector2 = placeable_node.global_position if placeable_node != null else INVALID_TARGET
@@ -821,11 +931,11 @@ func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector
 
 
 func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
-		assault_anchor: Vector2, enemy_pos: Vector2) -> bool:
+		assault_anchor: Vector2, enemy_pos: Vector2, assault_context: Dictionary = {}) -> bool:
 	if beh.is_cargo_full():
 		return false
 
-	var container: ContainerPlaceable = _find_nearest_raidable_container(enemy_pos, assault_anchor)
+	var container: ContainerPlaceable = _find_nearest_raidable_container(enemy_pos, assault_anchor, assault_context)
 	if container == null:
 		return false
 
@@ -1122,7 +1232,12 @@ func get_cycle_debug_stats() -> Dictionary:
 	}
 
 
-func _find_nearest_raidable_container(enemy_pos: Vector2, assault_anchor: Vector2) -> ContainerPlaceable:
+func _find_nearest_raidable_container(enemy_pos: Vector2, assault_anchor: Vector2,
+		assault_context: Dictionary = {}) -> ContainerPlaceable:
+	if not assault_context.is_empty():
+		var cached: ContainerPlaceable = assault_context.get("container") as ContainerPlaceable
+		if _is_valid_raid_container(cached):
+			return cached
 	var best: ContainerPlaceable = null
 	var best_dsq: float = INF
 	var search_centers: Array[Vector2] = [assault_anchor]
@@ -1192,7 +1307,14 @@ func _is_valid_raid_container(container: ContainerPlaceable) -> bool:
 	return true
 
 
-func _find_nearest_player_structure_node(enemy_pos: Vector2, assault_anchor: Vector2) -> Node2D:
+func _find_nearest_player_structure_node(enemy_pos: Vector2, assault_anchor: Vector2,
+		assault_context: Dictionary = {}) -> Node2D:
+	if not assault_context.is_empty():
+		var cached_target: Dictionary = assault_context.get("target", {}) as Dictionary
+		if String(cached_target.get("kind", "")) == "placeable":
+			var cached_node: Node2D = cached_target.get("node") as Node2D
+			if _is_player_structure_node(cached_node):
+				return cached_node
 	var best: Node2D = null
 	var best_dsq: float = INF
 	var max_search_sq: float = RAID_TARGET_SEARCH_RADIUS * RAID_TARGET_SEARCH_RADIUS
