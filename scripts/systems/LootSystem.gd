@@ -1,6 +1,11 @@
 extends Node
 
 const SCATTER_MODE_PROP_RADIAL_SHORT := "prop_radial_short"
+const DROP_PRESSURE_NORMAL: StringName = &"normal"
+const DROP_PRESSURE_HIGH: StringName = &"high"
+const DROP_PRESSURE_CRITICAL: StringName = &"critical"
+const CRITICAL_SOURCE_MERGE_RADIUS: float = 14.0
+const CRITICAL_SOURCE_MERGE_WINDOW_SEC: float = 0.25
 const PROP_RADIAL_SHORT_PROFILE := {
 	"scatter_min_distance": 12.0,
 	"scatter_max_distance": 30.0,
@@ -10,6 +15,28 @@ const PROP_RADIAL_SHORT_PROFILE := {
 	"scatter_max_arc_height": 16.0,
 	"scatter_spawn_jitter": 3.0,
 }
+
+var _drop_pressure_snapshot: Dictionary = {
+	"level": String(DROP_PRESSURE_NORMAL),
+	"item_drop_count": 0,
+	"drop_pressure_stage": 0,
+}
+
+func set_drop_pressure_snapshot(snapshot: Dictionary) -> void:
+	_drop_pressure_snapshot = snapshot.duplicate(true)
+
+
+func get_drop_pressure_snapshot() -> Dictionary:
+	return _drop_pressure_snapshot.duplicate(true)
+
+
+func is_drop_pressure_high() -> bool:
+	return String(_drop_pressure_snapshot.get("level", String(DROP_PRESSURE_NORMAL))) == String(DROP_PRESSURE_HIGH)
+
+
+func is_drop_pressure_critical() -> bool:
+	return String(_drop_pressure_snapshot.get("level", String(DROP_PRESSURE_NORMAL))) == String(DROP_PRESSURE_CRITICAL)
+
 
 func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, parent: Node, overrides: Dictionary = {}, source_uid: String = "") -> Node:
 	var resolved_item_data: ItemData = item
@@ -35,6 +62,12 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 		target_parent = get_tree().current_scene
 	if target_parent == null:
 		target_parent = get_tree().root
+	if is_drop_pressure_critical():
+		var merged_drop := _try_merge_from_source_in_critical(target_parent, resolved_id, amount, origin, source_uid)
+		if merged_drop != null:
+			if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
+				GameEvents.emit_loot_spawned(resolved_id, amount, origin, source_uid)
+			return merged_drop
 
 	var drop := scene.instantiate()
 	if drop == null:
@@ -58,8 +91,15 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 			item_drop.pickup_sfx = pickup_sfx_override
 		elif resolved_item_data != null and resolved_item_data.pickup_sfx != null:
 			item_drop.pickup_sfx = resolved_item_data.pickup_sfx
+		_apply_pressure_ttl_if_supported(item_drop)
 
 	target_parent.add_child(drop)
+	if drop is ItemDrop and is_drop_pressure_critical():
+		var source_key: String = _normalize_source_uid(source_uid)
+		if source_key == "":
+			source_key = "%s@%d,%d" % [resolved_id, int(round(origin.x)), int(round(origin.y))]
+		(drop as ItemDrop).set_meta("source_spawn_key", source_key)
+		(drop as ItemDrop).set_meta("source_spawn_t", float(Time.get_ticks_msec()) / 1000.0)
 	_apply_drop_spawn_motion(drop, origin, overrides)
 
 	print("[LootSystem] spawned drop item_id=", resolved_id, " amount=", amount)
@@ -120,3 +160,55 @@ func _resolve_scatter_profile(overrides: Dictionary) -> Dictionary:
 		if overrides.has(key):
 			profile[key] = overrides[key]
 	return profile
+
+
+func _apply_pressure_ttl_if_supported(item_drop: ItemDrop) -> void:
+	if item_drop == null or not is_drop_pressure_high():
+		return
+	var snapshot := get_drop_pressure_snapshot()
+	var ttl_sec: float = float(snapshot.get("high_orphan_ttl_sec", 0.0))
+	if ttl_sec <= 0.0:
+		return
+	if item_drop.has_method("set_orphan_ttl"):
+		item_drop.call("set_orphan_ttl", ttl_sec)
+	elif item_drop.get("orphan_ttl_sec") != null:
+		item_drop.set("orphan_ttl_sec", ttl_sec)
+	elif item_drop.get("max_lifetime_sec") != null:
+		item_drop.set("max_lifetime_sec", ttl_sec)
+
+
+func _normalize_source_uid(source_uid: String) -> String:
+	var uid := source_uid.strip_edges()
+	if uid == "":
+		return ""
+	var regex := RegEx.new()
+	var err: int = regex.compile("_\\d+$")
+	if err != OK:
+		return uid
+	return regex.sub(uid, "", true)
+
+
+func _try_merge_from_source_in_critical(parent: Node, item_id: String, amount: int, origin: Vector2, source_uid: String) -> ItemDrop:
+	if parent == null or item_id.strip_edges() == "" or amount <= 0:
+		return null
+	var source_key: String = _normalize_source_uid(source_uid)
+	if source_key == "":
+		source_key = "%s@%d,%d" % [item_id, int(round(origin.x)), int(round(origin.y))]
+	var now_sec: float = float(Time.get_ticks_msec()) / 1000.0
+	var radius_sq: float = CRITICAL_SOURCE_MERGE_RADIUS * CRITICAL_SOURCE_MERGE_RADIUS
+	for child in parent.get_children():
+		var drop := child as ItemDrop
+		if drop == null or not is_instance_valid(drop) or drop.is_queued_for_deletion():
+			continue
+		if String(drop.item_id) != item_id:
+			continue
+		if String(drop.get_meta("source_spawn_key", "")) != source_key:
+			continue
+		if drop.global_position.distance_squared_to(origin) > radius_sq:
+			continue
+		var created_at_sec: float = float(drop.get_meta("source_spawn_t", now_sec))
+		if absf(now_sec - created_at_sec) > CRITICAL_SOURCE_MERGE_WINDOW_SEC:
+			continue
+		drop.amount = maxi(0, int(drop.amount)) + amount
+		return drop
+	return null
