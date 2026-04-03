@@ -37,11 +37,14 @@ const DEPOSIT_TARGET_MAX_DIST_SQ: float = 180.0 * 180.0
 const ENABLE_SECONDARY_DEPOSIT_FALLBACK: bool = false
 const drops_per_npc_per_tick_max: int = 2
 const drops_global_per_pulse_max: int = 18
+const COMPACT_DEPOSIT_MANIFEST_THRESHOLD: int = 8
+const DROP_PRESSURE_STAGE_COMPACT: int = 6
 
 # group_id (String) -> instance_id (int) del barrel físico (runtime-only, no persisted)
 var _camp_barrels: Dictionary = {}
 var _pending_deposit_attempts_by_member: Dictionary = {}
 var _method_caps: MethodCapabilityCache = MethodCapabilityCacheScript.new()
+var deposit_compact_path_hits: int = 0
 
 # Callable(group_id: String, barrel_pos: Vector2) -> void
 # Implementado por BanditBehaviorLayer para propagar deposit_pos a los behaviors.
@@ -146,6 +149,72 @@ func _force_clear_cargo_after_deposit(beh: BanditWorldBehavior) -> void:
 		return
 	beh.cargo_count = 0
 	beh._cargo_manifest.clear()
+
+
+func _is_drop_pressure_stage_6(beh: BanditWorldBehavior) -> bool:
+	if beh == null or beh.group_id == "":
+		return false
+	var g: Dictionary = BanditGroupMemory.get_group(beh.group_id)
+	if g.is_empty():
+		return false
+	for key in [
+		"drop_pressure_stage",
+		"drops_pressure_stage",
+		"drop_scan_pressure_stage",
+		"drop_pressure_level",
+		"drops_pressure_level",
+	]:
+		if int(g.get(String(key), 0)) >= DROP_PRESSURE_STAGE_COMPACT:
+			return true
+	return false
+
+
+func _insert_into_group_barrels(beh: BanditWorldBehavior, spawn_pos: Vector2, target_source: String,
+		chest: Node, item_id: String, amount: int) -> Dictionary:
+	var result := {
+		"inserted": 0,
+		"source": target_source,
+	}
+	if chest != null:
+		var inserted := int(chest.call("try_insert_item", item_id, amount))
+		if inserted > 0:
+			result["inserted"] = inserted
+			result["source"] = target_source
+			return result
+	if beh.group_id != "":
+		for gid in _camp_barrels.keys():
+			if not String(gid).begins_with(beh.group_id) or String(gid) == beh.group_id:
+				continue
+			var bid: int = int(_camp_barrels[gid])
+			if bid == 0 or not is_instance_id_valid(bid):
+				continue
+			var bn2 := instance_from_id(bid) as Node
+			if bn2 == null or not is_instance_valid(bn2) \
+					or not _method_caps.has_method_cached(bn2, &"try_insert_item"):
+				continue
+			var ins2 := int(bn2.call("try_insert_item", item_id, amount))
+			if ins2 > 0:
+				_camp_barrels[beh.group_id] = bid
+				_notify_deposit_pos(beh.group_id, (bn2 as Node2D).global_position)
+				result["inserted"] = ins2
+				result["source"] = "extra_barrel_retarget"
+				return result
+		var col: int = 0
+		for gid in _camp_barrels:
+			if String(gid).begins_with(beh.group_id):
+				col += 1
+		var new_barrel := _spawn_camp_barrel(spawn_pos, col)
+		if new_barrel != null:
+			var nrid: int = new_barrel.get_instance_id()
+			_camp_barrels[beh.group_id + "_extra_%d" % col] = nrid
+			_camp_barrels[beh.group_id] = nrid
+			_notify_deposit_pos(beh.group_id, (new_barrel as Node2D).global_position)
+			var inserted_new: int = int(new_barrel.call("try_insert_item", item_id, amount))
+			result["inserted"] = inserted_new
+			result["source"] = "extra_barrel_spawn"
+			return result
+	result["inserted"] = 0
+	return result
 
 
 func _close_deposit(beh: BanditWorldBehavior, spawn_pos: Vector2,
@@ -261,6 +330,86 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 
 	var fall_time:   float = BanditTuningScript.cargo_fall_time()
 	var sfx_stagger: float = BanditTuningScript.cargo_sfx_stagger()
+	var compact_mode: bool = beh._cargo_manifest.size() > COMPACT_DEPOSIT_MANIFEST_THRESHOLD \
+			or _is_drop_pressure_stage_6(beh)
+	if compact_mode:
+		deposit_compact_path_hits += 1
+		var batches: Dictionary = {}
+		var item_inserted: Dictionary = {}
+		var item_source: Dictionary = {}
+		var drop_nodes: Array[ItemDrop] = []
+		var one_shot_sfx: AudioStream = null
+		for i in beh._cargo_manifest.size():
+			var entry: Dictionary = beh._cargo_manifest[i]
+			var node_id: int = int(entry.get("node_id", 0))
+			var item_id: String = String(entry.get("item_id", ""))
+			var amount: int = int(entry.get("amount", 1))
+			var orig_layer: int = int(entry.get("orig_layer", 4))
+			if item_id == "" or amount <= 0:
+				continue
+			batches[item_id] = int(batches.get(item_id, 0)) + amount
+			var drop_node: ItemDrop = null
+			if node_id != 0 and is_instance_id_valid(node_id):
+				var obj := instance_from_id(node_id)
+				if obj != null and is_instance_valid(obj) \
+						and not (obj as Node).is_queued_for_deletion():
+					drop_node = obj as ItemDrop
+			if drop_node == null and ITEM_DROP_SCENE != null:
+				drop_node = ITEM_DROP_SCENE.instantiate() as ItemDrop
+				if drop_node != null:
+					drop_node.item_id = item_id
+					drop_node.amount = amount
+					get_tree().current_scene.add_child(drop_node)
+					drop_node.global_position = spawn_pos + Vector2(0.0, CARRY_STACK_BASE_Y - i * CARRY_STACK_STEP_Y)
+			if drop_node == null:
+				continue
+			drop_nodes.append(drop_node)
+			if one_shot_sfx == null:
+				one_shot_sfx = drop_node.get("pickup_sfx") as AudioStream
+			var carry_pos := drop_node.global_position
+			if drop_node.get_parent() != get_tree().current_scene:
+				drop_node.reparent(get_tree().current_scene, false)
+			drop_node.global_position = carry_pos
+			drop_node.global_position = land_target + Vector2(randf_range(-8.0, 8.0), randf_range(-4.0, 4.0))
+			drop_node.set_deferred("collision_layer", orig_layer)
+			drop_node.set_deferred("monitoring", true)
+			drop_node.set_process(true)
+		for item_id in batches.keys():
+			var packed_amount: int = int(batches.get(item_id, 0))
+			if packed_amount <= 0:
+				continue
+			var ins_res := _insert_into_group_barrels(beh, spawn_pos, target_source, chest, String(item_id), packed_amount)
+			var inserted: int = int(ins_res.get("inserted", 0))
+			item_inserted[String(item_id)] = inserted > 0
+			item_source[String(item_id)] = String(ins_res.get("source", target_source))
+			if inserted > 0:
+				_force_clear_cargo_after_deposit(beh)
+				_emit_worker_event("deposit_success", beh, spawn_pos, String(item_id), {
+					"amount": inserted,
+					"source": String(ins_res.get("source", target_source)),
+				})
+				_clear_deposit_attempt_queue(beh)
+		var played_sfx: bool = false
+		for drop_node in drop_nodes:
+			if not is_instance_valid(drop_node) or drop_node.is_queued_for_deletion():
+				continue
+			var drop_item_id: String = String(drop_node.item_id)
+			if bool(item_inserted.get(drop_item_id, false)):
+				drop_node.queue_free()
+				if not played_sfx and one_shot_sfx != null:
+					AudioSystem.play_2d(one_shot_sfx, spawn_pos, null, &"SFX")
+					played_sfx = true
+				continue
+			_emit_worker_event("cargo_not_returning", beh, spawn_pos, drop_item_id, {
+				"reason": "deposit_blocked",
+				"cause": "stash_full",
+				"source": String(item_source.get(drop_item_id, target_source)),
+			})
+			drop_node.add_to_group("item_drop")
+		_close_deposit(beh, spawn_pos, target_source, "deposit_closed")
+		Debug.log("bandit_ai", "[CampStash] cargo depositado id=%s pos=%s chest=%s compact=true" % [
+			beh.member_id, str(spawn_pos), str(chest != null)])
+		return
 
 	for i in beh._cargo_manifest.size():
 		var entry:      Dictionary  = beh._cargo_manifest[i]
