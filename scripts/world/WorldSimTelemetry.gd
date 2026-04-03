@@ -212,6 +212,11 @@ func build_overlay_lines() -> PackedStringArray:
 		int(drop_metrics.get("merged_drop_events", 0)),
 		String(drop_metrics.get("drop_pressure_mode", "normal")),
 	])
+	lines.append("drops_spawn raw=%d compacted=%d ratio=%.2f" % [
+		int(drop_metrics.get("drops_spawned_raw", 0)),
+		int(drop_metrics.get("drops_spawned_compacted", 0)),
+		float(drop_metrics.get("drop_compaction_ratio", 1.0)),
+	])
 	return lines
 
 
@@ -220,6 +225,7 @@ func _build_drop_metrics_snapshot(spatial: Dictionary, bandit: Dictionary, maint
 	var spatial_drop_queries: Dictionary = spatial.get("drop_queries", {})
 	var bandit_drop_metrics: Dictionary = bandit.get("drop_metrics", {})
 	var drop_compaction: Dictionary = maintenance.get("drop_compaction", {})
+	var spawn_metrics: Dictionary = drop_compaction.get("spawn_metrics", {})
 	var pressure: Dictionary = drop_compaction.get("pressure", {})
 	var item_drop_count: int = int(runtime_counts.get("item_drop", pressure.get("item_drop_count", 0)))
 	var pickup_queries_per_pulse: int = int(bandit_drop_metrics.get(
@@ -235,6 +241,9 @@ func _build_drop_metrics_snapshot(spatial: Dictionary, bandit: Dictionary, maint
 		"pickup_queries_per_pulse": pickup_queries_per_pulse,
 		"average_drop_candidates_per_query": avg_drop_candidates,
 		"merged_drop_events": int(drop_compaction.get("merged_drop_events", 0)),
+		"drops_spawned_raw": int(spawn_metrics.get("drops_spawned_raw", 0)),
+		"drops_spawned_compacted": int(spawn_metrics.get("drops_spawned_compacted", 0)),
+		"drop_compaction_ratio": float(spawn_metrics.get("drop_compaction_ratio", 1.0)),
 		"deposit_compact_path_hits": int(bandit_drop_metrics.get("deposit_compact_path_hits", 0)),
 		"drop_pressure_mode": String(bandit_drop_metrics.get("drop_pressure_mode", pressure.get("level", "normal"))),
 		"drop_processing_budget_hits": int(bandit_drop_metrics.get("drop_processing_budget_hits", 0)),

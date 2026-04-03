@@ -2401,6 +2401,7 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 		"drop_compaction": {
 			"enabled": drop_compaction_enabled,
 			"merged_drop_events": merged_drop_events,
+			"spawn_metrics": LootSystem.get_drop_spawn_metrics() if LootSystem != null and LootSystem.has_method("get_drop_spawn_metrics") else {},
 			"hotspots": _drop_compaction_hotspots.size(),
 			"radius_px": drop_compaction_radius_px,
 			"max_nodes_inspected": drop_compaction_max_nodes_inspected,
