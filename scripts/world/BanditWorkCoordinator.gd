@@ -41,6 +41,8 @@ const RESOURCE_HIT_RECENCY_TICKS: int = 10
 const POST_HIT_CONTINUITY_WINDOW_TICKS: int = 3
 const POST_HIT_PICKUP_RETRY_LIMIT: int = 3
 const ENABLE_POST_DEPOSIT_RESUME_PHASE: bool = true
+const DROP_SCAN_ENOUGH_THRESHOLD: int = 10
+const DROP_SCAN_MAX_CANDIDATES_EVAL: int = 40
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
@@ -155,7 +157,7 @@ func has_recent_resource_hit(beh: BanditWorldBehavior) -> bool:
 	return (_work_tick_seq - int(beh.last_resource_hit_tick)) <= RESOURCE_HIT_RECENCY_TICKS
 
 
-func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array) -> void:
+func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	if beh == null:
 		return
 	_work_tick_seq += 1
@@ -167,7 +169,7 @@ func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, drops_cac
 	_guard_resource_cycle_before_work(beh)
 	_handle_mining(beh, enemy_node)
 	_handle_structure_assault(beh, enemy_node)
-	_handle_collection_and_deposit(beh, enemy_node, drops_cache)
+	_handle_collection_and_deposit(beh, enemy_node)
 	_guard_resource_cycle_after_work(beh)
 
 
@@ -193,20 +195,20 @@ func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> v
 		_stash.drop_carry_on_aggro(beh, enemy_node)
 
 
-func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
-		drops_cache: Array) -> void:
+func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	if _stash == null:
 		return
 
 	var cargo_before_work: int = beh.cargo_count
 	var member_pos: Vector2 = _effective_work_position(enemy_node)
-	var continuity_active: bool = _process_post_hit_continuity_window(beh, enemy_node, drops_cache)
+	var continuity_active: bool = _process_post_hit_continuity_window(beh, enemy_node, member_pos)
 	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH and not continuity_active:
 		var res_center := _resolve_resource_center(beh, enemy_node)
-		_stash.sweep_collect_orbit(beh, enemy_node, res_center, drops_cache)
+		_stash.sweep_collect_orbit(beh, enemy_node, res_center,
+			_get_nearby_drop_nodes(res_center, BanditTuningScript.orbit_collect_radius_sq()))
 	elif beh.pending_collect_id != 0:
 		_stash.sweep_collect_arrive(beh, enemy_node,
-			member_pos, drops_cache)
+			member_pos, _get_nearby_drop_nodes(member_pos, BanditTuningScript.loot_arrive_collect_radius_sq()))
 
 	if beh.cargo_count > cargo_before_work:
 		_emit_worker_event("cargo_updated", beh, member_pos, "", {
@@ -753,7 +755,7 @@ func _emit_cycle_abandon_reason(beh: BanditWorldBehavior, reason: String) -> voi
 	})
 
 
-func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: Node, drops_cache: Array) -> bool:
+func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: Node, member_pos: Vector2) -> bool:
 	if beh == null or _stash == null:
 		return false
 	if not _is_post_hit_window_active(beh):
@@ -762,11 +764,11 @@ func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: N
 		_request_return_home(beh, "post_hit_window_cargo_full")
 		return true
 
-	var member_pos: Vector2 = _effective_work_position(enemy_node)
 	var cargo_before: int = beh.cargo_count
 	var had_pending_before: bool = beh.pending_collect_id != 0
 	if had_pending_before:
-		_stash.sweep_collect_arrive(beh, enemy_node, member_pos, drops_cache)
+		_stash.sweep_collect_arrive(beh, enemy_node, member_pos,
+			_get_nearby_drop_nodes(member_pos, BanditTuningScript.loot_arrive_collect_radius_sq()))
 		if beh.cargo_count > cargo_before:
 			_clear_post_hit_continuity(beh)
 			return true
@@ -774,9 +776,11 @@ func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: N
 	var still_without_pending: bool = beh.pending_collect_id == 0 and beh.cargo_count == cargo_before
 	if still_without_pending:
 		var res_center := _resolve_resource_center(beh, enemy_node)
-		_stash.sweep_collect_orbit(beh, enemy_node, res_center, drops_cache)
+		_stash.sweep_collect_orbit(beh, enemy_node, res_center,
+			_get_nearby_drop_nodes(res_center, BanditTuningScript.orbit_collect_radius_sq()))
 		if beh.pending_collect_id == 0 and beh.cargo_count == cargo_before:
-			_stash.sweep_collect_orbit(beh, enemy_node, member_pos, drops_cache)
+			_stash.sweep_collect_orbit(beh, enemy_node, member_pos,
+				_get_nearby_drop_nodes(member_pos, BanditTuningScript.orbit_collect_radius_sq()))
 		if beh.cargo_count > cargo_before:
 			_clear_post_hit_continuity(beh)
 			return true
@@ -792,6 +796,39 @@ func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: N
 					"retry_limit": POST_HIT_PICKUP_RETRY_LIMIT,
 				})
 	return true
+
+
+func _get_nearby_drop_nodes(center_pos: Vector2, radius_sq: float) -> Array:
+	var radius: float = sqrt(maxf(radius_sq, 0.0))
+	if _world_spatial_index != null:
+		return _world_spatial_index.get_runtime_nodes_near(
+			WorldSpatialIndex.KIND_ITEM_DROP,
+			center_pos,
+			radius,
+			{
+				"intent": "idle",
+				"stage": "drop_collect",
+				"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
+				"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
+			}
+		)
+	var result: Array = []
+	var candidates_seen: int = 0
+	for raw_drop in get_tree().get_nodes_in_group("item_drop"):
+		var drop_node := raw_drop as Node2D
+		if drop_node == null or not is_instance_valid(drop_node) \
+				or drop_node.is_queued_for_deletion():
+			continue
+		candidates_seen += 1
+		if center_pos.distance_squared_to(drop_node.global_position) > radius_sq:
+			if candidates_seen >= DROP_SCAN_MAX_CANDIDATES_EVAL:
+				break
+			continue
+		result.append(drop_node)
+		if result.size() >= DROP_SCAN_ENOUGH_THRESHOLD \
+				or candidates_seen >= DROP_SCAN_MAX_CANDIDATES_EVAL:
+			break
+	return result
 
 
 func _guard_resource_cycle_before_work(beh: BanditWorldBehavior) -> void:
