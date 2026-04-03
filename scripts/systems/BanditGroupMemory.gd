@@ -350,6 +350,8 @@ func _make_group_blackboard() -> Dictionary:
 		BLACKBOARD_SECTION_PERCEPTION: {
 			"known_resources": {},
 			"known_drops": {},
+			"prioritized_resources": _bb_make_entry([], BLACKBOARD_RESOURCES_TTL, "init"),
+			"prioritized_drops": _bb_make_entry([], BLACKBOARD_DROPS_TTL, "init"),
 		},
 		BLACKBOARD_SECTION_ASSIGNMENTS: {},
 		BLACKBOARD_SECTION_STATUS: {
@@ -387,7 +389,16 @@ func _blackboard_perception(group_id: String) -> Dictionary:
 	if bb.is_empty():
 		return {}
 	if not bb.has(BLACKBOARD_SECTION_PERCEPTION):
-		bb[BLACKBOARD_SECTION_PERCEPTION] = {"known_resources": {}, "known_drops": {}}
+		bb[BLACKBOARD_SECTION_PERCEPTION] = {
+			"known_resources": {},
+			"known_drops": {},
+			"prioritized_resources": _bb_make_entry([], BLACKBOARD_RESOURCES_TTL, "init"),
+			"prioritized_drops": _bb_make_entry([], BLACKBOARD_DROPS_TTL, "init"),
+		}
+	if not bb[BLACKBOARD_SECTION_PERCEPTION].has("prioritized_resources"):
+		bb[BLACKBOARD_SECTION_PERCEPTION]["prioritized_resources"] = _bb_make_entry([], BLACKBOARD_RESOURCES_TTL, "init")
+	if not bb[BLACKBOARD_SECTION_PERCEPTION].has("prioritized_drops"):
+		bb[BLACKBOARD_SECTION_PERCEPTION]["prioritized_drops"] = _bb_make_entry([], BLACKBOARD_DROPS_TTL, "init")
 	return bb[BLACKBOARD_SECTION_PERCEPTION] as Dictionary
 
 
@@ -477,6 +488,40 @@ func bb_write_known_drops(group_id: String, drops: Array, ttl_seconds: float = B
 	_log_blackboard_consistency(group_id, source)
 
 
+func bb_write_prioritized_resources(group_id: String, resources: Array, ttl_seconds: float = BLACKBOARD_RESOURCES_TTL, source: String = "group_pulse_scan") -> void:
+	var perception: Dictionary = _blackboard_perception(group_id)
+	if perception.is_empty():
+		return
+	perception["prioritized_resources"] = _bb_make_entry(resources.duplicate(true), ttl_seconds, source)
+	_blackboard_expirations(group_id)["perception.prioritized_resources"] = float((perception["prioritized_resources"] as Dictionary).get("expires_at", 0.0))
+	_log_blackboard_consistency(group_id, source)
+
+
+func bb_write_prioritized_drops(group_id: String, drops: Array, ttl_seconds: float = BLACKBOARD_DROPS_TTL, source: String = "group_pulse_scan") -> void:
+	var perception: Dictionary = _blackboard_perception(group_id)
+	if perception.is_empty():
+		return
+	perception["prioritized_drops"] = _bb_make_entry(drops.duplicate(true), ttl_seconds, source)
+	_blackboard_expirations(group_id)["perception.prioritized_drops"] = float((perception["prioritized_drops"] as Dictionary).get("expires_at", 0.0))
+	_log_blackboard_consistency(group_id, source)
+
+
+func bb_get_prioritized_resources(group_id: String) -> Array:
+	var perception: Dictionary = _blackboard_perception(group_id)
+	if perception.is_empty():
+		return []
+	var entry: Dictionary = perception.get("prioritized_resources", {})
+	return (entry.get("value", []) as Array).duplicate(true)
+
+
+func bb_get_prioritized_drops(group_id: String) -> Array:
+	var perception: Dictionary = _blackboard_perception(group_id)
+	if perception.is_empty():
+		return []
+	var entry: Dictionary = perception.get("prioritized_drops", {})
+	return (entry.get("value", []) as Array).duplicate(true)
+
+
 func bb_get(group_id: String) -> Dictionary:
 	_blackboard_prune(group_id)
 	return _ensure_blackboard(group_id)
@@ -500,6 +545,13 @@ func _blackboard_prune(group_id: String) -> void:
 					to_remove.append(key)
 			for key in to_remove:
 				collection.erase(key)
+		for prioritized_key in ["prioritized_resources", "prioritized_drops"]:
+			if not perception.has(prioritized_key):
+				continue
+			var entry: Dictionary = perception[prioritized_key]
+			if now >= float(entry.get("expires_at", 0.0)):
+				var default_ttl: float = BLACKBOARD_RESOURCES_TTL if prioritized_key == "prioritized_resources" else BLACKBOARD_DROPS_TTL
+				perception[prioritized_key] = _bb_make_entry([], default_ttl, "expired")
 	var status: Dictionary = _blackboard_status(group_id)
 	if not status.is_empty():
 		var status_remove: Array = []
@@ -522,14 +574,18 @@ func _log_blackboard_consistency(group_id: String, source: String) -> void:
 	var status: Dictionary = bb.get(BLACKBOARD_SECTION_STATUS, {})
 	var known_resources_count: int = int((perception.get("known_resources", {}) as Dictionary).size())
 	var known_drops_count: int = int((perception.get("known_drops", {}) as Dictionary).size())
+	var prioritized_resources_count: int = int(((perception.get("prioritized_resources", {}) as Dictionary).get("value", []) as Array).size())
+	var prioritized_drops_count: int = int(((perception.get("prioritized_drops", {}) as Dictionary).get("value", []) as Array).size())
 	var threat_entry: Dictionary = status.get("threat_level", {})
 	var mode_entry: Dictionary = status.get("group_mode", {})
 	var leader_entry: Dictionary = status.get("leader_id", {})
-	Debug.log("bandit_group", "[BGM][BB] consistency group=%s src=%s resources=%d drops=%d threat=%.1f mode=%s leader=%s" % [
+	Debug.log("bandit_group", "[BGM][BB] consistency group=%s src=%s resources=%d drops=%d prio_res=%d prio_drops=%d threat=%.1f mode=%s leader=%s" % [
 		group_id,
 		source,
 		known_resources_count,
 		known_drops_count,
+		prioritized_resources_count,
+		prioritized_drops_count,
 		float(threat_entry.get("value", 0.0)),
 		String(mode_entry.get("value", "idle")),
 		String(leader_entry.get("value", "")),
