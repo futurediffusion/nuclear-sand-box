@@ -608,6 +608,18 @@ de modo que el movimiento efectivo ≈ velocidad objetivo del behavior.
 - NPCs no realmente "minan" recursos — solo los vigilan en RESOURCE_WATCH
 - Las velocidades no compensan cambios en `friction` del enemy exportado
 
+### `BanditGroupBrain` (`scripts/world/BanditGroupBrain.gd`)
+RefCounted. Capa táctica superior a ejecución individual. Lee intención grupal + `GroupBlackboard`
+y asigna órdenes por miembro para mantener coherencia de escuadra sin mover nodos directamente.
+
+**Estados macro soportados:** `idle`, `patrol`, `alerted`, `hunting`, `raiding`, `working`, `retreating`, `depositing`, `defending_camp`.
+
+**Órdenes emitidas por miembro:** `follow_slot`, `move_to_target`, `mine_target`, `pickup_target`, `return_home`, `attack_target`.
+
+### `BodyguardController` / `ScavengerController` (`scripts/world/*Controller.gd`)
+Controladores tácticos por rol que consumen `GroupBlackboard` y devuelven órdenes declarativas.
+No aplican side-effects ni movimiento directo.
+
 ---
 
 ## 1️⃣3️⃣ INTELIGENCIA GRUPAL DE BANDIDOS — DETECCIÓN Y EXTORSIÓN
