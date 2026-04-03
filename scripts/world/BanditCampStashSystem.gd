@@ -46,6 +46,17 @@ var _camp_barrels: Dictionary = {}
 var _pending_deposit_attempts_by_member: Dictionary = {}
 var _method_caps: MethodCapabilityCache = MethodCapabilityCacheScript.new()
 var deposit_compact_path_hits: int = 0
+var _drop_processing_budget_hits: int = 0
+var _debug_drop_pulse_id: int = -1
+var _debug_pickup_queries_in_pulse: int = 0
+var _debug_drop_candidates_total_in_pulse: int = 0
+var _debug_budget_hits_in_pulse: int = 0
+var _debug_compact_hits_in_pulse: int = 0
+var _debug_last_pickup_queries_per_pulse: int = 0
+var _debug_last_drop_candidates_total: int = 0
+var _debug_last_budget_hits: int = 0
+var _debug_last_compact_hits: int = 0
+var _debug_drop_pressure_mode: String = "normal"
 
 # Callable(group_id: String, barrel_pos: Vector2) -> void
 # Implementado por BanditBehaviorLayer para propagar deposit_pos a los behaviors.
@@ -188,6 +199,44 @@ func _pickup_budget_scale() -> float:
 	var snapshot := _get_drop_pressure_snapshot()
 	var scale: float = float(snapshot.get("pickup_budget_scale", 1.0))
 	return clampf(scale, 0.35, 1.0)
+
+
+func begin_drop_pulse(pulse_id: int, drop_pressure_mode: String = "normal") -> void:
+	if pulse_id != _debug_drop_pulse_id:
+		_debug_last_pickup_queries_per_pulse = _debug_pickup_queries_in_pulse
+		_debug_last_drop_candidates_total = _debug_drop_candidates_total_in_pulse
+		_debug_last_budget_hits = _debug_budget_hits_in_pulse
+		_debug_last_compact_hits = _debug_compact_hits_in_pulse
+		_debug_drop_pulse_id = pulse_id
+		_debug_pickup_queries_in_pulse = 0
+		_debug_drop_candidates_total_in_pulse = 0
+		_debug_budget_hits_in_pulse = 0
+		_debug_compact_hits_in_pulse = 0
+	_debug_drop_pressure_mode = drop_pressure_mode
+
+
+func get_debug_snapshot() -> Dictionary:
+	var pickup_queries_per_pulse: int = _debug_pickup_queries_in_pulse
+	var candidates_total: int = _debug_drop_candidates_total_in_pulse
+	var budget_hits: int = _debug_budget_hits_in_pulse
+	var compact_hits: int = _debug_compact_hits_in_pulse
+	if pickup_queries_per_pulse <= 0 and _debug_last_pickup_queries_per_pulse > 0:
+		pickup_queries_per_pulse = _debug_last_pickup_queries_per_pulse
+		candidates_total = _debug_last_drop_candidates_total
+	if budget_hits <= 0 and _debug_last_budget_hits > 0:
+		budget_hits = _debug_last_budget_hits
+	if compact_hits <= 0 and _debug_last_compact_hits > 0:
+		compact_hits = _debug_last_compact_hits
+	return {
+		"drop_pulse_id": _debug_drop_pulse_id,
+		"pickup_queries_per_pulse": pickup_queries_per_pulse,
+		"average_drop_candidates_per_query": float(candidates_total) / float(maxi(pickup_queries_per_pulse, 1)),
+		"drop_processing_budget_hits": budget_hits,
+		"deposit_compact_path_hits": compact_hits,
+		"drop_pressure_mode": _debug_drop_pressure_mode,
+		"drop_processing_budget_hits_total": _drop_processing_budget_hits,
+		"deposit_compact_path_hits_total": deposit_compact_path_hits,
+	}
 
 
 func _insert_into_group_barrels(beh: BanditWorldBehavior, spawn_pos: Vector2, target_source: String,
@@ -356,6 +405,7 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 			or _is_drop_pressure_high_or_worse()
 	if compact_mode:
 		deposit_compact_path_hits += 1
+		_debug_compact_hits_in_pulse += 1
 		var batches: Dictionary = {}
 		var item_inserted: Dictionary = {}
 		var item_source: Dictionary = {}
@@ -751,6 +801,8 @@ func _is_npc_budget_hit(query_ctx: Dictionary) -> bool:
 
 func _mark_budget_hit(beh: BanditWorldBehavior, check_pos: Vector2, query_ctx: Dictionary,
 		scope: String, local_processed: int, local_max: int) -> void:
+	_drop_processing_budget_hits += 1
+	_debug_budget_hits_in_pulse += 1
 	var global_budget_ctx: Dictionary = query_ctx.get("drops_global_counter_ctx", {}) as Dictionary
 	_emit_worker_event("drop_budget_hit", beh, check_pos, str(beh.pending_collect_id), {
 		"scope": scope,
@@ -818,6 +870,8 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 	)
 	if max_candidates_eval > 0 and candidate_nodes.size() > max_candidates_eval:
 		candidate_nodes = candidate_nodes.slice(0, max_candidates_eval)
+	_debug_pickup_queries_in_pulse += 1
+	_debug_drop_candidates_total_in_pulse += candidate_nodes.size()
 	var found_candidate: bool = false
 	var sound_idx := 0
 	for drop_node in candidate_nodes:
