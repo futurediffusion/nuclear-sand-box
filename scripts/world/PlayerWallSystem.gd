@@ -629,7 +629,8 @@ func _emit_player_wall_drop(tile_pos: Vector2i) -> void:
 		"player_wall_break_sfx": player_wall_break_sfx,
 		"player_wall_break_volume_db": player_wall_break_volume_db,
 	}
-	feedback.play_player_wall_drop_feedback(tile_pos, player_wall_drop_item_id, player_wall_drop_amount, audio_ctx)
+	var source_uid := "wall_player_%d_%d" % [tile_pos.x, tile_pos.y]
+	feedback.play_player_wall_drop_feedback(tile_pos, player_wall_drop_item_id, player_wall_drop_amount, audio_ctx, feedback.ITEM_DROP_SCENE, source_uid)
 
 func _emit_structural_wall_drop(tile_pos: Vector2i) -> void:
 	emit_signal("structural_wall_drop", tile_pos, structural_wall_drop_item_id, structural_wall_drop_amount)
@@ -639,7 +640,8 @@ func _emit_structural_wall_drop(tile_pos: Vector2i) -> void:
 		"player_wall_break_sfx": player_wall_break_sfx,
 		"player_wall_break_volume_db": player_wall_break_volume_db,
 	}
-	feedback.play_player_wall_drop_feedback(tile_pos, structural_wall_drop_item_id, structural_wall_drop_amount, audio_ctx)
+	var source_uid := "wall_struct_%d_%d" % [tile_pos.x, tile_pos.y]
+	feedback.play_player_wall_drop_feedback(tile_pos, structural_wall_drop_item_id, structural_wall_drop_amount, audio_ctx, feedback.ITEM_DROP_SCENE, source_uid)
 
 func _collect_wall_connect_cells_for_placement(tile_pos: Vector2i) -> Array[Vector2i]:
 	var out: Dictionary = {}

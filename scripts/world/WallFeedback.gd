@@ -62,7 +62,14 @@ func play_structural_wall_hit_feedback(tile_pos: Vector2i, audio_ctx: Dictionary
 		}
 	)
 
-func play_player_wall_drop_feedback(tile_pos: Vector2i, drop_item_id: String, drop_amount: int, audio_ctx: Dictionary = {}, drop_scene: PackedScene = ITEM_DROP_SCENE) -> void:
+func play_player_wall_drop_feedback(
+	tile_pos: Vector2i,
+	drop_item_id: String,
+	drop_amount: int,
+	audio_ctx: Dictionary = {},
+	drop_scene: PackedScene = ITEM_DROP_SCENE,
+	source_uid: String = ""
+) -> void:
 	_play_player_wall_break_sfx(tile_pos, audio_ctx)
 	if drop_item_id.strip_edges() == "":
 		return
@@ -74,8 +81,11 @@ func play_player_wall_drop_feedback(tile_pos: Vector2i, drop_item_id: String, dr
 	if not (origin_raw is Vector2):
 		return
 	var origin: Vector2 = (origin_raw as Vector2) + Vector2(0.0, -10.0)
-	var overrides := {"drop_scene": drop_scene}
-	LootSystem.spawn_drop(null, drop_item_id, drop_amount, origin, owner, overrides)
+	var overrides := {
+		"drop_scene": drop_scene,
+		"aggregate_spawn": true,
+	}
+	LootSystem.spawn_drop(null, drop_item_id, drop_amount, origin, owner, overrides, source_uid)
 
 func _play_player_wall_break_sfx(tile_pos: Vector2i, audio_ctx: Dictionary = {}) -> void:
 	var stream_raw: Variant = audio_ctx.get("player_wall_break_sfx", null)

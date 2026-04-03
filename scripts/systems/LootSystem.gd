@@ -6,6 +6,11 @@ const DROP_PRESSURE_HIGH: StringName = &"high"
 const DROP_PRESSURE_CRITICAL: StringName = &"critical"
 const CRITICAL_SOURCE_MERGE_RADIUS: float = 14.0
 const CRITICAL_SOURCE_MERGE_WINDOW_SEC: float = 0.25
+const DROP_AGGREGATION_WINDOW_MIN_SEC: float = 0.10
+const DROP_AGGREGATION_WINDOW_MAX_SEC: float = 0.25
+const DROP_AGGREGATION_WINDOW_DEFAULT_SEC: float = 0.16
+const DROP_AGGREGATION_CELL_SIZE_PX: float = 24.0
+const DROP_AGGREGATION_MERGE_RADIUS: float = 26.0
 const PROP_RADIAL_SHORT_PROFILE := {
 	"scatter_min_distance": 12.0,
 	"scatter_max_distance": 30.0,
@@ -62,12 +67,18 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 		target_parent = get_tree().current_scene
 	if target_parent == null:
 		target_parent = get_tree().root
-	if is_drop_pressure_critical():
-		var merged_drop := _try_merge_from_source_in_critical(target_parent, resolved_id, amount, origin, source_uid)
-		if merged_drop != null:
-			if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
-				GameEvents.emit_loot_spawned(resolved_id, amount, origin, source_uid)
-			return merged_drop
+	var merged_drop := _try_merge_spawn_aggregate(
+		target_parent,
+		resolved_id,
+		amount,
+		origin,
+		overrides,
+		source_uid
+	)
+	if merged_drop != null:
+		if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
+			GameEvents.emit_loot_spawned(resolved_id, amount, origin, source_uid)
+		return merged_drop
 
 	var drop := scene.instantiate()
 	if drop == null:
@@ -94,12 +105,7 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 		_apply_pressure_ttl_if_supported(item_drop)
 
 	target_parent.add_child(drop)
-	if drop is ItemDrop and is_drop_pressure_critical():
-		var source_key: String = _normalize_source_uid(source_uid)
-		if source_key == "":
-			source_key = "%s@%d,%d" % [resolved_id, int(round(origin.x)), int(round(origin.y))]
-		(drop as ItemDrop).set_meta("source_spawn_key", source_key)
-		(drop as ItemDrop).set_meta("source_spawn_t", float(Time.get_ticks_msec()) / 1000.0)
+	_tag_drop_aggregation_meta(drop, resolved_id, origin, overrides, source_uid)
 	_apply_drop_spawn_motion(drop, origin, overrides)
 
 	print("[LootSystem] spawned drop item_id=", resolved_id, " amount=", amount)
@@ -188,14 +194,49 @@ func _normalize_source_uid(source_uid: String) -> String:
 	return regex.sub(uid, "", true)
 
 
-func _try_merge_from_source_in_critical(parent: Node, item_id: String, amount: int, origin: Vector2, source_uid: String) -> ItemDrop:
+func _try_merge_spawn_aggregate(parent: Node, item_id: String, amount: int, origin: Vector2, overrides: Dictionary, source_uid: String) -> ItemDrop:
 	if parent == null or item_id.strip_edges() == "" or amount <= 0:
 		return null
-	var source_key: String = _normalize_source_uid(source_uid)
-	if source_key == "":
-		source_key = "%s@%d,%d" % [item_id, int(round(origin.x)), int(round(origin.y))]
+	if not _should_aggregate_spawn(overrides, source_uid):
+		return null
 	var now_sec: float = float(Time.get_ticks_msec()) / 1000.0
-	var radius_sq: float = CRITICAL_SOURCE_MERGE_RADIUS * CRITICAL_SOURCE_MERGE_RADIUS
+	var force_origin_merge: bool = is_drop_pressure_critical()
+	var source_key := _build_aggregation_source_key(item_id, origin, source_uid)
+	var window_sec := _resolve_aggregation_window_sec(overrides)
+	var aggregate_key := _build_spawn_aggregation_key(item_id, origin, source_key, window_sec, force_origin_merge, now_sec)
+	var merge_radius := CRITICAL_SOURCE_MERGE_RADIUS if force_origin_merge else DROP_AGGREGATION_MERGE_RADIUS
+	return _find_and_merge_drop(parent, item_id, amount, origin, source_key, aggregate_key, now_sec, window_sec, merge_radius, force_origin_merge)
+
+
+func _tag_drop_aggregation_meta(drop: Node, item_id: String, origin: Vector2, overrides: Dictionary, source_uid: String) -> void:
+	var item_drop := drop as ItemDrop
+	if item_drop == null:
+		return
+	var now_sec: float = float(Time.get_ticks_msec()) / 1000.0
+	var force_origin_merge: bool = is_drop_pressure_critical()
+	var source_key := _build_aggregation_source_key(item_id, origin, source_uid)
+	var window_sec := _resolve_aggregation_window_sec(overrides)
+	var aggregate_key := _build_spawn_aggregation_key(item_id, origin, source_key, window_sec, force_origin_merge, now_sec)
+	item_drop.set_meta("source_spawn_key", source_key)
+	item_drop.set_meta("source_spawn_t", now_sec)
+	item_drop.set_meta("agg_spawn_key", aggregate_key)
+
+
+func _find_and_merge_drop(
+	parent: Node,
+	item_id: String,
+	amount: int,
+	origin: Vector2,
+	source_key: String,
+	aggregate_key: String,
+	now_sec: float,
+	window_sec: float,
+	merge_radius: float,
+	force_origin_merge: bool
+) -> ItemDrop:
+	if parent == null or item_id.strip_edges() == "" or amount <= 0:
+		return null
+	var radius_sq: float = merge_radius * merge_radius
 	for child in parent.get_children():
 		var drop := child as ItemDrop
 		if drop == null or not is_instance_valid(drop) or drop.is_queued_for_deletion():
@@ -204,11 +245,57 @@ func _try_merge_from_source_in_critical(parent: Node, item_id: String, amount: i
 			continue
 		if String(drop.get_meta("source_spawn_key", "")) != source_key:
 			continue
+		if not force_origin_merge and String(drop.get_meta("agg_spawn_key", "")) != aggregate_key:
+			continue
 		if drop.global_position.distance_squared_to(origin) > radius_sq:
 			continue
 		var created_at_sec: float = float(drop.get_meta("source_spawn_t", now_sec))
-		if absf(now_sec - created_at_sec) > CRITICAL_SOURCE_MERGE_WINDOW_SEC:
+		var max_window := CRITICAL_SOURCE_MERGE_WINDOW_SEC if force_origin_merge else window_sec
+		if absf(now_sec - created_at_sec) > max_window:
 			continue
 		drop.amount = maxi(0, int(drop.amount)) + amount
+		drop.set_meta("source_spawn_t", now_sec)
 		return drop
 	return null
+
+
+func _should_aggregate_spawn(overrides: Dictionary, source_uid: String) -> bool:
+	if is_drop_pressure_critical():
+		return true
+	if bool(overrides.get("aggregate_spawn", false)):
+		return true
+	return source_uid.strip_edges() != ""
+
+
+func _resolve_aggregation_window_sec(overrides: Dictionary) -> float:
+	var requested := float(overrides.get("aggregate_window_sec", DROP_AGGREGATION_WINDOW_DEFAULT_SEC))
+	return clampf(requested, DROP_AGGREGATION_WINDOW_MIN_SEC, DROP_AGGREGATION_WINDOW_MAX_SEC)
+
+
+func _build_aggregation_source_key(item_id: String, origin: Vector2, source_uid: String) -> String:
+	var source_key: String = _normalize_source_uid(source_uid)
+	if source_key != "":
+		return source_key
+	var cell := _quantize_drop_origin(origin)
+	return "%s@%d,%d" % [item_id, cell.x, cell.y]
+
+
+func _build_spawn_aggregation_key(
+	item_id: String,
+	origin: Vector2,
+	source_key: String,
+	window_sec: float,
+	force_origin_merge: bool,
+	now_sec: float
+) -> String:
+	var cell := _quantize_drop_origin(origin)
+	var bucket: int = -1 if force_origin_merge else int(floor(now_sec / maxf(0.001, window_sec)))
+	return "%s|%d,%d|%d|%s" % [item_id, cell.x, cell.y, bucket, source_key]
+
+
+func _quantize_drop_origin(origin: Vector2) -> Vector2i:
+	var cell_size := maxf(1.0, DROP_AGGREGATION_CELL_SIZE_PX)
+	return Vector2i(
+		int(floor(origin.x / cell_size)),
+		int(floor(origin.y / cell_size))
+	)
