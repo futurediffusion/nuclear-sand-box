@@ -43,6 +43,8 @@ const POST_HIT_PICKUP_RETRY_LIMIT: int = 3
 const ENABLE_POST_DEPOSIT_RESUME_PHASE: bool = true
 const DROP_SCAN_ENOUGH_THRESHOLD: int = 10
 const DROP_SCAN_MAX_CANDIDATES_EVAL: int = 40
+const drops_per_npc_per_tick_max: int = 2
+const drops_global_per_pulse_max: int = 18
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
@@ -157,7 +159,7 @@ func has_recent_resource_hit(beh: BanditWorldBehavior) -> bool:
 	return (_work_tick_seq - int(beh.last_resource_hit_tick)) <= RESOURCE_HIT_RECENCY_TICKS
 
 
-func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node) -> void:
+func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node, pulse_drop_budget_ctx: Dictionary = {}) -> void:
 	if beh == null:
 		return
 	_work_tick_seq += 1
@@ -169,7 +171,7 @@ func process_post_behavior(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 	_guard_resource_cycle_before_work(beh)
 	_handle_mining(beh, enemy_node)
 	_handle_structure_assault(beh, enemy_node)
-	_handle_collection_and_deposit(beh, enemy_node)
+	_handle_collection_and_deposit(beh, enemy_node, pulse_drop_budget_ctx)
 	_guard_resource_cycle_after_work(beh)
 
 
@@ -195,28 +197,26 @@ func _maybe_drop_carry_on_aggro(beh: BanditWorldBehavior, enemy_node: Node) -> v
 		_stash.drop_carry_on_aggro(beh, enemy_node)
 
 
-func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
+func _handle_collection_and_deposit(beh: BanditWorldBehavior, enemy_node: Node,
+		pulse_drop_budget_ctx: Dictionary = {}) -> void:
 	if _stash == null:
 		return
 
 	var cargo_before_work: int = beh.cargo_count
 	var member_pos: Vector2 = _effective_work_position(enemy_node)
-	var continuity_active: bool = _process_post_hit_continuity_window(beh, enemy_node, member_pos)
+	var npc_drop_budget_ctx: Dictionary = {
+		"processed": 0,
+		"max": drops_per_npc_per_tick_max,
+	}
+	var continuity_active: bool = _process_post_hit_continuity_window(
+			beh, enemy_node, member_pos, pulse_drop_budget_ctx, npc_drop_budget_ctx)
 	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH and not continuity_active:
 		var res_center := _resolve_resource_center(beh, enemy_node)
-		_stash.sweep_collect_orbit(beh, enemy_node, res_center, {
-			"intent": "idle",
-			"stage": "drop_collect_orbit",
-			"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
-			"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
-		})
+		_stash.sweep_collect_orbit(beh, enemy_node, res_center,
+				_make_drop_query_ctx("drop_collect_orbit", pulse_drop_budget_ctx, npc_drop_budget_ctx))
 	elif beh.pending_collect_id != 0:
-		_stash.sweep_collect_arrive(beh, enemy_node, member_pos, {
-			"intent": "idle",
-			"stage": "drop_collect_arrive",
-			"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
-			"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
-		})
+		_stash.sweep_collect_arrive(beh, enemy_node, member_pos,
+				_make_drop_query_ctx("drop_collect_arrive", pulse_drop_budget_ctx, npc_drop_budget_ctx))
 
 	if beh.cargo_count > cargo_before_work:
 		_emit_worker_event("cargo_updated", beh, member_pos, "", {
@@ -763,7 +763,23 @@ func _emit_cycle_abandon_reason(beh: BanditWorldBehavior, reason: String) -> voi
 	})
 
 
-func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: Node, member_pos: Vector2) -> bool:
+func _make_drop_query_ctx(stage: String, pulse_drop_budget_ctx: Dictionary = {},
+		npc_drop_budget_ctx: Dictionary = {}) -> Dictionary:
+	return {
+		"intent": "idle",
+		"stage": stage,
+		"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
+		"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
+		"drops_per_npc_per_tick_max": drops_per_npc_per_tick_max,
+		"drops_global_per_pulse_max": drops_global_per_pulse_max,
+		"drops_global_counter_ctx": pulse_drop_budget_ctx,
+		"drops_npc_counter_ctx": npc_drop_budget_ctx,
+	}
+
+
+func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: Node,
+		member_pos: Vector2, pulse_drop_budget_ctx: Dictionary = {},
+		npc_drop_budget_ctx: Dictionary = {}) -> bool:
 	if beh == null or _stash == null:
 		return false
 	if not _is_post_hit_window_active(beh):
@@ -775,12 +791,8 @@ func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: N
 	var cargo_before: int = beh.cargo_count
 	var had_pending_before: bool = beh.pending_collect_id != 0
 	if had_pending_before:
-		_stash.sweep_collect_arrive(beh, enemy_node, member_pos, {
-			"intent": "idle",
-			"stage": "post_hit_collect_arrive",
-			"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
-			"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
-		})
+		_stash.sweep_collect_arrive(beh, enemy_node, member_pos,
+				_make_drop_query_ctx("post_hit_collect_arrive", pulse_drop_budget_ctx, npc_drop_budget_ctx))
 		if beh.cargo_count > cargo_before:
 			_clear_post_hit_continuity(beh)
 			return true
@@ -788,19 +800,11 @@ func _process_post_hit_continuity_window(beh: BanditWorldBehavior, enemy_node: N
 	var still_without_pending: bool = beh.pending_collect_id == 0 and beh.cargo_count == cargo_before
 	if still_without_pending:
 		var res_center := _resolve_resource_center(beh, enemy_node)
-		_stash.sweep_collect_orbit(beh, enemy_node, res_center, {
-			"intent": "idle",
-			"stage": "post_hit_collect_orbit_resource",
-			"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
-			"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
-		})
+		_stash.sweep_collect_orbit(beh, enemy_node, res_center,
+				_make_drop_query_ctx("post_hit_collect_orbit_resource", pulse_drop_budget_ctx, npc_drop_budget_ctx))
 		if beh.pending_collect_id == 0 and beh.cargo_count == cargo_before:
-			_stash.sweep_collect_orbit(beh, enemy_node, member_pos, {
-				"intent": "idle",
-				"stage": "post_hit_collect_orbit_member",
-				"enough_threshold": DROP_SCAN_ENOUGH_THRESHOLD,
-				"max_candidates_eval": DROP_SCAN_MAX_CANDIDATES_EVAL,
-			})
+			_stash.sweep_collect_orbit(beh, enemy_node, member_pos,
+					_make_drop_query_ctx("post_hit_collect_orbit_member", pulse_drop_budget_ctx, npc_drop_budget_ctx))
 		if beh.cargo_count > cargo_before:
 			_clear_post_hit_continuity(beh)
 			return true

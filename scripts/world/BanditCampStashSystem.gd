@@ -35,6 +35,8 @@ const CARRY_STACK_BASE_Y:  float = -22.0  # Y del primer item cargado sobre el N
 const CARRY_STACK_STEP_Y:  float =   8.0  # desplazamiento Y por item adicional en el stack
 const DEPOSIT_TARGET_MAX_DIST_SQ: float = 180.0 * 180.0
 const ENABLE_SECONDARY_DEPOSIT_FALLBACK: bool = false
+const drops_per_npc_per_tick_max: int = 2
+const drops_global_per_pulse_max: int = 18
 
 # group_id (String) -> instance_id (int) del barrel físico (runtime-only, no persisted)
 var _camp_barrels: Dictionary = {}
@@ -539,6 +541,66 @@ func _resolve_enemy_pos(enemy_node: Node) -> Vector2:
 	var node2d := enemy_node as Node2D
 	return node2d.global_position if node2d != null else Vector2.ZERO
 
+
+func _get_global_processed(global_budget_ctx: Dictionary) -> int:
+	return int(global_budget_ctx.get("processed", 0))
+
+
+func _get_npc_processed(npc_budget_ctx: Dictionary) -> int:
+	return int(npc_budget_ctx.get("processed", 0))
+
+
+func _get_npc_max(query_ctx: Dictionary, npc_budget_ctx: Dictionary) -> int:
+	return maxi(int(query_ctx.get("drops_per_npc_per_tick_max", npc_budget_ctx.get("max", drops_per_npc_per_tick_max))), 0)
+
+
+func _get_global_max(query_ctx: Dictionary, global_budget_ctx: Dictionary) -> int:
+	return maxi(int(query_ctx.get("drops_global_per_pulse_max", global_budget_ctx.get("max", drops_global_per_pulse_max))), 0)
+
+
+func _is_global_budget_hit(query_ctx: Dictionary) -> bool:
+	var global_budget_ctx: Dictionary = query_ctx.get("drops_global_counter_ctx", {}) as Dictionary
+	if global_budget_ctx.is_empty():
+		return false
+	var global_max: int = _get_global_max(query_ctx, global_budget_ctx)
+	if global_max <= 0:
+		return false
+	return _get_global_processed(global_budget_ctx) >= global_max
+
+
+func _is_npc_budget_hit(query_ctx: Dictionary) -> bool:
+	var npc_budget_ctx: Dictionary = query_ctx.get("drops_npc_counter_ctx", {}) as Dictionary
+	if npc_budget_ctx.is_empty():
+		return false
+	var npc_max: int = _get_npc_max(query_ctx, npc_budget_ctx)
+	if npc_max <= 0:
+		return false
+	return _get_npc_processed(npc_budget_ctx) >= npc_max
+
+
+func _mark_budget_hit(beh: BanditWorldBehavior, check_pos: Vector2, query_ctx: Dictionary,
+		scope: String, local_processed: int, local_max: int) -> void:
+	var global_budget_ctx: Dictionary = query_ctx.get("drops_global_counter_ctx", {}) as Dictionary
+	_emit_worker_event("drop_budget_hit", beh, check_pos, str(beh.pending_collect_id), {
+		"scope": scope,
+		"stage": String(query_ctx.get("stage", "drop_collect")),
+		"local_processed": local_processed,
+		"local_max": local_max,
+		"global_processed": _get_global_processed(global_budget_ctx),
+		"global_max": _get_global_max(query_ctx, global_budget_ctx),
+		"has_pending_collect": beh.pending_collect_id != 0,
+	})
+
+
+func _consume_pickup_budget(query_ctx: Dictionary) -> void:
+	var global_budget_ctx: Dictionary = query_ctx.get("drops_global_counter_ctx", {}) as Dictionary
+	if not global_budget_ctx.is_empty():
+		global_budget_ctx["processed"] = _get_global_processed(global_budget_ctx) + 1
+	var npc_budget_ctx: Dictionary = query_ctx.get("drops_npc_counter_ctx", {}) as Dictionary
+	if not npc_budget_ctx.is_empty():
+		npc_budget_ctx["processed"] = _get_npc_processed(npc_budget_ctx) + 1
+
+
 func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 		check_pos: Vector2, radius_sq: float, query_budget_ctx: Dictionary = {}) -> void:
 	if beh.is_cargo_full():
@@ -549,9 +611,20 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 		"intent": "idle",
 		"stage": "drop_collect",
 		"max_candidates_eval": 32,
+		"drops_per_npc_per_tick_max": drops_per_npc_per_tick_max,
+		"drops_global_per_pulse_max": drops_global_per_pulse_max,
 	}
 	for key in query_budget_ctx.keys():
 		query_ctx[key] = query_budget_ctx[key]
+	var npc_budget_ctx: Dictionary = query_ctx.get("drops_npc_counter_ctx", {}) as Dictionary
+	var local_budget_max: int = _get_npc_max(query_ctx, npc_budget_ctx)
+	var local_processed: int = _get_npc_processed(npc_budget_ctx)
+	if _is_global_budget_hit(query_ctx):
+		_mark_budget_hit(beh, check_pos, query_ctx, "global", local_processed, local_budget_max)
+		return
+	if _is_npc_budget_hit(query_ctx):
+		_mark_budget_hit(beh, check_pos, query_ctx, "npc", local_processed, local_budget_max)
+		return
 	var max_candidates_eval: int = maxi(int(query_ctx.get("max_candidates_eval", 0)), 0)
 	var candidates := WorldSpatialIndex.get_runtime_nodes_near(
 		KIND_ITEM_DROP,
@@ -578,9 +651,17 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 	for drop_node in candidate_nodes:
 		if beh.is_cargo_full():
 			break
+		if _is_global_budget_hit(query_ctx):
+			_mark_budget_hit(beh, check_pos, query_ctx, "global", local_processed, local_budget_max)
+			break
+		if _is_npc_budget_hit(query_ctx):
+			_mark_budget_hit(beh, check_pos, query_ctx, "npc", local_processed, local_budget_max)
+			break
 		if actor_pos.distance_squared_to(drop_node.global_position) > radius_sq:
 			continue
 		found_candidate = true
+		_consume_pickup_budget(query_ctx)
+		local_processed += 1
 		beh.pending_collect_id = drop_node.get_instance_id()
 		_emit_worker_event("drop_detected", beh, check_pos, str(beh.pending_collect_id), {
 			"drop_pos": _fmt_pos(drop_node.global_position),
