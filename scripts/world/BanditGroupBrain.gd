@@ -172,7 +172,8 @@ func _build_group_signature(members: Array, group_ctx: Dictionary) -> String:
 	var prioritized_drop_ids: Array[String] = _extract_target_ids(group_ctx.get("prioritized_drops", []))
 	var any_scavenger_busy: bool = bool(group_ctx.get("any_scavenger_busy", false))
 	var any_member_threatened: bool = bool(group_ctx.get("any_member_threatened", false))
-	return "%s|%s|members=%s|res=%s|drops=%s|cargo=%s|active=%s|mine=%s|busy=%s|threat=%s" % [
+	var structure_assault_active: bool = bool(group_ctx.get("structure_assault_active", false))
+	return "%s|%s|members=%s|res=%s|drops=%s|cargo=%s|active=%s|mine=%s|busy=%s|threat=%s|assault=%s" % [
 		mode,
 		str(interest_pos),
 		",".join(ids),
@@ -183,6 +184,7 @@ func _build_group_signature(members: Array, group_ctx: Dictionary) -> String:
 		",".join(member_resource_tokens),
 		str(any_scavenger_busy),
 		str(any_member_threatened),
+		str(structure_assault_active),
 	]
 
 
@@ -251,6 +253,19 @@ func _build_order_for_member(role: String, group_ctx: Dictionary, member_ctx: Di
 func _build_leader_order(ctx: Dictionary) -> Dictionary:
 	var macro_state: String = String(ctx.get("macro_state", _resolve_macro_state(ctx)))
 	var interest_pos: Vector2 = ctx.get("interest_pos", Vector2.ZERO)
+	var structure_assault_active: bool = bool(ctx.get("structure_assault_active", false))
+	if structure_assault_active:
+		var existing_assignment: Dictionary = ctx.get("existing_assignment", {}) as Dictionary
+		var assigned_target: Vector2 = existing_assignment.get("target_pos", Vector2.ZERO) as Vector2
+		if String(existing_assignment.get("order", "")) == "assault_structure_target" and assigned_target != Vector2.ZERO:
+			Debug.log("bandit_group", "[BGB][structure_assault_target_preserved] group=%s member=%s role=leader target=%s" % [
+				String(ctx.get("group_id", "")),
+				String(ctx.get("member_id", "")),
+				str(assigned_target),
+			])
+			return {"order": "assault_structure_target", "target_pos": assigned_target}
+		if interest_pos != Vector2.ZERO:
+			return {"order": "assault_structure_target", "target_pos": interest_pos}
 	match macro_state:
 		"retreating", "depositing":
 			return {"order": "return_home"}

@@ -895,6 +895,7 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			if String(_md.get("role", "")) == "scavenger" and bool(_md.get("has_active_task", false)):
 				any_scavenger_busy = true
 		var group_ctx := {
+			"group_id": group_id,
 			"group_mode": String(group.get("current_group_intent", "idle")),
 			"leader_pos": leader_pos_by_group.get(group_id, group.get("home_world_pos", Vector2.ZERO)),
 			"home_pos": group.get("home_world_pos", Vector2.ZERO),
@@ -904,6 +905,7 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			"prioritized_resources": prioritized_resources_entry.get("value", []),
 			"any_scavenger_busy": any_scavenger_busy,
 			"any_member_threatened": any_member_threatened,
+			"structure_assault_active": BanditGroupMemory.is_structure_assault_active(group_id),
 		}
 		var member_orders: Dictionary = _group_brain.assign_group_orders(group_id, members, group_ctx)
 		for member_id in member_orders.keys():
@@ -914,6 +916,27 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dictionary) -> void:
 	var order_type: String = String(order.get("order", ""))
 	if order_type == "":
+		return
+	var structure_assault_active: bool = BanditGroupMemory.is_structure_assault_active(beh.group_id)
+	var is_generic_override: bool = order_type == "follow_slot" \
+			or order_type == "move_to_target" \
+			or order_type == "attack_target"
+	if structure_assault_active and is_generic_override:
+		log_worker_event("structure_assault_target_overwritten", {
+			"npc_id": beh.member_id,
+			"group_id": beh.group_id,
+			"overwritten_by_order": order_type,
+		})
+		if order_type == "attack_target":
+			log_worker_event("ignored_generic_attack_during_structure_assault", {
+				"npc_id": beh.member_id,
+				"group_id": beh.group_id,
+				"order": order_type,
+			})
+			log_worker_event("enter_extort_approach_blocked_due_to_structure_assault", {
+				"npc_id": beh.member_id,
+				"group_id": beh.group_id,
+			})
 		return
 	var delivery_lock_engaged: bool = beh.delivery_lock_active and beh.cargo_count > 0
 	var combat_override: bool = bool(ctx.get("in_combat", false)) or bool(ctx.get("recently_engaged", false))
@@ -990,6 +1013,16 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 					beh.force_return_home()
 		"return_home":
 			beh.force_return_home()
+		"assault_structure_target":
+			var assault_pos: Vector2 = order.get("target_pos", Vector2.ZERO)
+			if assault_pos != Vector2.ZERO:
+				ctx["attack_target_pos"] = assault_pos
+				beh.enter_wall_assault(assault_pos)
+				log_worker_event("enter_wall_assault_called", {
+					"npc_id": beh.member_id,
+					"group_id": beh.group_id,
+					"target_pos": assault_pos,
+				})
 		"attack_target":
 			var attack_pos: Vector2 = order.get("target_pos", Vector2.ZERO)
 			if attack_pos != Vector2.ZERO:
@@ -1881,6 +1914,16 @@ func _dispatch_structure_members_slice(group_id: String, member_ids: Array, star
 			member_target = _pick_member_target_from_pool(member_pos, anchor_pos, target_pool, claimed_targets)
 			team_targets[team_key] = member_target
 			claimed_targets.append(member_target)
+		if _is_valid_structure_target(member_target):
+			BanditGroupMemory.bb_set_assignment(group_id, member_id, {
+				"order": "assault_structure_target",
+				"target_pos": member_target,
+			}, 8.0, "structure_dispatch")
+			log_worker_event("structure_assault_target_assigned", {
+				"group_id": group_id,
+				"npc_id": member_id,
+				"target_pos": member_target,
+			})
 		_apply_structure_assault_focus(node)
 		var beh_force: BanditWorldBehavior = _ensure_behavior_for_enemy(member_id, node, true)
 		if beh_force != null and beh_force.group_id == group_id:
