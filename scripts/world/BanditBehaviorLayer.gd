@@ -141,6 +141,19 @@ const GUARD_SLOT_PRIORITY: Array[String] = [
 	"escort_right",
 ]
 const LOCAL_SEPARATION_NEIGHBOR_LIMIT: int = 6
+const CROWD_SEPARATION_NEIGHBOR_LIMIT: int = 3
+const CROWD_SEPARATION_GUARD_NEIGHBOR_LIMIT: int = 4
+const CROWD_SEPARATION_EVERY_N_TICKS: int = 3
+const CROWD_REPULSION_SCALE: float = 0.55
+const CROWD_REPULSION_GUARD_SCALE: float = 0.85
+const CROWD_REPULSION_MAX_MAGNITUDE: float = 42.0
+const CROWD_REPULSION_GUARD_MAX_MAGNITUDE: float = 58.0
+const CROWD_DENSITY_MIN_MEMBERS: int = 5
+const CROWD_DENSITY_PAIR_DISTANCE_SCALE: float = 0.72
+const CROWD_DENSITY_PAIR_RATIO_THRESHOLD: float = 0.42
+const CROWD_ASSAULT_TARGET_NEAR_DIST_SQ: float = 136.0 * 136.0
+const CROWD_STALL_CENTROID_EPSILON_SQ: float = 7.0 * 7.0
+const CROWD_STALL_GUARD_TICKS: int = 8
 const SIM_PROFILE_FULL: StringName = &"full"
 const SIM_PROFILE_OBEDIENT: StringName = &"obedient"
 const SIM_PROFILE_DECORATIVE: StringName = &"decorative"
@@ -268,6 +281,8 @@ var _group_perception_elapsed: Dictionary        = {}
 var _group_scan_owner_cache: Dictionary          = {}
 var _group_lod_profile_decisions: Dictionary     = {}
 var _lod_profile_last_by_member: Dictionary      = {}
+var _physics_tick_seq: int                       = 0
+var _crowd_group_runtime: Dictionary             = {}
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +455,10 @@ func _physics_process(_delta: float) -> void:
 	var separation_elapsed_ms: float = 0.0
 	var separation_group_scans: int = 0
 	var separation_npc_scans: int = 0
+	var separation_neighbor_checks_total: int = 0
+	var crowd_mode_active_groups: int = 0
+	var crowd_mode_groups_total: int = 0
+	_physics_tick_seq += 1
 
 	# Pass 1: apply desired velocities + collect per-group node positions
 	var group_nodes: Dictionary = {}
@@ -469,7 +488,18 @@ func _physics_process(_delta: float) -> void:
 			continue
 		separation_group_scans += 1
 		separation_npc_scans += member_count
+		crowd_mode_groups_total += 1
+		var crowd_profile: Dictionary = _resolve_group_crowd_separation_profile(String(gid), member_buffer)
+		var crowd_active: bool = bool(crowd_profile.get("active", false))
+		if crowd_active:
+			crowd_mode_active_groups += 1
+		var eval_this_tick: bool = bool(crowd_profile.get("evaluate_this_tick", true))
+		var effective_neighbor_limit: int = int(crowd_profile.get("neighbor_limit", LOCAL_SEPARATION_NEIGHBOR_LIMIT))
+		var repulsion_scale: float = float(crowd_profile.get("repulsion_scale", 1.0))
+		var repulsion_max_magnitude: float = float(crowd_profile.get("repulsion_max_magnitude", INF))
 		for i in member_count:
+			if not eval_this_tick:
+				continue
 			var a_node = member_buffer.nodes[i]
 			if a_node == null or not is_instance_valid(a_node):
 				continue
@@ -483,7 +513,7 @@ func _physics_process(_delta: float) -> void:
 				continue
 			var checked: int = 0
 			for other in nearby:
-				if checked >= LOCAL_SEPARATION_NEIGHBOR_LIMIT:
+				if checked >= effective_neighbor_limit:
 					break
 				if other == a_node or other == null or not is_instance_valid(other):
 					continue
@@ -492,12 +522,17 @@ func _physics_process(_delta: float) -> void:
 				if other.has_method("is_sleeping") and other.is_sleeping():
 					continue
 				checked += 1
+				separation_neighbor_checks_total += 1
 				var diff: Vector2 = a_pos - other.global_position
 				var d: float = diff.length()
 				if d < BanditTuningScript.ally_sep_radius() and d > 0.5:
 					sep += diff.normalized() * (BanditTuningScript.ally_sep_radius() - d) \
 						/ BanditTuningScript.ally_sep_radius() * BanditTuningScript.ally_sep_force()
 			if sep.length_squared() > 0.01:
+				if repulsion_scale < 0.999:
+					sep *= repulsion_scale
+				if sep.length() > repulsion_max_magnitude:
+					sep = sep.normalized() * repulsion_max_magnitude
 				a_node.velocity += sep
 	separation_elapsed_ms = float(Time.get_ticks_usec() - separation_start_usec) / 1000.0
 
@@ -529,7 +564,87 @@ func _physics_process(_delta: float) -> void:
 		"ally_separation_total_ms": separation_elapsed_ms,
 		"separation_group_scans": separation_group_scans,
 		"separation_npc_scans": separation_npc_scans,
+		"separation_neighbor_checks_total": separation_neighbor_checks_total,
+		"crowd_mode_active_groups": crowd_mode_active_groups,
+		"crowd_mode_groups_total": crowd_mode_groups_total,
 	})
+
+
+func _resolve_group_crowd_separation_profile(group_id: String, member_buffer: GroupMemberBuffer) -> Dictionary:
+	var member_count: int = member_buffer.nodes.size()
+	var crowd_active: bool = false
+	var assault_target: Vector2 = BanditGroupMemory.get_assault_target(group_id)
+	if member_count >= CROWD_DENSITY_MIN_MEMBERS \
+			and BanditGroupMemory.is_structure_assault_active(group_id) \
+			and _is_valid_structure_target(assault_target) \
+			and _is_group_locally_dense(member_buffer.positions) \
+			and _compute_positions_centroid(member_buffer.positions).distance_squared_to(assault_target) <= CROWD_ASSAULT_TARGET_NEAR_DIST_SQ:
+		crowd_active = true
+	var runtime: Dictionary = _crowd_group_runtime.get(group_id, {
+		"stall_ticks": 0,
+		"last_centroid": Vector2.ZERO,
+		"has_centroid": false,
+	}) as Dictionary
+	var centroid: Vector2 = _compute_positions_centroid(member_buffer.positions)
+	if bool(runtime.get("has_centroid", false)):
+		if centroid.distance_squared_to(runtime.get("last_centroid", Vector2.ZERO) as Vector2) <= CROWD_STALL_CENTROID_EPSILON_SQ:
+			runtime["stall_ticks"] = int(runtime.get("stall_ticks", 0)) + 1
+		else:
+			runtime["stall_ticks"] = 0
+	else:
+		runtime["stall_ticks"] = 0
+	runtime["last_centroid"] = centroid
+	runtime["has_centroid"] = true
+	_crowd_group_runtime[group_id] = runtime
+	var guard_rail_stuck: bool = crowd_active and int(runtime.get("stall_ticks", 0)) >= CROWD_STALL_GUARD_TICKS
+	if not crowd_active:
+		return {
+			"active": false,
+			"evaluate_this_tick": true,
+			"neighbor_limit": LOCAL_SEPARATION_NEIGHBOR_LIMIT,
+			"repulsion_scale": 1.0,
+			"repulsion_max_magnitude": INF,
+		}
+	if guard_rail_stuck:
+		return {
+			"active": true,
+			"evaluate_this_tick": true,
+			"neighbor_limit": maxi(CROWD_SEPARATION_GUARD_NEIGHBOR_LIMIT, CROWD_SEPARATION_NEIGHBOR_LIMIT),
+			"repulsion_scale": CROWD_REPULSION_GUARD_SCALE,
+			"repulsion_max_magnitude": CROWD_REPULSION_GUARD_MAX_MAGNITUDE,
+		}
+	return {
+		"active": true,
+		"evaluate_this_tick": (_physics_tick_seq % CROWD_SEPARATION_EVERY_N_TICKS) == 0,
+		"neighbor_limit": CROWD_SEPARATION_NEIGHBOR_LIMIT,
+		"repulsion_scale": CROWD_REPULSION_SCALE,
+		"repulsion_max_magnitude": CROWD_REPULSION_MAX_MAGNITUDE,
+	}
+
+
+func _compute_positions_centroid(positions: Array[Vector2]) -> Vector2:
+	if positions.is_empty():
+		return Vector2.ZERO
+	var acc: Vector2 = Vector2.ZERO
+	for pos in positions:
+		acc += pos
+	return acc / float(maxi(positions.size(), 1))
+
+
+func _is_group_locally_dense(positions: Array[Vector2]) -> bool:
+	var count: int = positions.size()
+	if count < CROWD_DENSITY_MIN_MEMBERS:
+		return false
+	var max_pairs: int = (count * (count - 1)) / 2
+	if max_pairs <= 0:
+		return false
+	var close_pairs: int = 0
+	var close_dist_sq: float = pow(BanditTuningScript.ally_sep_radius() * CROWD_DENSITY_PAIR_DISTANCE_SCALE, 2.0)
+	for i in count:
+		for j in range(i + 1, count):
+			if positions[i].distance_squared_to(positions[j]) <= close_dist_sq:
+				close_pairs += 1
+	return float(close_pairs) / float(max_pairs) >= CROWD_DENSITY_PAIR_RATIO_THRESHOLD
 
 
 # ---------------------------------------------------------------------------
@@ -2710,6 +2825,9 @@ func _reset_perf_window_metrics() -> void:
 		"scan_total": 0,
 		"separation_group_scans": 0,
 		"separation_npc_scans": 0,
+		"separation_neighbor_checks_total": 0,
+		"crowd_mode_active_groups": 0,
+		"crowd_mode_groups_total": 0,
 		"assignment_conflicts_total": 0,
 		"double_reservations_avoided": 0,
 		"expired_reservations": 0,
@@ -2788,12 +2906,15 @@ func get_perf_window_snapshot() -> Dictionary:
 	var scan_by_npc: Dictionary = _perf_window_accum.get("scan_by_npc", {})
 	var physics_avg: float = float(_perf_window_accum.get("physics_process_total_ms", 0.0)) / float(maxi(physics_calls, 1))
 	var behavior_avg: float = float(_perf_window_accum.get("behavior_tick_total_ms", 0.0)) / float(maxi(behavior_calls, 1))
+	var crowd_mode_groups_total: int = int(_perf_window_accum.get("crowd_mode_groups_total", 0))
+	var crowd_mode_active_ratio: float = float(_perf_window_accum.get("crowd_mode_active_groups", 0)) / float(maxi(crowd_mode_groups_total, 1))
 	var phase1_reduction: Dictionary = _build_phase1_physics_reduction_snapshot(physics_avg)
 	return {
 		"window_seconds": elapsed,
 		"cost_ms": {
 			"physics_process_total": float(_perf_window_accum.get("physics_process_total_ms", 0.0)),
 			"ally_separation_total": float(_perf_window_accum.get("ally_separation_total_ms", 0.0)),
+			"ally_separation_total_ms": float(_perf_window_accum.get("ally_separation_total_ms", 0.0)),
 			"behavior_tick_total": float(_perf_window_accum.get("behavior_tick_total_ms", 0.0)),
 		},
 		"cost_ms_avg": {
@@ -2805,6 +2926,7 @@ func get_perf_window_snapshot() -> Dictionary:
 			"scan_total": int(_perf_window_accum.get("scan_total", 0)),
 			"separation_group_scans": int(_perf_window_accum.get("separation_group_scans", 0)),
 			"separation_npc_scans": int(_perf_window_accum.get("separation_npc_scans", 0)),
+			"separation_neighbor_checks_total": int(_perf_window_accum.get("separation_neighbor_checks_total", 0)),
 			"workers_active_avg": float(_perf_window_accum.get("worker_active_count_samples", 0)) / float(workers_frames),
 			"followers_without_task_avg": float(_perf_window_accum.get("followers_without_task_samples", 0)) / float(followers_frames),
 			"assignment_conflicts_total": int(_perf_window_accum.get("assignment_conflicts_total", 0)),
@@ -2817,6 +2939,11 @@ func get_perf_window_snapshot() -> Dictionary:
 			"profile_switches_total": int(_perf_window_accum.get("profile_switches_total", 0)),
 			"profile_budget_downgrades": int(_perf_window_accum.get("profile_budget_downgrades", 0)),
 			"profile_event_reactivations": int(_perf_window_accum.get("profile_event_reactivations", 0)),
+		},
+		"comparative_metrics": {
+			"ally_separation_total_ms": float(_perf_window_accum.get("ally_separation_total_ms", 0.0)),
+			"separation_neighbor_checks_total": int(_perf_window_accum.get("separation_neighbor_checks_total", 0)),
+			"crowd_mode_active_ratio": crowd_mode_active_ratio,
 		},
 		"scan_by_group": scan_by_group.duplicate(true),
 		"scan_by_npc": scan_by_npc.duplicate(true),
