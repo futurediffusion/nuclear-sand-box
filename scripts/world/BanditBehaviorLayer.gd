@@ -118,6 +118,8 @@ const RECOGNITION_RANGE_SQ: float = 350.0 * 350.0
 const RECOGNITION_COOLDOWN: float = 45.0
 const DROP_SCAN_ENOUGH_THRESHOLD: int = 10
 const DROP_SCAN_MAX_CANDIDATES_EVAL: int = 40
+const drops_per_npc_per_tick_max: int = 2
+const drops_global_per_pulse_max: int = 18
 
 # ---------------------------------------------------------------------------
 # Diï¿½fÂ¡logo ambiental Ã¢ï¿½,ï¿½ï¿½?ï¿½ frases de mundo mientras el NPC estï¿½fÂ¡ ocioso o patrullando
@@ -508,6 +510,11 @@ func _tick_behaviors() -> int:
 	_lod_debug_last_npc.clear()
 	_lod_debug_npc_counts = {"fast": 0, "medium": 0, "slow": 0}
 	var work_units: int = 0
+	var pulse_drop_budget_ctx: Dictionary = {
+		"processed": 0,
+		"max": drops_global_per_pulse_max,
+		"per_npc_max": drops_per_npc_per_tick_max,
+	}
 	var res_nodes_snapshot: Array = _get_all_resource_nodes()
 	var leader_pos_by_group: Dictionary = {}
 	for enemy_id in _behaviors:
@@ -523,7 +530,7 @@ func _tick_behaviors() -> int:
 		var node = _npc_simulator.get_enemy_node(enemy_id)
 		if not _is_world_behavior_eligible(node):
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node)
+				_work_coordinator.process_post_behavior(beh, node, pulse_drop_budget_ctx)
 			continue
 
 		var node_pos: Vector2 = _effective_work_position(node)
@@ -533,7 +540,7 @@ func _tick_behaviors() -> int:
 		_behavior_elapsed[enemy_id] = elapsed
 		if elapsed < tick_interval:
 			if _work_coordinator != null:
-				_work_coordinator.process_post_behavior(beh, node)
+				_work_coordinator.process_post_behavior(beh, node, pulse_drop_budget_ctx)
 			continue
 		# Resetear a 0 en vez de acumular residual para evitar que elapsed crezca
 		# indefinidamente cuando tick_interval es corto (ej. 0.25s con jugador cerca).
@@ -574,7 +581,7 @@ func _tick_behaviors() -> int:
 			save_state_ref["world_behavior"] = beh.export_state()
 
 		if _work_coordinator != null:
-			_work_coordinator.process_post_behavior(beh, node)
+			_work_coordinator.process_post_behavior(beh, node, pulse_drop_budget_ctx)
 	return work_units
 
 
