@@ -329,14 +329,20 @@ func _pickup_budget_scale() -> float:
 
 
 func _assault_pickup_group_looter_cap() -> int:
+	if not BanditTuningScript.rollout_opt_task_1_assault_group_cap():
+		return 64
 	return maxi(BanditTuningScript.assault_pickup_group_looter_cap(), 1)
 
 
 func _assault_pickup_scavenger_only() -> bool:
+	if not BanditTuningScript.rollout_opt_task_2_assault_scavenger_only():
+		return false
 	return BanditTuningScript.assault_pickup_scavenger_only()
 
 
 func _assault_pickup_rotation_interval_ticks() -> int:
+	if not BanditTuningScript.rollout_opt_task_3_assault_rotation():
+		return 1
 	return maxi(BanditTuningScript.assault_pickup_rotation_interval_ticks(), 1)
 
 
@@ -396,6 +402,8 @@ func _resolve_authorized_assault_looters(group_id: String, looter_cap: int) -> D
 			chosen.append(prev_id)
 	var cursor: int = int(persisted.get("cursor", 0))
 	var interval_ticks: int = _assault_pickup_rotation_interval_ticks()
+	if not BanditTuningScript.rollout_opt_task_3_assault_rotation():
+		interval_ticks = 1
 	var refresh_due: bool = persisted.is_empty() \
 			or now_tick >= int(persisted.get("next_refresh_tick", 0))
 	if refresh_due and candidates.size() > 0 and chosen.size() < cap:
@@ -512,6 +520,11 @@ func get_debug_snapshot() -> Dictionary:
 		"assault_pickup_group_looter_cap": _assault_pickup_group_looter_cap(),
 		"assault_pickup_scavenger_only": _assault_pickup_scavenger_only(),
 		"assault_pickup_rotation_interval_ticks": _assault_pickup_rotation_interval_ticks(),
+		"rollout_optimization_flags": {
+			"task_1_assault_group_cap": BanditTuningScript.rollout_opt_task_1_assault_group_cap(),
+			"task_2_assault_scavenger_only": BanditTuningScript.rollout_opt_task_2_assault_scavenger_only(),
+			"task_3_assault_rotation": BanditTuningScript.rollout_opt_task_3_assault_rotation(),
+		},
 	}
 
 

@@ -409,6 +409,9 @@ func consume_reservation_conflict_metrics() -> Dictionary:
 			"after_calls": _assault_per_npc_after_count,
 			"after_avg_ms": _assault_per_npc_after_ms_total / float(maxi(_assault_per_npc_after_count, 1)),
 		},
+		"rollout_optimization_flags": {
+			"task_4_assault_context_cache": BanditTuning.rollout_opt_task_4_assault_context_cache(),
+		},
 	}
 	_reservation_double_bookings_prevented = 0
 	_reservation_expired_total = 0
@@ -791,6 +794,15 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 
 
 func _get_or_build_assault_context(group_id: String, g: Dictionary, member_anchor: Vector2) -> Dictionary:
+	if not BanditTuning.rollout_opt_task_4_assault_context_cache():
+		var uncached_start_us: int = Time.get_ticks_usec()
+		var uncached_anchor: Vector2 = _resolve_assault_anchor(group_id, g)
+		var uncached: Dictionary = _build_assault_context(group_id, g, uncached_anchor, member_anchor, RunClock.now())
+		_assault_context_build_ms_total += float(Time.get_ticks_usec() - uncached_start_us) / 1000.0
+		_assault_context_build_count += 1
+		_assault_per_npc_before_ms_total += float(Time.get_ticks_usec() - uncached_start_us) / 1000.0
+		_assault_per_npc_before_count += 1
+		return uncached
 	var now: float = RunClock.now()
 	var cached: Dictionary = _assault_context_cache_by_group.get(group_id, {}) as Dictionary
 	var group_anchor: Vector2 = _resolve_assault_anchor(group_id, g)
