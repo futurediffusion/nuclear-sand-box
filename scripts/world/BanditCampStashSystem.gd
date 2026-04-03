@@ -38,6 +38,8 @@ const ENABLE_SECONDARY_DEPOSIT_FALLBACK: bool = false
 const drops_per_npc_per_tick_max: int = 2
 const drops_global_per_pulse_max: int = 18
 const COMPACT_DEPOSIT_MANIFEST_THRESHOLD: int = 8
+const COMPACT_DEPOSIT_MINIMAL_STACK_THRESHOLD: int = 1
+const ENABLE_LEGACY_DETAILED_DEPOSIT_PATH: bool = false
 const DROP_PRESSURE_STAGE_HIGH: int = 5
 const DROP_PRESSURE_STAGE_COMPACT: int = 6
 
@@ -400,86 +402,92 @@ func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
 
 	var fall_time:   float = BanditTuningScript.cargo_fall_time()
 	var sfx_stagger: float = BanditTuningScript.cargo_sfx_stagger()
-	var compact_mode: bool = beh._cargo_manifest.size() > COMPACT_DEPOSIT_MANIFEST_THRESHOLD \
-			or _is_drop_pressure_stage_6(beh) \
-			or _is_drop_pressure_high_or_worse()
+	var has_competition: bool = _is_drop_pressure_stage_6(beh) or _is_drop_pressure_high_or_worse()
+	var is_minimal_manifest: bool = beh._cargo_manifest.size() <= COMPACT_DEPOSIT_MINIMAL_STACK_THRESHOLD
+	var compact_mode: bool = true
+	if ENABLE_LEGACY_DETAILED_DEPOSIT_PATH:
+		compact_mode = has_competition \
+				or beh._cargo_manifest.size() > COMPACT_DEPOSIT_MANIFEST_THRESHOLD \
+				or not is_minimal_manifest
 	if compact_mode:
 		deposit_compact_path_hits += 1
 		_debug_compact_hits_in_pulse += 1
 		var batches: Dictionary = {}
-		var item_inserted: Dictionary = {}
-		var item_source: Dictionary = {}
-		var drop_nodes: Array[ItemDrop] = []
 		var one_shot_sfx: AudioStream = null
 		for i in beh._cargo_manifest.size():
 			var entry: Dictionary = beh._cargo_manifest[i]
 			var node_id: int = int(entry.get("node_id", 0))
 			var item_id: String = String(entry.get("item_id", ""))
 			var amount: int = int(entry.get("amount", 1))
-			var orig_layer: int = int(entry.get("orig_layer", 4))
 			if item_id == "" or amount <= 0:
 				continue
 			batches[item_id] = int(batches.get(item_id, 0)) + amount
-			var drop_node: ItemDrop = null
-			if node_id != 0 and is_instance_id_valid(node_id):
-				var obj := instance_from_id(node_id)
-				if obj != null and is_instance_valid(obj) \
-						and not (obj as Node).is_queued_for_deletion():
-					drop_node = obj as ItemDrop
-			if drop_node == null and ITEM_DROP_SCENE != null:
-				drop_node = ITEM_DROP_SCENE.instantiate() as ItemDrop
-				if drop_node != null:
-					drop_node.item_id = item_id
-					drop_node.amount = amount
-					get_tree().current_scene.add_child(drop_node)
-					drop_node.global_position = spawn_pos + Vector2(0.0, CARRY_STACK_BASE_Y - i * CARRY_STACK_STEP_Y)
-			if drop_node == null:
-				continue
-			drop_nodes.append(drop_node)
-			if one_shot_sfx == null:
-				one_shot_sfx = drop_node.get("pickup_sfx") as AudioStream
-			var carry_pos := drop_node.global_position
-			if drop_node.get_parent() != get_tree().current_scene:
-				drop_node.reparent(get_tree().current_scene, false)
-			drop_node.global_position = carry_pos
-			drop_node.global_position = land_target + Vector2(randf_range(-8.0, 8.0), randf_range(-4.0, 4.0))
-			drop_node.set_deferred("collision_layer", orig_layer)
-			drop_node.set_deferred("monitoring", true)
-			drop_node.set_process(true)
+			if one_shot_sfx == null and node_id != 0 and is_instance_id_valid(node_id):
+				var obj := instance_from_id(node_id) as ItemDrop
+				if obj != null and is_instance_valid(obj) and not obj.is_queued_for_deletion():
+					one_shot_sfx = obj.get("pickup_sfx") as AudioStream
+		var fallback_batches: Array = []
+		var inserted_any: bool = false
 		for item_id in batches.keys():
 			var packed_amount: int = int(batches.get(item_id, 0))
 			if packed_amount <= 0:
 				continue
 			var ins_res := _insert_into_group_barrels(beh, spawn_pos, target_source, chest, String(item_id), packed_amount)
 			var inserted: int = int(ins_res.get("inserted", 0))
-			item_inserted[String(item_id)] = inserted > 0
-			item_source[String(item_id)] = String(ins_res.get("source", target_source))
+			var source_used: String = String(ins_res.get("source", target_source))
 			if inserted > 0:
+				inserted_any = true
 				_force_clear_cargo_after_deposit(beh)
 				_emit_worker_event("deposit_success", beh, spawn_pos, String(item_id), {
 					"amount": inserted,
-					"source": String(ins_res.get("source", target_source)),
+					"source": source_used,
 				})
 				_clear_deposit_attempt_queue(beh)
-		var played_sfx: bool = false
-		for drop_node in drop_nodes:
-			if not is_instance_valid(drop_node) or drop_node.is_queued_for_deletion():
+			var leftover: int = maxi(0, packed_amount - inserted)
+			if leftover > 0:
+				fallback_batches.append({
+					"item_id": String(item_id),
+					"amount": leftover,
+					"source": source_used,
+				})
+		if inserted_any and one_shot_sfx != null:
+			AudioSystem.play_2d(one_shot_sfx, spawn_pos, null, &"SFX")
+		for fallback_entry in fallback_batches:
+			var fallback_item_id: String = String(fallback_entry.get("item_id", ""))
+			var fallback_amount: int = int(fallback_entry.get("amount", 0))
+			if fallback_item_id == "" or fallback_amount <= 0:
 				continue
-			var drop_item_id: String = String(drop_node.item_id)
-			if bool(item_inserted.get(drop_item_id, false)):
-				drop_node.queue_free()
-				if not played_sfx and one_shot_sfx != null:
-					AudioSystem.play_2d(one_shot_sfx, spawn_pos, null, &"SFX")
-					played_sfx = true
+			var fallback_drop: ItemDrop = null
+			if ITEM_DROP_SCENE != null:
+				fallback_drop = ITEM_DROP_SCENE.instantiate() as ItemDrop
+			if fallback_drop == null:
+				_emit_worker_event("cargo_not_returning", beh, spawn_pos, fallback_item_id, {
+					"reason": "deposit_blocked",
+					"cause": "stash_full",
+					"source": String(fallback_entry.get("source", target_source)),
+				})
 				continue
-			_emit_worker_event("cargo_not_returning", beh, spawn_pos, drop_item_id, {
+			fallback_drop.item_id = fallback_item_id
+			fallback_drop.amount = fallback_amount
+			get_tree().current_scene.add_child(fallback_drop)
+			fallback_drop.global_position = land_target + Vector2(randf_range(-8.0, 8.0), randf_range(-4.0, 4.0))
+			fallback_drop.set_deferred("collision_layer", 4)
+			fallback_drop.set_deferred("monitoring", true)
+			fallback_drop.set_process(true)
+			fallback_drop.add_to_group("item_drop")
+			_emit_worker_event("cargo_not_returning", beh, spawn_pos, fallback_item_id, {
 				"reason": "deposit_blocked",
 				"cause": "stash_full",
-				"source": String(item_source.get(drop_item_id, target_source)),
+				"source": String(fallback_entry.get("source", target_source)),
 			})
-			drop_node.add_to_group("item_drop")
 		_close_deposit(beh, spawn_pos, target_source, "deposit_closed")
 		Debug.log("bandit_ai", "[CampStash] cargo depositado id=%s pos=%s chest=%s compact=true" % [
+			beh.member_id, str(spawn_pos), str(chest != null)])
+		return
+
+	if not ENABLE_LEGACY_DETAILED_DEPOSIT_PATH:
+		_close_deposit(beh, spawn_pos, target_source, "deposit_closed")
+		Debug.log("bandit_ai", "[CampStash] cargo depositado id=%s pos=%s chest=%s compact=forced" % [
 			beh.member_id, str(spawn_pos), str(chest != null)])
 		return
 
