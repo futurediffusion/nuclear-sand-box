@@ -662,6 +662,9 @@ func _tick_behaviors() -> int:
 		if _work_coordinator != null:
 			_work_coordinator.process_post_behavior(beh, node, pulse_drop_budget_ctx)
 	var assignment_conflicts: int = _count_assignment_conflicts(collect_claims) + _count_assignment_conflicts(mine_claims)
+	var reservation_metrics: Dictionary = {}
+	if _work_coordinator != null:
+		reservation_metrics = _work_coordinator.consume_reservation_conflict_metrics()
 	_accumulate_perf_window({
 		"behavior_tick_calls": tick_calls,
 		"behavior_tick_total_ms": tick_total_ms,
@@ -671,6 +674,9 @@ func _tick_behaviors() -> int:
 		"followers_without_task_samples": followers_without_task,
 		"followers_without_task_frames": 1,
 		"assignment_conflicts_total": assignment_conflicts,
+		"double_reservations_avoided": int(reservation_metrics.get("double_reservations_avoided", 0)),
+		"expired_reservations": int(reservation_metrics.get("expired_reservations", 0)),
+		"assignment_replans": int(reservation_metrics.get("assignment_replans", 0)),
 		"scan_total": _dict_int_sum(scans_by_npc),
 	})
 	_merge_nested_counter("scan_by_group", scans_by_group)
@@ -2173,6 +2179,9 @@ func _reset_perf_window_metrics() -> void:
 		"separation_group_scans": 0,
 		"separation_npc_scans": 0,
 		"assignment_conflicts_total": 0,
+		"double_reservations_avoided": 0,
+		"expired_reservations": 0,
+		"assignment_replans": 0,
 		"worker_active_count_samples": 0,
 		"worker_active_count_frames": 0,
 		"followers_without_task_samples": 0,
@@ -2253,6 +2262,9 @@ func get_perf_window_snapshot() -> Dictionary:
 			"workers_active_avg": float(_perf_window_accum.get("worker_active_count_samples", 0)) / float(workers_frames),
 			"followers_without_task_avg": float(_perf_window_accum.get("followers_without_task_samples", 0)) / float(followers_frames),
 			"assignment_conflicts_total": int(_perf_window_accum.get("assignment_conflicts_total", 0)),
+			"double_reservations_avoided": int(_perf_window_accum.get("double_reservations_avoided", 0)),
+			"expired_reservations": int(_perf_window_accum.get("expired_reservations", 0)),
+			"assignment_replans": int(_perf_window_accum.get("assignment_replans", 0)),
 		},
 		"scan_by_group": scan_by_group.duplicate(true),
 		"scan_by_npc": scan_by_npc.duplicate(true),
