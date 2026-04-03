@@ -281,6 +281,7 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 		_copy_dictionary_array(_get_bases_near.call(home_pos, BanditTuning.group_territory_radius()), bases)
 
 	var score: float = _score_activity(markers, bases)
+	BanditGroupMemory.bb_write_threat_level(group_id, score, "group_intel_scan")
 
 	var faction_id: String = String(g.get("faction_id", "bandits"))
 
@@ -301,6 +302,7 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var effective_t_alerted: float = float(policy.get("effective_alerted_threshold", BanditTuning.alerted_threshold()))
 	var effective_t_hunting: float = float(policy.get("effective_hunting_threshold", BanditTuning.hunting_threshold()))
 	var new_intent: String = String(policy.get("next_intent", current_intent))
+	BanditGroupMemory.bb_write_group_mode(group_id, new_intent, "group_intel_policy")
 
 	# No resetear a "idle" si hay un asalto de placement_react activo para este grupo
 	if new_intent == "idle" and BanditGroupMemory.has_placement_react_lock(group_id):

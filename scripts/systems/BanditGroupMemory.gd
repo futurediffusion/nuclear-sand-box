@@ -14,6 +14,16 @@ extends Node
 #   - BanditGroupMemory → estado colectivo por grupo (intent, members, shared memory)
 
 var _groups: Dictionary = {}  # group_id -> group data dict
+var _blackboard_consistency_log_at: Dictionary = {}  # group_id -> last log ts
+
+const BLACKBOARD_SECTION_PERCEPTION: String = "perception"
+const BLACKBOARD_SECTION_ASSIGNMENTS: String = "assignments"
+const BLACKBOARD_SECTION_STATUS: String = "status"
+const BLACKBOARD_SECTION_EXPIRATIONS: String = "expirations"
+const BLACKBOARD_RESOURCES_TTL: float = 45.0
+const BLACKBOARD_DROPS_TTL: float = 20.0
+const BLACKBOARD_STATUS_TTL: float = 90.0
+const BLACKBOARD_CONSISTENCY_LOG_COOLDOWN: float = 8.0
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +51,7 @@ func register_member(
 	# First-registered leader wins; only update if no leader yet
 	if role == "leader" and String(g["leader_id"]) == "":
 		g["leader_id"] = member_id
+		bb_set_status(group_id, "leader_id", member_id, BLACKBOARD_STATUS_TTL, "register_member")
 		Debug.log("bandit_group", "[BGM] leader set id=%s group=%s" % [member_id, group_id])
 
 
@@ -52,6 +63,7 @@ func remove_member(group_id: String, member_id: String) -> void:
 	(g["member_ids"] as Array).erase(member_id)
 	if String(g["leader_id"]) == member_id:
 		g["leader_id"] = ""
+		bb_set_status(group_id, "leader_id", "", BLACKBOARD_STATUS_TTL, "remove_member")
 		Debug.log("bandit_group", "[BGM] leader died group=%s" % group_id)
 	# Release any resource claim held by this member
 	if g.has("resource_claims"):
@@ -78,6 +90,7 @@ func update_intent(group_id: String, intent: String) -> void:
 	if prev != intent:
 		g["current_group_intent"] = intent
 		g["current_intent_since"] = RunClock.now()
+		bb_set_status(group_id, "group_mode", intent, BLACKBOARD_STATUS_TTL, "update_intent")
 		Debug.log("bandit_group", "[BGM] intent changed group=%s %s→%s" % [group_id, prev, intent])
 
 
@@ -94,6 +107,7 @@ func record_interest(group_id: String, world_pos: Vector2, kind: String) -> void
 # ---------------------------------------------------------------------------
 
 func get_group(group_id: String) -> Dictionary:
+	_blackboard_prune(group_id)
 	return _groups.get(group_id, {})
 
 func has_group(group_id: String) -> bool:
@@ -287,6 +301,7 @@ func promote_leader(group_id: String, npc_id: String) -> void:
 	if not _groups.has(group_id):
 		return
 	_groups[group_id]["leader_id"] = npc_id
+	bb_set_status(group_id, "leader_id", npc_id, BLACKBOARD_STATUS_TTL, "promote_leader")
 	Debug.log("bandit_group", "[BGM] leader promoted id=%s group=%s" % [npc_id, group_id])
 
 func set_scout(group_id: String, npc_id: String) -> void:
@@ -326,7 +341,199 @@ func _make_group(group_id: String, faction_id: String, home_world_pos: Vector2) 
 		"wealth":                     0.0, # cumulative sell-price of stashed goods
 		"structure_assault_active_until": 0.0,
 		"eradicated":                 false,
+		"group_blackboard":           _make_group_blackboard(),
 	}
+
+
+func _make_group_blackboard() -> Dictionary:
+	return {
+		BLACKBOARD_SECTION_PERCEPTION: {
+			"known_resources": {},
+			"known_drops": {},
+		},
+		BLACKBOARD_SECTION_ASSIGNMENTS: {},
+		BLACKBOARD_SECTION_STATUS: {
+			"threat_level": _bb_make_entry(0.0, BLACKBOARD_STATUS_TTL, "init"),
+			"leader_id": _bb_make_entry("", BLACKBOARD_STATUS_TTL, "init"),
+			"group_mode": _bb_make_entry("idle", BLACKBOARD_STATUS_TTL, "init"),
+		},
+		BLACKBOARD_SECTION_EXPIRATIONS: {},
+	}
+
+
+func _bb_make_entry(value: Variant, ttl_seconds: float, source: String = "") -> Dictionary:
+	var now: float = RunClock.now()
+	var ttl: float = maxf(ttl_seconds, 0.0)
+	return {
+		"value": value,
+		"timestamp": now,
+		"expires_at": now + ttl,
+		"ttl_seconds": ttl,
+		"source": source,
+	}
+
+
+func _ensure_blackboard(group_id: String) -> Dictionary:
+	if not _groups.has(group_id):
+		return {}
+	var g: Dictionary = _groups[group_id]
+	if not g.has("group_blackboard") or not (g["group_blackboard"] is Dictionary):
+		g["group_blackboard"] = _make_group_blackboard()
+	return g["group_blackboard"] as Dictionary
+
+
+func _blackboard_perception(group_id: String) -> Dictionary:
+	var bb: Dictionary = _ensure_blackboard(group_id)
+	if bb.is_empty():
+		return {}
+	if not bb.has(BLACKBOARD_SECTION_PERCEPTION):
+		bb[BLACKBOARD_SECTION_PERCEPTION] = {"known_resources": {}, "known_drops": {}}
+	return bb[BLACKBOARD_SECTION_PERCEPTION] as Dictionary
+
+
+func _blackboard_status(group_id: String) -> Dictionary:
+	var bb: Dictionary = _ensure_blackboard(group_id)
+	if bb.is_empty():
+		return {}
+	if not bb.has(BLACKBOARD_SECTION_STATUS):
+		bb[BLACKBOARD_SECTION_STATUS] = {}
+	return bb[BLACKBOARD_SECTION_STATUS] as Dictionary
+
+
+func _blackboard_expirations(group_id: String) -> Dictionary:
+	var bb: Dictionary = _ensure_blackboard(group_id)
+	if bb.is_empty():
+		return {}
+	if not bb.has(BLACKBOARD_SECTION_EXPIRATIONS):
+		bb[BLACKBOARD_SECTION_EXPIRATIONS] = {}
+	return bb[BLACKBOARD_SECTION_EXPIRATIONS] as Dictionary
+
+
+func bb_set_status(group_id: String, key: String, value: Variant, ttl_seconds: float = BLACKBOARD_STATUS_TTL, source: String = "status_write") -> void:
+	var status: Dictionary = _blackboard_status(group_id)
+	if status.is_empty():
+		return
+	status[key] = _bb_make_entry(value, ttl_seconds, source)
+	_blackboard_expirations(group_id)["status.%s" % key] = float((status[key] as Dictionary).get("expires_at", 0.0))
+	_log_blackboard_consistency(group_id, source)
+
+
+func bb_write_threat_level(group_id: String, threat_level: float, source: String = "intel_scan") -> void:
+	bb_set_status(group_id, "threat_level", maxf(threat_level, 0.0), BLACKBOARD_STATUS_TTL, source)
+
+
+func bb_write_group_mode(group_id: String, group_mode: String, source: String = "intent_policy") -> void:
+	bb_set_status(group_id, "group_mode", group_mode, BLACKBOARD_STATUS_TTL, source)
+
+
+func bb_write_known_resources(group_id: String, resources: Array, ttl_seconds: float = BLACKBOARD_RESOURCES_TTL, source: String = "passive_resource_scan") -> void:
+	var perception: Dictionary = _blackboard_perception(group_id)
+	if perception.is_empty():
+		return
+	if not perception.has("known_resources"):
+		perception["known_resources"] = {}
+	var known_resources: Dictionary = perception["known_resources"]
+	var now: float = RunClock.now()
+	for raw in resources:
+		if not (raw is Dictionary):
+			continue
+		var info: Dictionary = raw as Dictionary
+		var pos_raw: Variant = info.get("pos", null)
+		if not (pos_raw is Vector2):
+			continue
+		var pos: Vector2 = pos_raw as Vector2
+		var key: String = _res_pos_key(pos)
+		known_resources[key] = _bb_make_entry({
+			"id": int(info.get("id", 0)),
+			"pos": pos,
+		}, ttl_seconds, source)
+	_blackboard_expirations(group_id)["perception.known_resources"] = now + maxf(ttl_seconds, 0.0)
+	_log_blackboard_consistency(group_id, source)
+
+
+func bb_write_known_drops(group_id: String, drops: Array, ttl_seconds: float = BLACKBOARD_DROPS_TTL, source: String = "passive_drop_scan") -> void:
+	var perception: Dictionary = _blackboard_perception(group_id)
+	if perception.is_empty():
+		return
+	if not perception.has("known_drops"):
+		perception["known_drops"] = {}
+	var known_drops: Dictionary = perception["known_drops"]
+	var now: float = RunClock.now()
+	for raw in drops:
+		if not (raw is Dictionary):
+			continue
+		var info: Dictionary = raw as Dictionary
+		var id: int = int(info.get("id", 0))
+		if id == 0:
+			continue
+		var pos_raw: Variant = info.get("pos", null)
+		var pos: Vector2 = pos_raw as Vector2 if pos_raw is Vector2 else Vector2.ZERO
+		known_drops[str(id)] = _bb_make_entry({
+			"id": id,
+			"pos": pos,
+			"amount": int(info.get("amount", 1)),
+		}, ttl_seconds, source)
+	_blackboard_expirations(group_id)["perception.known_drops"] = now + maxf(ttl_seconds, 0.0)
+	_log_blackboard_consistency(group_id, source)
+
+
+func bb_get(group_id: String) -> Dictionary:
+	_blackboard_prune(group_id)
+	return _ensure_blackboard(group_id)
+
+
+func _blackboard_prune(group_id: String) -> void:
+	var bb: Dictionary = _ensure_blackboard(group_id)
+	if bb.is_empty():
+		return
+	var now: float = RunClock.now()
+	var perception: Dictionary = _blackboard_perception(group_id)
+	if not perception.is_empty():
+		for collection_key in ["known_resources", "known_drops"]:
+			if not perception.has(collection_key):
+				continue
+			var collection: Dictionary = perception[collection_key]
+			var to_remove: Array = []
+			for key in collection.keys():
+				var entry: Dictionary = collection[key]
+				if now >= float(entry.get("expires_at", 0.0)):
+					to_remove.append(key)
+			for key in to_remove:
+				collection.erase(key)
+	var status: Dictionary = _blackboard_status(group_id)
+	if not status.is_empty():
+		var status_remove: Array = []
+		for key in status.keys():
+			var entry: Dictionary = status[key]
+			if now >= float(entry.get("expires_at", 0.0)):
+				status_remove.append(key)
+		for key in status_remove:
+			status.erase(key)
+
+
+func _log_blackboard_consistency(group_id: String, source: String) -> void:
+	var now: float = RunClock.now()
+	var last_log: float = float(_blackboard_consistency_log_at.get(group_id, -INF))
+	if now - last_log < BLACKBOARD_CONSISTENCY_LOG_COOLDOWN:
+		return
+	_blackboard_consistency_log_at[group_id] = now
+	var bb: Dictionary = _ensure_blackboard(group_id)
+	var perception: Dictionary = bb.get(BLACKBOARD_SECTION_PERCEPTION, {})
+	var status: Dictionary = bb.get(BLACKBOARD_SECTION_STATUS, {})
+	var known_resources_count: int = int((perception.get("known_resources", {}) as Dictionary).size())
+	var known_drops_count: int = int((perception.get("known_drops", {}) as Dictionary).size())
+	var threat_entry: Dictionary = status.get("threat_level", {})
+	var mode_entry: Dictionary = status.get("group_mode", {})
+	var leader_entry: Dictionary = status.get("leader_id", {})
+	Debug.log("bandit_group", "[BGM][BB] consistency group=%s src=%s resources=%d drops=%d threat=%.1f mode=%s leader=%s" % [
+		group_id,
+		source,
+		known_resources_count,
+		known_drops_count,
+		float(threat_entry.get("value", 0.0)),
+		String(mode_entry.get("value", "idle")),
+		String(leader_entry.get("value", "")),
+	])
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +562,7 @@ func serialize() -> Dictionary:
 
 func deserialize(data: Dictionary) -> void:
 	_groups.clear()
+	_blackboard_consistency_log_at.clear()
 	for gid: String in data:
 		var g: Dictionary = (data[gid] as Dictionary).duplicate(true)
 		if not g.has("current_intent_since"):
@@ -374,11 +582,14 @@ func deserialize(data: Dictionary) -> void:
 			g["last_interest_pos"] = Vector2(float(lip.get("x", 0.0)), float(lip.get("y", 0.0)))
 		else:
 			g["last_interest_pos"] = Vector2.ZERO
+		if not g.has("group_blackboard") or not (g.get("group_blackboard") is Dictionary):
+			g["group_blackboard"] = _make_group_blackboard()
 		_groups[gid] = g
 
 
 func reset() -> void:
 	_groups.clear()
+	_blackboard_consistency_log_at.clear()
 
 
 func print_all() -> void:

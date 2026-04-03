@@ -628,6 +628,8 @@ func _tick_behaviors() -> int:
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
 			scans_by_group[beh.group_id] = int(scans_by_group.get(beh.group_id, 0)) + 1
+			BanditGroupMemory.bb_write_known_drops(beh.group_id, _tick_scan_buffers.drops, 20.0, "behavior_layer_passive")
+			BanditGroupMemory.bb_write_known_resources(beh.group_id, _tick_scan_buffers.resources, 45.0, "behavior_layer_passive")
 		scans_by_npc[beh.member_id] = int(scans_by_npc.get(beh.member_id, 0)) + 1
 
 		# Pasar tick_interval como delta (tiempo real desde ï¿½fÂºltimo tick),
