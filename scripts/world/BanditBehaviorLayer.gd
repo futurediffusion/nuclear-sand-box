@@ -308,6 +308,14 @@ func log_worker_event(event_name: String, payload: Dictionary = {}) -> void:
 	Debug.log("bandit_pipeline", "[BANDIT_WORKER_EVENT] %s" % " ".join(parts))
 
 
+
+
+func _on_work_coordinator_group_event(event_name: String, payload: Dictionary = {}) -> void:
+	if _group_brain == null:
+		return
+	_group_brain.ingest_work_event(event_name, payload)
+	log_worker_event("causal_" + event_name, payload)
+
 func setup(ctx: Dictionary) -> void:
 	_cadence        = ctx.get("cadence") as WorldCadenceCoordinator
 	_npc_simulator  = ctx.get("npc_simulator")
@@ -367,6 +375,7 @@ func setup(ctx: Dictionary) -> void:
 		"log_worker_event_cb": Callable(self, "log_worker_event"),
 		"is_worker_instrumentation_enabled_cb": Callable(self, "is_worker_instrumentation_enabled"),
 		"worker_instrumentation_enabled": _worker_instrumentation_enabled,
+		"emit_group_event_cb": Callable(self, "_on_work_coordinator_group_event"),
 	})
 
 	if _work_coordinator != null and is_instance_valid(_work_coordinator):
@@ -381,12 +390,14 @@ func setup(ctx: Dictionary) -> void:
 		"log_worker_event_cb": Callable(self, "log_worker_event"),
 		"is_worker_instrumentation_enabled_cb": Callable(self, "is_worker_instrumentation_enabled"),
 		"worker_instrumentation_enabled": _worker_instrumentation_enabled,
+		"emit_group_event_cb": Callable(self, "_on_work_coordinator_group_event"),
 	})
 	_stash.set_work_context({
 		"get_work_tick_cb": Callable(_work_coordinator, "get_work_tick_seq"),
 		"get_work_cycle_id_cb": Callable(_work_coordinator, "get_work_cycle_id_for_member"),
 	})
 	_group_brain = BanditGroupBrainScript.new() as BanditGroupBrain
+	_group_brain.setup({})
 
 
 ## Called from world.gd after SettlementIntel is ready.
