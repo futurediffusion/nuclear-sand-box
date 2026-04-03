@@ -186,4 +186,11 @@ func _build_leader_order(ctx: Dictionary) -> Dictionary:
 		"hunting", "raiding", "alerted":
 			return {"order": "attack_target", "target_pos": interest_pos}
 		_:
+			# Never relax while someone in the group is under attack.
+			if bool(ctx.get("any_member_threatened", false)):
+				return {"order": "follow_slot", "slot_name": "frontal"}
+			# Relax at home while any scavenger is actively working.
+			# Wake up and lead formation again once everyone is idle.
+			if bool(ctx.get("any_scavenger_busy", false)):
+				return {"order": "relax_at_home"}
 			return {"order": "follow_slot", "slot_name": "frontal"}

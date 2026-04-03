@@ -641,10 +641,20 @@ func _tick_behaviors() -> int:
 		if not members_by_group.has(beh.group_id):
 			members_by_group[beh.group_id] = []
 		var members: Array = members_by_group[beh.group_id] as Array
+		var _rs: Dictionary = _get_runtime_lod_signals(node)
 		members.append({
 			"member_id": beh.member_id,
 			"role": beh.role,
 			"pos": node.global_position,
+			"cargo_count": beh.cargo_count,
+			"cargo_capacity": beh.cargo_capacity,
+			"has_active_task": is_worker_cycle_active(beh) \
+					or beh.pending_collect_id != 0 \
+					or beh.pending_mine_id != 0 \
+					or beh.cargo_count > 0 \
+					or beh.state == NpcWorldBehavior.State.RESOURCE_WATCH,
+			"in_combat": bool(_rs.get("is_in_direct_combat", false)),
+			"recently_engaged": bool(_rs.get("was_recently_engaged", false)),
 		})
 		members_by_group[beh.group_id] = members
 		if beh.role == "leader":
@@ -704,9 +714,11 @@ func _tick_behaviors() -> int:
 		var has_group_blackboard_data: bool = false
 		if sim_profile == SIM_PROFILE_FULL and BanditTuningScript.enable_group_perception_pulse():
 			has_group_blackboard_data = _fill_from_group_blackboard(beh, node_pos, _tick_scan_buffers.drops, _tick_scan_buffers.resources)
-		if sim_profile == SIM_PROFILE_FULL and not has_group_blackboard_data and BanditTuningScript.enable_individual_scan_fallback():
-			_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
-			_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
+		if sim_profile == SIM_PROFILE_FULL and BanditTuningScript.enable_individual_scan_fallback():
+			if not has_group_blackboard_data:
+				_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
+			if _tick_scan_buffers.resources.is_empty():
+				_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
 		if sim_profile != SIM_PROFILE_FULL:
 			_tick_scan_buffers.drops.clear()
 			_tick_scan_buffers.resources.clear()
@@ -859,6 +871,14 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 		var perception: Dictionary = blackboard.get("perception", {})
 		var prioritized_drops_entry: Dictionary = perception.get("prioritized_drops", {})
 		var prioritized_resources_entry: Dictionary = perception.get("prioritized_resources", {})
+		var any_scavenger_busy: bool = false
+		var any_member_threatened: bool = false
+		for _m in members:
+			var _md: Dictionary = _m as Dictionary
+			if bool(_md.get("in_combat", false)) or bool(_md.get("recently_engaged", false)):
+				any_member_threatened = true
+			if String(_md.get("role", "")) == "scavenger" and bool(_md.get("has_active_task", false)):
+				any_scavenger_busy = true
 		var group_ctx := {
 			"group_mode": String(group.get("current_group_intent", "idle")),
 			"leader_pos": leader_pos_by_group.get(group_id, group.get("home_world_pos", Vector2.ZERO)),
@@ -867,6 +887,8 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			"group_blackboard": blackboard,
 			"prioritized_drops": prioritized_drops_entry.get("value", []),
 			"prioritized_resources": prioritized_resources_entry.get("value", []),
+			"any_scavenger_busy": any_scavenger_busy,
+			"any_member_threatened": any_member_threatened,
 		}
 		var member_orders: Dictionary = _group_brain.assign_group_orders(group_id, members, group_ctx)
 		for member_id in member_orders.keys():
@@ -882,18 +904,37 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 		"follow_slot":
 			ctx["follow_slot_name"] = String(order.get("slot_name", ctx.get("follow_slot_name", "")))
 		"move_to_target":
-			var move_pos: Vector2 = order.get("target_pos", Vector2.ZERO)
-			if move_pos != Vector2.ZERO:
+			var _mv: Variant = order.get("target_pos", null)
+			var move_pos: Vector2 = _mv if _mv is Vector2 else Vector2.ZERO
+			if move_pos != Vector2.ZERO and beh.state != NpcWorldBehavior.State.EXTORT_APPROACH:
 				beh.enter_extort_approach(move_pos)
 		"mine_target":
-			var mine_pos: Vector2 = order.get("target_pos", Vector2.ZERO)
+			var _mp: Variant = order.get("target_pos", null)
+			var mine_pos: Vector2 = _mp if _mp is Vector2 else Vector2.ZERO
 			var mine_id: int = int(order.get("target_id", 0))
-			if mine_pos != Vector2.ZERO:
+			# Don't restart watch if already mining this resource — resetting clears
+			# _mine_tick_timer and pending_mine_id, preventing hits from ever landing.
+			var already_watching: bool = beh.state == NpcWorldBehavior.State.RESOURCE_WATCH \
+					and beh._resource_node_id == mine_id and mine_id != 0
+			if mine_pos != Vector2.ZERO and not already_watching:
 				beh.enter_resource_watch(mine_pos, mine_id)
 		"pickup_target":
 			var target_id: int = int(order.get("target_id", 0))
-			if target_id != 0:
+			# Don't re-enter loot approach for a drop already being chased.
+			var already_chasing: bool = beh.state == NpcWorldBehavior.State.LOOT_APPROACH \
+					and beh._loot_target_id == target_id
+			if target_id != 0 and not already_chasing:
 				beh.enter_loot_approach(target_id)
+		"relax_at_home":
+			# Leader waits at home while workers finish — don't interrupt an
+			# existing idle/patrol cycle, only redirect if actively going elsewhere.
+			match beh.state:
+				NpcWorldBehavior.State.IDLE_AT_HOME, \
+				NpcWorldBehavior.State.PATROL, \
+				NpcWorldBehavior.State.RETURN_HOME:
+					pass  # already resting or heading home
+				_:
+					beh.force_return_home()
 		"return_home":
 			beh.force_return_home()
 		"attack_target":
@@ -1086,8 +1127,9 @@ func _run_group_perception_pulse(group_id: String, members: Array, res_nodes_sna
 	var resources: Array[Dictionary] = []
 	_fill_drops_info_buffer(owner_pos, drops)
 	_fill_res_info_buffer(owner.get("behavior"), owner_pos, res_nodes_snapshot, resources)
+	var home_pos: Vector2 = Vector2(BanditGroupMemory.get_group(group_id).get("home_world_pos", owner_pos))
 	var prioritized_drops: Array = _prioritize_group_drops(owner_pos, drops)
-	var prioritized_resources: Array = _prioritize_group_resources(owner_pos, resources)
+	var prioritized_resources: Array = _prioritize_group_resources(home_pos, resources)
 	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_id", String(owner.get("member_id", "")), BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_perception_pulse")
 	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_role", String(owner.get("owner_role", "")), BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_perception_pulse")
 	BanditGroupMemory.bb_write_prioritized_drops(group_id, prioritized_drops, 20.0, "group_perception_pulse")
@@ -1608,6 +1650,14 @@ func _enforce_cargo_return_priority(beh: BanditWorldBehavior, member_pos: Vector
 			"cause": "holding_position_with_cargo",
 			"stage": stage,
 		})
+		return
+	# Don't interrupt a scavenger who is actively mining — let them finish the
+	# resource before depositing. The work coordinator handles the return once
+	# the resource is gone or cargo is full.
+	if beh.state == NpcWorldBehavior.State.RESOURCE_WATCH \
+			and beh._resource_node_id != 0 \
+			and is_instance_id_valid(beh._resource_node_id) \
+			and not beh.is_cargo_full():
 		return
 	var prev_state: int = int(beh.state)
 	beh.force_return_home()

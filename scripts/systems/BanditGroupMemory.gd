@@ -65,6 +65,7 @@ func remove_member(group_id: String, member_id: String) -> void:
 		g["leader_id"] = ""
 		bb_set_status(group_id, "leader_id", "", BLACKBOARD_STATUS_TTL, "remove_member")
 		Debug.log("bandit_group", "[BGM] leader died group=%s" % group_id)
+		_elect_new_leader(group_id, g)
 	# Release any resource claim held by this member
 	if g.has("resource_claims"):
 		var claims: Dictionary = g["resource_claims"]
@@ -303,6 +304,24 @@ func promote_leader(group_id: String, npc_id: String) -> void:
 	_groups[group_id]["leader_id"] = npc_id
 	bb_set_status(group_id, "leader_id", npc_id, BLACKBOARD_STATUS_TTL, "promote_leader")
 	Debug.log("bandit_group", "[BGM] leader promoted id=%s group=%s" % [npc_id, group_id])
+
+
+## Elige el mejor candidato de los miembros restantes: primero bodyguard, luego cualquiera.
+func _elect_new_leader(group_id: String, g: Dictionary) -> void:
+	var members: Array = g.get("member_ids", [])
+	var best_candidate: String = ""
+	for raw_id in members:
+		var mid: String = String(raw_id)
+		if mid == "":
+			continue
+		var role: String = String(NpcProfileSystem.get_profile(mid).get("role", ""))
+		if role == "bodyguard":
+			best_candidate = mid
+			break
+		if best_candidate == "":
+			best_candidate = mid
+	if best_candidate != "":
+		promote_leader(group_id, best_candidate)
 
 func set_scout(group_id: String, npc_id: String) -> void:
 	if not _groups.has(group_id):
@@ -688,6 +707,17 @@ func deserialize(data: Dictionary) -> void:
 			g["last_interest_pos"] = Vector2.ZERO
 		if not g.has("group_blackboard") or not (g.get("group_blackboard") is Dictionary):
 			g["group_blackboard"] = _make_group_blackboard()
+		else:
+			# Perception arrays (known_resources, prioritized_resources, etc.) contain
+			# Vector2 values that don't survive JSON round-trips. Wipe them so the
+			# next scan repopulates them with correctly-typed data.
+			var _bb: Dictionary = g["group_blackboard"] as Dictionary
+			if _bb.has(BLACKBOARD_SECTION_PERCEPTION):
+				var _perc: Dictionary = _bb[BLACKBOARD_SECTION_PERCEPTION] as Dictionary
+				_perc.erase("known_resources")
+				_perc.erase("known_drops")
+				_perc.erase("prioritized_resources")
+				_perc.erase("prioritized_drops")
 		_groups[gid] = g
 
 

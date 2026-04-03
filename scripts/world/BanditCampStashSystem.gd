@@ -27,13 +27,14 @@ const MethodCapabilityCacheScript := preload("res://scripts/utils/MethodCapabili
 # Camp layout constants — geometría visual interna, no balance de gameplay.
 # Los radios de pickup y timings de animación viven en BanditTuning.
 # ---------------------------------------------------------------------------
-const BARREL_SPAWN_OFFSET_BASE:  float = 64.0   # px desde home_pos al primer barril
+const BARREL_SPAWN_OFFSET_BASE:  float = 96.0   # px desde home_pos al primer barril (3 tiles)
 const BARREL_SPAWN_COLUMN_STEP:  float = 32.0   # px entre barriles adicionales
 const KIND_ITEM_DROP: StringName = WorldSpatialIndex.KIND_ITEM_DROP
 
 const CARRY_STACK_BASE_Y:  float = -22.0  # Y del primer item cargado sobre el NPC
 const CARRY_STACK_STEP_Y:  float =   8.0  # desplazamiento Y por item adicional en el stack
 const DEPOSIT_TARGET_MAX_DIST_SQ: float = 180.0 * 180.0
+const DEPOSIT_ZONE_RADIUS: float = 72.0  # NPC dentro de este radio de deposit_pos → depósito automático
 const ENABLE_SECONDARY_DEPOSIT_FALLBACK: bool = false
 const drops_per_npc_per_tick_max: int = 2
 const drops_global_per_pulse_max: int = 18
@@ -349,6 +350,16 @@ func sweep_collect_arrive(beh: BanditWorldBehavior, enemy_node: Node,
 
 ## Deposita el cargo en el barril del campamento (animación de caída + inserción).
 func handle_cargo_deposit(beh: BanditWorldBehavior, enemy_node: Node) -> void:
+	# Proximity deposit zone: trigger without requiring exact arrival if the NPC
+	# is within DEPOSIT_ZONE_RADIUS of their assigned deposit slot while returning.
+	if not beh._just_arrived_home_with_cargo and beh.cargo_count > 0 \
+			and beh.deposit_pos != Vector2.ZERO \
+			and (beh.state == NpcWorldBehavior.State.RETURN_HOME \
+				or beh.state == NpcWorldBehavior.State.IDLE_AT_HOME):
+		var _node2d := enemy_node as Node2D
+		if _node2d != null and is_instance_valid(_node2d) \
+				and _node2d.global_position.distance_to(beh.deposit_pos) <= DEPOSIT_ZONE_RADIUS:
+			beh._just_arrived_home_with_cargo = true
 	if not beh._just_arrived_home_with_cargo:
 		return
 	beh._just_arrived_home_with_cargo = false

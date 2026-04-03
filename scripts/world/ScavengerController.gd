@@ -22,11 +22,31 @@ func build_order(ctx: Dictionary) -> Dictionary:
 		resources = (perception.get("prioritized_resources", {}) as Dictionary).get("value", [])
 	var interest_pos: Vector2 = ctx.get("interest_pos", Vector2.ZERO)
 
+	# Re-sort resources by this scavenger's own position, not the group scan owner's
+	var member_pos: Vector2 = ctx.get("pos", Vector2.ZERO)
+	if member_pos != Vector2.ZERO and resources.size() > 1:
+		var resorted: Array = resources.duplicate()
+		resorted.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return member_pos.distance_squared_to(a.get("pos", Vector2.ZERO)) \
+				< member_pos.distance_squared_to(b.get("pos", Vector2.ZERO))
+		)
+		resources = resorted
+
 	if macro_state == MACRO_RETREATING:
 		return {"order": "return_home"}
 
 	if carry_count >= capacity or macro_state == MACRO_DEPOSITING:
 		return {"order": "return_home"}
+
+	# Mining is the primary job — commit to the resource before chasing drops.
+	# Drops near the resource get auto-swept by sweep_collect_orbit during RESOURCE_WATCH.
+	if not resources.is_empty() and (macro_state == MACRO_WORKING or macro_state == "patrol" or macro_state == "idle"):
+		var first_resource: Dictionary = resources[0] as Dictionary
+		return {
+			"order": "mine_target",
+			"target_id": int(first_resource.get("id", 0)),
+			"target_pos": first_resource.get("pos", Vector2.ZERO),
+		}
 
 	if not drops.is_empty():
 		var first_drop: Dictionary = drops[0] as Dictionary
@@ -34,14 +54,6 @@ func build_order(ctx: Dictionary) -> Dictionary:
 			"order": "pickup_target",
 			"target_id": int(first_drop.get("id", 0)),
 			"target_pos": first_drop.get("pos", Vector2.ZERO),
-		}
-
-	if not resources.is_empty() and (macro_state == MACRO_WORKING or macro_state == "patrol" or macro_state == "idle"):
-		var first_resource: Dictionary = resources[0] as Dictionary
-		return {
-			"order": "mine_target",
-			"target_id": int(first_resource.get("id", 0)),
-			"target_pos": first_resource.get("pos", Vector2.ZERO),
 		}
 
 	if macro_state == MACRO_RAIDING or macro_state == MACRO_HUNTING:
