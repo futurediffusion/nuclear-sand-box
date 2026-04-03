@@ -44,6 +44,8 @@ const STRUCTURE_ASSAULT_MAX_TOTAL_SAFETY: float = 1200.0
 const STRUCTURE_ASSAULT_ACTIVE_TTL: float = 8.0
 const ASSAULT_SUPPRESS_GENERIC_DROP_PICKUP: bool = true
 const ENABLE_WORKER_RESOURCE_FALLBACK: bool = true
+const ENABLE_GROUP_PERCEPTION_PULSE: bool = true
+const ENABLE_INDIVIDUAL_SCAN_FALLBACK: bool = true
 
 # ---------------------------------------------------------------------------
 # Physics / separation
@@ -107,6 +109,12 @@ static func mine_range_sq() -> float:
 
 static func enable_worker_resource_fallback() -> bool:
 	return ENABLE_WORKER_RESOURCE_FALLBACK
+
+static func enable_group_perception_pulse() -> bool:
+	return ENABLE_GROUP_PERCEPTION_PULSE
+
+static func enable_individual_scan_fallback() -> bool:
+	return ENABLE_INDIVIDUAL_SCAN_FALLBACK
 
 # ---------------------------------------------------------------------------
 # Physics / separation accessors

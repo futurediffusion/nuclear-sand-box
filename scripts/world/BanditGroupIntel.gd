@@ -261,12 +261,16 @@ func _record_mode_group_scan_perf(mode: StringName, reaction_latency: float, fra
 	_lod_mode_perf[key] = entry
 
 func _scan_group(group_id: String, g: Dictionary) -> void:
-	# Only react if the group has a live leader node
+	if _npc_simulator == null:
+		return
+	var scan_owner: Dictionary = _pick_scan_responsible(g)
+	if scan_owner.is_empty():
+		return
 	var leader_id: String = String(g.get("leader_id", ""))
-	if leader_id == "":
-		return
-	if _npc_simulator == null or _npc_simulator.get_enemy_node(leader_id) == null:
-		return
+	var scan_owner_id: String = String(scan_owner.get("member_id", ""))
+	var scan_owner_role: String = String(scan_owner.get("role", "leader"))
+	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_id", scan_owner_id, BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_scan_owner")
+	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_role", scan_owner_role, BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_scan_owner")
 
 	var home_pos: Vector2 = g.get("home_world_pos", Vector2.ZERO)
 
@@ -338,6 +342,31 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 		_maybe_enqueue_light_raid(group_id, g, bases[0], faction_id)
 	elif not bases.is_empty() and bool(policy.get("can_wall_probe_now", false)):
 		_maybe_enqueue_wall_probe(group_id, g, bases[0], faction_id, h_level)
+
+
+func _pick_scan_responsible(g: Dictionary) -> Dictionary:
+	var leader_id: String = String(g.get("leader_id", ""))
+	if leader_id != "":
+		var leader_node = _npc_simulator.get_enemy_node(leader_id)
+		if leader_node != null:
+			return {"member_id": leader_id, "role": "leader"}
+	var member_ids: Array = g.get("member_ids", [])
+	var fallback_any: String = ""
+	for raw_id in member_ids:
+		var member_id: String = String(raw_id)
+		if member_id == "":
+			continue
+		var node = _npc_simulator.get_enemy_node(member_id)
+		if node == null:
+			continue
+		var role: String = String(NpcProfileSystem.get_profile(member_id).get("role", ""))
+		if role == "bodyguard":
+			return {"member_id": member_id, "role": "subleader_functional"}
+		if fallback_any == "":
+			fallback_any = member_id
+	if fallback_any != "":
+		return {"member_id": fallback_any, "role": "member_fallback"}
+	return {}
 
 
 func _copy_dictionary_array(raw: Variant, out: Array[Dictionary]) -> void:

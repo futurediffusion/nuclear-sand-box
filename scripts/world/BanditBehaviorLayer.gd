@@ -237,6 +237,8 @@ var _missing_world_index_error_logged: bool      = false
 var _perf_window_elapsed_s: float                = 0.0
 var _perf_window_accum: Dictionary               = {}
 var _perf_baseline_snapshots: Dictionary         = {}
+var _group_perception_elapsed: Dictionary        = {}
+var _group_scan_owner_cache: Dictionary          = {}
 
 
 # ---------------------------------------------------------------------------
@@ -560,6 +562,7 @@ func _tick_behaviors() -> int:
 		"drops_pulse_id": _drop_metrics_pulse_seq,
 	}
 	var res_nodes_snapshot: Array = _get_all_resource_nodes()
+	var group_perception_payload: Dictionary = _build_group_perception_payload(res_nodes_snapshot)
 	var leader_pos_by_group: Dictionary = {}
 	var scans_by_group: Dictionary = {}
 	var scans_by_npc: Dictionary = {}
@@ -614,8 +617,12 @@ func _tick_behaviors() -> int:
 		var reaction_latency: float = maxf(elapsed - tick_interval, 0.0)
 		_behavior_elapsed[enemy_id] = 0.0
 
-		_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
-		_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
+		var has_group_blackboard_data: bool = false
+		if BanditTuningScript.enable_group_perception_pulse():
+			has_group_blackboard_data = _fill_from_group_blackboard(beh, node_pos, _tick_scan_buffers.drops, _tick_scan_buffers.resources)
+		if not has_group_blackboard_data and BanditTuningScript.enable_individual_scan_fallback():
+			_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
+			_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
 		var ctx: Dictionary = _tick_scan_buffers.ctx
 		ctx.clear()
 		ctx["node_pos"] = node_pos
@@ -628,8 +635,9 @@ func _tick_behaviors() -> int:
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
 			scans_by_group[beh.group_id] = int(scans_by_group.get(beh.group_id, 0)) + 1
-			BanditGroupMemory.bb_write_known_drops(beh.group_id, _tick_scan_buffers.drops, 20.0, "behavior_layer_passive")
-			BanditGroupMemory.bb_write_known_resources(beh.group_id, _tick_scan_buffers.resources, 45.0, "behavior_layer_passive")
+			var owner_entry: Dictionary = group_perception_payload.get(beh.group_id, {})
+			if not owner_entry.is_empty():
+				ctx["group_scan_owner_id"] = String(owner_entry.get("owner_id", ""))
 		scans_by_npc[beh.member_id] = int(scans_by_npc.get(beh.member_id, 0)) + 1
 
 		# Pasar tick_interval como delta (tiempo real desde ï¿½fÂºltimo tick),
@@ -668,6 +676,229 @@ func _tick_behaviors() -> int:
 	_merge_nested_counter("scan_by_group", scans_by_group)
 	_merge_nested_counter("scan_by_npc", scans_by_npc)
 	return work_units
+
+
+# ---------------------------------------------------------------------------
+# Group perception pulse
+# ---------------------------------------------------------------------------
+
+func _build_group_perception_payload(res_nodes_snapshot: Array) -> Dictionary:
+	var payload: Dictionary = {}
+	if not BanditTuningScript.enable_group_perception_pulse():
+		return payload
+	var groups: Dictionary = {}
+	for enemy_id in _behaviors.keys():
+		var beh: BanditWorldBehavior = _behaviors.get(enemy_id) as BanditWorldBehavior
+		if beh == null or beh.group_id == "":
+			continue
+		if not groups.has(beh.group_id):
+			groups[beh.group_id] = []
+		(groups[beh.group_id] as Array).append({
+			"enemy_id": String(enemy_id),
+			"member_id": beh.member_id,
+			"role": beh.role,
+			"behavior": beh,
+		})
+	for group_id in groups.keys():
+		var entry: Dictionary = _run_group_perception_pulse(group_id, groups[group_id] as Array, res_nodes_snapshot)
+		if not entry.is_empty():
+			payload[group_id] = entry
+	return payload
+
+
+func _run_group_perception_pulse(group_id: String, members: Array, res_nodes_snapshot: Array) -> Dictionary:
+	var elapsed: float = float(_group_perception_elapsed.get(group_id, 0.0)) + BanditTuningScript.behavior_tick_interval()
+	var owner: Dictionary = _select_group_scan_owner(group_id, members)
+	if owner.is_empty():
+		_group_perception_elapsed[group_id] = elapsed
+		return {}
+	var owner_pos: Vector2 = owner.get("node_pos", Vector2.ZERO)
+	var interval: float = _group_perception_interval_for(group_id, owner_pos)
+	if elapsed < interval:
+		_group_perception_elapsed[group_id] = elapsed
+		return {
+			"owner_id": String(owner.get("member_id", "")),
+			"owner_role": String(owner.get("owner_role", "")),
+			"scanned": false,
+		}
+	_group_perception_elapsed[group_id] = 0.0
+	_group_scan_owner_cache[group_id] = {
+		"member_id": String(owner.get("member_id", "")),
+		"owner_role": String(owner.get("owner_role", "")),
+	}
+	var drops: Array[Dictionary] = []
+	var resources: Array[Dictionary] = []
+	_fill_drops_info_buffer(owner_pos, drops)
+	_fill_res_info_buffer(owner.get("behavior"), owner_pos, res_nodes_snapshot, resources)
+	var prioritized_drops: Array = _prioritize_group_drops(owner_pos, drops)
+	var prioritized_resources: Array = _prioritize_group_resources(owner_pos, resources)
+	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_id", String(owner.get("member_id", "")), BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_perception_pulse")
+	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_role", String(owner.get("owner_role", "")), BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_perception_pulse")
+	BanditGroupMemory.bb_write_prioritized_drops(group_id, prioritized_drops, 20.0, "group_perception_pulse")
+	BanditGroupMemory.bb_write_prioritized_resources(group_id, prioritized_resources, 45.0, "group_perception_pulse")
+	return {
+		"owner_id": String(owner.get("member_id", "")),
+		"owner_role": String(owner.get("owner_role", "")),
+		"scanned": true,
+	}
+
+
+func _select_group_scan_owner(group_id: String, members: Array) -> Dictionary:
+	var best_subleader: Dictionary = {}
+	var best_member: Dictionary = {}
+	for raw in members:
+		if not (raw is Dictionary):
+			continue
+		var member: Dictionary = raw as Dictionary
+		var enemy_id: String = String(member.get("enemy_id", ""))
+		var node = _npc_simulator.get_enemy_node(enemy_id)
+		if not _is_world_behavior_eligible(node):
+			continue
+		var node2d := node as Node2D
+		if node2d == null:
+			continue
+		var role: String = String(member.get("role", ""))
+		if role == "leader":
+			return {
+				"member_id": String(member.get("member_id", "")),
+				"owner_role": "leader",
+				"node_pos": node2d.global_position,
+				"behavior": member.get("behavior"),
+			}
+		if role == "bodyguard" and best_subleader.is_empty():
+			best_subleader = {
+				"member_id": String(member.get("member_id", "")),
+				"owner_role": "subleader_functional",
+				"node_pos": node2d.global_position,
+				"behavior": member.get("behavior"),
+			}
+		if best_member.is_empty():
+			best_member = {
+				"member_id": String(member.get("member_id", "")),
+				"owner_role": "member_fallback",
+				"node_pos": node2d.global_position,
+				"behavior": member.get("behavior"),
+			}
+	if not best_subleader.is_empty():
+		return best_subleader
+	var cached: Dictionary = _group_scan_owner_cache.get(group_id, {})
+	if not cached.is_empty():
+		for raw in members:
+			if not (raw is Dictionary):
+				continue
+			var member: Dictionary = raw as Dictionary
+			if String(member.get("member_id", "")) != String(cached.get("member_id", "")):
+				continue
+			var enemy_id_cached: String = String(member.get("enemy_id", ""))
+			var node_cached = _npc_simulator.get_enemy_node(enemy_id_cached)
+			var node2d_cached := node_cached as Node2D
+			if node2d_cached != null and _is_world_behavior_eligible(node_cached):
+				return {
+					"member_id": String(member.get("member_id", "")),
+					"owner_role": String(cached.get("owner_role", "member_fallback")),
+					"node_pos": node2d_cached.global_position,
+					"behavior": member.get("behavior"),
+				}
+	return best_member
+
+
+func _group_perception_interval_for(group_id: String, anchor_pos: Vector2) -> float:
+	var base: float = BanditTuningScript.group_scan_interval()
+	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	var intent: String = String(g.get("current_group_intent", "idle"))
+	if intent == "extorting" or intent == "hunting":
+		base *= 0.5
+	elif intent == "alerted":
+		base *= 0.75
+	var distance_to_player: float = INF
+	if _player != null and is_instance_valid(_player):
+		distance_to_player = anchor_pos.distance_to(_player.global_position)
+	if distance_to_player <= 260.0:
+		base *= 0.5
+	elif distance_to_player <= 560.0:
+		base *= 0.7
+	elif distance_to_player >= 1400.0:
+		base *= 1.4
+	return clampf(base, 1.25, BanditTuningScript.group_scan_interval() * 2.0)
+
+
+func _prioritize_group_drops(anchor_pos: Vector2, drops: Array) -> Array:
+	var scored: Array = []
+	for raw in drops:
+		if not (raw is Dictionary):
+			continue
+		var drop: Dictionary = raw as Dictionary
+		var pos_raw: Variant = drop.get("pos", null)
+		if not (pos_raw is Vector2):
+			continue
+		var pos: Vector2 = pos_raw as Vector2
+		var amount: int = int(drop.get("amount", 1))
+		var score: float = 1000.0 / maxf(anchor_pos.distance_to(pos), 32.0) + float(amount) * 0.5
+		var out: Dictionary = drop.duplicate(true)
+		out["priority_score"] = score
+		scored.append(out)
+	scored.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("priority_score", 0.0)) > float(b.get("priority_score", 0.0))
+	)
+	return scored
+
+
+func _prioritize_group_resources(anchor_pos: Vector2, resources: Array) -> Array:
+	var scored: Array = []
+	for raw in resources:
+		if not (raw is Dictionary):
+			continue
+		var res: Dictionary = raw as Dictionary
+		var pos_raw: Variant = res.get("pos", null)
+		if not (pos_raw is Vector2):
+			continue
+		var pos: Vector2 = pos_raw as Vector2
+		var score: float = 1000.0 / maxf(anchor_pos.distance_to(pos), 32.0)
+		var out: Dictionary = res.duplicate(true)
+		out["priority_score"] = score
+		scored.append(out)
+	scored.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("priority_score", 0.0)) > float(b.get("priority_score", 0.0))
+	)
+	return scored
+
+
+func _fill_from_group_blackboard(beh: BanditWorldBehavior, node_pos: Vector2, drops_out: Array[Dictionary], resources_out: Array[Dictionary]) -> bool:
+	if beh.group_id == "":
+		return false
+	var prioritized_drops: Array = BanditGroupMemory.bb_get_prioritized_drops(beh.group_id)
+	var prioritized_resources: Array = BanditGroupMemory.bb_get_prioritized_resources(beh.group_id)
+	drops_out.clear()
+	resources_out.clear()
+	var max_drops: int = 14
+	var max_res: int = 14
+	var drop_radius_sq: float = BanditTuningScript.loot_scan_radius_sq()
+	var res_radius_sq: float = BanditTuningScript.resource_scan_radius_sq()
+	for raw_drop in prioritized_drops:
+		if drops_out.size() >= max_drops:
+			break
+		if not (raw_drop is Dictionary):
+			continue
+		var drop: Dictionary = raw_drop as Dictionary
+		var pos_raw: Variant = drop.get("pos", null)
+		if not (pos_raw is Vector2):
+			continue
+		if node_pos.distance_squared_to(pos_raw as Vector2) > drop_radius_sq:
+			continue
+		drops_out.append(drop.duplicate(true))
+	for raw_res in prioritized_resources:
+		if resources_out.size() >= max_res:
+			break
+		if not (raw_res is Dictionary):
+			continue
+		var res: Dictionary = raw_res as Dictionary
+		var pos_raw: Variant = res.get("pos", null)
+		if not (pos_raw is Vector2):
+			continue
+		if node_pos.distance_squared_to(pos_raw as Vector2) > res_radius_sq:
+			continue
+		resources_out.append(res.duplicate(true))
+	return not drops_out.is_empty() or not resources_out.is_empty()
 
 
 # ---------------------------------------------------------------------------
