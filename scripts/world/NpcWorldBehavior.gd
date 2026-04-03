@@ -75,6 +75,7 @@ var member_id: String  = ""
 var cargo_count: int    = 0
 var cargo_capacity: int = 3
 var deposit_lock_active: bool = false
+var delivery_lock_active: bool = false
 
 # ── Coordinator output ───────────────────────────────────────────────────────
 # Set by behavior when arriving at a loot target; BanditBehaviorLayer reads + clears.
@@ -346,14 +347,23 @@ func _tick_state(delta: float, ctx: Dictionary, node_pos: Vector2) -> void:
 			# eventualmente aceptar la posición actual para disparar el depósito.
 			# Evita NPCs bloqueados infinitamente cuando el barril está contra una pared.
 			if _state_timer > RETURN_HOME_TIMEOUT:
-				_enter_idle_at_home()
+				if carrying and delivery_lock_active:
+					_mark_ready_for_deposit()
+				else:
+					_enter_idle_at_home()
 			elif carrying and _state_timer > RETURN_HOME_TIMEOUT * 0.55:
 				# Radio ampliado al 55% del timeout: acepta posición si está razonablemente cerca
 				var relaxed_sq := arrive_sq * 4.0
 				if node_pos.distance_squared_to(return_target) < relaxed_sq:
-					_enter_idle_at_home()
+					if delivery_lock_active:
+						_mark_ready_for_deposit()
+					else:
+						_enter_idle_at_home()
 			elif node_pos.distance_squared_to(return_target) < arrive_sq:
-				_enter_idle_at_home()
+				if carrying and delivery_lock_active:
+					_mark_ready_for_deposit()
+				else:
+					_enter_idle_at_home()
 
 		State.HOLD_POSITION:
 			pass
@@ -489,6 +499,7 @@ func _enter_patrol(ctx: Dictionary) -> void:
 func _enter_return_home() -> void:
 	if cargo_count > 0:
 		deposit_lock_active = true
+		delivery_lock_active = true
 	state         = State.RETURN_HOME
 	_state_timer  = 0.0
 	_detour_timer = 0.0
@@ -497,6 +508,13 @@ func _enter_return_home() -> void:
 
 func force_return_home() -> void:
 	_enter_return_home()
+
+
+func _mark_ready_for_deposit() -> void:
+	_just_arrived_home_with_cargo = true
+	_desired_velocity = Vector2.ZERO
+	_detour_timer = 0.0
+	_detour_dir = Vector2.ZERO
 
 func _enter_extort_retreat() -> void:
 	state        = State.EXTORT_RETREAT
@@ -531,6 +549,7 @@ func export_state() -> Dictionary:
 		"wb_cargo_count":      cargo_count,
 		"wb_cargo_cap":        cargo_capacity,
 		"wb_deposit_lock_active": deposit_lock_active,
+		"wb_delivery_lock_active": delivery_lock_active,
 		"wb_res_watch_pos":    _resource_watch_pos,
 		"wb_res_watch_timer":  _resource_watch_timer,
 		"wb_orbit_radius":     _resource_orbit_radius,
@@ -560,6 +579,7 @@ func import_state(data: Dictionary) -> void:
 	cargo_count           = int(data.get("wb_cargo_count",       cargo_count))
 	cargo_capacity        = int(data.get("wb_cargo_cap",         cargo_capacity))
 	deposit_lock_active   = bool(data.get("wb_deposit_lock_active", false))
+	delivery_lock_active  = bool(data.get("wb_delivery_lock_active", deposit_lock_active))
 	var rwp = data.get("wb_res_watch_pos", Vector2.ZERO)
 	_resource_watch_pos    = rwp if rwp is Vector2 else Vector2.ZERO
 	_resource_watch_timer  = float(data.get("wb_res_watch_timer",  0.0))

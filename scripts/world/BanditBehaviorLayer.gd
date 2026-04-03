@@ -653,6 +653,7 @@ func _tick_behaviors() -> int:
 			"cargo_count": beh.cargo_count,
 			"cargo_capacity": beh.cargo_capacity,
 			"deposit_lock_active": beh.deposit_lock_active,
+			"delivery_lock_active": beh.delivery_lock_active,
 			"current_state": state_name,
 			"current_resource_id": beh._resource_node_id,
 			"pending_mine_id": beh.pending_mine_id,
@@ -914,16 +915,24 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 	var order_type: String = String(order.get("order", ""))
 	if order_type == "":
 		return
-	var deposit_lock_engaged: bool = beh.deposit_lock_active and beh.cargo_count > 0
+	var delivery_lock_engaged: bool = beh.delivery_lock_active and beh.cargo_count > 0
 	var combat_override: bool = bool(ctx.get("in_combat", false)) or bool(ctx.get("recently_engaged", false))
-	if deposit_lock_engaged and order_type != "return_home":
+	if delivery_lock_engaged and order_type != "return_home":
 		if order_type != "attack_target" or not combat_override:
+			log_worker_event("ignored_order_due_to_delivery_lock", {
+				"npc_id": beh.member_id,
+				"group_id": beh.group_id,
+				"order": order_type,
+				"cargo": beh.cargo_count,
+				"delivery_lock_active": true,
+			})
 			log_worker_event("tactical_order_ignored_deposit_lock", {
 				"npc_id": beh.member_id,
 				"group_id": beh.group_id,
 				"order": order_type,
 				"cargo": beh.cargo_count,
 				"deposit_lock_active": true,
+				"delivery_lock_active": true,
 			})
 			return
 	match order_type:
@@ -1678,22 +1687,19 @@ func _enforce_cargo_return_priority(beh: BanditWorldBehavior, member_pos: Vector
 		if beh != null:
 			_cargo_return_block_reason_by_member.erase(beh.member_id)
 		return
-	if beh.state == NpcWorldBehavior.State.RETURN_HOME:
-		_cargo_return_block_reason_by_member.erase(beh.member_id)
-		return
-	if beh.state == NpcWorldBehavior.State.HOLD_POSITION:
-		_cargo_return_block_reason_by_member[beh.member_id] = "holding_position_with_cargo"
-		log_worker_event("cargo_not_returning", {
+	if beh.delivery_lock_active and beh.state != NpcWorldBehavior.State.RETURN_HOME:
+		log_worker_event("return_home_triggered", {
 			"npc_id": beh.member_id,
 			"group_id": beh.group_id,
 			"camp_id": beh.group_id,
 			"state": str(int(beh.state)),
 			"target_id": "",
 			"position_used": "%.2f,%.2f" % [member_pos.x, member_pos.y],
-			"reason": "cargo_return_blocked",
-			"cause": "holding_position_with_cargo",
+			"reason": "delivery_lock_active",
 			"stage": stage,
 		})
+	if beh.state == NpcWorldBehavior.State.RETURN_HOME:
+		_cargo_return_block_reason_by_member.erase(beh.member_id)
 		return
 	if beh.deposit_lock_active:
 		log_worker_event("deposit_lock_retry", {
