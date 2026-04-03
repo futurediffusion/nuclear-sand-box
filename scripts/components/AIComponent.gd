@@ -5,6 +5,9 @@ const WEAPON_BOW: StringName = &"bow"
 const WEAPON_IRONPIPE: StringName = &"ironpipe"
 const COMBAT_STYLE_RANGED: StringName = &"ranged"
 const COMBAT_STYLE_MELEE: StringName = &"melee"
+const SIM_PROFILE_FULL: StringName = &"full"
+const SIM_PROFILE_OBEDIENT: StringName = &"obedient"
+const SIM_PROFILE_DECORATIVE: StringName = &"decorative"
 
 enum AIState { IDLE, CHASE, ATTACK, HURT, DEAD, DOWNED, DISENGAGE, HOLD_PERIMETER }
 enum BowState { IDLE, CHARGING, COOLDOWN }
@@ -105,6 +108,7 @@ var _provoked_until: float = 0.0
 ## Mientras esté activo, no adquiere al player de forma proactiva.
 ## Se usa para raids de estructuras: foco en objetivo estructural, no en jugador.
 var _structure_focus_until: float = 0.0
+var _simulation_profile: StringName = SIM_PROFILE_FULL
 
 func _has_property(obj: Object, property_name: String) -> bool:
 	if obj == null:
@@ -209,6 +213,8 @@ func get_current_target() -> Node:
 			return current_target
 
 	# Fallback
+	if _simulation_profile != SIM_PROFILE_FULL:
+		return null
 	if player != null and is_instance_valid(player):
 		set_current_target(player)
 		return player
@@ -229,6 +235,7 @@ func setup(p_owner_entity: Node) -> void:
 	_disengage_anchor = Vector2.ZERO
 	_perimeter_anchor = Vector2.ZERO
 	_current_downed_target_id = -1
+	_simulation_profile = SIM_PROFILE_FULL
 
 	if p_owner_entity == null:
 		push_error("[AIComponent] setup() called with null owner_entity")
@@ -263,6 +270,9 @@ func physics_tick(delta: float) -> void:
 		return
 	var target := get_current_target()
 	if target == null:
+		if _simulation_profile != SIM_PROFILE_FULL:
+			_execute_light_tick(delta, false)
+			return
 		_player_find_timer = maxf(_player_find_timer - delta, 0.0)
 		if _player_find_timer <= 0.0:
 			_find_player()
@@ -647,6 +657,8 @@ func _can_acquire_player() -> bool:
 	# Autodefensa: el player nos atacó recientemente
 	if now < _provoked_until:
 		return true
+	if _simulation_profile != SIM_PROFILE_FULL:
+		return false
 	# Raid estructural activo: no perseguir al player proactivamente.
 	if now < _structure_focus_until:
 		return false
@@ -826,6 +838,8 @@ func _update_weapon_selection(distance: float) -> Dictionary:
 		return {"weapon_id": "", "current_weapon_id": "", "target_weapon_id": ""}
 
 	var current_weapon_id := weapon_component.get_current_weapon_id()
+	if _simulation_profile != SIM_PROFILE_FULL:
+		return {"weapon_id": current_weapon_id, "current_weapon_id": current_weapon_id, "target_weapon_id": current_weapon_id}
 	var target_weapon_id := current_weapon_id
 
 	if current_weapon_id == WEAPON_BOW:
@@ -943,6 +957,15 @@ func _get_ai_controller() -> AIWeaponController:
 	if owner_entity.has_method("_ensure_ai_weapon_controller"):
 		return owner_entity.call("_ensure_ai_weapon_controller") as AIWeaponController
 	return owner_entity.get_node_or_null("AIWeaponController") as AIWeaponController
+
+func set_simulation_profile(profile: StringName) -> void:
+	var normalized: StringName = profile
+	if normalized != SIM_PROFILE_FULL and normalized != SIM_PROFILE_OBEDIENT and normalized != SIM_PROFILE_DECORATIVE:
+		normalized = SIM_PROFILE_FULL
+	_simulation_profile = normalized
+
+func get_simulation_profile() -> StringName:
+	return _simulation_profile
 
 func _release_attack_input() -> void:
 	var ctrl := _get_ai_controller()

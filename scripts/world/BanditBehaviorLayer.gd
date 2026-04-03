@@ -141,6 +141,11 @@ const GUARD_SLOT_PRIORITY: Array[String] = [
 	"escort_right",
 ]
 const LOCAL_SEPARATION_NEIGHBOR_LIMIT: int = 6
+const SIM_PROFILE_FULL: StringName = &"full"
+const SIM_PROFILE_OBEDIENT: StringName = &"obedient"
+const SIM_PROFILE_DECORATIVE: StringName = &"decorative"
+const OBEDIENT_PLAYER_NEAR_DISTANCE_SQ: float = 460.0 * 460.0
+const DECORATIVE_PLAYER_FAR_DISTANCE_SQ: float = 980.0 * 980.0
 
 # ---------------------------------------------------------------------------
 # Diï¿½fÂ¡logo ambiental Ã¢ï¿½,ï¿½ï¿½?ï¿½ frases de mundo mientras el NPC estï¿½fÂ¡ ocioso o patrullando
@@ -675,12 +680,20 @@ func _tick_behaviors() -> int:
 		var reaction_latency: float = maxf(elapsed - tick_interval, 0.0)
 		_behavior_elapsed[enemy_id] = 0.0
 
+		var member_order: Dictionary = {}
+		if beh.group_id != "":
+			member_order = orders_by_member.get(beh.member_id, {})
+		var sim_profile: StringName = _resolve_member_simulation_profile(beh, node, node_pos, member_order)
+		_apply_member_simulation_profile(node, sim_profile)
 		var has_group_blackboard_data: bool = false
-		if BanditTuningScript.enable_group_perception_pulse():
+		if sim_profile == SIM_PROFILE_FULL and BanditTuningScript.enable_group_perception_pulse():
 			has_group_blackboard_data = _fill_from_group_blackboard(beh, node_pos, _tick_scan_buffers.drops, _tick_scan_buffers.resources)
-		if not has_group_blackboard_data and BanditTuningScript.enable_individual_scan_fallback():
+		if sim_profile == SIM_PROFILE_FULL and not has_group_blackboard_data and BanditTuningScript.enable_individual_scan_fallback():
 			_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
 			_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
+		if sim_profile != SIM_PROFILE_FULL:
+			_tick_scan_buffers.drops.clear()
+			_tick_scan_buffers.resources.clear()
 		var ctx: Dictionary = _tick_scan_buffers.ctx
 		ctx.clear()
 		ctx["node_pos"] = node_pos
@@ -697,14 +710,17 @@ func _tick_behaviors() -> int:
 				ctx["follow_slot_pos"] = slot_info.get("slot_pos", beh.home_pos)
 				ctx["follow_slot_radius"] = float(slot_info.get("radius", GUARD_SLOT_RADIUS_DEFAULT))
 				ctx["follow_slot_name"] = String(slot_info.get("slot_name", ""))
-			var member_order: Dictionary = orders_by_member.get(beh.member_id, {})
+			member_order = orders_by_member.get(beh.member_id, {})
 			if not member_order.is_empty():
 				_apply_member_order(beh, ctx, member_order)
+		ctx["simulation_profile"] = String(sim_profile)
+		if sim_profile == SIM_PROFILE_FULL and beh.group_id != "":
 			scans_by_group[beh.group_id] = int(scans_by_group.get(beh.group_id, 0)) + 1
 			var owner_entry: Dictionary = group_perception_payload.get(beh.group_id, {})
 			if not owner_entry.is_empty():
 				ctx["group_scan_owner_id"] = String(owner_entry.get("owner_id", ""))
-		scans_by_npc[beh.member_id] = int(scans_by_npc.get(beh.member_id, 0)) + 1
+		if sim_profile == SIM_PROFILE_FULL:
+			scans_by_npc[beh.member_id] = int(scans_by_npc.get(beh.member_id, 0)) + 1
 
 		# Pasar tick_interval como delta (tiempo real desde ï¿½fÂºltimo tick),
 		# no elapsed que puede ser mayor que tick_interval.
@@ -868,6 +884,46 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 			if attack_pos != Vector2.ZERO:
 				ctx["attack_target_pos"] = attack_pos
 				beh.enter_extort_approach(attack_pos)
+
+
+func _resolve_member_simulation_profile(
+		beh: BanditWorldBehavior,
+		node: Node,
+		node_pos: Vector2,
+		member_order: Dictionary) -> StringName:
+	if beh.role == "leader":
+		return SIM_PROFILE_FULL
+	var player_dist_sq: float = INF
+	if _player != null and is_instance_valid(_player):
+		player_dist_sq = node_pos.distance_squared_to(_player.global_position)
+	var runtime_signals: Dictionary = _get_runtime_lod_signals(node)
+	var in_combat: bool = bool(runtime_signals.get("in_combat", false))
+	var recently_engaged: bool = bool(runtime_signals.get("recently_engaged", false))
+	var has_active_task: bool = is_worker_cycle_active(beh) \
+			or beh.pending_collect_id != 0 \
+			or beh.pending_mine_id != 0 \
+			or beh.cargo_count > 0
+	var has_order: bool = not member_order.is_empty()
+	var is_near_player: bool = player_dist_sq <= OBEDIENT_PLAYER_NEAR_DISTANCE_SQ
+	var is_far_player: bool = player_dist_sq >= DECORATIVE_PLAYER_FAR_DISTANCE_SQ
+	if in_combat or recently_engaged or is_near_player:
+		return SIM_PROFILE_FULL
+	var eligible_obedient: bool = beh.role == "bodyguard" or beh.role == "scavenger"
+	if eligible_obedient and (has_active_task or has_order):
+		return SIM_PROFILE_OBEDIENT
+	if eligible_obedient and is_far_player:
+		return SIM_PROFILE_DECORATIVE
+	return SIM_PROFILE_FULL
+
+
+func _apply_member_simulation_profile(node: Node, profile: StringName) -> void:
+	if node == null:
+		return
+	var ai_comp = node.get("ai_component")
+	if ai_comp == null:
+		return
+	if ai_comp.has_method("set_simulation_profile"):
+		ai_comp.call("set_simulation_profile", profile)
 
 
 # ---------------------------------------------------------------------------
