@@ -27,6 +27,7 @@ func build_order(ctx: Dictionary) -> Dictionary:
 	var pending_mine_id: int = int(ctx.get("pending_mine_id", 0))
 	var last_valid_resource_node_id: int = int(ctx.get("last_valid_resource_node_id", 0))
 	var has_active_task: bool = bool(ctx.get("has_active_task", false))
+	var delivery_lock_active: bool = bool(ctx.get("delivery_lock_active", false))
 	var existing_assignment: Dictionary = ctx.get("existing_assignment", {}) as Dictionary
 	var force_replan_resource: bool = bool(ctx.get("force_replan_resource", false))
 	var reservation_conflict: bool = bool(ctx.get("reservation_conflict", false))
@@ -35,8 +36,10 @@ func build_order(ctx: Dictionary) -> Dictionary:
 	if macro_state == MACRO_RETREATING:
 		return {"order": "return_home"}
 
-	# Delivery is absolute priority once any cargo is carried.
-	# deposit_lock_active is still consumed by lower layers for hard tactical guards/retries.
+	# Delivery is absolute priority once locked with cargo.
+	if delivery_lock_active and carry_count > 0:
+		return {"order": "return_home"}
+	# Backward-compat guard: any cargo or explicit depositing macro still returns home.
 	if carry_count > 0 or macro_state == MACRO_DEPOSITING:
 		return {"order": "return_home"}
 

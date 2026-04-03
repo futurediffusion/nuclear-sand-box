@@ -882,6 +882,12 @@ func _return_home_block_reason(beh: BanditWorldBehavior) -> String:
 func _request_return_home(beh: BanditWorldBehavior, reason: String) -> bool:
 	if beh == null:
 		return false
+	if beh.cargo_count > 0 and not beh.delivery_lock_active:
+		beh.delivery_lock_active = true
+		_emit_worker_event("delivery_lock_activated", beh, beh.home_pos, "", {
+			"reason": reason,
+			"cargo": beh.cargo_count,
+		})
 	var block_reason: String = _return_home_block_reason(beh)
 	if block_reason != "":
 		Debug.log("bandit_ai", "[BWC] return_home_blocked npc=%s reason=%s block=%s cargo=%d state=%s tick=%d" % [
