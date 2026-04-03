@@ -42,6 +42,7 @@ const COMPACT_DEPOSIT_MINIMAL_STACK_THRESHOLD: int = 1
 const ENABLE_LEGACY_DETAILED_DEPOSIT_PATH: bool = false
 const DROP_PRESSURE_STAGE_HIGH: int = 5
 const DROP_PRESSURE_STAGE_COMPACT: int = 6
+const PICKUP_SFX_COOLDOWN_MS: int = 100
 
 # group_id (String) -> instance_id (int) del barrel físico (runtime-only, no persisted)
 var _camp_barrels: Dictionary = {}
@@ -59,6 +60,8 @@ var _debug_last_drop_candidates_total: int = 0
 var _debug_last_budget_hits: int = 0
 var _debug_last_compact_hits: int = 0
 var _debug_drop_pressure_mode: String = "normal"
+var _pickup_sfx_last_ms_by_member: Dictionary = {}
+var _pickup_sfx_last_pulse_by_member: Dictionary = {}
 
 # Callable(group_id: String, barrel_pos: Vector2) -> void
 # Implementado por BanditBehaviorLayer para propagar deposit_pos a los behaviors.
@@ -881,7 +884,9 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 	_debug_pickup_queries_in_pulse += 1
 	_debug_drop_candidates_total_in_pulse += candidate_nodes.size()
 	var found_candidate: bool = false
-	var sound_idx := 0
+	var collected_in_sweep: int = 0
+	var representative_sfx: AudioStream = null
+	var representative_pos: Vector2 = actor_pos
 	for drop_node in candidate_nodes:
 		if beh.is_cargo_full():
 			break
@@ -901,8 +906,14 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 			"drop_pos": _fmt_pos(drop_node.global_position),
 			"radius_sq": snappedf(radius_sq, 0.01),
 		})
-		_handle_collection(beh, enemy_node, sound_idx * BanditTuningScript.cargo_sfx_stagger())
-		sound_idx += 1
+		var collect_result: Dictionary = _handle_collection(beh, enemy_node)
+		if bool(collect_result.get("collected", false)):
+			collected_in_sweep += 1
+			if representative_sfx == null:
+				representative_sfx = collect_result.get("sfx_stream", null) as AudioStream
+				representative_pos = collect_result.get("sfx_pos", representative_pos) as Vector2
+	if collected_in_sweep > 0:
+		_play_pickup_sfx_aggregated(beh, representative_sfx, representative_pos)
 	if not found_candidate:
 		_emit_worker_event("pickup_candidates_empty", beh, check_pos, "", {
 			"radius_sq": snappedf(radius_sq, 0.01),
@@ -911,8 +922,24 @@ func _sweep(beh: BanditWorldBehavior, enemy_node: Node,
 		})
 
 
-func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
-		sound_delay: float = 0.0) -> void:
+func _play_pickup_sfx_aggregated(beh: BanditWorldBehavior, sfx_stream: AudioStream, sfx_pos: Vector2) -> void:
+	if beh == null:
+		return
+	var member_id: String = beh.member_id
+	var pulse_id: int = _debug_drop_pulse_id
+	if int(_pickup_sfx_last_pulse_by_member.get(member_id, -1)) == pulse_id:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	var last_ms: int = int(_pickup_sfx_last_ms_by_member.get(member_id, -PICKUP_SFX_COOLDOWN_MS))
+	if now_ms - last_ms < PICKUP_SFX_COOLDOWN_MS:
+		return
+	var stream_to_play: AudioStream = sfx_stream if sfx_stream != null else AudioSystem.default_pickup_sfx
+	AudioSystem.play_2d(stream_to_play, sfx_pos, null, &"SFX")
+	_pickup_sfx_last_ms_by_member[member_id] = now_ms
+	_pickup_sfx_last_pulse_by_member[member_id] = pulse_id
+
+
+func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node) -> Dictionary:
 	var drop_id: int = beh.pending_collect_id
 	beh.pending_collect_id = 0
 
@@ -920,7 +947,7 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 		_emit_worker_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
 			"reason": "invalid_instance_id",
 		})
-		return
+		return {"collected": false}
 	_emit_worker_event("drop_pickup_attempt", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
 		"cargo": "%d/%d" % [beh.cargo_count, beh.cargo_capacity],
 	})
@@ -929,26 +956,19 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 		_emit_worker_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
 			"reason": "drop_object_missing",
 		})
-		return
+		return {"collected": false}
 	var drop_node: Node2D = drop_obj as Node2D
 	if drop_node == null or drop_node.is_queued_for_deletion():
 		_emit_worker_event("drop_not_visible", beh, _resolve_enemy_pos(enemy_node), str(drop_id), {
 			"reason": "drop_node_deleted",
 		})
-		return
+		return {"collected": false}
 
 	var collected_amount: int = int(drop_node.get("amount") if drop_node.get("amount") != null else 1)
 	var item_id: String       = String(drop_node.get("item_id") if drop_node.get("item_id") != null else "")
 	var drop_pos: Vector2     = drop_node.global_position
 	var pickup_sfx            = drop_node.get("pickup_sfx")
 	var sfx_stream: AudioStream = pickup_sfx if pickup_sfx is AudioStream else AudioSystem.default_pickup_sfx
-
-	if sound_delay <= 0.0:
-		AudioSystem.play_2d(sfx_stream, drop_pos, null, &"SFX")
-	else:
-		get_tree().create_timer(sound_delay).timeout.connect(func() -> void:
-			AudioSystem.play_2d(sfx_stream, drop_pos, null, &"SFX")
-		)
 
 	var carried: bool = false
 	if enemy_node != null and is_instance_valid(enemy_node):
@@ -983,6 +1003,11 @@ func _handle_collection(beh: BanditWorldBehavior, enemy_node: Node,
 	})
 	Debug.log("bandit_ai", "[CampStash] collected %s×%d id=%s cargo=%d→%d/%d" % [
 		item_id, collected_amount, beh.member_id, prev, beh.cargo_count, beh.cargo_capacity])
+	return {
+		"collected": true,
+		"sfx_stream": sfx_stream,
+		"sfx_pos": drop_pos,
+	}
 
 
 # ---------------------------------------------------------------------------
