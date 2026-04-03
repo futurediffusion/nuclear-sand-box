@@ -268,14 +268,14 @@ const BIOME_ID_DENSE_GRASS: int = 2
 @export var drop_compaction_hotspot_radius_px: float = 220.0
 @export var drop_compaction_min_cluster_size: int = 3
 @export_group("Drop Pressure")
-@export var drop_pressure_high_item_drop_count: int = 180
-@export var drop_pressure_critical_item_drop_count: int = 320
-@export var drop_pressure_high_merge_radius_mult: float = 1.30
-@export var drop_pressure_high_nodes_mult: float = 1.30
-@export var drop_pressure_high_merges_mult: float = 1.50
-@export var drop_pressure_critical_merge_radius_mult: float = 1.80
-@export var drop_pressure_critical_nodes_mult: float = 1.70
-@export var drop_pressure_critical_merges_mult: float = 2.00
+@export var drop_pressure_high_item_drop_count: int = 140
+@export var drop_pressure_critical_item_drop_count: int = 240
+@export var drop_pressure_high_merge_radius_mult: float = 1.55
+@export var drop_pressure_high_nodes_mult: float = 1.55
+@export var drop_pressure_high_merges_mult: float = 1.80
+@export var drop_pressure_critical_merge_radius_mult: float = 2.25
+@export var drop_pressure_critical_nodes_mult: float = 2.00
+@export var drop_pressure_critical_merges_mult: float = 2.40
 @export var drop_pressure_high_orphan_ttl_sec: float = 25.0
 @export_group("")
 

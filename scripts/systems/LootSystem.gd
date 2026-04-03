@@ -11,6 +11,17 @@ const DROP_AGGREGATION_WINDOW_MAX_SEC: float = 0.25
 const DROP_AGGREGATION_WINDOW_DEFAULT_SEC: float = 0.16
 const DROP_AGGREGATION_CELL_SIZE_PX: float = 24.0
 const DROP_AGGREGATION_MERGE_RADIUS: float = 26.0
+const DESTRUCTION_AGGREGATE_ITEM_IDS: Array[String] = [
+	"wallwood",
+	"doorwood",
+	"floorwood",
+	"woodfloor",
+	"workbench",
+	"chest",
+	"table",
+	"stool",
+	"campfire",
+]
 const PROP_RADIAL_SHORT_PROFILE := {
 	"scatter_min_distance": 12.0,
 	"scatter_max_distance": 30.0,
@@ -67,17 +78,20 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 		target_parent = get_tree().current_scene
 	if target_parent == null:
 		target_parent = get_tree().root
+	var aggregation_overrides := overrides.duplicate(true)
+	aggregation_overrides["item_id"] = resolved_id
+	var resolved_source_uid: String = _resolve_effective_source_uid(resolved_id, origin, overrides, source_uid)
 	var merged_drop := _try_merge_spawn_aggregate(
 		target_parent,
 		resolved_id,
 		amount,
 		origin,
-		overrides,
-		source_uid
+		aggregation_overrides,
+		resolved_source_uid
 	)
 	if merged_drop != null:
 		if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
-			GameEvents.emit_loot_spawned(resolved_id, amount, origin, source_uid)
+			GameEvents.emit_loot_spawned(resolved_id, amount, origin, resolved_source_uid)
 		return merged_drop
 
 	var drop := scene.instantiate()
@@ -105,12 +119,12 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 		_apply_pressure_ttl_if_supported(item_drop)
 
 	target_parent.add_child(drop)
-	_tag_drop_aggregation_meta(drop, resolved_id, origin, overrides, source_uid)
+	_tag_drop_aggregation_meta(drop, resolved_id, origin, aggregation_overrides, resolved_source_uid)
 	_apply_drop_spawn_motion(drop, origin, overrides)
 
 	print("[LootSystem] spawned drop item_id=", resolved_id, " amount=", amount)
 	if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
-		GameEvents.emit_loot_spawned(resolved_id, amount, origin, source_uid)
+		GameEvents.emit_loot_spawned(resolved_id, amount, origin, resolved_source_uid)
 	return drop
 
 
@@ -264,7 +278,44 @@ func _should_aggregate_spawn(overrides: Dictionary, source_uid: String) -> bool:
 		return true
 	if bool(overrides.get("aggregate_spawn", false)):
 		return true
-	return source_uid.strip_edges() != ""
+	var normalized_uid := _normalize_source_uid(source_uid)
+	if normalized_uid != "":
+		return true
+	var source_kind := String(overrides.get("source_kind", "")).strip_edges().to_lower()
+	if source_kind == "destroy" or source_kind == "destruction":
+		return true
+	if bool(overrides.get("from_destruction", false)):
+		return true
+	var item_id := String(overrides.get("item_id", "")).strip_edges().to_lower()
+	if item_id != "" and DESTRUCTION_AGGREGATE_ITEM_IDS.has(item_id):
+		return true
+	return false
+
+
+func _should_force_stable_source_uid(item_id: String, overrides: Dictionary, source_uid: String) -> bool:
+	if source_uid != "":
+		return false
+	if bool(overrides.get("aggregate_spawn", false)):
+		return true
+	if bool(overrides.get("from_destruction", false)):
+		return true
+	var source_kind := String(overrides.get("source_kind", "")).strip_edges().to_lower()
+	if source_kind == "destroy" or source_kind == "destruction":
+		return true
+	var lowered_item := item_id.strip_edges().to_lower()
+	if lowered_item != "" and DESTRUCTION_AGGREGATE_ITEM_IDS.has(lowered_item):
+		return true
+	return false
+
+
+func _resolve_effective_source_uid(item_id: String, origin: Vector2, overrides: Dictionary, source_uid: String) -> String:
+	var normalized_uid := _normalize_source_uid(source_uid)
+	if normalized_uid != "":
+		return normalized_uid
+	if not _should_force_stable_source_uid(item_id, overrides, normalized_uid):
+		return ""
+	var cell := _quantize_drop_origin(origin)
+	return "placeable_%s_%d_%d" % [item_id.strip_edges().to_lower(), cell.x, cell.y]
 
 
 func _resolve_aggregation_window_sec(overrides: Dictionary) -> float:
