@@ -40,6 +40,7 @@ const BanditRaidDirectorScript      := preload("res://scripts/world/BanditRaidDi
 const BanditCampStashSystemScript   := preload("res://scripts/world/BanditCampStashSystem.gd")
 const BanditTerritoryResponseScript := preload("res://scripts/world/BanditTerritoryResponse.gd")
 const BanditWorkCoordinatorScript   := preload("res://scripts/world/BanditWorkCoordinator.gd")
+const BanditGroupBrainScript        := preload("res://scripts/world/BanditGroupBrain.gd")
 const SimulationLODPolicyScript     := preload("res://scripts/world/SimulationLODPolicy.gd")
 const AIComponentScript             := preload("res://scripts/components/AIComponent.gd")
 const MethodCapabilityCacheScript   := preload("res://scripts/utils/MethodCapabilityCache.gd")
@@ -228,6 +229,7 @@ var _raid_director:      BanditRaidDirector      = null
 var _stash:              BanditCampStashSystem   = null
 var _territory_response: BanditTerritoryResponse = null
 var _work_coordinator:   BanditWorkCoordinator   = null
+var _group_brain:        BanditGroupBrain        = null
 var _find_wall_cb:       Callable                = Callable()
 var _find_wall_samples_cb: Callable              = Callable()
 var _find_workbench_cb:  Callable                = Callable()
@@ -376,6 +378,7 @@ func setup(ctx: Dictionary) -> void:
 		"get_work_tick_cb": Callable(_work_coordinator, "get_work_tick_seq"),
 		"get_work_cycle_id_cb": Callable(_work_coordinator, "get_work_cycle_id_for_member"),
 	})
+	_group_brain = BanditGroupBrainScript.new() as BanditGroupBrain
 
 
 ## Called from world.gd after SettlementIntel is ready.
@@ -600,6 +603,7 @@ func _tick_behaviors() -> int:
 	var leader_pos_by_group: Dictionary = {}
 	var leader_forward_by_group: Dictionary = {}
 	var members_by_group: Dictionary = {}
+	var orders_by_member: Dictionary = {}
 	var scans_by_group: Dictionary = {}
 	var scans_by_npc: Dictionary = {}
 	var worker_active_count: int = 0
@@ -632,6 +636,7 @@ func _tick_behaviors() -> int:
 				leader_fwd = Vector2.RIGHT
 			leader_forward_by_group[beh.group_id] = leader_fwd
 	var guard_slots_by_member: Dictionary = _build_guard_slots_by_member(members_by_group, leader_pos_by_group, leader_forward_by_group)
+	orders_by_member = _compute_group_orders(members_by_group, leader_pos_by_group)
 
 	for enemy_id in _behaviors:
 		var beh: BanditWorldBehavior = _behaviors[enemy_id]
@@ -692,6 +697,9 @@ func _tick_behaviors() -> int:
 				ctx["follow_slot_pos"] = slot_info.get("slot_pos", beh.home_pos)
 				ctx["follow_slot_radius"] = float(slot_info.get("radius", GUARD_SLOT_RADIUS_DEFAULT))
 				ctx["follow_slot_name"] = String(slot_info.get("slot_name", ""))
+			var member_order: Dictionary = orders_by_member.get(beh.member_id, {})
+			if not member_order.is_empty():
+				_apply_member_order(beh, ctx, member_order)
 			scans_by_group[beh.group_id] = int(scans_by_group.get(beh.group_id, 0)) + 1
 			var owner_entry: Dictionary = group_perception_payload.get(beh.group_id, {})
 			if not owner_entry.is_empty():
@@ -802,6 +810,64 @@ func _build_guard_slots_by_member(
 				"radius": slot_radius,
 			}
 	return out
+
+
+func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	if _group_brain == null:
+		return out
+	for group_id_var in members_by_group.keys():
+		var group_id: String = str(group_id_var)
+		var group: Dictionary = BanditGroupMemory.get_group(group_id)
+		if group.is_empty():
+			continue
+		var members: Array = members_by_group[group_id] as Array
+		var blackboard: Dictionary = BanditGroupMemory.bb_get(group_id)
+		var perception: Dictionary = blackboard.get("perception", {})
+		var prioritized_drops_entry: Dictionary = perception.get("prioritized_drops", {})
+		var prioritized_resources_entry: Dictionary = perception.get("prioritized_resources", {})
+		var group_ctx := {
+			"group_mode": String(group.get("current_group_intent", "idle")),
+			"leader_pos": leader_pos_by_group.get(group_id, group.get("home_world_pos", Vector2.ZERO)),
+			"home_pos": group.get("home_world_pos", Vector2.ZERO),
+			"interest_pos": group.get("last_interest_pos", Vector2.ZERO),
+			"group_blackboard": blackboard,
+			"prioritized_drops": prioritized_drops_entry.get("value", []),
+			"prioritized_resources": prioritized_resources_entry.get("value", []),
+		}
+		var member_orders: Dictionary = _group_brain.assign_group_orders(group_id, members, group_ctx)
+		for member_id in member_orders.keys():
+			out[str(member_id)] = member_orders[member_id]
+	return out
+
+
+func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dictionary) -> void:
+	var order_type: String = String(order.get("order", ""))
+	if order_type == "":
+		return
+	match order_type:
+		"follow_slot":
+			ctx["follow_slot_name"] = String(order.get("slot_name", ctx.get("follow_slot_name", "")))
+		"move_to_target":
+			var move_pos: Vector2 = order.get("target_pos", Vector2.ZERO)
+			if move_pos != Vector2.ZERO:
+				beh.enter_extort_approach(move_pos)
+		"mine_target":
+			var mine_pos: Vector2 = order.get("target_pos", Vector2.ZERO)
+			var mine_id: int = int(order.get("target_id", 0))
+			if mine_pos != Vector2.ZERO:
+				beh.enter_resource_watch(mine_pos, mine_id)
+		"pickup_target":
+			var target_id: int = int(order.get("target_id", 0))
+			if target_id != 0:
+				beh.enter_loot_approach(target_id)
+		"return_home":
+			beh.force_return_home()
+		"attack_target":
+			var attack_pos: Vector2 = order.get("target_pos", Vector2.ZERO)
+			if attack_pos != Vector2.ZERO:
+				ctx["attack_target_pos"] = attack_pos
+				beh.enter_extort_approach(attack_pos)
 
 
 # ---------------------------------------------------------------------------

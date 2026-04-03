@@ -411,6 +411,15 @@ func _blackboard_status(group_id: String) -> Dictionary:
 	return bb[BLACKBOARD_SECTION_STATUS] as Dictionary
 
 
+func _blackboard_assignments(group_id: String) -> Dictionary:
+	var bb: Dictionary = _ensure_blackboard(group_id)
+	if bb.is_empty():
+		return {}
+	if not bb.has(BLACKBOARD_SECTION_ASSIGNMENTS):
+		bb[BLACKBOARD_SECTION_ASSIGNMENTS] = {}
+	return bb[BLACKBOARD_SECTION_ASSIGNMENTS] as Dictionary
+
+
 func _blackboard_expirations(group_id: String) -> Dictionary:
 	var bb: Dictionary = _ensure_blackboard(group_id)
 	if bb.is_empty():
@@ -418,6 +427,36 @@ func _blackboard_expirations(group_id: String) -> Dictionary:
 	if not bb.has(BLACKBOARD_SECTION_EXPIRATIONS):
 		bb[BLACKBOARD_SECTION_EXPIRATIONS] = {}
 	return bb[BLACKBOARD_SECTION_EXPIRATIONS] as Dictionary
+
+
+func bb_set_assignment(group_id: String, member_id: String, value: Variant,
+		ttl_seconds: float = 2.0, source: String = "assignment_write") -> void:
+	if member_id == "":
+		return
+	var assignments: Dictionary = _blackboard_assignments(group_id)
+	if assignments.is_empty():
+		return
+	assignments[member_id] = _bb_make_entry(value, ttl_seconds, source)
+	_blackboard_expirations(group_id)["assignments.%s" % member_id] = float((assignments[member_id] as Dictionary).get("expires_at", 0.0))
+
+
+func bb_get_assignment(group_id: String, member_id: String) -> Dictionary:
+	_blackboard_prune(group_id)
+	if member_id == "":
+		return {}
+	var assignments: Dictionary = _blackboard_assignments(group_id)
+	var entry: Dictionary = assignments.get(member_id, {})
+	if entry.is_empty():
+		return {}
+	var payload: Variant = entry.get("value", {})
+	return payload as Dictionary if payload is Dictionary else {}
+
+
+func bb_clear_assignment(group_id: String, member_id: String) -> void:
+	if member_id == "":
+		return
+	var assignments: Dictionary = _blackboard_assignments(group_id)
+	assignments.erase(member_id)
 
 
 func bb_set_status(group_id: String, key: String, value: Variant, ttl_seconds: float = BLACKBOARD_STATUS_TTL, source: String = "status_write") -> void:
@@ -561,6 +600,15 @@ func _blackboard_prune(group_id: String) -> void:
 				status_remove.append(key)
 		for key in status_remove:
 			status.erase(key)
+	var assignments: Dictionary = _blackboard_assignments(group_id)
+	if not assignments.is_empty():
+		var assignments_remove: Array = []
+		for member_id in assignments.keys():
+			var assignment_entry: Dictionary = assignments[member_id]
+			if now >= float(assignment_entry.get("expires_at", 0.0)):
+				assignments_remove.append(member_id)
+		for member_id in assignments_remove:
+			assignments.erase(member_id)
 
 
 func _log_blackboard_consistency(group_id: String, source: String) -> void:
