@@ -225,6 +225,7 @@ var _lod_debug_last_npc: Dictionary              = {}
 var _lod_debug_npc_counts: Dictionary            = {"fast": 0, "medium": 0, "slow": 0}
 var _cargo_return_block_reason_by_member: Dictionary = {}
 var _lod_mode_perf: Dictionary = {}
+var _drop_metrics_pulse_seq: int = 0
 var _tick_scan_buffers: TickScanBuffers          = TickScanBuffers.new()
 var _structure_work_buffers: StructureWorkBuffers = StructureWorkBuffers.new()
 var _dispatch_work_buffers: DispatchWorkBuffers  = DispatchWorkBuffers.new()
@@ -509,11 +510,19 @@ func _tick_behaviors() -> int:
 	_prune_behavior_timers()
 	_lod_debug_last_npc.clear()
 	_lod_debug_npc_counts = {"fast": 0, "medium": 0, "slow": 0}
+	_drop_metrics_pulse_seq += 1
+	var drop_pressure_mode: String = "normal"
+	if LootSystem != null and LootSystem.has_method("get_drop_pressure_snapshot"):
+		var pressure_snapshot: Dictionary = LootSystem.get_drop_pressure_snapshot() as Dictionary
+		drop_pressure_mode = String(pressure_snapshot.get("level", "normal"))
+	if _stash != null:
+		_stash.begin_drop_pulse(_drop_metrics_pulse_seq, drop_pressure_mode)
 	var work_units: int = 0
 	var pulse_drop_budget_ctx: Dictionary = {
 		"processed": 0,
 		"max": drops_global_per_pulse_max,
 		"per_npc_max": drops_per_npc_per_tick_max,
+		"drops_pulse_id": _drop_metrics_pulse_seq,
 	}
 	var res_nodes_snapshot: Array = _get_all_resource_nodes()
 	var leader_pos_by_group: Dictionary = {}
@@ -1800,6 +1809,7 @@ func get_lod_debug_snapshot() -> Dictionary:
 		"npc_counts": _lod_debug_npc_counts.duplicate(true),
 		"npc_intervals": _lod_debug_last_npc.duplicate(true),
 		"mode_perf": _snapshot_mode_perf(),
+		"drop_metrics": _stash.get_debug_snapshot() if _stash != null else {},
 		"group_scan": _group_intel.get_lod_debug_snapshot() if _group_intel != null else {},
 	}
 

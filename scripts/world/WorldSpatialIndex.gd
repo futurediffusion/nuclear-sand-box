@@ -57,6 +57,11 @@ var _chunk_query_time_usec_total: int = 0
 var _chunk_query_calls: int = 0
 var _nearest_query_calls: int = 0
 var _nearest_candidates_evaluated_total: int = 0
+var _drop_query_pulse_id: int = -1
+var _drop_queries_in_pulse: int = 0
+var _drop_candidates_total_in_pulse: int = 0
+var _last_drop_queries_per_pulse: int = 0
+var _last_drop_candidates_total: int = 0
 
 
 func setup(ctx: Dictionary) -> void:
@@ -151,7 +156,22 @@ func get_runtime_nodes_near(kind: StringName, world_pos: Vector2, radius: float,
 		_queries_with_hits += 1
 	_nearest_query_calls += 1
 	_nearest_candidates_evaluated_total += candidates_evaluated
+	_record_drop_query_metrics(kind, query_ctx, candidates_evaluated)
 	return result
+
+
+func _record_drop_query_metrics(kind: StringName, query_ctx: Dictionary, candidates_evaluated: int) -> void:
+	if kind != KIND_ITEM_DROP:
+		return
+	var pulse_id: int = int(query_ctx.get("drops_pulse_id", -1))
+	if pulse_id >= 0 and pulse_id != _drop_query_pulse_id:
+		_last_drop_queries_per_pulse = _drop_queries_in_pulse
+		_last_drop_candidates_total = _drop_candidates_total_in_pulse
+		_drop_query_pulse_id = pulse_id
+		_drop_queries_in_pulse = 0
+		_drop_candidates_total_in_pulse = 0
+	_drop_queries_in_pulse += 1
+	_drop_candidates_total_in_pulse += maxi(candidates_evaluated, 0)
 
 
 
@@ -617,6 +637,14 @@ func get_debug_snapshot() -> Dictionary:
 	var total_runtime: int = 0
 	for count in runtime_counts.values():
 		total_runtime += int(count)
+	var pickup_queries_per_pulse: int = _drop_queries_in_pulse
+	var drop_candidates_total: int = _drop_candidates_total_in_pulse
+	if _drop_query_pulse_id >= 0 and _drop_queries_in_pulse <= 0 and _last_drop_queries_per_pulse > 0:
+		pickup_queries_per_pulse = _last_drop_queries_per_pulse
+		drop_candidates_total = _last_drop_candidates_total
+	var avg_drop_candidates_per_query: float = 0.0
+	if pickup_queries_per_pulse > 0:
+		avg_drop_candidates_per_query = float(drop_candidates_total) / float(pickup_queries_per_pulse)
 	return {
 		"alive": total_runtime > 0 or not _placeables_by_item_id_and_chunk.is_empty(),
 		"runtime_counts": runtime_counts,
@@ -640,6 +668,11 @@ func get_debug_snapshot() -> Dictionary:
 		"chunk_query_avg_usec": float(_chunk_query_time_usec_total) / float(maxi(_chunk_query_calls, 1)),
 		"nearest_query_calls": _nearest_query_calls,
 		"nearest_candidates_avg": float(_nearest_candidates_evaluated_total) / float(maxi(_nearest_query_calls, 1)),
+		"drop_queries": {
+			"pulse_id": _drop_query_pulse_id,
+			"pickup_queries_per_pulse": pickup_queries_per_pulse,
+			"average_drop_candidates_per_query": avg_drop_candidates_per_query,
+		},
 		"worldsave_chunk_key_codec": WorldSave.get_chunk_key_codec_metrics(),
 	}
 

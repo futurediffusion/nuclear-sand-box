@@ -98,6 +98,8 @@ func get_debug_snapshot() -> Dictionary:
 		}
 	var cadence_snapshot: Dictionary = _cadence.get_debug_snapshot() if _cadence != null else {}
 	var bandit_snapshot: Dictionary = _bandit_behavior_layer.get_lod_debug_snapshot() if _bandit_behavior_layer != null else {}
+	var spatial_snapshot: Dictionary = _world_spatial_index.get_debug_snapshot() if _world_spatial_index != null else {}
+	var maintenance_snapshot: Dictionary = _maintenance_snapshot_cb.call() if _maintenance_snapshot_cb.is_valid() else {}
 	if not cadence_snapshot.is_empty():
 		cadence_snapshot["activity_summary"] = _summarize_lane_activity(cadence_snapshot.get("lanes", {}))
 	if not bandit_snapshot.is_empty():
@@ -105,13 +107,15 @@ func get_debug_snapshot() -> Dictionary:
 		var group_scan: Dictionary = bandit_snapshot.get("group_scan", {})
 		group_scan["group_dominant_reasons"] = _count_dominant_reasons(group_scan.get("group_intervals", {}))
 		bandit_snapshot["group_scan"] = group_scan
+	var drop_metrics: Dictionary = _build_drop_metrics_snapshot(spatial_snapshot, bandit_snapshot, maintenance_snapshot)
 	return {
 		"enabled": true,
 		"cadence": cadence_snapshot,
 		"bandit_lod": bandit_snapshot,
 		"settlement": _settlement_intel.get_debug_snapshot() if _settlement_intel != null else {},
-		"spatial_index": _world_spatial_index.get_debug_snapshot() if _world_spatial_index != null else {},
-		"world_maintenance": _maintenance_snapshot_cb.call() if _maintenance_snapshot_cb.is_valid() else {},
+		"spatial_index": spatial_snapshot,
+		"world_maintenance": maintenance_snapshot,
+		"drop_metrics": drop_metrics,
 	}
 
 
@@ -129,6 +133,7 @@ func dump_debug_summary() -> String:
 	var runtime_counts: Dictionary = spatial.get("runtime_counts", {})
 	var wall_refresh: Dictionary = maintenance.get("wall_refresh", {})
 	var autosave: Dictionary = maintenance.get("autosave", {})
+	var drop_metrics: Dictionary = snapshot.get("drop_metrics", {})
 	var lines := PackedStringArray([
 		"WORLD SIM",
 		"- cadence: %s" % _format_cadence_line(lanes),
@@ -147,6 +152,14 @@ func dump_debug_summary() -> String:
 			int(runtime_counts.get("workbench", 0)),
 			int(runtime_counts.get("storage", 0)),
 		],
+		"- drops: mode=%s q/pulse=%d avgCand=%.1f budgetHits=%d compactHits=%d merged=%d" % [
+			String(drop_metrics.get("drop_pressure_mode", "normal")),
+			int(drop_metrics.get("pickup_queries_per_pulse", 0)),
+			float(drop_metrics.get("average_drop_candidates_per_query", 0.0)),
+			int(drop_metrics.get("drop_processing_budget_hits", 0)),
+			int(drop_metrics.get("deposit_compact_path_hits", 0)),
+			int(drop_metrics.get("merged_drop_events", 0)),
+		],
 		"- maintenance: tile_erase=%d, wall_refresh=%d(hot=%d), autosave=%s" % [
 			int(maintenance.get("pending_tile_erases", 0)),
 			int(wall_refresh.get("hot_size", 0)) + int(wall_refresh.get("normal_size", 0)),
@@ -163,6 +176,7 @@ func build_overlay_lines() -> PackedStringArray:
 		return PackedStringArray(["WORLD SIM: telemetry disabled"])
 	var settlement: Dictionary = snapshot.get("settlement", {})
 	var maintenance: Dictionary = snapshot.get("world_maintenance", {})
+	var drop_metrics: Dictionary = snapshot.get("drop_metrics", {})
 	var lines := PackedStringArray()
 	lines.append("WORLD SIM")
 	lines.append("cadence %s" % _format_cadence_line(snapshot.get("cadence", {}).get("lanes", {})))
@@ -178,7 +192,42 @@ func build_overlay_lines() -> PackedStringArray:
 		int(maintenance.get("pending_tile_erases", 0)),
 		int(_nested_dict(maintenance, ["wall_refresh", "hot_size"], 0)) + int(_nested_dict(maintenance, ["wall_refresh", "normal_size"], 0)),
 	])
+	lines.append("drops n=%d q=%d avg=%.1f b=%d c=%d m=%d mode=%s" % [
+		int(drop_metrics.get("item_drop_count", 0)),
+		int(drop_metrics.get("pickup_queries_per_pulse", 0)),
+		float(drop_metrics.get("average_drop_candidates_per_query", 0.0)),
+		int(drop_metrics.get("drop_processing_budget_hits", 0)),
+		int(drop_metrics.get("deposit_compact_path_hits", 0)),
+		int(drop_metrics.get("merged_drop_events", 0)),
+		String(drop_metrics.get("drop_pressure_mode", "normal")),
+	])
 	return lines
+
+
+func _build_drop_metrics_snapshot(spatial: Dictionary, bandit: Dictionary, maintenance: Dictionary) -> Dictionary:
+	var runtime_counts: Dictionary = spatial.get("runtime_counts", {})
+	var spatial_drop_queries: Dictionary = spatial.get("drop_queries", {})
+	var bandit_drop_metrics: Dictionary = bandit.get("drop_metrics", {})
+	var drop_compaction: Dictionary = maintenance.get("drop_compaction", {})
+	var pressure: Dictionary = drop_compaction.get("pressure", {})
+	var item_drop_count: int = int(runtime_counts.get("item_drop", pressure.get("item_drop_count", 0)))
+	var pickup_queries_per_pulse: int = int(bandit_drop_metrics.get(
+		"pickup_queries_per_pulse",
+		spatial_drop_queries.get("pickup_queries_per_pulse", 0)
+	))
+	var avg_drop_candidates: float = float(bandit_drop_metrics.get(
+		"average_drop_candidates_per_query",
+		spatial_drop_queries.get("average_drop_candidates_per_query", 0.0)
+	))
+	return {
+		"item_drop_count": item_drop_count,
+		"pickup_queries_per_pulse": pickup_queries_per_pulse,
+		"average_drop_candidates_per_query": avg_drop_candidates,
+		"merged_drop_events": int(drop_compaction.get("merged_drop_events", 0)),
+		"deposit_compact_path_hits": int(bandit_drop_metrics.get("deposit_compact_path_hits", 0)),
+		"drop_pressure_mode": String(bandit_drop_metrics.get("drop_pressure_mode", pressure.get("level", "normal"))),
+		"drop_processing_budget_hits": int(bandit_drop_metrics.get("drop_processing_budget_hits", 0)),
+	}
 
 
 func _format_cadence_line(lanes: Dictionary) -> String:
