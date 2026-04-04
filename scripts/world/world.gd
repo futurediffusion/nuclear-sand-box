@@ -222,6 +222,7 @@ const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColl
 const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd")
 const WorldCadenceCoordinatorScript := preload("res://scripts/world/WorldCadenceCoordinator.gd")
 const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.gd")
+const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 const LANE_SHORT_PULSE: StringName = &"short_pulse"
 const LANE_MEDIUM_PULSE: StringName = &"medium_pulse"
 const LANE_DIRECTOR_PULSE: StringName = &"director_pulse"
@@ -803,9 +804,11 @@ func _process_tile_erase_queue(max_erases_per_frame: int = BUDGET_TILE_ERASE_PER
 		budget -= 1
 
 func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
+	var t0_usec: int = Time.get_ticks_usec()
 	if _wall_refresh_queue == null:
 		return
 	var rebuild_budget: int = maxi(0, max_rebuilds_per_frame)
+	var rebuilds_executed: int = 0
 	while rebuild_budget > 0:
 		var result: Dictionary = _wall_refresh_queue.try_pop_next()
 		if not result.ok:
@@ -819,7 +822,17 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 
 		_ensure_chunk_wall_collision(chunk_pos)
 		_wall_refresh_queue.confirm_rebuild(chunk_pos, result.revision)
+		rebuilds_executed += 1
 		rebuild_budget -= 1
+	PlacementPerfTelemetryScript.record_stage(
+		"world_process_wall_refresh_queue",
+		Time.get_ticks_usec() - t0_usec,
+		{
+			"rebuild_budget": maxi(0, max_rebuilds_per_frame),
+			"rebuilds_executed": rebuilds_executed,
+		},
+		"collider"
+	)
 
 
 func _register_drop_compaction_hotspot(world_pos: Vector2, score: int = 1) -> void:
@@ -1527,20 +1540,33 @@ func refresh_wall_collision_for_tiles(tile_positions: Array[Vector2i]) -> void:
 	_mark_walls_dirty_and_refresh_for_tiles(valid_tiles)
 
 func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) -> void:
+	var t0_usec: int = Time.get_ticks_usec()
 	var chunks_to_refresh: Dictionary = {}
 	for tile_pos in tile_positions:
 		var cpos: Vector2i = _tile_to_chunk(tile_pos)
 		mark_chunk_walls_dirty(cpos.x, cpos.y)
 		chunks_to_refresh[cpos] = true
+	var chunks_enqueued: int = 0
 	for cpos in chunks_to_refresh.keys():
 		var chunk_pos: Vector2i = cpos as Vector2i
 		if _wall_refresh_queue != null:
 			_wall_refresh_queue.record_activity(chunk_pos)
 			if loaded_chunks.has(chunk_pos):
 				_wall_refresh_queue.enqueue(chunk_pos)
+				chunks_enqueued += 1
 	if _settlement_intel != null and not tile_positions.is_empty():
 		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_positions[0]))
 	_player_territory_dirty = true
+	PlacementPerfTelemetryScript.record_stage(
+		"world_mark_walls_dirty_and_refresh_for_tiles",
+		Time.get_ticks_usec() - t0_usec,
+		{
+			"tiles_affected": tile_positions.size(),
+			"chunks_touched": chunks_to_refresh.size(),
+			"chunks_enqueued": chunks_enqueued,
+		},
+		"collider"
+	)
 
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	if _chunk_wall_collider_cache != null:

@@ -25,6 +25,7 @@ const BASE_SCAN_PHASE_RATIO: float = 0.28
 const WORKBENCH_SCAN_PHASE_RATIO: float = 0.61
 const INTEL_LOG_SAMPLE_HEAVY: int = 8
 const BASE_SCAN_CHUNK_RADIUS_MULT: float = 1.75
+const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 
 # Cardinal directions used in flood fill and adjacency checks
 const _CARDINALS: Array[Vector2i] = [
@@ -540,6 +541,7 @@ func _on_resource_harvested(kind: String, world_pos: Vector2) -> void:
 
 
 func _on_placement_completed(item_id: String, tile_pos: Vector2i) -> void:
+	var t0_usec: int = Time.get_ticks_usec()
 	var wpos := _tile_to_world(tile_pos)
 	var chunk_pos: Vector2i = _tile_to_chunk(tile_pos)
 	_dirty_workbench_chunks[chunk_pos] = true
@@ -553,6 +555,17 @@ func _on_placement_completed(item_id: String, tile_pos: Vector2i) -> void:
 	if item_id == "doorwood" or item_id == "wallwood":
 		_base_scan_dirty = true
 	record_interest_event("structure_placed", wpos, {"item_id": item_id})
+	PlacementPerfTelemetryScript.record_stage(
+		"settlement_intel_on_placement_completed",
+		Time.get_ticks_usec() - t0_usec,
+		{
+			"item_id": item_id,
+			"tile_pos": tile_pos,
+			"dirty_workbench_chunks": _dirty_workbench_chunks.size(),
+			"dirty_base_chunks": _dirty_base_chunks.size(),
+		},
+		"ia"
+	)
 
 
 func _collect_placeable_chunk_deltas(next_serial: int) -> void:
