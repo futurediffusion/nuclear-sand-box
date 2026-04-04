@@ -45,6 +45,8 @@ const STRUCTURE_ASSAULT_ACTIVE_TTL: float = 3.0
 const STRUCTURE_NO_TARGET_CLOSE_GRACE: float = 1.75
 const MAX_ATTACKERS_PER_STRUCTURE: int = 3
 const ASSAULT_SUPPRESS_GENERIC_DROP_PICKUP: bool = true
+const ALLOW_LEADER_OPPORTUNISTIC_ASSAULT: bool = false
+const OPPORTUNISTIC_ASSAULT_CHANCE_MULTIPLIER: float = 0.45
 const ENABLE_WORKER_RESOURCE_FALLBACK: bool = true
 const ENABLE_GROUP_PERCEPTION_PULSE: bool = true
 const ENABLE_INDIVIDUAL_SCAN_FALLBACK: bool = true
@@ -326,8 +328,25 @@ static func max_attackers_per_structure() -> int:
 static func assault_suppress_generic_drop_pickup() -> bool:
 	return ASSAULT_SUPPRESS_GENERIC_DROP_PICKUP
 
+static func allow_leader_opportunistic_assault() -> bool:
+	return _read_rollout_flag(
+		"bandit/allow_leader_opportunistic_assault",
+		ALLOW_LEADER_OPPORTUNISTIC_ASSAULT
+	)
+
+static func opportunistic_assault_chance_multiplier() -> float:
+	return _read_float_setting(
+		"bandit/opportunistic_assault_chance_multiplier",
+		OPPORTUNISTIC_ASSAULT_CHANCE_MULTIPLIER
+	)
+
 
 static func _read_rollout_flag(setting_key: String, fallback: bool) -> bool:
 	if ProjectSettings.has_setting(setting_key):
 		return bool(ProjectSettings.get_setting(setting_key, fallback))
+	return fallback
+
+static func _read_float_setting(setting_key: String, fallback: float) -> float:
+	if ProjectSettings.has_setting(setting_key):
+		return float(ProjectSettings.get_setting(setting_key, fallback))
 	return fallback
