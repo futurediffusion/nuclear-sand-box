@@ -6,6 +6,11 @@ const MACRO_DEPOSITING := "depositing"
 const MACRO_RETREATING := "retreating"
 const MACRO_RAIDING := "raiding"
 const MACRO_HUNTING := "hunting"
+const FORBIDDEN_SCAVENGER_ORDERS := {
+	"assault_structure_target": true,
+	"demolish_structure_target": true,
+	"sabotage_structure_target": true,
+}
 
 
 func build_order(ctx: Dictionary) -> Dictionary:
@@ -34,19 +39,19 @@ func build_order(ctx: Dictionary) -> Dictionary:
 	var combat_interruption: bool = bool(ctx.get("in_combat", false)) or macro_state == MACRO_HUNTING or macro_state == MACRO_RAIDING
 
 	if macro_state == MACRO_RETREATING:
-		return {"order": "return_home"}
+		return _resolve_scavenger_order({"order": "return_home"}, ctx, drops, resources)
 
 	# Delivery is absolute priority once locked with cargo.
 	if delivery_lock_active and carry_count > 0:
-		return {"order": "return_home"}
+		return _resolve_scavenger_order({"order": "return_home"}, ctx, drops, resources)
 	# Backward-compat guard: any cargo or explicit depositing macro still returns home.
 	if carry_count > 0 or macro_state == MACRO_DEPOSITING:
-		return {"order": "return_home"}
+		return _resolve_scavenger_order({"order": "return_home"}, ctx, drops, resources)
 
 	if combat_interruption:
 		if interest_pos != Vector2.ZERO:
-			return {"order": "attack_target", "target_pos": interest_pos}
-		return {"order": "follow_slot", "slot_name": "escort_left"}
+			return _resolve_scavenger_order({"order": "attack_target", "target_pos": interest_pos}, ctx, drops, resources)
+		return _resolve_scavenger_order({"order": "follow_slot", "slot_name": "escort_left"}, ctx, drops, resources)
 
 	var can_preserve_resource: bool = not force_replan_resource \
 			and not reservation_conflict \
@@ -67,7 +72,7 @@ func build_order(ctx: Dictionary) -> Dictionary:
 				current_state,
 				str(has_active_task),
 			])
-			return preserved
+			return _resolve_scavenger_order(preserved, ctx, drops, resources)
 		elif current_resource_id != 0 or pending_mine_id != 0:
 			Debug.log("bandit_group", "[SCV][mine_target_changed] group=%s member=%s reason=invalid_or_missing old_current=%d old_pending=%d" % [
 				group_id,
@@ -90,8 +95,56 @@ func build_order(ctx: Dictionary) -> Dictionary:
 			member_id,
 			int(order.get("target_id", 0)),
 		])
-		return order
+		return _resolve_scavenger_order(order, ctx, drops, resources)
 
+	if not drops.is_empty():
+		var first_drop: Dictionary = drops[0] as Dictionary
+		return _resolve_scavenger_order({
+			"order": "pickup_target",
+			"target_id": int(first_drop.get("id", 0)),
+			"target_pos": first_drop.get("pos", Vector2.ZERO),
+		}, ctx, drops, resources)
+
+	if macro_state == MACRO_RAIDING or macro_state == MACRO_HUNTING:
+		return _resolve_scavenger_order({
+			"order": "attack_target",
+			"target_pos": interest_pos,
+		}, ctx, drops, resources)
+
+	if interest_pos != Vector2.ZERO:
+		return _resolve_scavenger_order({
+			"order": "move_to_target",
+			"target_pos": interest_pos,
+		}, ctx, drops, resources)
+
+	return _resolve_scavenger_order({"order": "follow_slot", "slot_name": "escort_left"}, ctx, drops, resources)
+
+
+func _resolve_scavenger_order(order: Dictionary, ctx: Dictionary, drops: Array, resources: Array) -> Dictionary:
+	if not _is_forbidden_scavenger_order(order):
+		return order
+	var blocked_order: String = String(order.get("order", ""))
+	var fallback: Dictionary = _economic_fallback_order(ctx, drops, resources)
+	Debug.log("bandit_group", "[SCV][scavenger_order_blocked] group=%s member=%s blocked=%s fallback=%s" % [
+		String(ctx.get("group_id", "")),
+		String(ctx.get("member_id", "")),
+		blocked_order,
+		String(fallback.get("order", "")),
+	])
+	return fallback
+
+
+func _is_forbidden_scavenger_order(order: Dictionary) -> bool:
+	var order_type: String = String(order.get("order", ""))
+	return FORBIDDEN_SCAVENGER_ORDERS.has(order_type)
+
+
+func _economic_fallback_order(ctx: Dictionary, drops: Array, resources: Array) -> Dictionary:
+	var carry_count: int = int(ctx.get("cargo_count", 0))
+	var macro_state: String = String(ctx.get("macro_state", "idle"))
+	if not resources.is_empty():
+		var first_resource: Dictionary = resources[0] as Dictionary
+		return _mine_order_from_resource(first_resource)
 	if not drops.is_empty():
 		var first_drop: Dictionary = drops[0] as Dictionary
 		return {
@@ -99,20 +152,9 @@ func build_order(ctx: Dictionary) -> Dictionary:
 			"target_id": int(first_drop.get("id", 0)),
 			"target_pos": first_drop.get("pos", Vector2.ZERO),
 		}
-
-	if macro_state == MACRO_RAIDING or macro_state == MACRO_HUNTING:
-		return {
-			"order": "attack_target",
-			"target_pos": interest_pos,
-		}
-
-	if interest_pos != Vector2.ZERO:
-		return {
-			"order": "move_to_target",
-			"target_pos": interest_pos,
-		}
-
-	return {"order": "follow_slot", "slot_name": "escort_left"}
+	if carry_count > 0 or macro_state == MACRO_DEPOSITING or bool(ctx.get("delivery_lock_active", false)):
+		return {"order": "return_home"}
+	return {"order": "return_home"}
 
 
 func _resolve_preserved_resource_order(existing_assignment: Dictionary,
