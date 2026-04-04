@@ -167,6 +167,7 @@ const _PLACEMENT_REACT_EVENT_MIN_INTERVAL: float = 0.20
 ## Empty filter = query all player placeables from WorldSpatialIndex persistent cache.
 const _PLAYER_RAID_PLACEABLE_ITEM_IDS: Array[String] = []
 var _placement_react_last_event_at: float = -9999.0
+var _placement_react_pulse_seq: int = 0
 @export_group("Placement Reaction")
 @export var placement_react_default_radius: float = 640.0
 @export var placement_react_radius_by_item_id: Dictionary = {}
@@ -2158,7 +2159,11 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
 	var react_radius: float = _get_placement_react_radius(item_id)
 	var react_radius_sq: float = react_radius * react_radius
-	var blocking_budget: Dictionary = {"remaining": maxi(0, placement_react_blocking_checks_budget)}
+	_placement_react_pulse_seq += 1
+	var blocking_query_ctx: Dictionary = {
+		"pulse_id": _placement_react_pulse_seq,
+		"blocking_checks_budget": maxi(0, placement_react_blocking_checks_budget),
+	}
 	Debug.log("placement_react", "--- placement react target=%s groups_total=%d ---" % [
 		str(target_pos), all_ids.size()])
 	if all_ids.is_empty():
@@ -2192,8 +2197,14 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 			Debug.log("placement_react", "  group=%s skipped (far) dist=%.1f radius=%.1f anchor=%s" % [
 				gid, sqrt(dist_sq), react_radius, anchor_kind])
 			continue
+		if int(blocking_query_ctx.get("blocking_checks_budget", 0)) <= 0:
+			Debug.log("placement_react", "  blocking_checks_budget exhausted pulse=%d groups_evaluated=%d" % [
+				int(blocking_query_ctx.get("pulse_id", -1)),
+				groups_evaluated
+			])
+			break
 		var score_pack: Dictionary = _score_placement_relevance(
-			item_id, target_pos, anchor_pos, g, react_radius, blocking_budget
+			item_id, target_pos, anchor_pos, g, react_radius, blocking_query_ctx
 		)
 		groups_eligible += 1
 		candidate_groups.append({
@@ -2306,6 +2317,16 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 		react_radius,
 		placement_react_max_groups_per_event
 	])
+	var blocking_metrics: Dictionary = NpcPathService.get_line_clear_budget_metrics()
+	Debug.log("placement_react", "  blocking_budget pulse=%d used=%d left=%d exhausted=%d cache_hits=%d cache_misses=%d cache_size=%d" % [
+		int(blocking_metrics.get("pulse_id", -1)),
+		int(blocking_metrics.get("checks_used", 0)),
+		int(blocking_query_ctx.get("blocking_checks_budget", 0)),
+		int(blocking_metrics.get("budget_exhausted", 0)),
+		int(blocking_metrics.get("cache_hits", 0)),
+		int(blocking_metrics.get("cache_misses", 0)),
+		int(blocking_metrics.get("cache_size", 0))
+	])
 	Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
 		skipped_by_interval,
 		skipped_by_lock,
@@ -2325,7 +2346,7 @@ func _resolve_placement_react_squad_size(is_high_priority: bool) -> int:
 
 
 func _score_placement_relevance(item_id: String, target_pos: Vector2, anchor_pos: Vector2,
-		group_data: Dictionary, react_radius: float, blocking_budget: Dictionary) -> Dictionary:
+		group_data: Dictionary, react_radius: float, blocking_query_ctx: Dictionary) -> Dictionary:
 	var safe_radius: float = maxf(1.0, react_radius)
 	var dist: float = anchor_pos.distance_to(target_pos)
 	var distance_score: float = clampf(1.0 - (dist / safe_radius), 0.0, 1.0)
@@ -2337,7 +2358,7 @@ func _score_placement_relevance(item_id: String, target_pos: Vector2, anchor_pos
 		base_proximity_score = clampf(1.0 - (base_dist / (safe_radius * 0.85)), 0.0, 1.0)
 
 	var poi_score: float = _score_placement_react_points_of_interest(item_id, target_pos, safe_radius)
-	var blocking_score: float = _score_placement_react_blocking(anchor_pos, target_pos, home_pos, blocking_budget)
+	var blocking_score: float = _score_placement_react_blocking(anchor_pos, target_pos, home_pos, blocking_query_ctx)
 
 	var score: float = distance_score * 0.50 \
 		+ base_proximity_score * 0.22 \
@@ -2350,7 +2371,7 @@ func _score_placement_relevance(item_id: String, target_pos: Vector2, anchor_pos
 		"enemy_base": base_proximity_score,
 		"poi": poi_score,
 		"blocking": blocking_score,
-		"blocking_checks_left": int(blocking_budget.get("remaining", 0)),
+		"blocking_checks_left": int(blocking_query_ctx.get("blocking_checks_budget", 0)),
 	}
 
 
@@ -2402,24 +2423,19 @@ func _score_placement_react_points_of_interest(_item_id: String, target_pos: Vec
 	return clampf(1.0 - (sqrt(best_dist_sq) / poi_radius), 0.0, 1.0)
 
 
-func _score_placement_react_blocking(anchor_pos: Vector2, target_pos: Vector2, home_pos: Vector2, blocking_budget: Dictionary) -> float:
-	var checks_left: int = int(blocking_budget.get("remaining", 0))
-	if checks_left <= 0:
+func _score_placement_react_blocking(anchor_pos: Vector2, target_pos: Vector2, home_pos: Vector2, blocking_query_ctx: Dictionary) -> float:
+	if int(blocking_query_ctx.get("blocking_checks_budget", 0)) <= 0:
 		return 0.0
 	var blocked_votes: int = 0
 	var checks_used: int = 0
-	if not NpcPathService.has_line_clear(anchor_pos, target_pos):
+	if not NpcPathService.has_line_clear(anchor_pos, target_pos, blocking_query_ctx):
 		blocked_votes += 1
 	checks_used += 1
-	checks_left -= 1
 
-	if checks_left > 0 and home_pos != Vector2.ZERO:
-		if not NpcPathService.has_line_clear(home_pos, target_pos):
+	if int(blocking_query_ctx.get("blocking_checks_budget", 0)) > 0 and home_pos != Vector2.ZERO:
+		if not NpcPathService.has_line_clear(home_pos, target_pos, blocking_query_ctx):
 			blocked_votes += 1
 		checks_used += 1
-		checks_left -= 1
-
-	blocking_budget["remaining"] = checks_left
 	if checks_used <= 0:
 		return 0.0
 	return float(blocked_votes) / float(checks_used)

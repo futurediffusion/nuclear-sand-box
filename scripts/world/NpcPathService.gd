@@ -53,6 +53,12 @@ var _has_world_bounds: bool  = false
 
 # agent_id → {goal, waypoints, index, timestamp, path_failed}
 var _cache: Dictionary = {}
+var _line_clear_pulse_id: int = -1
+var _line_clear_pulse_cache: Dictionary = {}
+var _line_clear_checks_used_in_pulse: int = 0
+var _line_clear_budget_exhausted_in_pulse: int = 0
+var _line_clear_cache_hits_in_pulse: int = 0
+var _line_clear_cache_misses_in_pulse: int = 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,13 +123,41 @@ func get_next_waypoint(agent_id: String, current_pos: Vector2,
 
 ## True when Bresenham tile line start→goal has no blockers (including placeables).
 ## No distance limit — cheap enough for any reasonable NPC range.
-func has_line_clear(start: Vector2, goal: Vector2) -> bool:
+func has_line_clear(start: Vector2, goal: Vector2, query_ctx: Dictionary = {}) -> bool:
 	if not _is_ready:
 		return true
 	var st: Vector2i      = _world_to_tile_cb.call(start)
 	var gt: Vector2i      = _world_to_tile_cb.call(goal)
+	var pulse_id: int = int(query_ctx.get("pulse_id", -1))
+	_begin_line_clear_pulse_if_needed(pulse_id)
+	var pair_key: String = _line_clear_pair_key(st, gt)
+	if pulse_id >= 0 and _line_clear_pulse_cache.has(pair_key):
+		_line_clear_cache_hits_in_pulse += 1
+		return bool(_line_clear_pulse_cache.get(pair_key, false))
+	var remaining_budget: int = maxi(int(query_ctx.get("blocking_checks_budget", -1)), -1)
+	if remaining_budget == 0:
+		_line_clear_budget_exhausted_in_pulse += 1
+		return false
+	if remaining_budget > 0:
+		query_ctx["blocking_checks_budget"] = remaining_budget - 1
+	_line_clear_checks_used_in_pulse += 1
 	var placed: Dictionary = _collect_placed_blockers_for_line(st, gt)
-	return not _bresenham_blocked(st, gt, placed)
+	var result: bool = not _bresenham_blocked(st, gt, placed)
+	if pulse_id >= 0:
+		_line_clear_pulse_cache[pair_key] = result
+		_line_clear_cache_misses_in_pulse += 1
+	return result
+
+
+func get_line_clear_budget_metrics() -> Dictionary:
+	return {
+		"pulse_id": _line_clear_pulse_id,
+		"checks_used": _line_clear_checks_used_in_pulse,
+		"budget_exhausted": _line_clear_budget_exhausted_in_pulse,
+		"cache_hits": _line_clear_cache_hits_in_pulse,
+		"cache_misses": _line_clear_cache_misses_in_pulse,
+		"cache_size": _line_clear_pulse_cache.size(),
+	}
 
 
 ## Force next get_next_waypoint() call to recompute path for agent.
@@ -135,6 +169,23 @@ func invalidate_path(agent_id: String) -> void:
 ## Remove all path data for agent (call when NPC despawns / behavior pruned).
 func clear_agent(agent_id: String) -> void:
 	_cache.erase(agent_id)
+
+
+func _begin_line_clear_pulse_if_needed(pulse_id: int) -> void:
+	if pulse_id < 0:
+		return
+	if _line_clear_pulse_id == pulse_id:
+		return
+	_line_clear_pulse_id = pulse_id
+	_line_clear_pulse_cache.clear()
+	_line_clear_checks_used_in_pulse = 0
+	_line_clear_budget_exhausted_in_pulse = 0
+	_line_clear_cache_hits_in_pulse = 0
+	_line_clear_cache_misses_in_pulse = 0
+
+
+func _line_clear_pair_key(st: Vector2i, gt: Vector2i) -> String:
+	return "%d:%d>%d:%d" % [st.x, st.y, gt.x, gt.y]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
