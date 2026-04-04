@@ -76,6 +76,9 @@ const STRUCTURE_TARGET_CACHE_POS_QUANTUM: float = 24.0
 const STRUCTURE_DISPATCH_SYNC_BUDGET: int = 3
 const STRUCTURE_DISPATCH_FRAME_BUDGET: int = 4
 const STRUCTURE_DISPATCH_MAX_PENDING_JOBS: int = 12
+const STRUCTURE_REDISPATCH_NEAR_TARGET_SQ: float = 76.0 * 76.0
+const STRUCTURE_MEMBER_REASSIGN_COOLDOWN_S: float = 2.5
+const STRUCTURE_REPATHS_PER_PULSE_BUDGET: int = 6
 const INVALID_STRUCTURE_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
 # ---------------------------------------------------------------------------
@@ -286,6 +289,8 @@ var _crowd_group_runtime: Dictionary             = {}
 var _structure_target_attackers_assigned: Dictionary = {} # target_key -> count
 var _structure_target_by_member: Dictionary      = {} # member_id -> target_key
 var _structure_target_group_by_member: Dictionary = {} # member_id -> group_id
+var _structure_reassign_cooldown_until_by_member: Dictionary = {} # member_id -> timestamp
+var _structure_repaths_this_pulse: int = 0
 @export var structure_dispatch_allow_leader: bool = false
 
 
@@ -658,6 +663,7 @@ func _is_group_locally_dense(positions: Array[Vector2]) -> bool:
 func _process(delta: float) -> void:
 	if _npc_simulator == null:
 		return
+	_structure_repaths_this_pulse = 0
 	_release_structure_slots_for_inactive_assaults()
 	_perf_window_elapsed_s += delta
 	if RunClock.now() >= _structure_cache_gc_at:
@@ -1755,6 +1761,7 @@ func _prune_behaviors() -> void:
 			to_remove.append(String(enemy_id))
 	for enemy_id in to_remove:
 		_release_structure_target_slot_for_member(enemy_id)
+		_structure_reassign_cooldown_until_by_member.erase(enemy_id)
 		_behaviors.erase(enemy_id)
 		_behavior_elapsed.erase(enemy_id)
 		if NpcPathService.is_ready():
@@ -1921,6 +1928,14 @@ func notify_territory_reaction(_faction_id: String, group_id: String,
 func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size: int = -1) -> int:
 	if _npc_simulator == null:
 		return 0
+	if _structure_repaths_this_pulse >= STRUCTURE_REPATHS_PER_PULSE_BUDGET:
+		if _can_emit_dispatch_log(group_id, 0.4):
+			Debug.log("placement_react", "[BBL] dispatch aborted group=%s reason=repath_budget pulse=%d/%d" % [
+				group_id,
+				_structure_repaths_this_pulse,
+				STRUCTURE_REPATHS_PER_PULSE_BUDGET,
+			])
+		return 0
 	var cap: int = squad_size if squad_size > 0 else 999999
 	var member_ids: Array[String] = _collect_live_structure_dispatch_member_ids(group_id, target_pos, cap)
 	if member_ids.is_empty():
@@ -1934,7 +1949,7 @@ func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size:
 	var claimed_targets: Array[Vector2] = []
 	var team_targets: Dictionary = _load_group_sticky_team_targets(group_id)
 	var immediate_count: int = mini(STRUCTURE_DISPATCH_SYNC_BUDGET, member_ids.size())
-	var immediate_redirected: int = _dispatch_structure_members_slice(
+	var immediate_result: Dictionary = _dispatch_structure_members_slice(
 		group_id,
 		member_ids,
 		0,
@@ -1944,13 +1959,15 @@ func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size:
 		claimed_targets,
 		team_targets
 	)
+	var immediate_redirected: int = int(immediate_result.get("redirected", 0))
+	var immediate_processed: int = int(immediate_result.get("processed", 0))
 
-	if immediate_count < member_ids.size():
+	if immediate_processed < member_ids.size():
 		_enqueue_pending_structure_dispatch(
 			group_id,
 			target_pos,
 			member_ids,
-			immediate_count,
+			immediate_processed,
 			target_pool,
 			claimed_targets,
 			team_targets
@@ -1960,7 +1977,7 @@ func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size:
 				group_id,
 				str(target_pos),
 				immediate_redirected,
-				member_ids.size() - immediate_count,
+				member_ids.size() - immediate_processed,
 				STRUCTURE_DISPATCH_FRAME_BUDGET,
 			])
 
@@ -1983,6 +2000,8 @@ func dispatch_group_to_target(group_id: String, target_pos: Vector2, squad_size:
 func _process_pending_structure_dispatches() -> void:
 	if _pending_structure_dispatches.is_empty():
 		return
+	if _structure_repaths_this_pulse >= STRUCTURE_REPATHS_PER_PULSE_BUDGET:
+		return
 	var budget: int = STRUCTURE_DISPATCH_FRAME_BUDGET
 	var idx: int = 0
 	while idx < _pending_structure_dispatches.size() and budget > 0:
@@ -2002,7 +2021,7 @@ func _process_pending_structure_dispatches() -> void:
 			_pending_structure_dispatches.remove_at(idx)
 			continue
 		var chunk: int = mini(budget, member_ids.size() - next_idx)
-		_dispatch_structure_members_slice(
+		var slice_result: Dictionary = _dispatch_structure_members_slice(
 			gid,
 			member_ids,
 			next_idx,
@@ -2012,8 +2031,9 @@ func _process_pending_structure_dispatches() -> void:
 			claimed_targets,
 			team_targets
 		)
-		next_idx += chunk
-		budget -= chunk
+		var processed: int = int(slice_result.get("processed", 0))
+		next_idx += processed
+		budget -= processed
 		job["next_idx"] = next_idx
 		job["claimed_targets"] = claimed_targets
 		job["team_targets"] = team_targets
@@ -2026,23 +2046,29 @@ func _process_pending_structure_dispatches() -> void:
 			_save_group_sticky_team_targets(gid, team_targets)
 			_pending_structure_dispatches.remove_at(idx)
 			continue
+		if processed <= 0:
+			break
 		idx += 1
 
 
 func _dispatch_structure_members_slice(group_id: String, member_ids: Array, start_idx: int,
 		count: int, anchor_pos: Vector2, target_pool: Array,
-		claimed_targets: Array, team_targets: Dictionary) -> int:
+		claimed_targets: Array, team_targets: Dictionary) -> Dictionary:
 	if _npc_simulator == null:
-		return 0
+		return {"redirected": 0, "processed": 0}
 	if count <= 0:
-		return 0
+		return {"redirected": 0, "processed": 0}
 	var redirected: int = 0
+	var processed: int = 0
 	var end_idx: int = mini(start_idx + count, member_ids.size())
 	var validated_team_keys: Dictionary = {}
 	for idx in range(start_idx, end_idx):
+		if _structure_repaths_this_pulse >= STRUCTURE_REPATHS_PER_PULSE_BUDGET:
+			break
 		var member_id: String = String(member_ids[idx])
 		var node = _npc_simulator.get_enemy_node(member_id)
 		if node == null:
+			processed += 1
 			continue
 		var member_pos: Vector2 = (node as Node2D).global_position if node is Node2D else anchor_pos
 		var team_key: String = str(int(floor(float(idx) / float(maxi(1, STRUCTURE_TARGET_TEAM_SIZE)))))
@@ -2066,8 +2092,10 @@ func _dispatch_structure_members_slice(group_id: String, member_ids: Array, star
 			team_targets[team_key] = member_target
 		if not _is_valid_structure_target(member_target):
 			_release_structure_target_slot_for_member(member_id)
+			processed += 1
 			continue
 		if not _assign_structure_target_slot(group_id, member_id, member_target):
+			processed += 1
 			continue
 		claimed_targets.append(member_target)
 		if _is_valid_structure_target(member_target):
@@ -2081,16 +2109,23 @@ func _dispatch_structure_members_slice(group_id: String, member_ids: Array, star
 				"target_pos": member_target,
 			})
 		_apply_structure_assault_focus(node)
+		if _is_member_already_assaulting_near_target(group_id, member_id, member_target):
+			processed += 1
+			continue
 		var beh_force: BanditWorldBehavior = _ensure_behavior_for_enemy(member_id, node, true)
 		if beh_force != null and beh_force.group_id == group_id:
 			beh_force.enter_wall_assault(member_target)
+			_note_structure_member_repath(member_id)
 			redirected += 1
+			processed += 1
 			continue
 		var wb = node.get_node_or_null("WorldBehavior")
 		if wb != null and wb.has_method("enter_wall_assault"):
 			wb.call("enter_wall_assault", member_target)
+			_note_structure_member_repath(member_id)
 			redirected += 1
-	return redirected
+		processed += 1
+	return {"redirected": redirected, "processed": processed}
 
 
 func _pick_member_target_from_pool(member_pos: Vector2, anchor_pos: Vector2,
@@ -2456,6 +2491,9 @@ func _assign_structure_target_slot(group_id: String, member_id: String, target_p
 	if previous_key == target_key:
 		_structure_target_group_by_member[member_id] = group_id
 		return true
+	if previous_key != "" and not _can_member_reassign_structure_target(member_id):
+		_structure_target_group_by_member[member_id] = group_id
+		return false
 	var assigned: int = int(_structure_target_attackers_assigned.get(target_key, 0))
 	if assigned >= BanditTuningScript.max_attackers_per_structure():
 		return false
@@ -2464,6 +2502,42 @@ func _assign_structure_target_slot(group_id: String, member_id: String, target_p
 	_structure_target_by_member[member_id] = target_key
 	_structure_target_group_by_member[member_id] = group_id
 	return true
+
+
+func _can_member_reassign_structure_target(member_id: String) -> bool:
+	if member_id == "":
+		return true
+	return RunClock.now() >= float(_structure_reassign_cooldown_until_by_member.get(member_id, 0.0))
+
+
+func _note_structure_member_repath(member_id: String) -> void:
+	_structure_repaths_this_pulse += 1
+	if member_id == "":
+		return
+	_structure_reassign_cooldown_until_by_member[member_id] = \
+		RunClock.now() + STRUCTURE_MEMBER_REASSIGN_COOLDOWN_S
+
+
+func _is_member_already_assaulting_near_target(group_id: String, member_id: String, target_pos: Vector2) -> bool:
+	if group_id == "" or member_id == "" or not _is_valid_structure_target(target_pos):
+		return false
+	var assigned_key: String = String(_structure_target_by_member.get(member_id, ""))
+	if assigned_key == "":
+		return false
+	var assigned_pos: Vector2 = _decode_structure_target_key_to_pos(assigned_key)
+	if not _is_valid_structure_target(assigned_pos):
+		return false
+	return assigned_pos.distance_squared_to(target_pos) <= STRUCTURE_REDISPATCH_NEAR_TARGET_SQ
+
+
+func _decode_structure_target_key_to_pos(target_key: String) -> Vector2:
+	if target_key == "":
+		return INVALID_STRUCTURE_TARGET
+	var parts: PackedStringArray = target_key.split(":")
+	if parts.size() != 2:
+		return INVALID_STRUCTURE_TARGET
+	var q: float = maxf(1.0, STRUCTURE_TARGET_CACHE_POS_QUANTUM)
+	return Vector2(float(parts[0].to_int()) * q, float(parts[1].to_int()) * q)
 
 
 func _release_structure_target_slot_for_member(member_id: String) -> void:

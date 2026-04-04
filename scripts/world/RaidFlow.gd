@@ -21,6 +21,8 @@ const STRUCTURE_MAX_DURATION: float = 360.0
 const DISPATCH_JITTER_RATIO: float = 0.16
 const STRUCTURE_NO_TARGET_NEAR_RADIUS: float = 260.0
 const STRUCTURE_NO_TARGET_NEAR_RADIUS_SQ: float = STRUCTURE_NO_TARGET_NEAR_RADIUS * STRUCTURE_NO_TARGET_NEAR_RADIUS
+const STRUCTURE_TARGET_STABILITY_EPSILON: float = 56.0
+const STRUCTURE_TARGET_STABILITY_EPSILON_SQ: float = STRUCTURE_TARGET_STABILITY_EPSILON * STRUCTURE_TARGET_STABILITY_EPSILON
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
@@ -279,6 +281,15 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 	var requested: int = int(job.get("probe_squad_size", -1))
 	if requested == 0:
 		requested = -1
+	var prev_center: Vector2 = job.get("base_center", INVALID_TARGET) as Vector2
+	var target_shifted_significantly: bool = (not _is_valid_target(prev_center)) \
+		or prev_center.distance_squared_to(target_pos) > STRUCTURE_TARGET_STABILITY_EPSILON_SQ
+	if not target_shifted_significantly:
+		job["wall_assault_next_at"] = _next_dispatch_at(gid, BanditTuning.wall_probe_wall_interval())
+		Debug.log("placement_react", "[RF] structure assault skip redispatch group=%s stable_target=%s" % [
+			gid, str(target_pos)
+		])
+		return
 	var redirected: int = _dispatch_group(gid, target_pos, requested)
 	job["base_center"] = target_pos
 	job["wall_assault_next_at"] = _next_dispatch_at(gid, BanditTuning.wall_probe_wall_interval())
