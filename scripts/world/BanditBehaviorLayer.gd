@@ -286,6 +286,7 @@ var _crowd_group_runtime: Dictionary             = {}
 var _structure_target_attackers_assigned: Dictionary = {} # target_key -> count
 var _structure_target_by_member: Dictionary      = {} # member_id -> target_key
 var _structure_target_group_by_member: Dictionary = {} # member_id -> group_id
+@export var structure_dispatch_allow_leader: bool = false
 
 
 # ---------------------------------------------------------------------------
@@ -2331,6 +2332,8 @@ func _collect_live_structure_dispatch_member_ids(group_id: String, target_pos: V
 		var beh: BanditWorldBehavior = _behaviors[eid]
 		if beh.group_id != group_id:
 			continue
+		if not _is_structure_dispatch_role_allowed(String(beh.role)):
+			continue
 		var eid_str: String = String(eid)
 		if seen.has(eid_str):
 			continue
@@ -2348,6 +2351,8 @@ func _collect_live_structure_dispatch_member_ids(group_id: String, target_pos: V
 			var mid_str: String = String(mid)
 			if seen.has(mid_str):
 				continue
+			if not _is_structure_dispatch_role_allowed(_resolve_structure_dispatch_member_role(mid_str)):
+				continue
 			var node = _npc_simulator.get_enemy_node(mid_str)
 			if node == null or not (node is Node2D):
 				continue
@@ -2363,6 +2368,24 @@ func _collect_live_structure_dispatch_member_ids(group_id: String, target_pos: V
 			break
 		out.append(String((row as Dictionary).get("member_id", "")))
 	return out
+
+
+func _is_structure_dispatch_role_allowed(role: String) -> bool:
+	if role == "bodyguard":
+		return true
+	if role == "leader":
+		return structure_dispatch_allow_leader
+	return false
+
+
+func _resolve_structure_dispatch_member_role(member_id: String) -> String:
+	if _behaviors.has(member_id):
+		var beh: BanditWorldBehavior = _behaviors[member_id]
+		return String(beh.role)
+	if NpcProfileSystem != null and NpcProfileSystem.has_method("get_profile"):
+		var profile: Dictionary = NpcProfileSystem.get_profile(member_id) as Dictionary
+		return String(profile.get("role", ""))
+	return ""
 
 
 func _sort_dispatch_rows_by_anchor_dsq(rows: Array[Dictionary]) -> void:

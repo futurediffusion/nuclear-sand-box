@@ -31,20 +31,7 @@ func build_order(ctx: Dictionary) -> Dictionary:
 	var existing_assignment: Dictionary = ctx.get("existing_assignment", {}) as Dictionary
 	var force_replan_resource: bool = bool(ctx.get("force_replan_resource", false))
 	var reservation_conflict: bool = bool(ctx.get("reservation_conflict", false))
-	var structure_assault_active: bool = bool(ctx.get("structure_assault_active", false))
 	var combat_interruption: bool = bool(ctx.get("in_combat", false)) or macro_state == MACRO_HUNTING or macro_state == MACRO_RAIDING
-
-	if structure_assault_active:
-		var assigned_assault_target: Vector2 = existing_assignment.get("target_pos", Vector2.ZERO) as Vector2
-		if String(existing_assignment.get("order", "")) == "assault_structure_target" and assigned_assault_target != Vector2.ZERO:
-			Debug.log("bandit_group", "[SCV][structure_assault_target_preserved] group=%s member=%s target=%s" % [
-				group_id,
-				member_id,
-				str(assigned_assault_target),
-			])
-			return {"order": "assault_structure_target", "target_pos": assigned_assault_target}
-		if interest_pos != Vector2.ZERO:
-			return {"order": "assault_structure_target", "target_pos": interest_pos}
 
 	if macro_state == MACRO_RETREATING:
 		return {"order": "return_home"}
