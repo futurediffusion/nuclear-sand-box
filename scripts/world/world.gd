@@ -159,10 +159,10 @@ var _tavern_sentinels_spawned: bool = false
 
 # Placement reaction
 ## Every hostile eligible group receives structure-assault targeting on player placement.
-## No fixed 3-unit cap: dispatch uses ALL members by default (configurable via squad value).
+## Dispatch never uses ALL members here; size is explicitly capped by tuning.
 ## RaidQueue receives per-group structure_assault intents so behavior keeps consuming targets.
 const _PLACEMENT_REACT_INTENT_LOCK_SECONDS: float = 90.0
-const _PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD: int = -1  # -1 = all available members
+const _PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD: int = 3
 const _PLACEMENT_REACT_EVENT_MIN_INTERVAL: float = 0.20
 ## Empty filter = query all player placeables from WorldSpatialIndex persistent cache.
 const _PLAYER_RAID_PLACEABLE_ITEM_IDS: Array[String] = []
@@ -173,6 +173,8 @@ var _placement_react_last_event_at: float = -9999.0
 @export var placement_react_max_groups_per_event: int = 3
 @export var placement_react_min_score: float = 0.40
 @export var placement_react_high_priority_score: float = 0.72
+@export var placement_react_struct_assault_squad_size: int = _PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
+@export var placement_react_high_priority_squad_size_override: int = 4
 @export var placement_react_blocking_checks_budget: int = 4
 @export_group("")
 
@@ -2236,6 +2238,7 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		BanditGroupMemory.update_intent(gid, "raiding")
 		var enqueued_now: bool = false
 		var is_high_priority: bool = score >= placement_react_high_priority_score
+		var effective_squad_size: int = _resolve_placement_react_squad_size(is_high_priority)
 		if is_high_priority and not RaidQueue.has_structure_assault_for_group(gid):
 			RaidQueue.enqueue_structure_assault(
 				faction_id,
@@ -2243,7 +2246,7 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 				leader_id,
 				target_pos,
 				"placed_structure",
-				_PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
+				effective_squad_size
 			)
 			queued += 1
 			enqueued_now = true
@@ -2252,7 +2255,7 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 			redirected = _bandit_behavior_layer.dispatch_group_to_target(
 				gid,
 				target_pos,
-				_PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
+				effective_squad_size
 			)
 		if redirected > 0:
 			dispatched_groups += 1
@@ -2261,8 +2264,8 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 			pending_groups += 1
 		groups_activated += 1
 		var decision_tag: String = "reacted_high_priority" if is_high_priority else "reacted_local"
-		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f redirected=%d queued_now=%s anchor=%s details=%s" % [
-			decision_tag, gid, faction_id, score, redirected, str(enqueued_now), anchor_kind, str(score_pack)])
+		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f squad_size=%d redirected=%d queued_now=%s anchor=%s details=%s" % [
+			decision_tag, gid, faction_id, score, effective_squad_size, redirected, str(enqueued_now), anchor_kind, str(score_pack)])
 	Debug.log("placement_react", "  SUMMARY evaluated=%d eligible=%d activated=%d queued=%d dispatched_groups=%d pending_groups=%d redirected_total=%d radius=%.1f max_groups=%d" % [
 		groups_evaluated,
 		groups_eligible,
@@ -2274,6 +2277,15 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		react_radius,
 		placement_react_max_groups_per_event
 	])
+
+
+func _resolve_placement_react_squad_size(is_high_priority: bool) -> int:
+	var base_size: int = maxi(1, placement_react_struct_assault_squad_size)
+	if is_high_priority:
+		var override_size: int = int(placement_react_high_priority_squad_size_override)
+		if override_size > 0:
+			return maxi(1, override_size)
+	return base_size
 
 
 func _score_placement_relevance(item_id: String, target_pos: Vector2, anchor_pos: Vector2,
