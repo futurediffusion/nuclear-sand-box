@@ -21,6 +21,7 @@ const BLOCKING_EXCLUDED_ITEM_IDS: Dictionary = {
 	"floorwood": true,
 	"woodfloor": true,
 }
+const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 
 var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
@@ -678,6 +679,7 @@ func get_debug_snapshot() -> Dictionary:
 
 
 func notify_placeables_changed(item_id: String, tile_pos: Vector2i) -> void:
+	var t0_usec: int = Time.get_ticks_usec()
 	_placeables_sync_pending = true
 	var item_key: String = item_id.strip_edges()
 	if item_key != "":
@@ -685,6 +687,17 @@ func notify_placeables_changed(item_id: String, tile_pos: Vector2i) -> void:
 	var chunk_pos: Vector2i = _world_to_chunk(tile_pos)
 	_pending_placeables_changed_chunks[chunk_pos] = true
 	_event_driven_invalidation_hits += 1
+	PlacementPerfTelemetryScript.record_stage(
+		"world_spatial_index_notify_placeables_changed",
+		Time.get_ticks_usec() - t0_usec,
+		{
+			"item_id": item_id,
+			"chunk_pos": chunk_pos,
+			"pending_changed_chunks": _pending_placeables_changed_chunks.size(),
+			"pending_changed_item_ids": _pending_placeables_changed_item_ids.size(),
+		},
+		"ia"
+	)
 
 
 func _on_placement_completed(item_id: String, tile_pos: Vector2i) -> void:

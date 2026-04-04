@@ -31,6 +31,7 @@ const CHEST_PLACE_SFX: AudioStream = preload("res://art/Sounds/chestplace.ogg")
 const DOOR_PLACE_SFX: AudioStream = preload("res://art/Sounds/doorplace.ogg")
 const FLOORWOOD_PLACE_SFX: AudioStream = preload("res://art/Sounds/placewoodfloor.ogg")
 const DOORWOOD_ITEM_ID: String = BuildableCatalog.ID_DOORWOOD
+const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 
 var _active:       bool   = false
 var _item_id:      String = ""
@@ -461,6 +462,7 @@ func _do_place() -> void:
 
 
 func _do_place_at_tile(tile: Vector2i) -> void:
+	var placement_event_t0_usec: int = Time.get_ticks_usec()
 	if not can_place_at(tile):
 		return
 
@@ -487,6 +489,12 @@ func _do_place_at_tile(tile: Vector2i) -> void:
 			return
 		refresh_door_pairing_around_tile(tile)
 		_play_tile_wall_place_sfx(tile)
+		PlacementPerfTelemetryScript.record_stage(
+			"placement_completed_emit",
+			Time.get_ticks_usec() - placement_event_t0_usec,
+			{"item_id": _item_id, "tile_pos": tile},
+			"collider"
+		)
 		placement_completed.emit(_item_id, tile)
 		if _drag_painting:
 			_drag_painted_wall_tiles[tile] = true
@@ -529,6 +537,12 @@ func _do_place_at_tile(tile: Vector2i) -> void:
 		_refresh_wall_collision_around_tiles(world, door_tiles)
 
 	_play_scene_place_sfx(placed_id, tile)
+	PlacementPerfTelemetryScript.record_stage(
+		"placement_completed_emit",
+		Time.get_ticks_usec() - placement_event_t0_usec,
+		{"item_id": placed_id, "tile_pos": tile},
+		"collider"
+	)
 	placement_completed.emit(placed_id, tile)
 	if PlacementCatalog.is_repeat_scene_item(placed_id):
 		var remaining_scene: int = 0
@@ -720,6 +734,7 @@ func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 
 
 func _refresh_wall_collision_around_tiles(world_node: Node, center_tiles: Array[Vector2i], radius: int = 1) -> void:
+	var t0_usec: int = Time.get_ticks_usec()
 	if center_tiles.is_empty():
 		return
 	var world := world_node
@@ -733,6 +748,16 @@ func _refresh_wall_collision_around_tiles(world_node: Node, center_tiles: Array[
 	if neighborhood_tiles.is_empty():
 		return
 	world.call("refresh_wall_collision_for_tiles", neighborhood_tiles)
+	PlacementPerfTelemetryScript.record_stage(
+		"placement_refresh_wall_collision_around_tiles",
+		Time.get_ticks_usec() - t0_usec,
+		{
+			"center_tiles": center_tiles.size(),
+			"tiles_affected": neighborhood_tiles.size(),
+			"radius": radius,
+		},
+		"collider"
+	)
 
 func _collect_tile_neighborhood(center_tiles: Array[Vector2i], radius: int = 1) -> Array[Vector2i]:
 	var unique_tiles: Dictionary = {}
