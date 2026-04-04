@@ -167,6 +167,11 @@ const _PLACEMENT_REACT_EVENT_MIN_INTERVAL: float = 0.20
 ## Empty filter = query all player placeables from WorldSpatialIndex persistent cache.
 const _PLAYER_RAID_PLACEABLE_ITEM_IDS: Array[String] = []
 var _placement_react_last_event_at: float = -9999.0
+@export_group("Placement Reaction")
+@export var placement_react_default_radius: float = 640.0
+@export var placement_react_radius_by_item_id: Dictionary = {}
+@export var placement_react_max_groups_per_event: int = 3
+@export_group("")
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
 
@@ -2136,34 +2141,72 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 	if now - _placement_react_last_event_at < _PLACEMENT_REACT_EVENT_MIN_INTERVAL:
 		return
 	_placement_react_last_event_at = now
-	_trigger_placement_react(world_pos)
+	_trigger_placement_react(_item_id, world_pos)
 
 
-func _trigger_placement_react(target_pos: Vector2) -> void:
+func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
+	var react_radius: float = _get_placement_react_radius(item_id)
+	var react_radius_sq: float = react_radius * react_radius
 	Debug.log("placement_react", "--- placement react target=%s groups_total=%d ---" % [
 		str(target_pos), all_ids.size()])
 	if all_ids.is_empty():
 		Debug.log("placement_react", "  SKIP: no hay grupos registrados en BanditGroupMemory")
 		return
-	var queued: int = 0
-	var dispatched_groups: int = 0
-	var pending_groups: int = 0
-	var total_redirected: int = 0
+	var groups_evaluated: int = 0
+	var groups_eligible: int = 0
+	var candidate_groups: Array[Dictionary] = []
 	for gid in all_ids:
 		var g: Dictionary = BanditGroupMemory.get_group(gid)
 		var faction_id: String = String(g.get("faction_id", ""))
 		var eradicated: bool = bool(g.get("eradicated", false))
 		var members: Array = g.get("member_ids", []) as Array
-		if eradicated:
-			continue
-		if members.is_empty():
+		if eradicated or members.is_empty():
 			continue
 		if not _is_group_hostile_for_structure_assault(g):
 			Debug.log("placement_react", "  group=%s faction=%s skipped (not hostile for structures)" % [
 				gid, faction_id])
 			continue
+		var anchor: Dictionary = _get_group_react_anchor(g)
+		var anchor_pos: Vector2 = anchor.get("pos", Vector2.ZERO) as Vector2
+		var anchor_kind: String = String(anchor.get("kind", "none"))
+		if anchor_kind == "none":
+			continue
+		groups_evaluated += 1
+		var dist_sq: float = anchor_pos.distance_squared_to(target_pos)
+		if dist_sq > react_radius_sq:
+			Debug.log("placement_react", "  group=%s skipped (far) dist=%.1f radius=%.1f anchor=%s" % [
+				gid, sqrt(dist_sq), react_radius, anchor_kind])
+			continue
+		groups_eligible += 1
+		candidate_groups.append({
+			"gid": gid,
+			"group_data": g,
+			"faction_id": faction_id,
+			"anchor_kind": anchor_kind,
+			"dist_sq": dist_sq,
+		})
+	if candidate_groups.is_empty():
+		Debug.log("placement_react", "  SKIP: no hay grupos cercanos (evaluated=%d eligible=%d radius=%.1f)" % [
+			groups_evaluated, groups_eligible, react_radius])
+		return
+	candidate_groups.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("dist_sq", INF)) < float(b.get("dist_sq", INF))
+	)
+	if placement_react_max_groups_per_event > 0 and candidate_groups.size() > placement_react_max_groups_per_event:
+		candidate_groups.resize(placement_react_max_groups_per_event)
+	var queued: int = 0
+	var dispatched_groups: int = 0
+	var pending_groups: int = 0
+	var total_redirected: int = 0
+	var groups_activated: int = 0
+	for entry in candidate_groups:
+		var gid: String = String(entry.get("gid", ""))
+		var g: Dictionary = entry.get("group_data", {}) as Dictionary
+		var faction_id: String = String(entry.get("faction_id", ""))
+		var anchor_kind: String = String(entry.get("anchor_kind", "unknown"))
 		var leader_id: String = String(g.get("leader_id", ""))
+		var members: Array = g.get("member_ids", []) as Array
 		if leader_id == "" and not members.is_empty():
 			leader_id = String(members[0])
 		if leader_id == "":
@@ -2195,10 +2238,54 @@ func _trigger_placement_react(target_pos: Vector2) -> void:
 			total_redirected += redirected
 		else:
 			pending_groups += 1
-		Debug.log("placement_react", "  group=%s faction=%s redirected=%d queued_now=%s" % [
-			gid, faction_id, redirected, str(enqueued_now)])
-	Debug.log("placement_react", "  SUMMARY queued=%d dispatched_groups=%d pending_groups=%d redirected_total=%d" % [
-		queued, dispatched_groups, pending_groups, total_redirected])
+		groups_activated += 1
+		Debug.log("placement_react", "  group=%s faction=%s redirected=%d queued_now=%s anchor=%s" % [
+			gid, faction_id, redirected, str(enqueued_now), anchor_kind])
+	Debug.log("placement_react", "  SUMMARY evaluated=%d eligible=%d activated=%d queued=%d dispatched_groups=%d pending_groups=%d redirected_total=%d radius=%.1f max_groups=%d" % [
+		groups_evaluated,
+		groups_eligible,
+		groups_activated,
+		queued,
+		dispatched_groups,
+		pending_groups,
+		total_redirected,
+		react_radius,
+		placement_react_max_groups_per_event
+	])
+
+
+func _get_placement_react_radius(item_id: String) -> float:
+	var by_item: Variant = placement_react_radius_by_item_id.get(item_id, -1.0)
+	var parsed: float = float(by_item)
+	if parsed > 0.0:
+		return parsed
+	return maxf(0.0, placement_react_default_radius)
+
+
+func _get_group_react_anchor(group_data: Dictionary) -> Dictionary:
+	var leader_id: String = String(group_data.get("leader_id", ""))
+	if leader_id != "" and _npc_simulator != null:
+		var leader_node: Node = _npc_simulator.get_enemy_node(leader_id)
+		if leader_node != null and leader_node is Node2D:
+			return {"pos": (leader_node as Node2D).global_position, "kind": "leader"}
+	var members: Array = group_data.get("member_ids", []) as Array
+	if _npc_simulator != null and not members.is_empty():
+		var sum: Vector2 = Vector2.ZERO
+		var count: int = 0
+		for raw_mid in members:
+			var member_id: String = String(raw_mid)
+			if member_id == "":
+				continue
+			var member_node: Node = _npc_simulator.get_enemy_node(member_id)
+			if member_node != null and member_node is Node2D:
+				sum += (member_node as Node2D).global_position
+				count += 1
+		if count > 0:
+			return {"pos": sum / float(count), "kind": "center"}
+	var home_pos: Vector2 = group_data.get("home_world_pos", Vector2.ZERO) as Vector2
+	if home_pos != Vector2.ZERO:
+		return {"pos": home_pos, "kind": "home"}
+	return {"pos": Vector2.ZERO, "kind": "none"}
 
 
 func _is_group_hostile_for_structure_assault(group_data: Dictionary) -> bool:
