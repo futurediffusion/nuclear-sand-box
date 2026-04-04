@@ -171,6 +171,9 @@ var _placement_react_last_event_at: float = -9999.0
 @export var placement_react_default_radius: float = 640.0
 @export var placement_react_radius_by_item_id: Dictionary = {}
 @export var placement_react_max_groups_per_event: int = 3
+@export var placement_react_min_score: float = 0.40
+@export var placement_react_high_priority_score: float = 0.72
+@export var placement_react_blocking_checks_budget: int = 4
 @export_group("")
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
@@ -2148,6 +2151,7 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
 	var react_radius: float = _get_placement_react_radius(item_id)
 	var react_radius_sq: float = react_radius * react_radius
+	var blocking_budget: Dictionary = {"remaining": maxi(0, placement_react_blocking_checks_budget)}
 	Debug.log("placement_react", "--- placement react target=%s groups_total=%d ---" % [
 		str(target_pos), all_ids.size()])
 	if all_ids.is_empty():
@@ -2178,6 +2182,9 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 			Debug.log("placement_react", "  group=%s skipped (far) dist=%.1f radius=%.1f anchor=%s" % [
 				gid, sqrt(dist_sq), react_radius, anchor_kind])
 			continue
+		var score_pack: Dictionary = _score_placement_relevance(
+			item_id, target_pos, anchor_pos, g, react_radius, blocking_budget
+		)
 		groups_eligible += 1
 		candidate_groups.append({
 			"gid": gid,
@@ -2185,13 +2192,20 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 			"faction_id": faction_id,
 			"anchor_kind": anchor_kind,
 			"dist_sq": dist_sq,
+			"score_pack": score_pack,
 		})
 	if candidate_groups.is_empty():
 		Debug.log("placement_react", "  SKIP: no hay grupos cercanos (evaluated=%d eligible=%d radius=%.1f)" % [
 			groups_evaluated, groups_eligible, react_radius])
 		return
 	candidate_groups.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return float(a.get("dist_sq", INF)) < float(b.get("dist_sq", INF))
+		var a_pack: Dictionary = a.get("score_pack", {}) as Dictionary
+		var b_pack: Dictionary = b.get("score_pack", {}) as Dictionary
+		var a_score: float = float(a_pack.get("score", 0.0))
+		var b_score: float = float(b_pack.get("score", 0.0))
+		if is_equal_approx(a_score, b_score):
+			return float(a.get("dist_sq", INF)) < float(b.get("dist_sq", INF))
+		return a_score > b_score
 	)
 	if placement_react_max_groups_per_event > 0 and candidate_groups.size() > placement_react_max_groups_per_event:
 		candidate_groups.resize(placement_react_max_groups_per_event)
@@ -2205,6 +2219,8 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		var g: Dictionary = entry.get("group_data", {}) as Dictionary
 		var faction_id: String = String(entry.get("faction_id", ""))
 		var anchor_kind: String = String(entry.get("anchor_kind", "unknown"))
+		var score_pack: Dictionary = entry.get("score_pack", {}) as Dictionary
+		var score: float = float(score_pack.get("score", 0.0))
 		var leader_id: String = String(g.get("leader_id", ""))
 		var members: Array = g.get("member_ids", []) as Array
 		if leader_id == "" and not members.is_empty():
@@ -2212,10 +2228,15 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		if leader_id == "":
 			continue
 		BanditGroupMemory.record_interest(gid, target_pos, "structure_placed")
+		if score < placement_react_min_score:
+			Debug.log("placement_react", "  decision=ignored_by_relevance group=%s score=%.2f min=%.2f anchor=%s details=%s" % [
+				gid, score, placement_react_min_score, anchor_kind, str(score_pack)])
+			continue
 		BanditGroupMemory.set_placement_react_lock(gid, _PLACEMENT_REACT_INTENT_LOCK_SECONDS)
 		BanditGroupMemory.update_intent(gid, "raiding")
 		var enqueued_now: bool = false
-		if not RaidQueue.has_structure_assault_for_group(gid):
+		var is_high_priority: bool = score >= placement_react_high_priority_score
+		if is_high_priority and not RaidQueue.has_structure_assault_for_group(gid):
 			RaidQueue.enqueue_structure_assault(
 				faction_id,
 				gid,
@@ -2239,8 +2260,9 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		else:
 			pending_groups += 1
 		groups_activated += 1
-		Debug.log("placement_react", "  group=%s faction=%s redirected=%d queued_now=%s anchor=%s" % [
-			gid, faction_id, redirected, str(enqueued_now), anchor_kind])
+		var decision_tag: String = "reacted_high_priority" if is_high_priority else "reacted_local"
+		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f redirected=%d queued_now=%s anchor=%s details=%s" % [
+			decision_tag, gid, faction_id, score, redirected, str(enqueued_now), anchor_kind, str(score_pack)])
 	Debug.log("placement_react", "  SUMMARY evaluated=%d eligible=%d activated=%d queued=%d dispatched_groups=%d pending_groups=%d redirected_total=%d radius=%.1f max_groups=%d" % [
 		groups_evaluated,
 		groups_eligible,
@@ -2252,6 +2274,107 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		react_radius,
 		placement_react_max_groups_per_event
 	])
+
+
+func _score_placement_relevance(item_id: String, target_pos: Vector2, anchor_pos: Vector2,
+		group_data: Dictionary, react_radius: float, blocking_budget: Dictionary) -> Dictionary:
+	var safe_radius: float = maxf(1.0, react_radius)
+	var dist: float = anchor_pos.distance_to(target_pos)
+	var distance_score: float = clampf(1.0 - (dist / safe_radius), 0.0, 1.0)
+
+	var home_pos: Vector2 = group_data.get("home_world_pos", Vector2.ZERO) as Vector2
+	var base_proximity_score: float = 0.0
+	if home_pos != Vector2.ZERO:
+		var base_dist: float = home_pos.distance_to(target_pos)
+		base_proximity_score = clampf(1.0 - (base_dist / (safe_radius * 0.85)), 0.0, 1.0)
+
+	var poi_score: float = _score_placement_react_points_of_interest(item_id, target_pos, safe_radius)
+	var blocking_score: float = _score_placement_react_blocking(anchor_pos, target_pos, home_pos, blocking_budget)
+
+	var score: float = distance_score * 0.50 \
+		+ base_proximity_score * 0.22 \
+		+ poi_score * 0.28 \
+		- blocking_score * 0.35
+	score = clampf(score, 0.0, 1.0)
+	return {
+		"score": score,
+		"distance": distance_score,
+		"enemy_base": base_proximity_score,
+		"poi": poi_score,
+		"blocking": blocking_score,
+		"blocking_checks_left": int(blocking_budget.get("remaining", 0)),
+	}
+
+
+func _score_placement_react_points_of_interest(_item_id: String, target_pos: Vector2, safe_radius: float) -> float:
+	var poi_radius: float = minf(420.0, maxf(140.0, safe_radius * 0.65))
+	var best_dist_sq: float = INF
+
+	if _world_spatial_index != null:
+		var res_nodes: Array = _world_spatial_index.get_runtime_nodes_near(
+			WorldSpatialIndex.KIND_WORLD_RESOURCE,
+			target_pos,
+			poi_radius,
+			{"enough_threshold": 3}
+		)
+		for node in res_nodes:
+			if node is Node2D:
+				var d_sq: float = (node as Node2D).global_position.distance_squared_to(target_pos)
+				if d_sq < best_dist_sq:
+					best_dist_sq = d_sq
+		var storage_and_workbench: Array[Dictionary] = _world_spatial_index.get_placeables_by_item_ids_near(
+			target_pos,
+			poi_radius,
+			["chest", "barrel", "workbench"],
+			{"enough_threshold": 4}
+		)
+		for entry in storage_and_workbench:
+			var tile_pos := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
+			if tile_pos.x <= -999999 or tile_pos.y <= -999999:
+				continue
+			var wpos: Vector2 = _tile_to_world(tile_pos)
+			var d_sq: float = wpos.distance_squared_to(target_pos)
+			if d_sq < best_dist_sq:
+				best_dist_sq = d_sq
+
+	var nearest_wb: Vector2 = find_nearest_player_workbench_world_pos(target_pos, poi_radius, {"enough_threshold": 1})
+	if nearest_wb != Vector2.ZERO:
+		best_dist_sq = minf(best_dist_sq, nearest_wb.distance_squared_to(target_pos))
+
+	for hotspot in _drop_compaction_hotspots:
+		var hpos: Vector2 = hotspot.get("pos", Vector2.ZERO) as Vector2
+		if hpos == Vector2.ZERO:
+			continue
+		var d_sq: float = hpos.distance_squared_to(target_pos)
+		if d_sq < best_dist_sq:
+			best_dist_sq = d_sq
+
+	if best_dist_sq == INF:
+		return 0.0
+	return clampf(1.0 - (sqrt(best_dist_sq) / poi_radius), 0.0, 1.0)
+
+
+func _score_placement_react_blocking(anchor_pos: Vector2, target_pos: Vector2, home_pos: Vector2, blocking_budget: Dictionary) -> float:
+	var checks_left: int = int(blocking_budget.get("remaining", 0))
+	if checks_left <= 0:
+		return 0.0
+	var blocked_votes: int = 0
+	var checks_used: int = 0
+	if not NpcPathService.has_line_clear(anchor_pos, target_pos):
+		blocked_votes += 1
+	checks_used += 1
+	checks_left -= 1
+
+	if checks_left > 0 and home_pos != Vector2.ZERO:
+		if not NpcPathService.has_line_clear(home_pos, target_pos):
+			blocked_votes += 1
+		checks_used += 1
+		checks_left -= 1
+
+	blocking_budget["remaining"] = checks_left
+	if checks_used <= 0:
+		return 0.0
+	return float(blocked_votes) / float(checks_used)
 
 
 func _get_placement_react_radius(item_id: String) -> float:
