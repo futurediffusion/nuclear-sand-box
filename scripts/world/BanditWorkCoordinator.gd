@@ -766,6 +766,13 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 				and node.has_method("hit"):
 			node.call("hit", enemy_node)
 			attacked = true
+	elif target_kind == "intent":
+		attacked = _damage_player_wall_at(target_pos, beh)
+		if not attacked:
+			var intent_node: Node2D = _find_nearest_player_structure_node(enemy_pos, target_pos, assault_ctx)
+			if intent_node != null and intent_node.has_method("hit"):
+				intent_node.call("hit", enemy_node)
+				attacked = true
 	elif target_kind == "wall":
 		attacked = _damage_player_wall_at(target_pos, beh)
 
@@ -831,29 +838,40 @@ func _build_assault_context(group_id: String, g: Dictionary, group_anchor: Vecto
 		member_anchor: Vector2, now: float) -> Dictionary:
 	var intent: String = String(g.get("current_group_intent", ""))
 	var assault_active: bool = BanditGroupMemory.is_structure_assault_active(group_id)
+	var assault_intent: Dictionary = BanditGroupMemory.get_assault_target_intent(group_id)
+	var intent_target: Vector2 = assault_intent.get("target_pos", INVALID_TARGET) as Vector2
 	var has_raid_context: bool = assault_active \
 			or intent == "raiding" \
 			or BanditGroupMemory.has_placement_react_lock(group_id)
 	var attack_anchor: Vector2 = member_anchor if _is_valid_target(member_anchor) else group_anchor
 
-	var target: Dictionary = _resolve_structure_attack_target(attack_anchor, attack_anchor, {})
+	var target: Dictionary = _resolve_structure_attack_target(attack_anchor, attack_anchor, {
+		"intent_target": intent_target,
+	})
 	var container: ContainerPlaceable = _find_nearest_raidable_container(attack_anchor, attack_anchor, {})
 	return {
 		"expires_at": now + ASSAULT_CONTEXT_TTL_SECONDS,
 		"group_anchor": group_anchor,
 		"member_anchor": member_anchor if _is_valid_target(member_anchor) else group_anchor,
 		"has_raid_context": has_raid_context,
+		"intent_target": intent_target,
 		"target": target,
 		"container": container,
 	}
 
 
 func _resolve_assault_anchor(group_id: String, g: Dictionary) -> Vector2:
+	var assault_intent: Dictionary = BanditGroupMemory.get_assault_target_intent(group_id)
+	var intent_anchor: Vector2 = assault_intent.get("anchor", INVALID_TARGET) as Vector2
+	if _is_valid_target(intent_anchor):
+		return intent_anchor
+	var intent_target: Vector2 = assault_intent.get("target_pos", INVALID_TARGET) as Vector2
+	if _is_valid_target(intent_target):
+		return intent_target
 	var anchor: Vector2 = g.get("last_interest_pos", INVALID_TARGET) as Vector2
 	if _is_valid_target(anchor):
 		return anchor
-	var pending: Vector2 = BanditGroupMemory.get_assault_target(group_id)
-	return pending if _is_valid_target(pending) else INVALID_TARGET
+	return INVALID_TARGET
 
 
 func _effective_work_position(enemy_node: Node) -> Vector2:
@@ -876,6 +894,9 @@ func _resolve_member_assault_anchor(beh: BanditWorldBehavior, group_anchor: Vect
 
 func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector2,
 		assault_context: Dictionary = {}) -> Dictionary:
+	var intent_target: Vector2 = assault_context.get("intent_target", INVALID_TARGET) as Vector2
+	if _is_valid_target(intent_target):
+		return {"kind": "intent", "pos": intent_target}
 	if not assault_context.is_empty():
 		var cached: Dictionary = assault_context.get("target", {}) as Dictionary
 		var cached_kind: String = String(cached.get("kind", ""))

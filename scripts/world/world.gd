@@ -2233,10 +2233,7 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 	)
 	if placement_react_max_groups_per_event > 0 and candidate_groups.size() > placement_react_max_groups_per_event:
 		candidate_groups.resize(placement_react_max_groups_per_event)
-	var queued: int = 0
-	var dispatched_groups: int = 0
-	var pending_groups: int = 0
-	var total_redirected: int = 0
+	var intent_published: int = 0
 	var groups_activated: int = 0
 	var skipped_by_lock: int = 0
 	for entry in candidate_groups:
@@ -2247,11 +2244,8 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 		var score_pack: Dictionary = entry.get("score_pack", {}) as Dictionary
 		var score: float = float(score_pack.get("score", 0.0))
 		var anchor_dist: float = sqrt(float(entry.get("dist_sq", INF)))
-		var leader_id: String = String(g.get("leader_id", ""))
 		var members: Array = g.get("member_ids", []) as Array
-		if leader_id == "" and not members.is_empty():
-			leader_id = String(members[0])
-		if leader_id == "":
+		if members.is_empty():
 			continue
 		if score < placement_react_min_score:
 			Debug.log("placement_react", "  decision=ignored_by_relevance group=%s score=%.2f min=%.2f anchor=%s details=%s" % [
@@ -2276,44 +2270,27 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 		BanditGroupMemory.set_placement_react_lock(gid, _PLACEMENT_REACT_INTENT_LOCK_SECONDS)
 		BanditGroupMemory.set_placement_react_attempt(gid, target_pos, score, anchor_dist)
 		BanditGroupMemory.update_intent(gid, "raiding")
-		var enqueued_now: bool = false
 		var is_high_priority: bool = score >= placement_react_high_priority_score
 		var effective_squad_size: int = _resolve_placement_react_squad_size(is_high_priority)
-		if is_high_priority and not RaidQueue.has_structure_assault_for_group(gid):
-			RaidQueue.enqueue_structure_assault(
-				faction_id,
-				gid,
-				leader_id,
-				target_pos,
-				"placed_structure",
-				effective_squad_size
-			)
-			queued += 1
-			enqueued_now = true
-		var redirected: int = 0
-		if _bandit_behavior_layer != null:
-			redirected = _bandit_behavior_layer.dispatch_group_to_target(
-				gid,
-				target_pos,
-				effective_squad_size
-			)
-		if redirected > 0:
-			dispatched_groups += 1
-			total_redirected += redirected
-		else:
-			pending_groups += 1
+		var published: bool = BanditGroupMemory.publish_assault_target_intent(
+			gid,
+			target_pos,
+			target_pos,
+			"placed_structure:squad=%d" % effective_squad_size,
+			BanditTuning.structure_assault_active_ttl(),
+			BanditGroupMemory.ASSAULT_INTENT_SOURCE_PLACEMENT_REACT
+		)
+		if published:
+			intent_published += 1
 		groups_activated += 1
 		var decision_tag: String = "reacted_high_priority" if is_high_priority else "reacted_local"
-		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f squad_size=%d redirected=%d queued_now=%s anchor=%s details=%s" % [
-			decision_tag, gid, faction_id, score, effective_squad_size, redirected, str(enqueued_now), anchor_kind, str(score_pack)])
-	Debug.log("placement_react", "  SUMMARY evaluated=%d eligible=%d activated=%d queued=%d dispatched_groups=%d pending_groups=%d redirected_total=%d radius=%.1f max_groups=%d" % [
+		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f squad_size=%d intent_published=%s precedence=placement_react>raid_queue>opportunistic anchor=%s details=%s" % [
+			decision_tag, gid, faction_id, score, effective_squad_size, str(published), anchor_kind, str(score_pack)])
+	Debug.log("placement_react", "  SUMMARY evaluated=%d eligible=%d activated=%d intents_published=%d radius=%.1f max_groups=%d precedence=placement_react>raid_queue>opportunistic" % [
 		groups_evaluated,
 		groups_eligible,
 		groups_activated,
-		queued,
-		dispatched_groups,
-		pending_groups,
-		total_redirected,
+		intent_published,
 		react_radius,
 		placement_react_max_groups_per_event
 	])
