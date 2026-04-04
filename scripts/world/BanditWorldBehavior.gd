@@ -856,12 +856,24 @@ func enter_wall_assault(wall_pos: Vector2) -> void:
 	_in_assault  = true
 	_invalidate_npc_path()
 
+func _is_role_allowed_for_opportunistic_assault(action: String) -> bool:
+	var leader_allowed: bool = BanditTuning.allow_leader_opportunistic_assault()
+	var allowed: bool = role == "bodyguard" or (leader_allowed and role == "leader")
+	if allowed:
+		return true
+	Debug.log("bandit_ai", "[BWB][ignored_by_role] member_id=%s role=%s group_id=%s action=%s" % [
+		member_id, role, group_id, action
+	])
+	return false
+
 
 ## Sabotaje oportunista a placeables (workbench / storage) — no raid:
 ## A partir de nivel 7 los NPCs atacan talleres; nivel 8+ también atacan storage.
 ## Probabilidad: (nivel-6) × 2% por tick. Cooldown: 35s por NPC.
 ## La IA normal (slash.gd) inflige el daño al llegar y golpear el placeable.
 func _try_property_sabotage(ctx: Dictionary) -> void:
+	if not _is_role_allowed_for_opportunistic_assault("property_sabotage"):
+		return
 	if RunClock.now() < _property_sabotage_cooldown_until:
 		return
 	if _profile == null:
@@ -870,7 +882,8 @@ func _try_property_sabotage(ctx: Dictionary) -> void:
 	if h_level < 7:
 		return
 	# (nivel-6) × 2% — nivel 7→2%, 8→4%, 9→6%, 10→8%
-	var chance: float = float(h_level - 6) * 0.02
+	var chance: float = float(h_level - 6) * 0.02 * BanditTuning.opportunistic_assault_chance_multiplier()
+	chance = clampf(chance, 0.0, 1.0)
 	if _rng.randf() > chance:
 		return
 	var node_pos: Vector2 = ctx.get("node_pos", home_pos) as Vector2
@@ -902,6 +915,8 @@ func _try_property_sabotage(ctx: Dictionary) -> void:
 ## cercanos cuando está en patrulla o idle. Probabilidad: (nivel-5) × 1% por tick.
 ## Cooldown: 30s por NPC para evitar spam.
 func _try_opportunistic_wall_assault(ctx: Dictionary) -> void:
+	if not _is_role_allowed_for_opportunistic_assault("opportunistic_wall_assault"):
+		return
 	# Cooldown personal
 	if RunClock.now() < _wall_assault_cooldown_until:
 		return
@@ -913,7 +928,8 @@ func _try_opportunistic_wall_assault(ctx: Dictionary) -> void:
 		return
 	# Probabilidad por tick: escala con nivel (6→1%, 7→2%, 8→3%, 9→4%)
 	# Nivel 10 hace raids organizados — el oportunismo individual sigue activo
-	var chance: float = float(h_level - 5) * 0.03
+	var chance: float = float(h_level - 5) * 0.015 * BanditTuning.opportunistic_assault_chance_multiplier()
+	chance = clampf(chance, 0.0, 1.0)
 	if _rng.randf() > chance:
 		return
 	# Buscar muro cercano
