@@ -176,6 +176,8 @@ var _placement_react_last_event_at: float = -9999.0
 @export var placement_react_struct_assault_squad_size: int = _PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
 @export var placement_react_high_priority_squad_size_override: int = 4
 @export var placement_react_blocking_checks_budget: int = 4
+@export var placement_react_lock_min_relevance_delta: float = 0.12
+@export var placement_react_lock_min_distance_delta_px: float = 96.0
 @export_group("")
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
@@ -2144,12 +2146,15 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 	# Throttle mínimo para evitar duplicados por input/drag en el mismo frame.
 	var now: float = RunClock.now()
 	if now - _placement_react_last_event_at < _PLACEMENT_REACT_EVENT_MIN_INTERVAL:
+		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
+			1, 0, 0, _item_id, str(world_pos)
+		])
 		return
 	_placement_react_last_event_at = now
-	_trigger_placement_react(_item_id, world_pos)
+	_trigger_placement_react(_item_id, world_pos, 0)
 
 
-func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
+func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_interval: int = 0) -> void:
 	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
 	var react_radius: float = _get_placement_react_radius(item_id)
 	var react_radius_sq: float = react_radius * react_radius
@@ -2158,6 +2163,9 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		str(target_pos), all_ids.size()])
 	if all_ids.is_empty():
 		Debug.log("placement_react", "  SKIP: no hay grupos registrados en BanditGroupMemory")
+		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
+			skipped_by_interval, 0, 0, item_id, str(target_pos)
+		])
 		return
 	var groups_evaluated: int = 0
 	var groups_eligible: int = 0
@@ -2199,6 +2207,9 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 	if candidate_groups.is_empty():
 		Debug.log("placement_react", "  SKIP: no hay grupos cercanos (evaluated=%d eligible=%d radius=%.1f)" % [
 			groups_evaluated, groups_eligible, react_radius])
+		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
+			skipped_by_interval, 0, 0, item_id, str(target_pos)
+		])
 		return
 	candidate_groups.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var a_pack: Dictionary = a.get("score_pack", {}) as Dictionary
@@ -2216,6 +2227,7 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 	var pending_groups: int = 0
 	var total_redirected: int = 0
 	var groups_activated: int = 0
+	var skipped_by_lock: int = 0
 	for entry in candidate_groups:
 		var gid: String = String(entry.get("gid", ""))
 		var g: Dictionary = entry.get("group_data", {}) as Dictionary
@@ -2223,18 +2235,35 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		var anchor_kind: String = String(entry.get("anchor_kind", "unknown"))
 		var score_pack: Dictionary = entry.get("score_pack", {}) as Dictionary
 		var score: float = float(score_pack.get("score", 0.0))
+		var anchor_dist: float = sqrt(float(entry.get("dist_sq", INF)))
 		var leader_id: String = String(g.get("leader_id", ""))
 		var members: Array = g.get("member_ids", []) as Array
 		if leader_id == "" and not members.is_empty():
 			leader_id = String(members[0])
 		if leader_id == "":
 			continue
-		BanditGroupMemory.record_interest(gid, target_pos, "structure_placed")
 		if score < placement_react_min_score:
 			Debug.log("placement_react", "  decision=ignored_by_relevance group=%s score=%.2f min=%.2f anchor=%s details=%s" % [
 				gid, score, placement_react_min_score, anchor_kind, str(score_pack)])
 			continue
+		var lock_active: bool = BanditGroupMemory.has_placement_react_lock(gid)
+		if lock_active:
+			var last_attempt: Dictionary = BanditGroupMemory.get_placement_react_attempt(gid)
+			var last_score: float = float(last_attempt.get("score", -1.0))
+			var last_dist: float = float(last_attempt.get("anchor_distance", INF))
+			var score_delta: float = score - last_score
+			var dist_delta: float = last_dist - anchor_dist
+			var improves_relevance: bool = score_delta >= placement_react_lock_min_relevance_delta
+			var improves_distance: bool = dist_delta >= placement_react_lock_min_distance_delta_px
+			if not improves_relevance and not improves_distance:
+				skipped_by_lock += 1
+				Debug.log("placement_react", "  decision=ignored_by_lock group=%s score=%.2f prev_score=%.2f score_delta=%.2f dist=%.1f prev_dist=%.1f dist_delta=%.1f lock_active=%s anchor=%s" % [
+					gid, score, last_score, score_delta, anchor_dist, last_dist, dist_delta, str(lock_active), anchor_kind
+				])
+				continue
+		BanditGroupMemory.record_interest(gid, target_pos, "structure_placed")
 		BanditGroupMemory.set_placement_react_lock(gid, _PLACEMENT_REACT_INTENT_LOCK_SECONDS)
+		BanditGroupMemory.set_placement_react_attempt(gid, target_pos, score, anchor_dist)
 		BanditGroupMemory.update_intent(gid, "raiding")
 		var enqueued_now: bool = false
 		var is_high_priority: bool = score >= placement_react_high_priority_score
@@ -2276,6 +2305,13 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		total_redirected,
 		react_radius,
 		placement_react_max_groups_per_event
+	])
+	Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
+		skipped_by_interval,
+		skipped_by_lock,
+		groups_activated,
+		item_id,
+		str(target_pos)
 	])
 
 
