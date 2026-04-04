@@ -43,6 +43,7 @@ const STRUCTURE_NO_TARGET_GRACE: float = 6.0
 const STRUCTURE_ASSAULT_MAX_TOTAL_SAFETY: float = 1200.0
 const STRUCTURE_ASSAULT_ACTIVE_TTL: float = 3.0
 const STRUCTURE_NO_TARGET_CLOSE_GRACE: float = 1.75
+const MAX_ATTACKERS_PER_STRUCTURE: int = 3
 const ASSAULT_SUPPRESS_GENERIC_DROP_PICKUP: bool = true
 const ENABLE_WORKER_RESOURCE_FALLBACK: bool = true
 const ENABLE_GROUP_PERCEPTION_PULSE: bool = true
@@ -318,6 +319,9 @@ static func structure_assault_active_ttl() -> float:
 
 static func structure_no_target_close_grace() -> float:
 	return STRUCTURE_NO_TARGET_CLOSE_GRACE
+
+static func max_attackers_per_structure() -> int:
+	return maxi(1, MAX_ATTACKERS_PER_STRUCTURE)
 
 static func assault_suppress_generic_drop_pickup() -> bool:
 	return ASSAULT_SUPPRESS_GENERIC_DROP_PICKUP
