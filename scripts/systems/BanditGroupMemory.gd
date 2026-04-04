@@ -236,6 +236,30 @@ func has_placement_react_lock(group_id: String) -> bool:
 	return RunClock.now() < float(_groups.get(group_id, {}).get("placement_react_until", 0.0))
 
 
+## Guarda el último intento de placement_react (score/target/distancia) para filtros de override.
+func set_placement_react_attempt(group_id: String, target_pos: Vector2, score: float, anchor_distance: float) -> void:
+	if not _groups.has(group_id):
+		return
+	var g: Dictionary = _groups[group_id]
+	g["placement_react_last_target"] = target_pos
+	g["placement_react_last_score"] = clampf(score, 0.0, 1.0)
+	g["placement_react_last_anchor_distance"] = maxf(0.0, anchor_distance)
+	g["placement_react_last_attempt_at"] = RunClock.now()
+
+
+## Lee snapshot del último intento de placement_react.
+func get_placement_react_attempt(group_id: String) -> Dictionary:
+	if not _groups.has(group_id):
+		return {}
+	var g: Dictionary = _groups[group_id]
+	return {
+		"target_pos": g.get("placement_react_last_target", Vector2(-1.0, -1.0)),
+		"score": float(g.get("placement_react_last_score", -1.0)),
+		"anchor_distance": float(g.get("placement_react_last_anchor_distance", INF)),
+		"attempt_at": float(g.get("placement_react_last_attempt_at", 0.0)),
+	}
+
+
 ## Marca contexto runtime de structure_assault para un grupo.
 ## Debe refrescarse periódicamente desde RaidFlow.
 func mark_structure_assault_active(group_id: String, ttl_seconds: float) -> void:
