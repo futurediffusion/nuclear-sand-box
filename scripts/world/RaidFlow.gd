@@ -61,6 +61,7 @@ func set_placeable_query(cb: Callable) -> void:
 func process_flow() -> void:
 	_abort_invalid_jobs()
 	_consume_raid_queue()
+	_consume_memory_assault_intents()
 	_tick_jobs()
 
 
@@ -79,7 +80,42 @@ func _consume_raid_queue() -> void:
 		var chosen: Dictionary = _pick_intent_to_execute(intents)
 		if chosen.is_empty():
 			continue
+		var raid_type: String = String(chosen.get("raid_type", "full"))
+		if raid_type == "structure_assault":
+			var base_center: Vector2 = chosen.get("base_center", INVALID_TARGET) as Vector2
+			var reason: String = String(chosen.get("trigger", "raid_queue"))
+			var squad_size: int = int(chosen.get("probe_squad_size", -1))
+			BanditGroupMemory.publish_assault_target_intent(
+				gid,
+				base_center,
+				base_center,
+				"%s:squad=%d" % [reason, squad_size],
+				BanditTuning.structure_assault_active_ttl(),
+				BanditGroupMemory.ASSAULT_INTENT_SOURCE_RAID_QUEUE
+			)
 		_create_job(gid, chosen)
+
+
+func _consume_memory_assault_intents() -> void:
+	for gid in BanditGroupMemory.get_all_group_ids():
+		if _has_active_job(gid):
+			continue
+		var intent: Dictionary = BanditGroupMemory.get_assault_target_intent(gid)
+		if intent.is_empty():
+			continue
+		_create_job(gid, _job_from_assault_intent(gid, intent))
+
+
+func _job_from_assault_intent(gid: String, intent: Dictionary) -> Dictionary:
+	var g: Dictionary = BanditGroupMemory.get_group(gid)
+	return {
+		"raid_type": "structure_assault",
+		"faction_id": String(g.get("faction_id", "")),
+		"leader_id": String(g.get("leader_id", "")),
+		"base_center": intent.get("anchor", INVALID_TARGET) as Vector2,
+		"probe_squad_size": -1,
+		"trigger": String(intent.get("reason", "assault_intent")),
+	}
 
 
 func _pick_intent_to_execute(intents: Array) -> Dictionary:
@@ -249,13 +285,14 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 		return
 
 	var now: float = RunClock.now()
+	var intent_contract: Dictionary = BanditGroupMemory.get_assault_target_intent(gid)
 	var anchor: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
-	var group_state: Dictionary = BanditGroupMemory.get_group(gid)
-	var latest_interest: Vector2 = group_state.get("last_interest_pos", INVALID_TARGET) as Vector2
-	if _is_valid_target(latest_interest):
-		anchor = latest_interest
-		job["base_center"] = latest_interest
-	var target_pos: Vector2 = _resolve_structure_target(anchor, true, true)
+	if not intent_contract.is_empty():
+		var intent_anchor: Vector2 = intent_contract.get("anchor", INVALID_TARGET) as Vector2
+		if _is_valid_target(intent_anchor):
+			anchor = intent_anchor
+			job["base_center"] = intent_anchor
+	var target_pos: Vector2 = intent_contract.get("target_pos", INVALID_TARGET) as Vector2
 	if not _is_valid_target(target_pos):
 		var near_assault_area: bool = _is_group_near_assault_area(gid, anchor)
 		if float(job.get("no_target_since", 0.0)) <= 0.0:
@@ -409,6 +446,7 @@ func _finish_raid(gid: String, reason: String) -> void:
 		resolved_reason = finish_reason
 	if raid_type == "structure_assault":
 		BanditGroupMemory.clear_structure_assault_active(gid)
+		BanditGroupMemory.clear_assault_target_intent(gid)
 		Debug.log("raid", "[RF] structure_assault_active_released group=%s reason=%s" % [gid, resolved_reason])
 
 	var social_cd: float

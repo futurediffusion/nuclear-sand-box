@@ -24,6 +24,10 @@ const BLACKBOARD_RESOURCES_TTL: float = 45.0
 const BLACKBOARD_DROPS_TTL: float = 20.0
 const BLACKBOARD_STATUS_TTL: float = 90.0
 const BLACKBOARD_CONSISTENCY_LOG_COOLDOWN: float = 8.0
+const ASSAULT_INTENT_SOURCE_OPPORTUNISTIC: String = "opportunistic"
+const ASSAULT_INTENT_SOURCE_RAID_QUEUE: String = "raid_queue"
+const ASSAULT_INTENT_SOURCE_PLACEMENT_REACT: String = "placement_react"
+const ASSAULT_INTENT_INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -298,28 +302,81 @@ func clear_structure_assault_active(group_id: String) -> void:
 	g.erase("structure_assault_active_log_at")
 
 
-## Almacena un target de asalto pendiente para cuando el grupo spawne.
-func set_assault_target(group_id: String, target_pos: Vector2) -> void:
-	if not _groups.has(group_id):
-		return
-	_groups[group_id]["pending_assault_target"] = target_pos
+func _assault_intent_source_priority(source: String) -> int:
+	match source:
+		ASSAULT_INTENT_SOURCE_PLACEMENT_REACT:
+			return 3
+		ASSAULT_INTENT_SOURCE_RAID_QUEUE:
+			return 2
+		_:
+			return 1
 
 
-## Lee el target pendiente sin borrarlo. Vector2(-1,-1) si no hay ninguno.
-func get_assault_target(group_id: String) -> Vector2:
+func publish_assault_target_intent(group_id: String, anchor: Vector2, target_pos: Vector2,
+		reason: String, ttl_seconds: float, source: String = ASSAULT_INTENT_SOURCE_OPPORTUNISTIC) -> bool:
 	if not _groups.has(group_id):
-		return Vector2(-1.0, -1.0)
+		return false
+	if not target_pos.is_finite() or target_pos.is_equal_approx(ASSAULT_INTENT_INVALID_TARGET):
+		return false
+	var now: float = RunClock.now()
+	var ttl: float = maxf(0.0, ttl_seconds)
+	var source_key: String = source if source != "" else ASSAULT_INTENT_SOURCE_OPPORTUNISTIC
+	var incoming_priority: int = _assault_intent_source_priority(source_key)
+	var current: Dictionary = get_assault_target_intent(group_id)
+	if not current.is_empty():
+		var current_priority: int = int(current.get("priority", 1))
+		if incoming_priority < current_priority:
+			Debug.log("raid", "[BGM] assault_intent_ignored group=%s source=%s priority=%d < current=%d reason=%s" % [
+				group_id, source_key, incoming_priority, current_priority, String(reason)
+			])
+			return false
 	var g: Dictionary = _groups[group_id]
-	if not g.has("pending_assault_target"):
-		return Vector2(-1.0, -1.0)
-	return g["pending_assault_target"] as Vector2
+	g["assault_target_intent"] = {
+		"anchor": anchor if anchor.is_finite() else target_pos,
+		"target_pos": target_pos,
+		"reason": reason,
+		"source": source_key,
+		"priority": incoming_priority,
+		"created_at": now,
+		"expires_at": now + ttl,
+		"ttl": ttl,
+	}
+	return true
 
 
-## Elimina el target pendiente del grupo.
-func clear_assault_target(group_id: String) -> void:
+func get_assault_target_intent(group_id: String) -> Dictionary:
+	if not _groups.has(group_id):
+		return {}
+	var g: Dictionary = _groups[group_id]
+	var intent: Dictionary = g.get("assault_target_intent", {}) as Dictionary
+	if intent.is_empty():
+		return {}
+	if RunClock.now() > float(intent.get("expires_at", 0.0)):
+		g.erase("assault_target_intent")
+		return {}
+	return intent
+
+
+func clear_assault_target_intent(group_id: String) -> void:
 	if not _groups.has(group_id):
 		return
-	_groups[group_id].erase("pending_assault_target")
+	_groups[group_id].erase("assault_target_intent")
+
+
+## Compat wrappers (legacy callers).
+func set_assault_target(group_id: String, target_pos: Vector2) -> void:
+	publish_assault_target_intent(group_id, target_pos, target_pos, "legacy_set_assault_target", 120.0)
+
+
+func get_assault_target(group_id: String) -> Vector2:
+	var intent: Dictionary = get_assault_target_intent(group_id)
+	if intent.is_empty():
+		return ASSAULT_INTENT_INVALID_TARGET
+	return intent.get("target_pos", ASSAULT_INTENT_INVALID_TARGET) as Vector2
+
+
+func clear_assault_target(group_id: String) -> void:
+	clear_assault_target_intent(group_id)
 
 
 func promote_leader(group_id: String, npc_id: String) -> void:
@@ -694,7 +751,7 @@ func serialize() -> Dictionary:
 		# Strip ephemeral session-only fields (contain Vector2 that can't round-trip JSON)
 		g.erase("reported_resources")
 		g.erase("resource_claims")
-		g.erase("pending_assault_target")
+		g.erase("assault_target_intent")
 		g.erase("placement_react_until")
 		g.erase("structure_assault_active_until")
 		g.erase("structure_assault_active_log_at")
@@ -718,6 +775,8 @@ func deserialize(data: Dictionary) -> void:
 			g["internal_social_cooldown_until"] = 0.0
 		if not g.has("structure_assault_active_until"):
 			g["structure_assault_active_until"] = 0.0
+		g.erase("pending_assault_target")
+		g.erase("assault_target_intent")
 		# Restore Vector2
 		var hwp = g.get("home_world_pos", {"x": 0.0, "y": 0.0})
 		if hwp is Dictionary:
