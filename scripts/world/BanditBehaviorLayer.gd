@@ -283,6 +283,9 @@ var _group_lod_profile_decisions: Dictionary     = {}
 var _lod_profile_last_by_member: Dictionary      = {}
 var _physics_tick_seq: int                       = 0
 var _crowd_group_runtime: Dictionary             = {}
+var _structure_target_attackers_assigned: Dictionary = {} # target_key -> count
+var _structure_target_by_member: Dictionary      = {} # member_id -> target_key
+var _structure_target_group_by_member: Dictionary = {} # member_id -> group_id
 
 
 # ---------------------------------------------------------------------------
@@ -654,6 +657,7 @@ func _is_group_locally_dense(positions: Array[Vector2]) -> bool:
 func _process(delta: float) -> void:
 	if _npc_simulator == null:
 		return
+	_release_structure_slots_for_inactive_assaults()
 	_perf_window_elapsed_s += delta
 	if RunClock.now() >= _structure_cache_gc_at:
 		_structure_cache_gc_at = RunClock.now() + 1.5
@@ -1749,6 +1753,7 @@ func _prune_behaviors() -> void:
 		if _npc_simulator.get_enemy_node(enemy_id) == null:
 			to_remove.append(String(enemy_id))
 	for enemy_id in to_remove:
+		_release_structure_target_slot_for_member(enemy_id)
 		_behaviors.erase(enemy_id)
 		_behavior_elapsed.erase(enemy_id)
 		if NpcPathService.is_ready():
@@ -2048,7 +2053,22 @@ func _dispatch_structure_members_slice(group_id: String, member_ids: Array, star
 		if reselect:
 			member_target = _pick_member_target_from_pool(member_pos, anchor_pos, target_pool, claimed_targets)
 			team_targets[team_key] = member_target
-			claimed_targets.append(member_target)
+		if _is_valid_structure_target(member_target) \
+				and not _is_structure_target_slot_available(member_target, member_id):
+			member_target = _pick_member_target_with_available_slot(
+				member_pos,
+				anchor_pos,
+				target_pool,
+				claimed_targets,
+				member_id
+			)
+			team_targets[team_key] = member_target
+		if not _is_valid_structure_target(member_target):
+			_release_structure_target_slot_for_member(member_id)
+			continue
+		if not _assign_structure_target_slot(group_id, member_id, member_target):
+			continue
+		claimed_targets.append(member_target)
 		if _is_valid_structure_target(member_target):
 			BanditGroupMemory.bb_set_assignment(group_id, member_id, {
 				"order": "assault_structure_target",
@@ -2098,6 +2118,36 @@ func _pick_member_target_from_pool(member_pos: Vector2, anchor_pos: Vector2,
 	if _is_valid_structure_target(best_unclaimed):
 		return best_unclaimed
 	return fallback_best
+
+
+func _pick_member_target_with_available_slot(member_pos: Vector2, anchor_pos: Vector2,
+		target_pool: Array, claimed_targets: Array, member_id: String) -> Vector2:
+	var current_target_key: String = String(_structure_target_by_member.get(member_id, ""))
+	var preferred: Vector2 = _pick_member_target_from_pool(member_pos, anchor_pos, target_pool, claimed_targets)
+	if _is_valid_structure_target(preferred) and _is_structure_target_slot_available(preferred, member_id):
+		return preferred
+	var best: Vector2 = INVALID_STRUCTURE_TARGET
+	var best_dsq: float = INF
+	for candidate in target_pool:
+		if not (candidate is Vector2):
+			continue
+		var target_candidate: Vector2 = candidate as Vector2
+		if not _is_valid_structure_target(target_candidate):
+			continue
+		var candidate_key: String = _structure_target_key(target_candidate)
+		if candidate_key == current_target_key:
+			if _is_structure_target_slot_available(target_candidate, member_id):
+				return target_candidate
+			continue
+		if not _is_structure_target_slot_available(target_candidate, member_id):
+			continue
+		var dsq: float = member_pos.distance_squared_to(target_candidate)
+		if dsq < best_dsq:
+			best_dsq = dsq
+			best = target_candidate
+	if _is_valid_structure_target(best):
+		return best
+	return INVALID_STRUCTURE_TARGET
 
 
 func _build_structure_target_pool_cached(group_id: String, anchor_pos: Vector2) -> Array[Vector2]:
@@ -2358,6 +2408,67 @@ func _get_target_valid_cache_key(target_pos: Vector2) -> String:
 	var qx: int = int(floor(target_pos.x / q))
 	var qy: int = int(floor(target_pos.y / q))
 	return "%d:%d" % [qx, qy]
+
+
+func _structure_target_key(target_pos: Vector2) -> String:
+	return _get_target_valid_cache_key(target_pos)
+
+
+func _is_structure_target_slot_available(target_pos: Vector2, member_id: String) -> bool:
+	if not _is_valid_structure_target(target_pos):
+		return false
+	var key: String = _structure_target_key(target_pos)
+	var current_key: String = String(_structure_target_by_member.get(member_id, ""))
+	if current_key == key:
+		return true
+	var assigned: int = int(_structure_target_attackers_assigned.get(key, 0))
+	return assigned < BanditTuningScript.max_attackers_per_structure()
+
+
+func _assign_structure_target_slot(group_id: String, member_id: String, target_pos: Vector2) -> bool:
+	if member_id == "" or group_id == "" or not _is_valid_structure_target(target_pos):
+		return false
+	var target_key: String = _structure_target_key(target_pos)
+	var previous_key: String = String(_structure_target_by_member.get(member_id, ""))
+	if previous_key == target_key:
+		_structure_target_group_by_member[member_id] = group_id
+		return true
+	var assigned: int = int(_structure_target_attackers_assigned.get(target_key, 0))
+	if assigned >= BanditTuningScript.max_attackers_per_structure():
+		return false
+	_release_structure_target_slot_for_member(member_id)
+	_structure_target_attackers_assigned[target_key] = assigned + 1
+	_structure_target_by_member[member_id] = target_key
+	_structure_target_group_by_member[member_id] = group_id
+	return true
+
+
+func _release_structure_target_slot_for_member(member_id: String) -> void:
+	if member_id == "":
+		return
+	var target_key: String = String(_structure_target_by_member.get(member_id, ""))
+	if target_key != "":
+		var current: int = int(_structure_target_attackers_assigned.get(target_key, 0))
+		current = maxi(0, current - 1)
+		if current <= 0:
+			_structure_target_attackers_assigned.erase(target_key)
+		else:
+			_structure_target_attackers_assigned[target_key] = current
+	_structure_target_by_member.erase(member_id)
+	_structure_target_group_by_member.erase(member_id)
+
+
+func _release_structure_slots_for_inactive_assaults() -> void:
+	if _structure_target_by_member.is_empty():
+		return
+	var to_release: Array[String] = []
+	for member_id_var in _structure_target_by_member.keys():
+		var member_id: String = String(member_id_var)
+		var group_id: String = String(_structure_target_group_by_member.get(member_id, ""))
+		if group_id == "" or not BanditGroupMemory.is_structure_assault_active(group_id):
+			to_release.append(member_id)
+	for member_id in to_release:
+		_release_structure_target_slot_for_member(member_id)
 
 
 func _prune_structure_target_caches() -> void:
