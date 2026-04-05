@@ -184,6 +184,9 @@ var _placement_react_debug_recent_events: Array[Dictionary] = []
 @export var placement_react_blocking_checks_budget: int = 4
 @export var placement_react_lock_min_relevance_delta: float = 0.12
 @export var placement_react_lock_min_distance_delta_px: float = 96.0
+@export var placement_react_wall_assault_global_mode: bool = true
+@export var placement_react_wall_assault_radius: float = 12000.0
+@export var placement_react_wall_assault_min_score: float = 0.18
 @export_group("")
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
@@ -1485,6 +1488,12 @@ func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Ve
 	return _player_wall_system.find_nearest_player_wall_world_pos(world_pos, radius)
 
 
+func find_nearest_player_wall_world_pos_global(world_pos: Vector2, max_radius: float = -1.0) -> Vector2:
+	if _player_wall_system == null:
+		return Vector2(-1.0, -1.0)
+	return _player_wall_system.find_nearest_player_wall_world_pos_global(world_pos, max_radius)
+
+
 func find_player_wall_samples_world_pos(world_pos: Vector2, radius: float, max_points: int = 12,
 		min_separation: float = 48.0) -> Array[Vector2]:
 	if _player_wall_system == null:
@@ -2188,12 +2197,14 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 
 func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_interval: int = 0) -> void:
 	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
+	var is_wall_assault_event: bool = _is_wall_assault_placement_item(item_id)
 	var react_radius: float = _get_placement_react_radius(item_id)
 	var react_radius_sq: float = react_radius * react_radius
+	var min_score_threshold: float = placement_react_wall_assault_min_score if is_wall_assault_event else placement_react_min_score
 	_placement_react_pulse_seq += 1
 	var blocking_query_ctx: Dictionary = {
 		"pulse_id": _placement_react_pulse_seq,
-		"blocking_checks_budget": maxi(0, placement_react_blocking_checks_budget),
+		"blocking_checks_budget": 0 if is_wall_assault_event else maxi(0, placement_react_blocking_checks_budget),
 	}
 	Debug.log("placement_react", "--- placement react target=%s groups_total=%d ---" % [
 		str(target_pos), all_ids.size()])
@@ -2229,14 +2240,14 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 			Debug.log("placement_react", "  group=%s skipped (far) dist=%.1f radius=%.1f anchor=%s" % [
 				gid, sqrt(dist_sq), react_radius, anchor_kind])
 			continue
-		if int(blocking_query_ctx.get("blocking_checks_budget", 0)) <= 0:
+		if not is_wall_assault_event and int(blocking_query_ctx.get("blocking_checks_budget", 0)) <= 0:
 			Debug.log("placement_react", "  blocking_checks_budget exhausted pulse=%d groups_evaluated=%d" % [
 				int(blocking_query_ctx.get("pulse_id", -1)),
 				groups_evaluated
 			])
 			break
 		var score_pack: Dictionary = _score_placement_relevance(
-			item_id, target_pos, anchor_pos, g, react_radius, blocking_query_ctx
+			item_id, target_pos, anchor_pos, g, react_radius, blocking_query_ctx, is_wall_assault_event
 		)
 		groups_eligible += 1
 		candidate_groups.append({
@@ -2280,9 +2291,9 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 		var members: Array = g.get("member_ids", []) as Array
 		if members.is_empty():
 			continue
-		if score < placement_react_min_score:
+		if score < min_score_threshold:
 			Debug.log("placement_react", "  decision=ignored_by_relevance group=%s score=%.2f min=%.2f anchor=%s details=%s" % [
-				gid, score, placement_react_min_score, anchor_kind, str(score_pack)])
+				gid, score, min_score_threshold, anchor_kind, str(score_pack)])
 			continue
 		var lock_active: bool = BanditGroupMemory.has_placement_react_lock(gid)
 		if lock_active:
@@ -2316,7 +2327,7 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 		if published:
 			intent_published += 1
 		groups_activated += 1
-		var decision_tag: String = "reacted_high_priority" if is_high_priority else "reacted_local"
+		var decision_tag: String = "reacted_high_priority" if is_high_priority else ("reacted_wall_global" if is_wall_assault_event else "reacted_local")
 		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f squad_size=%d intent_published=%s precedence=placement_react>raid_queue>opportunistic anchor=%s details=%s" % [
 			decision_tag, gid, faction_id, score, effective_squad_size, str(published), anchor_kind, str(score_pack)])
 	Debug.log("placement_react", "  SUMMARY evaluated=%d eligible=%d activated=%d intents_published=%d radius=%.1f max_groups=%d precedence=placement_react>raid_queue>opportunistic" % [
@@ -2408,7 +2419,8 @@ func _resolve_placement_react_squad_size(is_high_priority: bool) -> int:
 
 
 func _score_placement_relevance(item_id: String, target_pos: Vector2, anchor_pos: Vector2,
-		group_data: Dictionary, react_radius: float, blocking_query_ctx: Dictionary) -> Dictionary:
+		group_data: Dictionary, react_radius: float, blocking_query_ctx: Dictionary,
+		is_wall_assault_event: bool = false) -> Dictionary:
 	var safe_radius: float = maxf(1.0, react_radius)
 	var dist: float = anchor_pos.distance_to(target_pos)
 	var distance_score: float = clampf(1.0 - (dist / safe_radius), 0.0, 1.0)
@@ -2422,10 +2434,18 @@ func _score_placement_relevance(item_id: String, target_pos: Vector2, anchor_pos
 	var poi_score: float = _score_placement_react_points_of_interest(item_id, target_pos, safe_radius)
 	var blocking_score: float = _score_placement_react_blocking(anchor_pos, target_pos, home_pos, blocking_query_ctx)
 
-	var score: float = distance_score * 0.50 \
-		+ base_proximity_score * 0.22 \
-		+ poi_score * 0.28 \
-		- blocking_score * 0.35
+	var score: float = 0.0
+	if is_wall_assault_event:
+		# Wall-demolition reacciona casi global: la distancia deja de ser un filtro dominante.
+		score = 0.55 \
+			+ distance_score * 0.18 \
+			+ base_proximity_score * 0.08 \
+			+ poi_score * 0.24
+	else:
+		score = distance_score * 0.50 \
+			+ base_proximity_score * 0.22 \
+			+ poi_score * 0.28 \
+			- blocking_score * 0.35
 	score = clampf(score, 0.0, 1.0)
 	return {
 		"score": score,
@@ -2504,11 +2524,17 @@ func _score_placement_react_blocking(anchor_pos: Vector2, target_pos: Vector2, h
 
 
 func _get_placement_react_radius(item_id: String) -> float:
+	if placement_react_wall_assault_global_mode and _is_wall_assault_placement_item(item_id):
+		return maxf(placement_react_wall_assault_radius, placement_react_default_radius)
 	var by_item: Variant = placement_react_radius_by_item_id.get(item_id, -1.0)
 	var parsed: float = float(by_item)
 	if parsed > 0.0:
 		return parsed
 	return maxf(0.0, placement_react_default_radius)
+
+
+func _is_wall_assault_placement_item(item_id: String) -> bool:
+	return item_id == BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD)
 
 
 func _get_group_react_anchor(group_data: Dictionary) -> Dictionary:

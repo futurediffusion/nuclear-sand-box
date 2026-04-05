@@ -450,6 +450,33 @@ func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Ve
 	return _tile_to_world(tile)
 
 
+## Búsqueda map-wide (sin barrido por radio en tile-grid).
+## Recorre persistence de paredes del jugador y aplica radio máximo opcional.
+func find_nearest_player_wall_world_pos_global(world_pos: Vector2, max_radius: float = -1.0) -> Vector2:
+	if wall_persistence == null:
+		return Vector2(-1.0, -1.0)
+	var best_pos: Vector2 = Vector2(-1.0, -1.0)
+	var best_dsq: float = INF
+	var has_radius_limit: bool = max_radius > 0.0
+	var max_radius_sq: float = max_radius * max_radius
+	var rows: Array[Dictionary] = wall_persistence.list_player_walls()
+	for row in rows:
+		var tile_raw: Variant = row.get("tile", Vector2i(-1, -1))
+		if not (tile_raw is Vector2i):
+			continue
+		var tile_pos: Vector2i = tile_raw as Vector2i
+		if not _is_valid_world_tile(tile_pos):
+			continue
+		var wall_pos: Vector2 = _tile_to_world(tile_pos)
+		var dsq: float = world_pos.distance_squared_to(wall_pos)
+		if has_radius_limit and dsq > max_radius_sq:
+			continue
+		if dsq < best_dsq:
+			best_dsq = dsq
+			best_pos = wall_pos
+	return best_pos
+
+
 ## Devuelve una muestra de paredes del jugador cercanas a world_pos.
 ## Prioriza segmentos con mayor conectividad (interior de lineas/conjuntos)
 ## y limita la densidad con min_separation para repartir mejor targets.
