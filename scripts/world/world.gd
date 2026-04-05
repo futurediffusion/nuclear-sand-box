@@ -2513,19 +2513,19 @@ func _get_placement_react_radius(item_id: String) -> float:
 
 func _get_group_react_anchor(group_data: Dictionary) -> Dictionary:
 	var leader_id: String = String(group_data.get("leader_id", ""))
-	if leader_id != "" and _npc_simulator != null:
-		var leader_node: Node = _npc_simulator.get_enemy_node(leader_id)
+	if leader_id != "" and npc_simulator != null:
+		var leader_node: Node = npc_simulator.get_enemy_node(leader_id)
 		if leader_node != null and leader_node is Node2D:
 			return {"pos": (leader_node as Node2D).global_position, "kind": "leader"}
 	var members: Array = group_data.get("member_ids", []) as Array
-	if _npc_simulator != null and not members.is_empty():
+	if npc_simulator != null and not members.is_empty():
 		var sum: Vector2 = Vector2.ZERO
 		var count: int = 0
 		for raw_mid in members:
 			var member_id: String = String(raw_mid)
 			if member_id == "":
 				continue
-			var member_node: Node = _npc_simulator.get_enemy_node(member_id)
+			var member_node: Node = npc_simulator.get_enemy_node(member_id)
 			if member_node != null and member_node is Node2D:
 				sum += (member_node as Node2D).global_position
 				count += 1

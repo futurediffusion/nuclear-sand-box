@@ -363,6 +363,36 @@ func clear_assault_target_intent(group_id: String) -> void:
 	_groups[group_id].erase("assault_target_intent")
 
 
+## Renueva target_pos y extiende expires_at del intent de asalto activo,
+## ignorando prioridad de fuente (continuidad intra-sesión).
+## Si el intent ya expiró, lo re-publica desde cero.
+## Llamar en cada tick de RaidFlow cuando se resuelve un wall vivo.
+func refresh_assault_target_pos(group_id: String, anchor: Vector2,
+		new_pos: Vector2, ttl: float) -> void:
+	if not _groups.has(group_id):
+		return
+	if not new_pos.is_finite() or new_pos.is_equal_approx(ASSAULT_INTENT_INVALID_TARGET):
+		return
+	var g: Dictionary = _groups[group_id]
+	var now: float = RunClock.now()
+	var intent: Dictionary = g.get("assault_target_intent", {}) as Dictionary
+	if not intent.is_empty():
+		intent["target_pos"] = new_pos
+		intent["expires_at"] = now + ttl
+	else:
+		var safe_anchor: Vector2 = anchor if anchor.is_finite() else new_pos
+		g["assault_target_intent"] = {
+			"anchor": safe_anchor,
+			"target_pos": new_pos,
+			"reason": "session_continue",
+			"source": ASSAULT_INTENT_SOURCE_RAID_QUEUE,
+			"priority": _assault_intent_source_priority(ASSAULT_INTENT_SOURCE_RAID_QUEUE),
+			"created_at": now,
+			"expires_at": now + ttl,
+			"ttl": ttl,
+		}
+
+
 ## Compat wrappers (legacy callers).
 func set_assault_target(group_id: String, target_pos: Vector2) -> void:
 	publish_assault_target_intent(group_id, target_pos, target_pos, "legacy_set_assault_target", 120.0)

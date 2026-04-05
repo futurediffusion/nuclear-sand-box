@@ -186,8 +186,13 @@ func _try_damage(raw_target: Node) -> void:
 				if v_ai != null:
 					duel_victim = target.get_parent()
 			if a_ai != null and v_ai != null:
-				a_ai.force_target(duel_victim, 25.0)
-				v_ai.force_target(owner_node,  25.0)
+				# No iniciar duel si alguno está en misión de demolición de estructuras.
+				# Evita que el fuego amigo entre bodyguards los saque de la demolition session.
+				var in_structure_mission: bool = a_ai.is_structure_focus_active() \
+						or v_ai.is_structure_focus_active()
+				if not in_structure_mission:
+					a_ai.force_target(duel_victim, 25.0)
+					v_ai.force_target(owner_node,  25.0)
 		_register_non_wall_hit(target_world_pos)
 
 		if impact_sound and impact_sound.stream:

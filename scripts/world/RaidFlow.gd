@@ -316,7 +316,20 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 		if _is_valid_target(intent_anchor):
 			anchor = intent_anchor
 			job["base_center"] = intent_anchor
-	var target_pos: Vector2 = intent_contract.get("target_pos", INVALID_TARGET) as Vector2
+	# Resolver siempre contra estructuras vivas: esto encadena automáticamente al siguiente
+	# wall cuando el actual cae, y renueva el intent (TTL corto = heartbeat).
+	var target_pos: Vector2 = _resolve_structure_target(anchor, true, true)
+	if not _is_valid_target(target_pos):
+		# Fallback: buscar cerca de la última posición registrada en el intent
+		# por si el anchor se desplazó y hay walls en otro cluster cercano.
+		var intent_target: Vector2 = intent_contract.get("target_pos", INVALID_TARGET) as Vector2
+		if _is_valid_target(intent_target) \
+				and intent_target.distance_squared_to(anchor) > STRUCTURE_TARGET_STABILITY_EPSILON_SQ:
+			target_pos = _resolve_structure_target(intent_target, true, true)
+		# Último recurso: usar intent.target_pos directamente.
+		# Cubre casos donde los query callables no están disponibles (e.g. setup parcial).
+		if not _is_valid_target(target_pos) and _is_valid_target(intent_target):
+			target_pos = intent_target
 	if not _is_valid_target(target_pos):
 		var near_assault_area: bool = _is_group_near_assault_area(gid, anchor)
 		if float(job.get("no_target_since", 0.0)) <= 0.0:
@@ -338,6 +351,9 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 	if float(job.get("no_target_since", 0.0)) > 0.0:
 		Debug.log("raid", "[RF] structure_assault_no_target_cleared group=%s target=%s" % [gid, str(target_pos)])
 	job["no_target_since"] = 0.0
+	# Mantener intent y contexto BWC sincronizados con el wall vivo actual.
+	# Esto renueva el TTL corto del intent (heartbeat) y propaga el target a los NPCs.
+	BanditGroupMemory.refresh_assault_target_pos(gid, anchor, target_pos, BanditTuning.structure_assault_active_ttl())
 	BanditGroupMemory.record_interest(gid, target_pos, "structure_assault_target")
 	var requested: int = int(job.get("probe_squad_size", -1))
 	if requested == 0:
