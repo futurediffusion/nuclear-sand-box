@@ -712,15 +712,22 @@ func _is_structure_assault_sticky_for_member() -> bool:
 func _resolve_assault_target_from_memory() -> Vector2:
 	if group_id == "":
 		return Vector2(-1.0, -1.0)
-	var g: Dictionary = BanditGroupMemory.get_group(group_id)
-	var interest_kind: String = String(g.get("last_interest_kind", ""))
-	if interest_kind != "":
-		var interest_pos: Vector2 = g.get("last_interest_pos", Vector2(-1.0, -1.0)) as Vector2
-		if _is_valid_world_target(interest_pos):
-			return interest_pos
+	var intent: Dictionary = BanditGroupMemory.get_assault_target_intent(group_id)
+	if not intent.is_empty():
+		var intent_target: Vector2 = intent.get("target_pos", Vector2(-1.0, -1.0)) as Vector2
+		if _is_valid_world_target(intent_target):
+			return intent_target
+		var intent_anchor: Vector2 = intent.get("anchor", Vector2(-1.0, -1.0)) as Vector2
+		if _is_valid_world_target(intent_anchor):
+			return intent_anchor
 	var pending: Vector2 = BanditGroupMemory.get_assault_target(group_id)
 	if _is_valid_world_target(pending):
 		return pending
+	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	if String(g.get("last_interest_kind", "")) == "structure_assault_target":
+		var interest_pos: Vector2 = g.get("last_interest_pos", Vector2(-1.0, -1.0)) as Vector2
+		if _is_valid_world_target(interest_pos):
+			return interest_pos
 	return Vector2(-1.0, -1.0)
 
 
@@ -737,6 +744,9 @@ func _try_reengage_structure_assault(reason: String) -> bool:
 		return false
 	var target_pos: Vector2 = _resolve_assault_target_from_memory()
 	if not _is_valid_world_target(target_pos):
+		Debug.log("raid", "[BWB] re-engage structure assault skipped member=%s group=%s reason=%s no_valid_target" % [
+			member_id, group_id, reason
+		])
 		return false
 	enter_wall_assault(target_pos)
 	Debug.log("raid", "[BWB] re-engage structure assault member=%s group=%s reason=%s target=%s" % [
