@@ -32,6 +32,7 @@ const RAID_ENGAGE_RADIUS_SQ: float = 260.0 * 260.0
 const RAID_ATTACK_RANGE_SQ: float = 96.0 * 96.0
 const RAID_LOOT_RANGE_SQ: float = 76.0 * 76.0
 const RAID_TARGET_SEARCH_RADIUS: float = 180.0
+const RAID_GLOBAL_TARGET_SEARCH_RADIUS: float = 12000.0
 const RAID_ATTACK_COOLDOWN: float = 0.45
 const RAID_LOOT_COOLDOWN: float = 1.10
 const ASSAULT_CONTEXT_TTL_SECONDS: float = 0.20
@@ -951,6 +952,18 @@ func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector
 			if not _is_valid_target(center):
 				continue
 			wall_pos = _world_node.call("find_nearest_player_wall_world_pos", center, RAID_TARGET_SEARCH_RADIUS) as Vector2
+			if _is_valid_target(wall_pos):
+				break
+	if not _is_valid_target(wall_pos) and bool(assault_context.get("has_raid_context", false)) \
+			and _world_node.has_method("find_nearest_player_wall_world_pos_global"):
+		for center in search_centers:
+			if not _is_valid_target(center):
+				continue
+			wall_pos = _world_node.call(
+				"find_nearest_player_wall_world_pos_global",
+				center,
+				RAID_GLOBAL_TARGET_SEARCH_RADIUS
+			) as Vector2
 			if _is_valid_target(wall_pos):
 				break
 

@@ -11,6 +11,8 @@ const MAX_RAID_DURATION: float = 150.0
 const WALL_ASSAULT_INTERVAL: float = 6.0
 const WALL_SEARCH_RADIUS: float = 600.0
 const PLACEABLE_SEARCH_RADIUS: float = 700.0
+const STRUCTURE_ASSAULT_GLOBAL_SEARCH_RADIUS: float = 12000.0
+const STRUCTURE_ASSAULT_ENABLE_GLOBAL_WALL_FALLBACK: bool = true
 
 const LIGHT_ATTACK_DURATION: float = 30.0
 const LIGHT_MAX_DURATION: float = 75.0
@@ -320,12 +322,16 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 	# wall cuando el actual cae, y renueva el intent (TTL corto = heartbeat).
 	var target_pos: Vector2 = _resolve_structure_target(anchor, true, true)
 	if not _is_valid_target(target_pos):
+		if STRUCTURE_ASSAULT_ENABLE_GLOBAL_WALL_FALLBACK and _find_wall.is_valid():
+			target_pos = _find_wall.call(anchor, STRUCTURE_ASSAULT_GLOBAL_SEARCH_RADIUS) as Vector2
 		# Fallback: buscar cerca de la última posición registrada en el intent
 		# por si el anchor se desplazó y hay walls en otro cluster cercano.
 		var intent_target: Vector2 = intent_contract.get("target_pos", INVALID_TARGET) as Vector2
 		if _is_valid_target(intent_target) \
 				and intent_target.distance_squared_to(anchor) > STRUCTURE_TARGET_STABILITY_EPSILON_SQ:
 			target_pos = _resolve_structure_target(intent_target, true, true)
+			if not _is_valid_target(target_pos) and STRUCTURE_ASSAULT_ENABLE_GLOBAL_WALL_FALLBACK and _find_wall.is_valid():
+				target_pos = _find_wall.call(intent_target, STRUCTURE_ASSAULT_GLOBAL_SEARCH_RADIUS) as Vector2
 		# Último recurso: usar intent.target_pos directamente.
 		# Cubre casos donde los query callables no están disponibles (e.g. setup parcial).
 		if not _is_valid_target(target_pos) and _is_valid_target(intent_target):
@@ -567,25 +573,28 @@ func _dispatch_group(gid: String, target_pos: Vector2, squad_size: int = -1) -> 
 	return redirected
 
 
-func _resolve_structure_target(anchor_pos: Vector2, allow_walls: bool, prefer_storage: bool) -> Vector2:
+func _resolve_structure_target(anchor_pos: Vector2, allow_walls: bool, prefer_storage: bool,
+		search_radius_scale: float = 1.0) -> Vector2:
 	var target_pos: Vector2 = INVALID_TARGET
+	var placeable_radius: float = PLACEABLE_SEARCH_RADIUS * maxf(0.1, search_radius_scale)
+	var wall_radius: float = WALL_SEARCH_RADIUS * maxf(0.1, search_radius_scale)
 	if prefer_storage and _find_storage.is_valid():
-		target_pos = _find_storage.call(anchor_pos, PLACEABLE_SEARCH_RADIUS) as Vector2
+		target_pos = _find_storage.call(anchor_pos, placeable_radius) as Vector2
 		if _is_valid_target(target_pos):
 			return target_pos
 
 	if _find_placeable.is_valid():
-		target_pos = _find_placeable.call(anchor_pos, PLACEABLE_SEARCH_RADIUS) as Vector2
+		target_pos = _find_placeable.call(anchor_pos, placeable_radius) as Vector2
 		if _is_valid_target(target_pos):
 			return target_pos
 
 	if _find_workbench.is_valid():
-		target_pos = _find_workbench.call(anchor_pos, PLACEABLE_SEARCH_RADIUS) as Vector2
+		target_pos = _find_workbench.call(anchor_pos, placeable_radius) as Vector2
 		if _is_valid_target(target_pos):
 			return target_pos
 
 	if allow_walls and _find_wall.is_valid():
-		target_pos = _find_wall.call(anchor_pos, WALL_SEARCH_RADIUS) as Vector2
+		target_pos = _find_wall.call(anchor_pos, wall_radius) as Vector2
 		if _is_valid_target(target_pos):
 			return target_pos
 
