@@ -14,6 +14,7 @@ signal day_passed(new_day: int)
 
 const SECONDS_PER_DAY: float = 900.0   # 15 minutos reales
 const DAY_START_NORMALIZED: float = 0.02
+const FULL_DAY_START_NORMALIZED: float = 0.14
 const NIGHT_START_NORMALIZED: float = 0.74
 # Metadata visual de ciclo (no altera la simulación base).
 const DAWN_END_NORMALIZED: float = 0.12
@@ -77,6 +78,12 @@ func set_time_in_day_normalized(t: float) -> void:
 ## Contrato: afecta runtime y también lo que se serializa en save vía `_elapsed`.
 func set_to_day_start() -> void:
 	set_time_in_day_normalized(DAY_START_NORMALIZED)
+
+
+## Salta al inicio de día pleno configurado por FULL_DAY_START_NORMALIZED.
+## Contrato: afecta runtime y también lo que se serializa en save vía `_elapsed`.
+func set_to_full_day() -> void:
+	set_time_in_day_normalized(FULL_DAY_START_NORMALIZED)
 
 
 ## Salta al inicio de noche configurado por NIGHT_START_NORMALIZED.

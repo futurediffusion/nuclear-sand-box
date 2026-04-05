@@ -1003,10 +1003,10 @@ func _cmd_set_day() -> void:
 	if WorldTime == null:
 		Debug.log("commands", "/set_day: WorldTime no disponible")
 		return
-	WorldTime.set_to_day_start()
+	WorldTime.set_to_full_day()
 	var time_in_day: float = WorldTime.get_time_in_day()
 	var visual_target := _estimate_day_night_visual_target(time_in_day)
-	Debug.log("commands", "/set_day -> fase=day, time_in_day=%.4f, visual_target_est=%.4f" % [time_in_day, visual_target])
+	Debug.log("commands", "/set_day -> fase=full_day, time_in_day=%.4f, visual_target_est=%.4f" % [time_in_day, visual_target])
 
 func _cmd_set_night() -> void:
 	if WorldTime == null:
