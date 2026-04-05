@@ -62,6 +62,18 @@ func _compute_target_night_amount(time_in_day: float) -> float:
 		return _smoothstep(alpha_dusk)
 	return 1.0
 
+func _get_cycle_phase(time_in_day: float) -> String:
+	var t: float = clampf(time_in_day, 0.0, 1.0)
+	if t < dawn_start:
+		return "night"
+	if t < day_full:
+		return "dawn"
+	if t < dusk_start:
+		return "day"
+	if t < night_full:
+		return "dusk"
+	return "night"
+
 func _smoothstep(x: float) -> float:
 	var t: float = clampf(x, 0.0, 1.0)
 	return t * t * (3.0 - 2.0 * t)
@@ -93,3 +105,14 @@ func set_night_amount(value: float) -> void:
 
 func get_current_night_amount() -> float:
 	return _current_night_amount
+
+func get_debug_snapshot() -> Dictionary:
+	var time_in_day: float = -1.0
+	if WorldTime != null and WorldTime.has_method("get_time_in_day"):
+		time_in_day = WorldTime.get_time_in_day()
+	return {
+		"time_in_day": time_in_day,
+		"cycle_phase": _get_cycle_phase(time_in_day) if time_in_day >= 0.0 else "unknown",
+		"target_night_amount": _target_night_amount,
+		"current_night_amount": _current_night_amount,
+	}

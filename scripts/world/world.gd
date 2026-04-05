@@ -472,6 +472,8 @@ func _ready() -> void:
 		_day_night_controller.add_to_group("global_subsystem")
 		_day_night_controller.add_to_group("day_night_controller")
 		_day_night_controller.initialize_overlay()
+		# SaveManager.load_world_save() ya pudo restaurar WorldTime.elapsed; sincronizar
+		# aquí evita un frame inicial con look diurno incorrecto al cargar de noche.
 		_day_night_controller.sync_to_time_in_day(WorldTime.get_time_in_day())
 
 	tavern_chunk = _tile_to_chunk(Vector2i(width / 2, height / 2))
@@ -2727,7 +2729,9 @@ func _paint_outer_ground_band() -> void:
 func get_debug_snapshot() -> Dictionary:
 	if _world_sim_telemetry == null:
 		return {"enabled": false}
-	return _world_sim_telemetry.get_debug_snapshot()
+	var snapshot: Dictionary = _world_sim_telemetry.get_debug_snapshot()
+	snapshot["day_night_cycle"] = _day_night_controller.get_debug_snapshot() if _day_night_controller != null else {}
+	return snapshot
 
 
 func get_drop_pressure_snapshot() -> Dictionary:
@@ -2737,13 +2741,39 @@ func get_drop_pressure_snapshot() -> Dictionary:
 func dump_debug_summary() -> String:
 	if _world_sim_telemetry == null:
 		return "WORLD SIM\n- telemetry: unavailable"
-	return _world_sim_telemetry.dump_debug_summary()
+	var summary: String = _world_sim_telemetry.dump_debug_summary()
+	if _day_night_controller != null and _day_night_controller.has_method("get_debug_snapshot"):
+		var cycle_snapshot: Dictionary = _day_night_controller.get_debug_snapshot()
+		var cycle_phase: String = String(cycle_snapshot.get("cycle_phase", "unknown"))
+		var time_in_day: float = float(cycle_snapshot.get("time_in_day", -1.0))
+		var target_night: float = float(cycle_snapshot.get("target_night_amount", 0.0))
+		var current_night: float = float(cycle_snapshot.get("current_night_amount", 0.0))
+		summary += "\n- cycle: phase=%s t=%.3f target_night=%.3f current_night=%.3f" % [
+			cycle_phase,
+			time_in_day,
+			target_night,
+			current_night,
+		]
+	return summary
 
 
 func build_overlay_lines() -> PackedStringArray:
 	if _world_sim_telemetry == null:
 		return PackedStringArray()
-	return _world_sim_telemetry.build_overlay_lines()
+	var lines: PackedStringArray = _world_sim_telemetry.build_overlay_lines()
+	if _day_night_controller != null and _day_night_controller.has_method("get_debug_snapshot"):
+		var cycle_snapshot: Dictionary = _day_night_controller.get_debug_snapshot()
+		var cycle_phase: String = String(cycle_snapshot.get("cycle_phase", "unknown"))
+		var time_in_day: float = float(cycle_snapshot.get("time_in_day", -1.0))
+		var target_night: float = float(cycle_snapshot.get("target_night_amount", 0.0))
+		var current_night: float = float(cycle_snapshot.get("current_night_amount", 0.0))
+		lines.append("Cycle %s t=%.3f n=%.3f->%.3f" % [
+			cycle_phase,
+			time_in_day,
+			current_night,
+			target_night,
+		])
+	return lines
 
 
 func _perform_world_save(_reason: String = "manual") -> void:
@@ -2765,6 +2795,7 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 		"loaded_chunks": loaded_count,
 		"generated_chunks": generated_count,
 		"terrain_paint_ring0_pending": terrain_pending,
+		"day_night_cycle": _day_night_controller.get_debug_snapshot() if _day_night_controller != null else {},
 		"spawn_queue": _spawn_queue.debug_dump() if _spawn_queue != null else {},
 		"wall_refresh": _wall_refresh_queue.get_debug_snapshot() if _wall_refresh_queue != null else {},
 		"autosave": {
