@@ -769,6 +769,17 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 	elif target_kind == "intent":
 		attacked = _damage_player_wall_at(target_pos, beh)
 		if not attacked:
+			var resolved_wall_pos: Vector2 = _resolve_intent_wall_hit_pos(
+				enemy_pos,
+				target_pos,
+				attack_anchor,
+				group_anchor
+			)
+			if _is_valid_target(resolved_wall_pos):
+				attacked = _damage_player_wall_at(resolved_wall_pos, beh)
+				if attacked:
+					target_pos = resolved_wall_pos
+		if not attacked:
 			var intent_node: Node2D = _find_nearest_player_structure_node(enemy_pos, target_pos, assault_ctx)
 			if intent_node != null and intent_node.has_method("hit"):
 				intent_node.call("hit", enemy_node)
@@ -777,7 +788,7 @@ func _handle_structure_assault(beh: BanditWorldBehavior, enemy_node: Node) -> vo
 		attacked = _damage_player_wall_at(target_pos, beh)
 
 	if not attacked:
-		if target_kind == "wall":
+		if target_kind == "wall" or target_kind == "intent":
 			_try_local_wall_strike(
 				beh,
 				enemy_node,
@@ -1419,6 +1430,37 @@ func _damage_player_wall_at(world_pos: Vector2, beh: BanditWorldBehavior = null)
 	if hit_ok and beh != null:
 		_emit_group_event("wall_breached", beh, {"world_pos": world_pos, "threat_level": 2.0})
 	return hit_ok
+
+
+func _resolve_intent_wall_hit_pos(enemy_pos: Vector2, intent_pos: Vector2,
+		primary_anchor: Vector2, secondary_anchor: Vector2) -> Vector2:
+	if _world_node == null or not _world_node.has_method("find_nearest_player_wall_world_pos"):
+		return INVALID_TARGET
+	var probes: Array[Vector2] = [intent_pos, enemy_pos]
+	if _is_valid_target(primary_anchor) and enemy_pos.distance_squared_to(primary_anchor) > 1.0:
+		probes.append(primary_anchor)
+	if _is_valid_target(secondary_anchor) and enemy_pos.distance_squared_to(secondary_anchor) > 1.0:
+		probes.append(secondary_anchor)
+
+	var best_wall: Vector2 = INVALID_TARGET
+	var best_dsq: float = INF
+	for probe in probes:
+		if not _is_valid_target(probe):
+			continue
+		var wall_pos: Vector2 = _world_node.call(
+			"find_nearest_player_wall_world_pos",
+			probe,
+			RAID_LOCAL_WALL_PROBE_RADIUS
+		) as Vector2
+		if not _is_valid_target(wall_pos):
+			continue
+		var enemy_dsq: float = enemy_pos.distance_squared_to(wall_pos)
+		if enemy_dsq > RAID_LOCAL_WALL_STRIKE_RANGE_SQ:
+			continue
+		if enemy_dsq < best_dsq:
+			best_dsq = enemy_dsq
+			best_wall = wall_pos
+	return best_wall
 
 
 func _is_valid_target(pos: Vector2) -> bool:
