@@ -18,6 +18,7 @@ const LIGHT_MAX_DURATION: float = 75.0
 const STRUCTURE_APPROACH_TIMEOUT: float = 180.0
 const STRUCTURE_ATTACK_DURATION: float = 120.0
 const STRUCTURE_MAX_DURATION: float = 360.0
+const STRUCTURE_APPROACH_DISPATCH_INTERVAL: float = 2.2
 const DISPATCH_JITTER_RATIO: float = 0.16
 const STRUCTURE_NO_TARGET_NEAR_RADIUS: float = 260.0
 const STRUCTURE_NO_TARGET_NEAR_RADIUS_SQ: float = STRUCTURE_NO_TARGET_NEAR_RADIUS * STRUCTURE_NO_TARGET_NEAR_RADIUS
@@ -166,6 +167,8 @@ func _create_job(gid: String, intent: Dictionary) -> void:
 		"started_at": RunClock.now(),
 		"attack_started_at": 0.0,
 		"wall_assault_next_at": 0.0,
+		"approach_next_at": 0.0,
+		"last_dispatched_target": INVALID_TARGET,
 		"no_target_since": 0.0,
 	}
 	Debug.log("raid", "[RF] job created group=%s type=%s base=%s squad=%d" % [
@@ -205,7 +208,28 @@ func _tick_approaching(job: Dictionary, gid: String) -> bool:
 	if total >= _max_total_for_job(job):
 		return true
 
+	var now: float = RunClock.now()
 	var base_center: Vector2 = job.get("base_center", Vector2.ZERO) as Vector2
+	if String(job.get("raid_type", "")) == "structure_assault":
+		var intent_contract: Dictionary = BanditGroupMemory.get_assault_target_intent(gid)
+		var intent_anchor: Vector2 = intent_contract.get("anchor", INVALID_TARGET) as Vector2
+		var intent_target: Vector2 = intent_contract.get("target_pos", INVALID_TARGET) as Vector2
+		if _is_valid_target(intent_anchor):
+			base_center = intent_anchor
+			job["base_center"] = intent_anchor
+		var approach_target: Vector2 = intent_target if _is_valid_target(intent_target) else base_center
+		if _is_valid_target(approach_target) and now >= float(job.get("approach_next_at", 0.0)):
+			var requested: int = int(job.get("probe_squad_size", -1))
+			if requested == 0:
+				requested = -1
+			var redirected: int = _dispatch_group(gid, approach_target, requested)
+			if redirected > 0:
+				job["last_dispatched_target"] = approach_target
+			job["approach_next_at"] = _next_dispatch_at(gid, STRUCTURE_APPROACH_DISPATCH_INTERVAL)
+			Debug.log("raid", "[RF] structure approach dispatch group=%s target=%s redirected=%d" % [
+				gid, str(approach_target), redirected
+			])
+
 	var leader_id: String = String(job.get("leader_id", ""))
 	var close_enough: bool = false
 
@@ -218,7 +242,7 @@ func _tick_approaching(job: Dictionary, gid: String) -> bool:
 	if close_enough or timed_out:
 		job["stage"] = "attacking"
 		job["attack_started_at"] = RunClock.now()
-		job["wall_assault_next_at"] = RunClock.now()
+		job["wall_assault_next_at"] = now
 		Debug.log("raid", "[RF] stage=attacking group=%s close=%s timeout=%s" % [
 			gid, str(close_enough), str(timed_out)
 		])
@@ -318,9 +342,9 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 	var requested: int = int(job.get("probe_squad_size", -1))
 	if requested == 0:
 		requested = -1
-	var prev_center: Vector2 = job.get("base_center", INVALID_TARGET) as Vector2
-	var target_shifted_significantly: bool = (not _is_valid_target(prev_center)) \
-		or prev_center.distance_squared_to(target_pos) > STRUCTURE_TARGET_STABILITY_EPSILON_SQ
+	var last_dispatched: Vector2 = job.get("last_dispatched_target", INVALID_TARGET) as Vector2
+	var target_shifted_significantly: bool = (not _is_valid_target(last_dispatched)) \
+		or last_dispatched.distance_squared_to(target_pos) > STRUCTURE_TARGET_STABILITY_EPSILON_SQ
 	if not target_shifted_significantly:
 		job["wall_assault_next_at"] = _next_dispatch_at(gid, BanditTuning.wall_probe_wall_interval())
 		Debug.log("placement_react", "[RF] structure assault skip redispatch group=%s stable_target=%s" % [
@@ -329,6 +353,8 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 		return
 	var redirected: int = _dispatch_group(gid, target_pos, requested)
 	job["base_center"] = target_pos
+	if redirected > 0:
+		job["last_dispatched_target"] = target_pos
 	job["wall_assault_next_at"] = _next_dispatch_at(gid, BanditTuning.wall_probe_wall_interval())
 	if redirected > 0:
 		var req_text: String = "ALL" if requested <= 0 else str(requested)
