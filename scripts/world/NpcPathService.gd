@@ -188,6 +188,30 @@ func clear_agent(agent_id: String) -> void:
 	_invalidate_metrics_by_agent.erase(agent_id)
 
 
+func get_invalidate_debug_snapshot() -> Dictionary:
+	var totals: Dictionary = {"new_target": 0, "state_change": 0, "forced_reset": 0}
+	var suppressed_totals: Dictionary = {"new_target": 0, "state_change": 0, "forced_reset": 0}
+	var current_sec: int = int(floor(RunClock.now()))
+	var current_sec_totals: Dictionary = {"new_target": 0, "state_change": 0, "forced_reset": 0}
+	for agent_id in _invalidate_metrics_by_agent.keys():
+		var st: Dictionary = _invalidate_metrics_by_agent[agent_id] as Dictionary
+		var counts: Dictionary = st.get("counts", {})
+		var suppressed_counts: Dictionary = st.get("suppressed_counts", {})
+		for reason in totals.keys():
+			totals[reason] = int(totals.get(reason, 0)) + int(counts.get(reason, 0))
+			suppressed_totals[reason] = int(suppressed_totals.get(reason, 0)) + int(suppressed_counts.get(reason, 0))
+		if int(st.get("sec_bucket", -1)) == current_sec:
+			for reason in current_sec_totals.keys():
+				current_sec_totals[reason] = int(current_sec_totals.get(reason, 0)) + int(counts.get(reason, 0))
+	return {
+		"agents_tracked": _invalidate_metrics_by_agent.size(),
+		"current_second": current_sec,
+		"counts_total": totals,
+		"suppressed_total": suppressed_totals,
+		"counts_current_second": current_sec_totals,
+	}
+
+
 func _begin_line_clear_pulse_if_needed(pulse_id: int) -> void:
 	if pulse_id < 0:
 		return

@@ -168,6 +168,11 @@ const _PLACEMENT_REACT_EVENT_MIN_INTERVAL: float = 0.20
 const _PLAYER_RAID_PLACEABLE_ITEM_IDS: Array[String] = []
 var _placement_react_last_event_at: float = -9999.0
 var _placement_react_pulse_seq: int = 0
+const _PLACEMENT_REACT_DEBUG_MAX_EVENTS: int = 96
+var _placement_react_debug_total_events: int = 0
+var _placement_react_debug_total_activated_groups: int = 0
+var _placement_react_debug_total_intents_published: int = 0
+var _placement_react_debug_recent_events: Array[Dictionary] = []
 @export_group("Placement Reaction")
 @export var placement_react_default_radius: float = 640.0
 @export var placement_react_radius_by_item_id: Dictionary = {}
@@ -2193,6 +2198,7 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 	Debug.log("placement_react", "--- placement react target=%s groups_total=%d ---" % [
 		str(target_pos), all_ids.size()])
 	if all_ids.is_empty():
+		_record_placement_react_debug_event(item_id, target_pos, 0, 0, skipped_by_interval, 0)
 		Debug.log("placement_react", "  SKIP: no hay grupos registrados en BanditGroupMemory")
 		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
 			skipped_by_interval, 0, 0, item_id, str(target_pos)
@@ -2242,6 +2248,7 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 			"score_pack": score_pack,
 		})
 	if candidate_groups.is_empty():
+		_record_placement_react_debug_event(item_id, target_pos, 0, 0, skipped_by_interval, 0)
 		Debug.log("placement_react", "  SKIP: no hay grupos cercanos (evaluated=%d eligible=%d radius=%.1f)" % [
 			groups_evaluated, groups_eligible, react_radius])
 		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
@@ -2337,6 +2344,58 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 		item_id,
 		str(target_pos)
 	])
+	_record_placement_react_debug_event(
+		item_id,
+		target_pos,
+		groups_activated,
+		intent_published,
+		skipped_by_interval,
+		skipped_by_lock
+	)
+
+
+func _record_placement_react_debug_event(
+		item_id: String,
+		target_pos: Vector2,
+		groups_activated: int,
+		intents_published: int,
+		skipped_by_interval: int,
+		skipped_by_lock: int) -> void:
+	_placement_react_debug_total_events += 1
+	_placement_react_debug_total_activated_groups += maxi(groups_activated, 0)
+	_placement_react_debug_total_intents_published += maxi(intents_published, 0)
+	_placement_react_debug_recent_events.append({
+		"at": RunClock.now(),
+		"item_id": item_id,
+		"target_pos": target_pos,
+		"groups_activated": maxi(groups_activated, 0),
+		"intents_published": maxi(intents_published, 0),
+		"skipped_by_interval": maxi(skipped_by_interval, 0),
+		"skipped_by_lock": maxi(skipped_by_lock, 0),
+	})
+	while _placement_react_debug_recent_events.size() > _PLACEMENT_REACT_DEBUG_MAX_EVENTS:
+		_placement_react_debug_recent_events.remove_at(0)
+
+
+func reset_placement_react_debug_metrics() -> void:
+	_placement_react_debug_total_events = 0
+	_placement_react_debug_total_activated_groups = 0
+	_placement_react_debug_total_intents_published = 0
+	_placement_react_debug_recent_events.clear()
+
+
+func get_placement_react_debug_snapshot() -> Dictionary:
+	var avg_dispatches_per_event: float = 0.0
+	if _placement_react_debug_total_events > 0:
+		avg_dispatches_per_event = float(_placement_react_debug_total_intents_published) / float(_placement_react_debug_total_events)
+	return {
+		"events_total": _placement_react_debug_total_events,
+		"groups_activated_total": _placement_react_debug_total_activated_groups,
+		"intents_published_total": _placement_react_debug_total_intents_published,
+		"dispatches_per_event_avg": avg_dispatches_per_event,
+		"last_event": _placement_react_debug_recent_events.back() if not _placement_react_debug_recent_events.is_empty() else {},
+		"recent_events": _placement_react_debug_recent_events.duplicate(true),
+	}
 
 
 func _resolve_placement_react_squad_size(is_high_priority: bool) -> int:
