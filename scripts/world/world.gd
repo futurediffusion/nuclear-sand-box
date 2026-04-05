@@ -158,6 +158,9 @@ var _gameplay_command_dispatcher: GameplayCommandDispatcher
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
+var _wall_coordinate_transform_port: WorldCoordinateTransformContract
+var _wall_chunk_dirty_notifier_port: WorldChunkDirtyNotifierContract
+var _wall_projection_refresh_port: WorldProjectionRefreshContract
 
 # Placement reaction
 ## Every hostile eligible group receives structure-assault targeting on player placement.
@@ -235,6 +238,9 @@ const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.
 const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 const DayNightControllerScript := preload("res://scripts/world/DayNightController.gd")
 const GameplayCommandDispatcherScript := preload("res://scripts/runtime/world/GameplayCommandDispatcher.gd")
+const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
+const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
+const WorldProjectionRefreshCallableAdapterScript := preload("res://scripts/world/contracts/WorldProjectionRefreshCallableAdapter.gd")
 const LANE_SHORT_PULSE: StringName = &"short_pulse"
 const LANE_MEDIUM_PULSE: StringName = &"medium_pulse"
 const LANE_DIRECTOR_PULSE: StringName = &"director_pulse"
@@ -386,6 +392,20 @@ func _ready() -> void:
 		"player_wall_fallback_atlas": PLAYER_WALL_FALLBACK_ATLAS,
 		"player_wall_fallback_alt": PLAYER_WALL_FALLBACK_ALT,
 	})
+	_wall_coordinate_transform_port = WorldCoordinateTransformCallableAdapterScript.new()
+	_wall_coordinate_transform_port.setup({
+		"world_to_tile": Callable(self, "_world_to_tile"),
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"tile_to_chunk": Callable(self, "_tile_to_chunk"),
+	})
+	_wall_chunk_dirty_notifier_port = WorldChunkDirtyNotifierCallableAdapterScript.new()
+	_wall_chunk_dirty_notifier_port.setup({
+		"mark_chunk_walls_dirty": Callable(self, "mark_chunk_walls_dirty"),
+	})
+	_wall_projection_refresh_port = WorldProjectionRefreshCallableAdapterScript.new()
+	_wall_projection_refresh_port.setup({
+		"mark_chunk_walls_dirty_and_refresh_for_tiles": Callable(self, "_mark_walls_dirty_and_refresh_for_tiles"),
+	})
 	# Nota de migración: world.gd no define audio de walls; PlayerWallSystem resuelve defaults/overrides internos.
 	_player_wall_system.setup({
 		"owner": self,
@@ -404,10 +424,9 @@ func _ready() -> void:
 		"wall_terrain_set": WALL_TERRAIN_SET,
 		"wall_terrain": WALL_TERRAIN,
 		"src_walls": SRC_WALLS,
-		"world_to_tile": Callable(self, "_world_to_tile"),
-		"tile_to_world": Callable(self, "_tile_to_world"),
-		"tile_to_chunk": Callable(self, "_tile_to_chunk"),
-		"mark_chunk_walls_dirty_and_refresh_for_tiles": Callable(self, "_mark_walls_dirty_and_refresh_for_tiles"),
+		"coordinate_transform_port": _wall_coordinate_transform_port,
+		"chunk_dirty_notifier_port": _wall_chunk_dirty_notifier_port,
+		"projection_refresh_port": _wall_projection_refresh_port,
 		"player_wallwood_max_hp": player_wallwood_max_hp,
 		"player_wall_drop_enabled": player_wall_drop_enabled,
 		"player_wall_drop_item_id": player_wall_drop_item_id,
