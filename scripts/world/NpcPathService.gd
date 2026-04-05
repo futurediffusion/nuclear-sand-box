@@ -28,6 +28,8 @@ const MAX_WINDOW_RETRY: int = 64  # retry window when first attempt fails
 const REPATH_INTERVAL: float      = 1.5        # default s between recalcs
 const GOAL_CHANGED_DIST_SQ: float = 16.0*16.0  # repath when goal moves > 16 px
 const WAYPOINT_ARRIVE_SQ: float   = 18.0*18.0  # advance WP within 18 px
+const INVALIDATE_DEBOUNCE_DIST_SQ: float = 20.0 * 20.0
+const INVALIDATE_DEBOUNCE_WINDOW_SEC: float = 0.35
 
 # ── Tilemap / WorldSave constants ─────────────────────────────────────────────
 const CLIFFS_LAYER: int    = 0
@@ -59,6 +61,7 @@ var _line_clear_checks_used_in_pulse: int = 0
 var _line_clear_budget_exhausted_in_pulse: int = 0
 var _line_clear_cache_hits_in_pulse: int = 0
 var _line_clear_cache_misses_in_pulse: int = 0
+var _invalidate_metrics_by_agent: Dictionary = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,14 +164,28 @@ func get_line_clear_budget_metrics() -> Dictionary:
 
 
 ## Force next get_next_waypoint() call to recompute path for agent.
-func invalidate_path(agent_id: String) -> void:
+func invalidate_path(agent_id: String, reason: String = "state_change",
+		target_pos: Variant = null, force: bool = false) -> bool:
+	if agent_id == "":
+		return false
+	var now: float = RunClock.now()
+	var normalized_reason: String = _normalize_invalidate_reason(reason)
+	if _should_debounce_invalidate(agent_id, normalized_reason, target_pos, now, force):
+		_record_invalidate_metric(agent_id, normalized_reason, true, now)
+		return false
 	if _cache.has(agent_id):
 		(_cache[agent_id]["waypoints"] as Array).clear()
+	if target_pos is Vector2:
+		var st: Dictionary = _ensure_invalidate_metric(agent_id, now)
+		st["last_target"] = target_pos as Vector2
+	_record_invalidate_metric(agent_id, normalized_reason, false, now)
+	return true
 
 
 ## Remove all path data for agent (call when NPC despawns / behavior pruned).
 func clear_agent(agent_id: String) -> void:
 	_cache.erase(agent_id)
+	_invalidate_metrics_by_agent.erase(agent_id)
 
 
 func _begin_line_clear_pulse_if_needed(pulse_id: int) -> void:
@@ -186,6 +203,75 @@ func _begin_line_clear_pulse_if_needed(pulse_id: int) -> void:
 
 func _line_clear_pair_key(st: Vector2i, gt: Vector2i) -> String:
 	return "%d:%d>%d:%d" % [st.x, st.y, gt.x, gt.y]
+
+
+func _normalize_invalidate_reason(reason: String) -> String:
+	match reason:
+		"new_target", "state_change", "forced_reset":
+			return reason
+		_:
+			return "state_change"
+
+
+func _should_debounce_invalidate(agent_id: String, reason: String, target_pos: Variant,
+		now: float, force: bool) -> bool:
+	if force:
+		return false
+	if reason != "new_target":
+		return false
+	if not (target_pos is Vector2):
+		return false
+	var st: Dictionary = _ensure_invalidate_metric(agent_id, now)
+	var next_target: Vector2 = target_pos as Vector2
+	var prev_target: Vector2 = st.get("last_target", Vector2(INF, INF)) as Vector2
+	var last_time: float = float(st.get("last_invalidate_time", -9999.0))
+	if not next_target.is_finite() or not prev_target.is_finite():
+		return false
+	if now - last_time > INVALIDATE_DEBOUNCE_WINDOW_SEC:
+		return false
+	return prev_target.distance_squared_to(next_target) <= INVALIDATE_DEBOUNCE_DIST_SQ
+
+
+func _ensure_invalidate_metric(agent_id: String, now: float) -> Dictionary:
+	if not _invalidate_metrics_by_agent.has(agent_id):
+		_invalidate_metrics_by_agent[agent_id] = {
+			"sec_bucket": int(floor(now)),
+			"counts": {"new_target": 0, "state_change": 0, "forced_reset": 0},
+			"suppressed_counts": {"new_target": 0, "state_change": 0, "forced_reset": 0},
+			"last_invalidate_time": -9999.0,
+			"last_target": Vector2(INF, INF),
+		}
+	return _invalidate_metrics_by_agent[agent_id]
+
+
+func _record_invalidate_metric(agent_id: String, reason: String, suppressed: bool, now: float) -> void:
+	var st: Dictionary = _ensure_invalidate_metric(agent_id, now)
+	var sec_bucket_now: int = int(floor(now))
+	var sec_bucket_old: int = int(st.get("sec_bucket", sec_bucket_now))
+	if sec_bucket_now != sec_bucket_old:
+		var old_counts: Dictionary = st.get("counts", {})
+		var old_suppressed: Dictionary = st.get("suppressed_counts", {})
+		Debug.log("npc_path",
+			"[NPS][invalidate_rate] npc=%s sec=%d new_target=%d state_change=%d forced_reset=%d suppressed_new_target=%d suppressed_state_change=%d suppressed_forced_reset=%d" % [
+			agent_id,
+			sec_bucket_old,
+			int(old_counts.get("new_target", 0)),
+			int(old_counts.get("state_change", 0)),
+			int(old_counts.get("forced_reset", 0)),
+			int(old_suppressed.get("new_target", 0)),
+			int(old_suppressed.get("state_change", 0)),
+			int(old_suppressed.get("forced_reset", 0)),
+		])
+		st["sec_bucket"] = sec_bucket_now
+		st["counts"] = {"new_target": 0, "state_change": 0, "forced_reset": 0}
+		st["suppressed_counts"] = {"new_target": 0, "state_change": 0, "forced_reset": 0}
+	var key: String = _normalize_invalidate_reason(reason)
+	var bucket_key: String = "suppressed_counts" if suppressed else "counts"
+	var bucket: Dictionary = st.get(bucket_key, {})
+	bucket[key] = int(bucket.get(key, 0)) + 1
+	st[bucket_key] = bucket
+	if not suppressed:
+		st["last_invalidate_time"] = now
 
 
 # ─────────────────────────────────────────────────────────────────────────────

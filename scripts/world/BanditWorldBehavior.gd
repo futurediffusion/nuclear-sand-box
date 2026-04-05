@@ -343,7 +343,7 @@ func _tick_roaming_guard_phase(delta: float, ctx: Dictionary) -> void:
 				_move_target     = leader_pos
 				state            = State.APPROACH_INTEREST
 				_state_timer     = 0.0
-				_invalidate_npc_path()
+				_invalidate_npc_path("new_target", _move_target)
 				Debug.log("bandit_ai", "[BWB] roaming_guard→returning member=%s" % member_id)
 
 		"returning":
@@ -421,7 +421,7 @@ func _enter_patrol(ctx: Dictionary) -> void:
 	_move_target  = candidate
 	state         = State.PATROL
 	_state_timer  = 0.0
-	_invalidate_npc_path()
+	_invalidate_npc_path("new_target", _move_target)
 
 
 ## Roaming guard wide patrol — target is relative to dispatch position (leader pos).
@@ -432,7 +432,7 @@ func _enter_wide_patrol() -> void:
 	_move_target = origin + Vector2(cos(angle), sin(angle)) * dist
 	state        = State.PATROL
 	_state_timer = 0.0
-	_invalidate_npc_path()
+	_invalidate_npc_path("new_target", _move_target)
 
 ## Forces the NPC to patrol away from the barrel area.
 ## Guarantees the target is outside BARREL_EXCLUSION_RADIUS_SQ.
@@ -458,7 +458,7 @@ func _enter_patrol_away_from_home() -> void:
 	_move_target  = candidate
 	state         = State.PATROL
 	_state_timer  = 0.0
-	_invalidate_npc_path()
+	_invalidate_npc_path("new_target", _move_target)
 
 
 # ---------------------------------------------------------------------------
@@ -624,7 +624,7 @@ func _try_leader_roam() -> void:
 				_move_target = rpos
 				state        = State.APPROACH_INTEREST
 				_state_timer = 0.0
-				_invalidate_npc_path()
+				_invalidate_npc_path("new_target", _move_target)
 				Debug.log("bandit_ai", "[BWB] leader→resource %s gid=%s phase=%s" % [
 					str(rpos), group_id, _leader_explore_phase])
 				return
@@ -642,7 +642,7 @@ func _try_leader_roam() -> void:
 	_move_target = home_pos + Vector2(cos(angle), sin(angle)) * _rng.randf_range(min_dist, radius)
 	state        = State.PATROL
 	_state_timer = 0.0
-	_invalidate_npc_path()
+	_invalidate_npc_path("new_target", _move_target)
 
 
 # ---------------------------------------------------------------------------
@@ -779,7 +779,7 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 							_move_target   = interest_pos
 							state          = State.APPROACH_INTEREST
 							_state_timer   = 0.0
-							_invalidate_npc_path()
+							_invalidate_npc_path("new_target", _move_target)
 					else:
 						state        = State.FOLLOW_LEADER
 						_state_timer = 0.0
@@ -823,7 +823,7 @@ func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 					state        = State.APPROACH_INTEREST
 					_state_timer = 0.0
 					_in_assault  = true
-					_invalidate_npc_path()
+					_invalidate_npc_path("new_target", _move_target)
 
 		"idle":
 			if state == State.APPROACH_INTEREST or state == State.FOLLOW_LEADER \
@@ -854,7 +854,7 @@ func enter_wall_assault(wall_pos: Vector2) -> void:
 	state        = State.APPROACH_INTEREST
 	_state_timer = 0.0
 	_in_assault  = true
-	_invalidate_npc_path()
+	_invalidate_npc_path("new_target", wall_pos)
 
 func _is_role_allowed_for_opportunistic_assault(action: String) -> bool:
 	var leader_allowed: bool = BanditTuning.allow_leader_opportunistic_assault()
