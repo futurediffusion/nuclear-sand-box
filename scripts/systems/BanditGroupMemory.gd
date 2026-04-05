@@ -264,6 +264,19 @@ func get_placement_react_attempt(group_id: String) -> Dictionary:
 	}
 
 
+## Limpia lock y snapshot del último attempt de placement_react.
+## Debe llamarse al cerrar un structure_assault para no bloquear eventos nuevos.
+func clear_placement_react_context(group_id: String) -> void:
+	if not _groups.has(group_id):
+		return
+	var g: Dictionary = _groups[group_id]
+	g.erase("placement_react_until")
+	g.erase("placement_react_last_target")
+	g.erase("placement_react_last_score")
+	g.erase("placement_react_last_anchor_distance")
+	g.erase("placement_react_last_attempt_at")
+
+
 ## Marca contexto runtime de structure_assault para un grupo.
 ## Debe refrescarse periódicamente desde RaidFlow.
 func mark_structure_assault_active(group_id: String, ttl_seconds: float) -> void:

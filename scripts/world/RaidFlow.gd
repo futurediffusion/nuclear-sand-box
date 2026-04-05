@@ -495,6 +495,7 @@ func _finish_raid(gid: String, reason: String) -> void:
 	if raid_type == "structure_assault":
 		BanditGroupMemory.clear_structure_assault_active(gid)
 		BanditGroupMemory.clear_assault_target_intent(gid)
+		BanditGroupMemory.clear_placement_react_context(gid)
 		Debug.log("raid", "[RF] structure_assault_active_released group=%s reason=%s" % [gid, resolved_reason])
 
 	var social_cd: float
