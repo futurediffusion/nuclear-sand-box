@@ -3,17 +3,19 @@ shader_type canvas_item;
 uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap;
 uniform float night_amount : hint_range(0.0, 1.0) = 0.0;
 
-uniform vec3 cool_shadow_tint : source_color = vec3(0.72, 0.82, 1.0);
-uniform float shadow_desaturation : hint_range(0.0, 1.0) = 0.35;
-uniform float highlight_protection : hint_range(0.0, 1.0) = 0.35;
+uniform vec3 cool_shadow_tint : source_color = vec3(0.45, 0.58, 0.92);
+uniform float shadow_desaturation : hint_range(0.0, 1.0) = 0.55;
+uniform float highlight_protection : hint_range(0.0, 1.0) = 0.18;
 
-uniform float shadow_mask_pow : hint_range(0.2, 4.0) = 1.35;
-uniform float shadow_smooth_start : hint_range(0.0, 1.0) = 0.20;
-uniform float shadow_smooth_end : hint_range(0.0, 1.0) = 0.78;
-uniform float night_curve_pow : hint_range(0.2, 3.0) = 1.2;
+uniform float shadow_mask_pow : hint_range(0.2, 4.0) = 1.65;
+uniform float shadow_smooth_start : hint_range(0.0, 1.0) = 0.16;
+uniform float shadow_smooth_end : hint_range(0.0, 1.0) = 0.70;
+uniform float night_curve_pow : hint_range(0.2, 3.0) = 1.35;
+uniform float shadow_darken : hint_range(0.0, 1.0) = 0.42;
+uniform float midtone_darken : hint_range(0.0, 1.0) = 0.20;
 
 uniform bool vignette_enabled = true;
-uniform float vignette_strength : hint_range(0.0, 0.35) = 0.08;
+uniform float vignette_strength : hint_range(0.0, 0.35) = 0.14;
 uniform float vignette_inner : hint_range(0.0, 1.2) = 0.68;
 uniform float vignette_outer : hint_range(0.1, 2.0) = 1.05;
 
@@ -33,8 +35,13 @@ void fragment() {
 	vec3 tinted = mix(desaturated, desaturated * cool_shadow_tint, tint_mix);
 
 	float highlights = smoothstep(0.62, 1.0, luma);
+	float shadow_darken_mask = shadow_mask * night;
+	float midtone_mask = clamp((1.0 - highlights) * (1.0 - shadow_mask), 0.0, 1.0) * night;
+	float darken = clamp(shadow_darken_mask * shadow_darken + midtone_mask * midtone_darken, 0.0, 1.0);
+	vec3 darkened = tinted * (1.0 - darken);
+
 	float moonlight = clamp(highlights * highlight_protection * night, 0.0, 1.0);
-	vec3 recovered = mix(tinted, src, moonlight);
+	vec3 recovered = mix(darkened, src, moonlight);
 
 	float blend_curve = smoothstep(0.0, 1.0, pow(night, night_curve_pow));
 	vec3 result = mix(src, recovered, blend_curve);
