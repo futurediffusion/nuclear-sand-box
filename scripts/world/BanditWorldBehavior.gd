@@ -246,6 +246,8 @@ func tick(delta: float, ctx: Dictionary) -> void:
 		if intent != _last_intent:
 			_last_intent = intent
 			_on_group_intent_changed(intent, ctx)
+	if _is_structure_assault_sticky_for_member() and state != State.APPROACH_INTEREST:
+		_try_reengage_structure_assault("sticky_priority")
 
 	# ── 2. Cargo full → return home (highest priority, interrupts any state) ──
 	if is_cargo_full() and state != State.RETURN_HOME and state != State.HOLD_POSITION:
@@ -264,7 +266,7 @@ func tick(delta: float, ctx: Dictionary) -> void:
 		_on_leave_resource_watch()
 
 	# Limpiar modo asalto cuando el NPC llega/abandona APPROACH_INTEREST
-	if _in_assault and state != State.APPROACH_INTEREST:
+	if _in_assault and state != State.APPROACH_INTEREST and not _is_structure_assault_sticky_for_member():
 		_in_assault = false
 
 	# ── 3b. Barrel exclusion zone ─────────────────────────────────────────
@@ -701,6 +703,12 @@ func _is_structure_assault_active() -> bool:
 	return BanditGroupMemory.is_structure_assault_active(group_id)
 
 
+func _is_structure_assault_sticky_for_member() -> bool:
+	if role == "scavenger":
+		return false
+	return _is_structure_assault_active()
+
+
 func _resolve_assault_target_from_memory() -> Vector2:
 	if group_id == "":
 		return Vector2(-1.0, -1.0)
@@ -753,6 +761,14 @@ func _log_assault_pickup_suppressed(point: String) -> void:
 func _on_group_intent_changed(intent: String, ctx: Dictionary) -> void:
 	Debug.log("bandit_ai", "[BWB] intent changed member=%s role=%s group=%s %s→%s" % [
 		member_id, role, group_id, _last_intent, intent])
+	if _is_structure_assault_sticky_for_member():
+		match intent:
+			"hunting", "alerted", "extorting":
+				if _try_reengage_structure_assault("intent_preempt_blocked:%s" % intent):
+					return
+			"idle":
+				if _try_reengage_structure_assault("idle_during_assault"):
+					return
 
 	match intent:
 		"hunting":

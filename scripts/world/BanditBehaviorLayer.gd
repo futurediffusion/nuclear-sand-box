@@ -1057,10 +1057,11 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 		return
 	var structure_assault_active: bool = BanditGroupMemory.is_structure_assault_active(beh.group_id)
 	var structure_target_alive: bool = _group_has_live_structure_target(beh.group_id)
+	var structure_assault_sticky_member: bool = beh.role == "bodyguard" or beh.role == "leader"
 	var is_generic_override: bool = order_type == "follow_slot" \
 			or order_type == "move_to_target" \
 			or order_type == "attack_target"
-	if structure_assault_active and is_generic_override and structure_target_alive:
+	if structure_assault_active and structure_assault_sticky_member and is_generic_override and structure_target_alive:
 		log_worker_event("structure_assault_target_overwritten", {
 			"npc_id": beh.member_id,
 			"group_id": beh.group_id,
@@ -1077,19 +1078,13 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 				"group_id": beh.group_id,
 			})
 		return
-	elif structure_assault_active and is_generic_override and not structure_target_alive:
-		BanditGroupMemory.clear_structure_assault_active(beh.group_id)
-		log_worker_event("normal_work_resumed_after_structure_assault", {
+	elif structure_assault_active and structure_assault_sticky_member and is_generic_override and not structure_target_alive:
+		log_worker_event("structure_assault_no_live_target_waiting_for_raidflow", {
 			"npc_id": beh.member_id,
 			"group_id": beh.group_id,
 			"order": order_type,
 		})
-		if _npc_simulator != null:
-			var node = _npc_simulator.get_enemy_node(beh.member_id)
-			if node != null:
-				var ai = node.get_node_or_null("AIComponent")
-				if ai != null and ai.has_method("clear_structure_focus"):
-					ai.call("clear_structure_focus")
+		return
 	var delivery_lock_engaged: bool = beh.delivery_lock_active and beh.cargo_count > 0
 	var combat_override: bool = bool(ctx.get("in_combat", false)) or bool(ctx.get("recently_engaged", false))
 	if delivery_lock_engaged and order_type != "return_home":
