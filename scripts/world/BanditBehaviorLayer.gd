@@ -291,6 +291,8 @@ var _structure_target_by_member: Dictionary      = {} # member_id -> target_key
 var _structure_target_group_by_member: Dictionary = {} # member_id -> group_id
 var _structure_reassign_cooldown_until_by_member: Dictionary = {} # member_id -> timestamp
 var _structure_repaths_this_pulse: int = 0
+var _structure_repaths_last_pulse: int = 0
+var _debug_scavenger_non_econ_orders: int = 0
 @export var structure_dispatch_allow_leader: bool = false
 
 
@@ -307,6 +309,9 @@ func is_worker_instrumentation_enabled() -> bool:
 
 
 func log_worker_event(event_name: String, payload: Dictionary = {}) -> void:
+	var role: String = String(payload.get("role", ""))
+	if role == "scavenger" and event_name.begins_with("tactical_"):
+		_debug_scavenger_non_econ_orders += 1
 	if not is_worker_instrumentation_enabled():
 		return
 	var normalized := payload.duplicate(true)
@@ -663,6 +668,7 @@ func _is_group_locally_dense(positions: Array[Vector2]) -> bool:
 func _process(delta: float) -> void:
 	if _npc_simulator == null:
 		return
+	_structure_repaths_last_pulse = _structure_repaths_this_pulse
 	_structure_repaths_this_pulse = 0
 	_release_structure_slots_for_inactive_assaults()
 	_perf_window_elapsed_s += delta
@@ -2516,6 +2522,21 @@ func _note_structure_member_repath(member_id: String) -> void:
 		return
 	_structure_reassign_cooldown_until_by_member[member_id] = \
 		RunClock.now() + STRUCTURE_MEMBER_REASSIGN_COOLDOWN_S
+
+
+func get_structure_dispatch_debug_snapshot() -> Dictionary:
+	return {
+		"repaths_this_pulse": _structure_repaths_this_pulse,
+		"repaths_last_pulse": _structure_repaths_last_pulse,
+		"pending_dispatch_jobs": _pending_structure_dispatches.size(),
+		"scavenger_non_econ_orders": _debug_scavenger_non_econ_orders,
+	}
+
+
+func reset_structure_dispatch_debug_metrics() -> void:
+	_structure_repaths_last_pulse = 0
+	_structure_repaths_this_pulse = 0
+	_debug_scavenger_non_econ_orders = 0
 
 
 func _is_member_already_assaulting_near_target(group_id: String, member_id: String, target_pos: Vector2) -> bool:
