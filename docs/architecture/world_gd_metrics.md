@@ -10,9 +10,9 @@ Estas métricas se registran por iteración para evaluar la reducción de lógic
 
 2. **Número de dependencias directas de dominio**
    - Conteo de colaboraciones de dominio invocadas directamente desde `world.gd`.
-   - Incluye acceso directo a servicios/repositorios/modelos de dominio.
+   - Incluye acceso directo a servicios, repositorios o modelos de dominio.
 
-3. **Número de decisiones condicionales de gameplay en `_process` y helpers**
+3. **Número de decisiones condicionales de gameplay en `_process`/helpers**
    - Conteo de ramas condicionales (`if`/`match`/guards equivalentes) que deciden comportamiento de gameplay.
    - Se mide en `_process` y métodos auxiliares llamados desde `_process`.
 
