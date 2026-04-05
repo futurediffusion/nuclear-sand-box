@@ -469,7 +469,10 @@ func _ready() -> void:
 	_day_night_controller.name = "DayNightController"
 	add_child(_day_night_controller)
 	if _day_night_controller != null:
+		_day_night_controller.add_to_group("global_subsystem")
+		_day_night_controller.add_to_group("day_night_controller")
 		_day_night_controller.initialize_overlay()
+		_day_night_controller.sync_to_time_in_day(WorldTime.get_time_in_day())
 
 	tavern_chunk = _tile_to_chunk(Vector2i(width / 2, height / 2))
 	spawn_tile = get_tavern_center_tile(tavern_chunk)
@@ -1140,6 +1143,8 @@ func _process(delta: float) -> void:
 			_cadence.report_lane_work(LANE_DROP_COMPACT_PULSE, compact_ops, BUDGET_DROP_COMPACT_PULSES_PER_FRAME * compact_pulses)
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
+	if _day_night_controller != null and WorldTime != null:
+		_day_night_controller.update_for_time_in_day(WorldTime.get_time_in_day(), delta)
 	_update_cliff_occlusion()
 	_process_chunk_perf_debug(delta)
 	if _world_sim_telemetry != null:
