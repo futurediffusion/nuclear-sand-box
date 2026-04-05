@@ -144,7 +144,7 @@ var _current_posture:    int         = TavernDefensePosture.NORMAL
 var _perimeter_patrol_cache: Dictionary = {}
 var _resource_repopulator: ResourceRepopulator
 var _occlusion_controller: OcclusionController
-var _day_night_controller: DayNightController
+var _day_night_controller
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
 var _wall_feedback: WallFeedback
