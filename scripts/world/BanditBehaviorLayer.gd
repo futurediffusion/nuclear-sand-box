@@ -1079,12 +1079,23 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 			})
 		return
 	elif structure_assault_active and structure_assault_sticky_member and is_generic_override and not structure_target_alive:
+		var recovered_target: bool = _try_member_structure_assault_retarget(
+			beh,
+			ctx,
+			"generic_order_without_live_target:%s" % order_type
+		)
+		if recovered_target:
+			return
 		log_worker_event("structure_assault_no_live_target_waiting_for_raidflow", {
 			"npc_id": beh.member_id,
 			"group_id": beh.group_id,
 			"order": order_type,
 		})
-		return
+		# Evita "sticky-no-target limbo":
+		# - attack_target sigue bloqueado para impedir chase casual.
+		# - follow/move pasan como locomoción temporal mientras RaidFlow redespacha.
+		if order_type == "attack_target":
+			return
 	var delivery_lock_engaged: bool = beh.delivery_lock_active and beh.cargo_count > 0
 	var combat_override: bool = bool(ctx.get("in_combat", false)) or bool(ctx.get("recently_engaged", false))
 	if delivery_lock_engaged and order_type != "return_home":
@@ -1175,6 +1186,52 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 			if attack_pos != Vector2.ZERO:
 				ctx["attack_target_pos"] = attack_pos
 				beh.enter_extort_approach(attack_pos)
+
+
+func _try_member_structure_assault_retarget(beh: BanditWorldBehavior, ctx: Dictionary, reason: String) -> bool:
+	if beh == null:
+		return false
+	var group_id: String = String(beh.group_id)
+	if group_id == "":
+		return false
+	var node_pos: Vector2 = ctx.get("node_pos", beh.home_pos) as Vector2
+	var intent: Dictionary = BanditGroupMemory.get_assault_target_intent(group_id)
+	var anchor_pos: Vector2 = INVALID_STRUCTURE_TARGET
+	if not intent.is_empty():
+		anchor_pos = intent.get("anchor", INVALID_STRUCTURE_TARGET) as Vector2
+	if not _is_valid_structure_target(anchor_pos):
+		var pending: Vector2 = BanditGroupMemory.get_assault_target(group_id)
+		if _is_valid_structure_target(pending):
+			anchor_pos = pending
+	if not _is_valid_structure_target(anchor_pos):
+		var g: Dictionary = BanditGroupMemory.get_group(group_id)
+		if String(g.get("last_interest_kind", "")) == "structure_assault_target":
+			anchor_pos = g.get("last_interest_pos", INVALID_STRUCTURE_TARGET) as Vector2
+	if not _is_valid_structure_target(anchor_pos):
+		anchor_pos = node_pos
+	var candidate: Vector2 = _resolve_member_assault_target(node_pos, anchor_pos, [])
+	if not _is_valid_structure_target(candidate):
+		return false
+	if not _is_structure_target_still_valid(candidate):
+		var pool: Array[Vector2] = _build_structure_target_pool_cached(group_id, anchor_pos)
+		candidate = _pick_member_target_from_pool(node_pos, anchor_pos, pool, [])
+		if not _is_valid_structure_target(candidate) or not _is_structure_target_still_valid(candidate):
+			return false
+	beh.enter_wall_assault(candidate)
+	BanditGroupMemory.refresh_assault_target_pos(
+		group_id,
+		anchor_pos,
+		candidate,
+		BanditTuning.structure_assault_active_ttl()
+	)
+	BanditGroupMemory.record_interest(group_id, candidate, "structure_assault_target")
+	log_worker_event("structure_assault_live_retarget_from_layer", {
+		"npc_id": beh.member_id,
+		"group_id": group_id,
+		"target_pos": candidate,
+		"reason": reason,
+	})
+	return true
 
 
 func _resolve_member_simulation_profile_decision(
