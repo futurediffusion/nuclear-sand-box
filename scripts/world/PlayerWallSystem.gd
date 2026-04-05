@@ -9,6 +9,9 @@ signal structural_wall_drop(tile_pos: Vector2i, item_id: String, amount: int)
 const WallTileResolverScript := preload("res://scripts/world/WallTileResolver.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
+const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
+const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
+const WorldProjectionRefreshCallableAdapterScript := preload("res://scripts/world/contracts/WorldProjectionRefreshCallableAdapter.gd")
 const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
@@ -56,10 +59,9 @@ var player_wall_break_volume_db: float = DEFAULT_PLAYER_WALL_BREAK_VOLUME_DB
 
 var wall_reconnect_offsets: Array[Vector2i] = []
 
-var world_to_tile_cb: Callable
-var tile_to_world_cb: Callable
-var tile_to_chunk_cb: Callable
-var mark_chunk_walls_dirty_and_refresh_for_tiles_cb: Callable
+var coordinate_transform_port: WorldCoordinateTransformContract
+var chunk_dirty_notifier_port: WorldChunkDirtyNotifierContract
+var projection_refresh_port: WorldProjectionRefreshContract
 
 var owner: Node
 var feedback: WallFeedback
@@ -105,10 +107,29 @@ func setup(ctx: Dictionary) -> void:
 		if offset is Vector2i:
 			wall_reconnect_offsets.append(offset as Vector2i)
 
-	world_to_tile_cb = ctx.get("world_to_tile", Callable())
-	tile_to_world_cb = ctx.get("tile_to_world", Callable())
-	tile_to_chunk_cb = ctx.get("tile_to_chunk", Callable())
-	mark_chunk_walls_dirty_and_refresh_for_tiles_cb = ctx.get("mark_chunk_walls_dirty_and_refresh_for_tiles", Callable())
+	coordinate_transform_port = ctx.get("coordinate_transform_port")
+	if coordinate_transform_port == null:
+		var legacy_transform_port: WorldCoordinateTransformCallableAdapter = WorldCoordinateTransformCallableAdapterScript.new()
+		legacy_transform_port.setup({
+			"world_to_tile": ctx.get("world_to_tile", Callable()),
+			"tile_to_world": ctx.get("tile_to_world", Callable()),
+			"tile_to_chunk": ctx.get("tile_to_chunk", Callable()),
+		})
+		coordinate_transform_port = legacy_transform_port
+	chunk_dirty_notifier_port = ctx.get("chunk_dirty_notifier_port")
+	if chunk_dirty_notifier_port == null:
+		var legacy_chunk_dirty_notifier: WorldChunkDirtyNotifierCallableAdapter = WorldChunkDirtyNotifierCallableAdapterScript.new()
+		legacy_chunk_dirty_notifier.setup({
+			"mark_chunk_walls_dirty": ctx.get("mark_chunk_walls_dirty", Callable()),
+		})
+		chunk_dirty_notifier_port = legacy_chunk_dirty_notifier
+	projection_refresh_port = ctx.get("projection_refresh_port")
+	if projection_refresh_port == null:
+		var legacy_projection_refresh: WorldProjectionRefreshCallableAdapter = WorldProjectionRefreshCallableAdapterScript.new()
+		legacy_projection_refresh.setup({
+			"mark_chunk_walls_dirty_and_refresh_for_tiles": ctx.get("mark_chunk_walls_dirty_and_refresh_for_tiles", Callable()),
+		})
+		projection_refresh_port = legacy_projection_refresh
 	owner = ctx.get("owner")
 	feedback = ctx.get("feedback")
 	sound_panel_getter_cb = ctx.get("sound_panel_getter", Callable())
@@ -910,8 +931,18 @@ func _has_expected_wall_neighbor(tile_pos: Vector2i, expected_cells: Dictionary 
 	return false
 
 func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) -> void:
-	if mark_chunk_walls_dirty_and_refresh_for_tiles_cb.is_valid():
-		mark_chunk_walls_dirty_and_refresh_for_tiles_cb.call(tile_positions)
+	if projection_refresh_port != null:
+		projection_refresh_port.refresh_for_tiles(tile_positions)
+		return
+	if chunk_dirty_notifier_port == null:
+		return
+	var chunks_seen: Dictionary = {}
+	for tile_pos in tile_positions:
+		var cpos: Vector2i = _tile_to_chunk(tile_pos)
+		if chunks_seen.has(cpos):
+			continue
+		chunks_seen[cpos] = true
+		chunk_dirty_notifier_port.mark_chunk_dirty(cpos)
 
 
 func _count_player_wall_neighbors(tile_pos: Vector2i) -> int:
@@ -953,16 +984,16 @@ func _is_valid_world_tile(tile_pos: Vector2i) -> bool:
 	return tile_pos.x >= 0 and tile_pos.x < width and tile_pos.y >= 0 and tile_pos.y < height
 
 func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
-	if tile_to_chunk_cb.is_valid():
-		return tile_to_chunk_cb.call(tile_pos)
+	if coordinate_transform_port != null:
+		return coordinate_transform_port.tile_to_chunk(tile_pos, chunk_size)
 	return Vector2i(int(floor(float(tile_pos.x) / float(chunk_size))), int(floor(float(tile_pos.y) / float(chunk_size))))
 
 func _world_to_tile(pos: Vector2) -> Vector2i:
-	if world_to_tile_cb.is_valid():
-		return world_to_tile_cb.call(pos)
+	if coordinate_transform_port != null:
+		return coordinate_transform_port.world_to_tile(pos)
 	return Vector2i.ZERO
 
 func _tile_to_world(tile_pos: Vector2i) -> Vector2:
-	if tile_to_world_cb.is_valid():
-		return tile_to_world_cb.call(tile_pos)
+	if coordinate_transform_port != null:
+		return coordinate_transform_port.tile_to_world(tile_pos)
 	return Vector2.ZERO

@@ -311,6 +311,24 @@ Rol:
 - Deduplica por chunk y drena la cola desde `_process`.
 - Budget fijo inicial: 1 rebuild de collider por frame para suavizar tirones de picos.
 
+### 🔌 WORLD TRANSITION PORTS (Phase 1)
+
+Ubicación:
+
+- `scripts/world/contracts/WorldCoordinateTransformContract.gd`
+- `scripts/world/contracts/WorldChunkDirtyNotifierContract.gd`
+- `scripts/world/contracts/WorldProjectionRefreshContract.gd`
+- Adaptadores legacy:
+  - `WorldCoordinateTransformCallableAdapter.gd`
+  - `WorldChunkDirtyNotifierCallableAdapter.gd`
+  - `WorldProjectionRefreshCallableAdapter.gd`
+
+Rol:
+
+- Contratos tipados mínimos para desacoplar callbacks críticos que antes se inyectaban como `Callable` sueltos en `setup(ctx)`.
+- Objetivo de fase 1: mantener compatibilidad con wiring actual mediante adaptadores de transición sin ejecutar todavía la migración completa de fase 2.
+- Primer consumidor migrado: `PlayerWallSystem` (coordenadas, dirty chunks, refresh/projections).
+
 ### ⏱️ AWAKE RAMP QUEUE (Autoload)
 
 Ubicación:
