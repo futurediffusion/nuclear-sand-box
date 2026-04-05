@@ -154,6 +154,7 @@ var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
 var _world_sim_telemetry: WorldSimTelemetry
+var _gameplay_command_dispatcher: GameplayCommandDispatcher
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
@@ -233,6 +234,7 @@ const WorldCadenceCoordinatorScript := preload("res://scripts/world/WorldCadence
 const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.gd")
 const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 const DayNightControllerScript := preload("res://scripts/world/DayNightController.gd")
+const GameplayCommandDispatcherScript := preload("res://scripts/runtime/world/GameplayCommandDispatcher.gd")
 const LANE_SHORT_PULSE: StringName = &"short_pulse"
 const LANE_MEDIUM_PULSE: StringName = &"medium_pulse"
 const LANE_DIRECTOR_PULSE: StringName = &"director_pulse"
@@ -734,6 +736,19 @@ func _ready() -> void:
 		"get_tavern_center_tile": Callable(self, "get_tavern_center_tile"),
 		"react_to_bandit_territory_intrusion": Callable(self, "_on_bandit_territory_intrusion"),
 		"local_social_ports": _local_social_ports,
+	})
+
+	_gameplay_command_dispatcher = GameplayCommandDispatcherScript.new()
+	_gameplay_command_dispatcher.setup({
+		"player_wall_system": _player_wall_system,
+		"settlement_intel": _settlement_intel,
+		"world_territory_policy": _world_territory_policy,
+		"tavern_memory": _tavern_memory,
+		"tavern_policy": _tavern_policy,
+		"tavern_director": _tavern_director,
+		"register_drop_compaction_hotspot": Callable(self, "_register_drop_compaction_hotspot"),
+		"mark_player_territory_dirty": func() -> void: _player_territory_dirty = true,
+		"find_nearest_player": Callable(self, "_find_nearest_player"),
 	})
 	PlacementSystem.register_placement_validator(Callable(self, "_validate_placement_restrictions"))
 
@@ -1480,22 +1495,22 @@ func _get_extra_wall_support_lookup_for_chunk(chunk_pos: Vector2i) -> Dictionary
 # Frontera de módulos: world.gd conserva sólo API pública de fachada para gameplay/colocación;
 # toda la lógica interna de ownership, reconciliación, drops, feedback y aplicación de paredes vive en PlayerWallSystem.
 func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
-	return _player_wall_system != null and _player_wall_system.can_place_player_wall_at_tile(tile_pos)
+	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.can_place_player_wall_at_tile(tile_pos)
 
 func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> bool:
-	return _player_wall_system != null and _player_wall_system.place_player_wall_at_tile(tile_pos, hp_override)
+	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.place_player_wall_at_tile(tile_pos, hp_override)
 
 func damage_player_wall_from_contact(hit_pos: Vector2, hit_normal: Vector2, amount: int = 1) -> bool:
-	return _player_wall_system != null and _player_wall_system.damage_player_wall_from_contact(hit_pos, hit_normal, amount)
+	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.damage_player_wall_from_contact(hit_pos, hit_normal, amount)
 
 func damage_player_wall_near_world_pos(world_pos: Vector2, amount: int = 1) -> bool:
-	return _player_wall_system != null and _player_wall_system.damage_player_wall_near_world_pos(world_pos, amount)
+	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.damage_player_wall_near_world_pos(world_pos, amount)
 
 func damage_player_wall_at_world_pos(world_pos: Vector2, amount: int = 1) -> bool:
-	return _player_wall_system != null and _player_wall_system.damage_player_wall_at_world_pos(world_pos, amount)
+	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.damage_player_wall_at_world_pos(world_pos, amount)
 
 func damage_player_wall_in_circle(world_center: Vector2, world_radius: float, amount: int = 1) -> bool:
-	return _player_wall_system != null and _player_wall_system.damage_player_wall_in_circle(world_center, world_radius, amount)
+	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.damage_player_wall_in_circle(world_center, world_radius, amount)
 
 func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Vector2:
 	if _player_wall_system == null:
@@ -1548,13 +1563,13 @@ func _find_nearest_player_placeable_world_pos_by_items(world_pos: Vector2, radiu
 	return best_pos
 
 func hit_wall_at_world_pos(world_pos: Vector2, amount: int = 1, radius: float = 20.0, allow_structural_feedback: bool = true) -> bool:
-	return _player_wall_system != null and _player_wall_system.hit_wall_at_world_pos(world_pos, amount, radius, allow_structural_feedback)
+	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.hit_wall_at_world_pos(world_pos, amount, radius, allow_structural_feedback)
 
 func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
-	return _player_wall_system != null and _player_wall_system.damage_player_wall_at_tile(tile_pos, amount)
+	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.damage_player_wall_at_tile(tile_pos, amount)
 
 func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> bool:
-	return _player_wall_system != null and _player_wall_system.remove_player_wall_at_tile(tile_pos, drop_item)
+	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.remove_player_wall_at_tile(tile_pos, drop_item)
 
 func refresh_wall_collision_for_tiles(tile_positions: Array[Vector2i]) -> void:
 	if tile_positions.is_empty():
@@ -1968,125 +1983,9 @@ func _get_tavern_keeper_pos() -> Vector2:
 ##   BanditBehaviorLayer, futuros civiles, etc.
 ## Offenders: player, bandit/enemy, cualquier Node2D agente.
 func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> void:
-	var incident := _build_tavern_incident(incident_type, payload)
-	if incident == null:
-		Debug.log("authority", "[TAVERN] incident_type='%s' sin mapping — ignorado" % incident_type)
+	if _gameplay_command_dispatcher == null:
 		return
-
-	# La policy evalúa ANTES de registrar — así ve solo el historial previo,
-	# no el incidente actual. El orden es relevante para escalaciones correctas.
-	var directive: LocalAuthorityDirective = _tavern_policy.evaluate(incident)
-	_tavern_memory.record(incident)
-	Debug.log("authority", "[TAVERN] %s" % directive.describe())
-
-	if directive.response_type == LocalAuthorityResponse.Response.RECORD_ONLY:
-		return
-
-	var offender_node: CharacterBody2D = payload.get("offender", null) as CharacterBody2D
-	if offender_node == null or not is_instance_valid(offender_node):
-		# Fallback solo cuando el ofensor era desconocido desde el principio (no enemy explícito).
-		# Para incidentes de bandit/enemy el nodo ya viene en payload — si no llegó, no forzar player.
-		var is_enemy_incident := incident_type in ["armed_intruder", "bandit_attack", "murder_in_tavern"]
-		if not is_enemy_incident:
-			var incident_pos: Vector2 = payload.get("pos", Vector2.ZERO)
-			offender_node = _find_nearest_player(incident_pos)
-
-	_tavern_director.dispatch(directive, offender_node)
-
-
-## Construye un LocalCivilIncident a partir del tipo de incidente semántico
-## y el payload del activador. Devuelve null si el tipo no tiene mapping.
-func _build_tavern_incident(incident_type: String, payload: Dictionary) -> LocalCivilIncident:
-	var C  := LocalCivilAuthorityConstants
-	var offense: String   = ""
-	var severity: float   = 0.0
-	var victim_kind: String = C.VictimKind.CIVILIAN
-	var zone: String      = C.ZONE_TAVERN_INTERIOR
-
-	match incident_type:
-		"assault_keeper":
-			offense     = C.Offense.ASSAULT
-			severity    = C.SEVERITY_SERIOUS
-			victim_kind = C.VictimKind.AUTHORITY_MEMBER
-		"assault_sentinel":
-			offense     = C.Offense.ASSAULT
-			severity    = C.SEVERITY_SERIOUS
-			victim_kind = C.VictimKind.AUTHORITY_MEMBER
-		"murder_in_tavern":
-			offense     = C.Offense.MURDER
-			severity    = C.SEVERITY_CRITICAL
-		"wall_damaged":
-			offense     = C.Offense.VANDALISM
-			severity    = C.SEVERITY_MODERATE
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-		"wall_damaged_exterior":
-			# Daño estructural desde el perímetro — ataque externo a la taberna.
-			# Más grave que interior (agresión directa desde fuera).
-			# zone=PERIMETER → director asigna perimeter_guard. Policy puede escalar a CALL_BACKUP.
-			offense     = C.Offense.VANDALISM
-			severity    = C.SEVERITY_SERIOUS
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-			zone        = C.ZONE_TAVERN_PERIMETER
-		"barrel_opened":
-			offense     = C.Offense.TRESPASS
-			severity    = C.SEVERITY_MINOR
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-		"barrel_destroyed":
-			offense     = C.Offense.VANDALISM
-			severity    = C.SEVERITY_MODERATE
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-		"armed_intruder":
-			offense     = C.Offense.WEAPON_THREAT
-			severity    = C.SEVERITY_SERIOUS
-		"trespass":
-			offense     = C.Offense.TRESPASS
-			severity    = C.SEVERITY_MINOR
-			victim_kind = C.VictimKind.TAVERN_PROPERTY
-			zone        = C.ZONE_TAVERN_GROUNDS
-		"bandit_attack":
-			offense     = C.Offense.ASSAULT
-			severity    = C.SEVERITY_SERIOUS
-		"disturbance":
-			offense     = C.Offense.DISTURBANCE
-			severity    = C.SEVERITY_MINOR
-			zone        = C.ZONE_TAVERN_INTERIOR
-		"suspicious_presence":
-			# Bandit/enemy en el perímetro exterior por tiempo prolongado.
-			# Emitido por TavernPresenceMonitor. Respuesta base: WARN.
-			# Policy escala si el actor tiene historial previo en la taberna.
-			offense     = C.Offense.DISTURBANCE
-			severity    = C.SEVERITY_MINOR
-			zone        = C.ZONE_TAVERN_PERIMETER
-		"loitering":
-			# Actor rondando la zona de puerta/acceso más de lo aceptable.
-			# Emitido por TavernPresenceMonitor. Respuesta base: WARN.
-			offense     = C.Offense.TRESPASS
-			severity    = C.SEVERITY_MINOR
-			zone        = C.ZONE_TAVERN_GROUNDS
-		_:
-			return null
-
-	var offender_node: Node2D = payload.get("offender", null) as Node2D
-	var offender_id: String   = ""
-	var offender_pos: Vector2 = payload.get("pos", Vector2.ZERO)
-
-	if offender_node != null and is_instance_valid(offender_node):
-		offender_id = offender_node.name
-		if offender_pos == Vector2.ZERO:
-			offender_pos = offender_node.global_position
-
-	return LocalCivilIncidentFactory.create(
-		"tavern_main",
-		offense,
-		severity,
-		offender_pos,
-		offender_id,
-		victim_kind,
-		zone,
-		[],            # witnesses — Fase 3
-		incident_type, # source_tag
-		{}
-	)
+	_gameplay_command_dispatcher.report_tavern_incident(incident_type, payload)
 
 
 ## Devuelve el nodo TavernKeeper activo, o null si no está en escena.
@@ -2665,17 +2564,9 @@ func _validate_placement_restrictions(tile_pos: Vector2i) -> bool:
 
 ## SettlementIntel — interest marker facade
 func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionary = {}) -> void:
-	if _settlement_intel != null:
-		_settlement_intel.record_interest_event(kind, world_pos, metadata)
-	if _world_territory_policy != null:
-		_world_territory_policy.record_interest_event(kind, world_pos)
-	if kind in ["copper_mined", "stone_mined", "wood_chopped"]:
-		_register_drop_compaction_hotspot(world_pos, 3)
-	elif kind.find("destroy") >= 0:
-		_register_drop_compaction_hotspot(world_pos, 2)
-	# Estructura colocada o workbench → reconstruir mapa de territorio del jugador
-	if kind == "workbench" or kind == "structure_placed":
-		_player_territory_dirty = true
+	if _gameplay_command_dispatcher == null:
+		return
+	_gameplay_command_dispatcher.record_interest_event(kind, world_pos, metadata)
 
 func _on_bandit_territory_intrusion(group_entry: Dictionary, world_pos: Vector2, kind: String) -> void:
 	if _bandit_behavior_layer == null:
@@ -2692,13 +2583,14 @@ func get_interest_markers_near(world_pos: Vector2, radius: float) -> Array[Dicti
 	return _settlement_intel.get_interest_markers_near(world_pos, radius)
 
 func rescan_workbench_markers() -> void:
-	if _settlement_intel != null:
-		_settlement_intel.rescan_workbench_markers()
-	_player_territory_dirty = true
+	if _gameplay_command_dispatcher == null:
+		return
+	_gameplay_command_dispatcher.rescan_workbench_markers()
 
 func mark_interest_scan_dirty() -> void:
-	if _settlement_intel != null:
-		_settlement_intel.mark_interest_scan_dirty()
+	if _gameplay_command_dispatcher == null:
+		return
+	_gameplay_command_dispatcher.mark_interest_scan_dirty()
 
 ## SettlementIntel — base detection facade
 func get_detected_bases_near(world_pos: Vector2, radius: float) -> Array[Dictionary]:

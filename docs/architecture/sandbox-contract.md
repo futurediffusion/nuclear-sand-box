@@ -38,3 +38,43 @@ Si un cambio agrega o modifica reglas de dominio, el PR debe demostrar:
 
 - módulo nuevo o extensión de módulo existente fuera de `world.gd`, y
 - integración en `world.gd` limitada a composición/wiring/puente por interfaz.
+
+## Fase 2: `GameplayCommandDispatcher` como puerta de comandos
+
+Archivo: `scripts/runtime/world/GameplayCommandDispatcher.gd`.
+
+`world.gd` mantiene la API pública para gameplay, pero **solo delega** al dispatcher.
+El dispatcher centraliza el contrato de enrutamiento de comandos y deriva cada caso
+al sistema especializado que corresponde.
+
+### Comandos que deben pasar por este punto
+
+- **Player walls**
+  - `can_place_player_wall_at_tile`
+  - `place_player_wall_at_tile`
+  - `damage_player_wall_from_contact`
+  - `damage_player_wall_near_world_pos`
+  - `damage_player_wall_at_world_pos`
+  - `damage_player_wall_in_circle`
+  - `hit_wall_at_world_pos`
+  - `damage_player_wall_at_tile`
+  - `remove_player_wall_at_tile`
+  - **Ruta**: `world.gd` → `GameplayCommandDispatcher` → `PlayerWallSystem`.
+
+- **Settlement / territory write commands**
+  - `record_interest_event`
+  - `rescan_workbench_markers`
+  - `mark_interest_scan_dirty`
+  - **Ruta**: `world.gd` → `GameplayCommandDispatcher` → `SettlementIntel` / `WorldTerritoryPolicy`
+    + side effects operativos (`drop compaction hotspot`, `player_territory_dirty`) vía callbacks inyectados.
+
+- **Autoridad local (incidentes de taberna)**
+  - `report_tavern_incident`
+  - **Ruta**: `world.gd` → `GameplayCommandDispatcher` →
+    `TavernAuthorityPolicy.evaluate()` → `TavernLocalMemory.record()` → `TavernSanctionDirector.dispatch()`.
+
+### Regla explícita de frontera
+
+Si se agrega un comando gameplay nuevo, el primer punto de entrada en `world.gd`
+debe ser una delegación al dispatcher. Las decisiones de dominio y validaciones de
+outcome van en módulos/sistemas, no en `world.gd`.

@@ -323,6 +323,20 @@ Rol:
 - Aplica budget por frame para repartir el costo de AI/Nav/combate en varios frames.
 - Evita starvation con un tope de delay máximo por enemigo.
 
+### 🎮 GAMEPLAY COMMAND DISPATCHER
+
+Ubicación:
+
+- `scripts/runtime/world/GameplayCommandDispatcher.gd`
+
+Rol:
+
+- Punto intermedio para comandos de gameplay recibidos por `world.gd`.
+- `world.gd` mantiene fachada pública pero delega sin decidir outcomes de dominio.
+- Enruta comandos de paredes de player hacia `PlayerWallSystem`.
+- Enruta comandos de interest/scan hacia `SettlementIntel` y `WorldTerritoryPolicy`.
+- Enruta incidentes civiles de taberna hacia la cadena `policy -> memory -> sanction director`.
+
 ### SOUND PANEL (Main Node)
 
 Ubicacion:
