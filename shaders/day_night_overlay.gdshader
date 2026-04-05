@@ -1,0 +1,51 @@
+shader_type canvas_item;
+
+uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap;
+uniform float night_amount : hint_range(0.0, 1.0) = 0.0;
+
+uniform vec3 cool_shadow_tint : source_color = vec3(0.72, 0.82, 1.0);
+uniform float shadow_desaturation : hint_range(0.0, 1.0) = 0.35;
+uniform float highlight_protection : hint_range(0.0, 1.0) = 0.35;
+
+uniform float shadow_mask_pow : hint_range(0.2, 4.0) = 1.35;
+uniform float shadow_smooth_start : hint_range(0.0, 1.0) = 0.20;
+uniform float shadow_smooth_end : hint_range(0.0, 1.0) = 0.78;
+uniform float night_curve_pow : hint_range(0.2, 3.0) = 1.2;
+
+uniform bool vignette_enabled = true;
+uniform float vignette_strength : hint_range(0.0, 0.35) = 0.08;
+uniform float vignette_inner : hint_range(0.0, 1.2) = 0.68;
+uniform float vignette_outer : hint_range(0.1, 2.0) = 1.05;
+
+void fragment() {
+	vec3 src = textureLod(screen_texture, SCREEN_UV, 0.0).rgb;
+
+	float luma = dot(src, vec3(0.2126, 0.7152, 0.0722));
+	float shadow_mask = 1.0 - smoothstep(shadow_smooth_start, shadow_smooth_end, luma);
+	shadow_mask = pow(clamp(shadow_mask, 0.0, 1.0), shadow_mask_pow);
+
+	float night = clamp(night_amount, 0.0, 1.0);
+
+	float desat_mix = clamp(shadow_mask * shadow_desaturation * night, 0.0, 1.0);
+	vec3 desaturated = mix(src, vec3(luma), desat_mix);
+
+	float tint_mix = clamp(shadow_mask * night, 0.0, 1.0);
+	vec3 tinted = mix(desaturated, desaturated * cool_shadow_tint, tint_mix);
+
+	float highlights = smoothstep(0.62, 1.0, luma);
+	float moonlight = clamp(highlights * highlight_protection * night, 0.0, 1.0);
+	vec3 recovered = mix(tinted, src, moonlight);
+
+	float blend_curve = smoothstep(0.0, 1.0, pow(night, night_curve_pow));
+	vec3 result = mix(src, recovered, blend_curve);
+
+	if (vignette_enabled) {
+		vec2 p = SCREEN_UV * 2.0 - 1.0;
+		float d = length(p);
+		float vig = smoothstep(vignette_inner, vignette_outer, d);
+		float vig_dark = 1.0 - vig * vignette_strength * blend_curve;
+		result *= clamp(vig_dark, 0.0, 1.0);
+	}
+
+	COLOR = vec4(result, 1.0);
+}

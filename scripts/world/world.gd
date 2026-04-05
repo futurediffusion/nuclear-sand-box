@@ -144,6 +144,7 @@ var _current_posture:    int         = TavernDefensePosture.NORMAL
 var _perimeter_patrol_cache: Dictionary = {}
 var _resource_repopulator: ResourceRepopulator
 var _occlusion_controller: OcclusionController
+var _day_night_controller: DayNightController
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
 var _wall_feedback: WallFeedback
@@ -231,6 +232,7 @@ const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd
 const WorldCadenceCoordinatorScript := preload("res://scripts/world/WorldCadenceCoordinator.gd")
 const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.gd")
 const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
+const DayNightControllerScript := preload("res://scripts/world/DayNightController.gd")
 const LANE_SHORT_PULSE: StringName = &"short_pulse"
 const LANE_MEDIUM_PULSE: StringName = &"medium_pulse"
 const LANE_DIRECTOR_PULSE: StringName = &"director_pulse"
@@ -462,6 +464,12 @@ func _ready() -> void:
 	add_child(_occlusion_controller)
 	if _occlusion_controller != null:
 		_occlusion_controller.configure_cadence(_cadence != null)
+
+	_day_night_controller = DayNightControllerScript.new()
+	_day_night_controller.name = "DayNightController"
+	add_child(_day_night_controller)
+	if _day_night_controller != null:
+		_day_night_controller.initialize_overlay()
 
 	tavern_chunk = _tile_to_chunk(Vector2i(width / 2, height / 2))
 	spawn_tile = get_tavern_center_tile(tavern_chunk)
