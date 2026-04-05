@@ -20,6 +20,8 @@ const COMMAND_COMPLETIONS: Dictionary = {
 	"give":            [],
 	"gv":              [],
 	"dog":             [],
+	"set_day":         [],
+	"set_night":       [],
 	"summon":          ["enemy", "sentinel"],
 	"sentinel":        ["warn", "eject", "subdue", "return"],
 	"spawn":           [],
@@ -443,6 +445,10 @@ func _execute_command(command_text: String) -> void:
 			_cmd_give_shortcut(parts.slice(1))
 		"dog":
 			_cmd_give_gold(parts.slice(1))
+		"set_day":
+			_cmd_set_day()
+		"set_night":
+			_cmd_set_night()
 		"summon":
 			if parts.size() >= 2 and String(parts[1]).to_lower() == "enemy":
 				_cmd_summon_enemy(parts.slice(2))
@@ -992,6 +998,44 @@ func _cmd_goto_camp() -> void:
 	var dest: Vector2 = candidates[0]
 	(_player as Node2D).global_position = dest
 	Debug.log("commands", "/gotocamp → %s" % str(dest))
+
+func _cmd_set_day() -> void:
+	if WorldTime == null:
+		Debug.log("commands", "/set_day: WorldTime no disponible")
+		return
+	WorldTime.set_to_day_start()
+	var time_in_day: float = WorldTime.get_time_in_day()
+	var visual_target := _estimate_day_night_visual_target(time_in_day)
+	Debug.log("commands", "/set_day -> fase=day, time_in_day=%.4f, visual_target_est=%.4f" % [time_in_day, visual_target])
+
+func _cmd_set_night() -> void:
+	if WorldTime == null:
+		Debug.log("commands", "/set_night: WorldTime no disponible")
+		return
+	WorldTime.set_to_night_start()
+	var time_in_day: float = WorldTime.get_time_in_day()
+	var visual_target := _estimate_day_night_visual_target(time_in_day)
+	Debug.log("commands", "/set_night -> fase=night, time_in_day=%.4f, visual_target_est=%.4f" % [time_in_day, visual_target])
+
+func _estimate_day_night_visual_target(time_in_day: float) -> float:
+	var controller := _get_day_night_controller()
+	if controller == null:
+		return -1.0
+	if controller.has_method("_compute_target_night_amount"):
+		return float(controller.call("_compute_target_night_amount", time_in_day))
+	if controller.has_method("get_current_night_amount"):
+		return float(controller.call("get_current_night_amount"))
+	return -1.0
+
+func _get_day_night_controller() -> Node:
+	if _world != null:
+		var direct := _world.get_node_or_null("DayNightController")
+		if direct != null:
+			return direct
+	var tree := get_tree()
+	if tree == null:
+		return null
+	return tree.get_first_node_in_group("day_night_controller")
 
 
 func _cmd_summon_enemy(raw_args: Array) -> void:
