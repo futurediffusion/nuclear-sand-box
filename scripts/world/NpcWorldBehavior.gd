@@ -184,14 +184,14 @@ func enter_loot_approach(drop_id: int) -> void:
 	pending_collect_id = 0
 	state        = State.LOOT_APPROACH
 	_state_timer = 0.0
-	_invalidate_npc_path()
+	_invalidate_npc_path("state_change")
 
 ## Begin moving toward an extortion target position.
 func enter_extort_approach(target_pos: Vector2) -> void:
 	_move_target = target_pos
 	state        = State.EXTORT_APPROACH
 	_state_timer = 0.0
-	_invalidate_npc_path()
+	_invalidate_npc_path("new_target", target_pos)
 
 ## Enter RESOURCE_WATCH, orbiting resource_pos at a fixed radius.
 func enter_resource_watch(resource_pos: Vector2, resource_id: int = 0) -> void:
@@ -253,7 +253,7 @@ func _check_stuck(delta: float, node_pos: Vector2) -> void:
 				_stuck_check_pos = node_pos
 				_stuck_timer     = 0.0
 				if moved_sq < STUCK_MIN_PROGRESS_SQ:
-					_invalidate_npc_path()
+					_invalidate_npc_path("forced_reset")
 					_enter_idle_at_home()
 
 		State.APPROACH_INTEREST:
@@ -263,7 +263,7 @@ func _check_stuck(delta: float, node_pos: Vector2) -> void:
 				_stuck_check_pos = node_pos
 				_stuck_timer     = 0.0
 				if moved_sq < STUCK_MIN_PROGRESS_SQ:
-					_invalidate_npc_path()
+					_invalidate_npc_path("forced_reset")
 					# En aproximación a objetivos, evitar caer a IDLE inmediato.
 					# Aplicamos un pequeño desvío para romper atascos en esquinas.
 					if _detour_timer <= 0.0:
@@ -293,7 +293,7 @@ func _check_stuck(delta: float, node_pos: Vector2) -> void:
 						perp = -perp
 					_detour_dir   = perp
 					_detour_timer = DETOUR_DURATION
-					_invalidate_npc_path()
+					_invalidate_npc_path("forced_reset")
 
 		_:
 			_stuck_check_pos = node_pos
@@ -313,9 +313,10 @@ func _pathfind_dir(node_pos: Vector2, goal: Vector2) -> Vector2:
 	return _move_dir(node_pos, wp)
 
 ## Discard cached path for this NPC (call on state transitions with new goals).
-func _invalidate_npc_path() -> void:
+func _invalidate_npc_path(reason: String = "state_change",
+		target_pos: Variant = null, force: bool = false) -> void:
 	if member_id != "" and NpcPathService.is_ready():
-		NpcPathService.invalidate_path(member_id)
+		NpcPathService.invalidate_path(member_id, reason, target_pos, force)
 
 
 # ---------------------------------------------------------------------------
@@ -493,7 +494,7 @@ func _enter_patrol(ctx: Dictionary) -> void:
 	_move_target  = home_pos + Vector2(cos(angle), sin(angle)) * dist
 	state         = State.PATROL
 	_state_timer  = 0.0
-	_invalidate_npc_path()
+	_invalidate_npc_path("new_target", _move_target)
 
 
 func _enter_return_home() -> void:
@@ -504,7 +505,7 @@ func _enter_return_home() -> void:
 	_state_timer  = 0.0
 	_detour_timer = 0.0
 	_detour_dir   = Vector2.ZERO
-	_invalidate_npc_path()
+	_invalidate_npc_path("state_change")
 
 func force_return_home() -> void:
 	_enter_return_home()
@@ -519,7 +520,7 @@ func _mark_ready_for_deposit() -> void:
 func _enter_extort_retreat() -> void:
 	state        = State.EXTORT_RETREAT
 	_state_timer = 0.0
-	_invalidate_npc_path()
+	_invalidate_npc_path("state_change")
 
 
 # ---------------------------------------------------------------------------
