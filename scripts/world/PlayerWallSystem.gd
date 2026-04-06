@@ -13,6 +13,7 @@ const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/wo
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
 const WorldProjectionRefreshCallableAdapterScript := preload("res://scripts/world/contracts/WorldProjectionRefreshCallableAdapter.gd")
 const BuildingTilemapProjectionScript := preload("res://scripts/projections/tilemap/BuildingTilemapProjection.gd")
+const BuildingColliderRefreshProjectionScript := preload("res://scripts/projections/collider/BuildingColliderRefreshProjection.gd")
 const BuildingEventsScript := preload("res://scripts/domain/building/BuildingEvents.gd")
 const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
@@ -71,6 +72,7 @@ var sound_panel_getter_cb: Callable
 var wall_persistence: WallPersistence
 var structural_wall_persistence: StructuralWallPersistence
 var building_tilemap_projection: BuildingTilemapProjection
+var building_collider_refresh_projection: BuildingColliderRefreshProjection
 
 func setup(ctx: Dictionary) -> void:
 	walls_tilemap = ctx.get("walls_tilemap")
@@ -164,6 +166,15 @@ func setup(ctx: Dictionary) -> void:
 		"has_structural_wall_state": Callable(self, "_is_structural_wall_tile"),
 	})
 
+	building_collider_refresh_projection = BuildingColliderRefreshProjectionScript.new()
+	building_collider_refresh_projection.setup({
+		"is_valid_world_tile": Callable(self, "_is_valid_world_tile"),
+		"tile_to_chunk": Callable(self, "_tile_to_chunk"),
+		"wall_reconnect_offsets": wall_reconnect_offsets,
+		"projection_refresh_port": projection_refresh_port,
+		"chunk_dirty_notifier_port": chunk_dirty_notifier_port,
+	})
+
 	var legacy_audio_config: Dictionary = {}
 	if ctx.has("player_wall_hit_sounds"):
 		legacy_audio_config["player_wall_hit_sounds"] = ctx.get("player_wall_hit_sounds")
@@ -252,7 +263,6 @@ func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> boo
 	wall_persistence.save_wall(cpos, tile_pos, {"hp": final_hp})
 	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
 	_reconcile_wall_ownership_in_scope(reconnect_scope)
-	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	project_building_events([
 		BuildingEventsScript.structure_placed({
 			"tile_pos": tile_pos,
@@ -610,7 +620,6 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 		_enforce_removed_wall_tile_cleared(tile_pos)
 	var extended_scope_p := _collect_scope_for_cells(_collect_reconnect_neighborhood(tile_pos))
 	_erase_orphan_tilemap_cells_in_scope(extended_scope_p)
-	_mark_walls_dirty_and_refresh_for_tiles(reconnect_scope)
 	project_building_events([BuildingEventsScript.structure_removed("", tile_pos, "removed")])
 	if drop_item and player_wall_drop_enabled and player_wall_drop_amount > 0:
 		_emit_player_wall_drop(tile_pos)
@@ -646,9 +655,12 @@ func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
 			_erase_orphan_tilemap_cells_in_scope(apply_extended_scope)
 
 func project_building_events(events: Array[Dictionary]) -> void:
-	if building_tilemap_projection == null or events.is_empty():
+	if events.is_empty():
 		return
-	building_tilemap_projection.apply_events(events)
+	if building_tilemap_projection != null:
+		building_tilemap_projection.apply_events(events)
+	if building_collider_refresh_projection != null:
+		building_collider_refresh_projection.apply_events(events)
 
 
 func _get_wall_tile_size_vec() -> Vector2:
