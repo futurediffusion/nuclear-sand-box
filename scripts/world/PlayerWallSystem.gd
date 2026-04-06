@@ -163,30 +163,34 @@ func setup(ctx: Dictionary) -> void:
 		"structural_wall_source": -1,
 		"structural_wall_default_hp": int(ctx.get("structural_wall_default_hp", 1)),
 	})
-	building_tilemap_projection = BuildingTilemapProjectionScript.new()
-	building_tilemap_projection.setup({
-		"walls_tilemap": walls_tilemap,
-		"walls_map_layer": walls_map_layer,
-		"wall_terrain_set": wall_terrain_set,
-		"wall_terrain": wall_terrain,
-		"src_walls": src_walls,
-		"wall_reconnect_offsets": wall_reconnect_offsets,
-		"player_wall_fallback_atlas": player_wall_fallback_atlas,
-		"player_wall_isolated_atlas": player_wall_isolated_atlas,
-		"player_wall_fallback_alt": player_wall_fallback_alt,
-		"is_valid_world_tile": Callable(self, "_is_valid_world_tile"),
-		"has_player_wall_state": Callable(self, "_is_player_wall_tile"),
-		"has_structural_wall_state": Callable(self, "_is_structural_wall_tile"),
-	})
+	building_tilemap_projection = ctx.get("building_tilemap_projection")
+	if building_tilemap_projection == null:
+		building_tilemap_projection = BuildingTilemapProjectionScript.new()
+		building_tilemap_projection.setup({
+			"walls_tilemap": walls_tilemap,
+			"walls_map_layer": walls_map_layer,
+			"wall_terrain_set": wall_terrain_set,
+			"wall_terrain": wall_terrain,
+			"src_walls": src_walls,
+			"wall_reconnect_offsets": wall_reconnect_offsets,
+			"player_wall_fallback_atlas": player_wall_fallback_atlas,
+			"player_wall_isolated_atlas": player_wall_isolated_atlas,
+			"player_wall_fallback_alt": player_wall_fallback_alt,
+			"is_valid_world_tile": Callable(self, "_is_valid_world_tile"),
+			"has_player_wall_state": Callable(self, "_is_player_wall_tile"),
+			"has_structural_wall_state": Callable(self, "_is_structural_wall_tile"),
+		})
 
-	building_collider_refresh_projection = BuildingColliderRefreshProjectionScript.new()
-	building_collider_refresh_projection.setup({
-		"is_valid_world_tile": Callable(self, "_is_valid_world_tile"),
-		"tile_to_chunk": Callable(self, "_tile_to_chunk"),
-		"wall_reconnect_offsets": wall_reconnect_offsets,
-		"projection_refresh_port": projection_refresh_port,
-		"chunk_dirty_notifier_port": chunk_dirty_notifier_port,
-	})
+	building_collider_refresh_projection = ctx.get("building_collider_refresh_projection")
+	if building_collider_refresh_projection == null:
+		building_collider_refresh_projection = BuildingColliderRefreshProjectionScript.new()
+		building_collider_refresh_projection.setup({
+			"is_valid_world_tile": Callable(self, "_is_valid_world_tile"),
+			"tile_to_chunk": Callable(self, "_tile_to_chunk"),
+			"wall_reconnect_offsets": wall_reconnect_offsets,
+			"projection_refresh_port": projection_refresh_port,
+			"chunk_dirty_notifier_port": chunk_dirty_notifier_port,
+		})
 
 	var legacy_audio_config: Dictionary = {}
 	if ctx.has("player_wall_hit_sounds"):
@@ -259,6 +263,12 @@ func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 		if not PlacementCatalog.can_share_tile(BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD), existing_item_id):
 			return false
 	return true
+
+func has_player_wall_state(tile_pos: Vector2i) -> bool:
+	return _is_player_wall_tile(tile_pos)
+
+func has_structural_wall_state(tile_pos: Vector2i) -> bool:
+	return _is_structural_wall_tile(tile_pos)
 
 func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> bool:
 	if not can_place_player_wall_at_tile(tile_pos):

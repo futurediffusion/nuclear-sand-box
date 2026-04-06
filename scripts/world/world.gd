@@ -147,6 +147,10 @@ var _occlusion_controller: OcclusionController
 var _day_night_controller
 var _speech_bubble_manager: WorldSpeechBubbleManager
 var _player_wall_system: PlayerWallSystem
+var _building_repository: BuildingRepository
+var _building_system: BuildingSystem
+var _building_tilemap_projection: BuildingTilemapProjection
+var _building_collider_refresh_projection: BuildingColliderRefreshProjection
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
 var _structural_wall_persistence: StructuralWallPersistence
@@ -228,6 +232,10 @@ const LocalSocialAuthorityPortsScript  := preload("res://scripts/world/LocalSoci
 const ResourceRepopulatorScript        := preload("res://scripts/world/ResourceRepopulator.gd")
 const WorldSpeechBubbleManagerScript   := preload("res://scripts/ui/WorldSpeechBubbleManager.gd")
 const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd")
+const BuildingSystemScript := preload("res://scripts/domain/building/BuildingSystem.gd")
+const WorldSaveBuildingRepositoryScript := preload("res://scripts/persistence/save/WorldSaveBuildingRepository.gd")
+const BuildingTilemapProjectionScript := preload("res://scripts/projections/tilemap/BuildingTilemapProjection.gd")
+const BuildingColliderRefreshProjectionScript := preload("res://scripts/projections/collider/BuildingColliderRefreshProjection.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
@@ -322,6 +330,33 @@ var _drop_pressure_snapshot: Dictionary = {
 	"drop_pressure_stage": DROP_PRESSURE_STAGE_NORMAL,
 }
 
+func _setup_building_module() -> void:
+	_building_repository = WorldSaveBuildingRepositoryScript.new()
+	_building_system = BuildingSystemScript.new()
+	_building_tilemap_projection = BuildingTilemapProjectionScript.new()
+	_building_tilemap_projection.setup({
+		"walls_tilemap": walls_tilemap,
+		"walls_map_layer": WALLS_MAP_LAYER,
+		"wall_terrain_set": WALL_TERRAIN_SET,
+		"wall_terrain": WALL_TERRAIN,
+		"src_walls": SRC_WALLS,
+		"wall_reconnect_offsets": WALL_RECONNECT_OFFSETS,
+		"player_wall_fallback_atlas": PLAYER_WALL_FALLBACK_ATLAS,
+		"player_wall_isolated_atlas": PLAYER_WALL_ISOLATED_ATLAS,
+		"player_wall_fallback_alt": PLAYER_WALL_FALLBACK_ALT,
+		"is_valid_world_tile": Callable(self, "_is_valid_world_tile"),
+		"has_player_wall_state": Callable(self, "_has_player_wall_state"),
+		"has_structural_wall_state": Callable(self, "_has_structural_wall_state"),
+	})
+	_building_collider_refresh_projection = BuildingColliderRefreshProjectionScript.new()
+	_building_collider_refresh_projection.setup({
+		"is_valid_world_tile": Callable(self, "_is_valid_world_tile"),
+		"tile_to_chunk": Callable(self, "_tile_to_chunk"),
+		"wall_reconnect_offsets": WALL_RECONNECT_OFFSETS,
+		"projection_refresh_port": _wall_projection_refresh_port,
+		"chunk_dirty_notifier_port": _wall_chunk_dirty_notifier_port,
+	})
+
 func _ready() -> void:
 	_wall_refresh_queue = WallRefreshQueueScript.new()
 	_cadence = WorldCadenceCoordinatorScript.new()
@@ -406,6 +441,7 @@ func _ready() -> void:
 	_wall_projection_refresh_port.setup({
 		"mark_chunk_walls_dirty_and_refresh_for_tiles": Callable(self, "_mark_walls_dirty_and_refresh_for_tiles"),
 	})
+	_setup_building_module()
 	# Nota de migración: world.gd no define audio de walls; PlayerWallSystem resuelve defaults/overrides internos.
 	_player_wall_system.setup({
 		"owner": self,
@@ -444,6 +480,10 @@ func _ready() -> void:
 		"player_wall_isolated_atlas": PLAYER_WALL_ISOLATED_ATLAS,
 		"player_wall_fallback_alt": PLAYER_WALL_FALLBACK_ALT,
 		"wall_reconnect_offsets": WALL_RECONNECT_OFFSETS,
+		"building_repository": _building_repository,
+		"building_system": _building_system,
+		"building_tilemap_projection": _building_tilemap_projection,
+		"building_collider_refresh_projection": _building_collider_refresh_projection,
 	})
 	Debug.log("boot", "World._ready begin")
 	ground_tilemap.z_index = -1
@@ -1513,6 +1553,12 @@ func _get_extra_wall_support_lookup_for_chunk(chunk_pos: Vector2i) -> Dictionary
 
 # Frontera de módulos: world.gd conserva sólo API pública de fachada para gameplay/colocación;
 # toda la lógica interna de ownership, reconciliación, drops, feedback y aplicación de paredes vive en PlayerWallSystem.
+func _has_player_wall_state(tile_pos: Vector2i) -> bool:
+	return _player_wall_system != null and _player_wall_system.has_player_wall_state(tile_pos)
+
+func _has_structural_wall_state(tile_pos: Vector2i) -> bool:
+	return _player_wall_system != null and _player_wall_system.has_structural_wall_state(tile_pos)
+
 func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.can_place_player_wall_at_tile(tile_pos)
 
