@@ -287,6 +287,18 @@ Rol:
 - Instancia y libera una vez escenas clave fuera de pantalla para evitar hitch de “primera vez”.
 - Mantiene un mínimo de ventana de warm-up para ocultar picos iniciales del renderer.
 
+### 🧱 BUILDING TILEMAP PROJECTION
+
+Ubicación:
+
+- `scripts/projections/tilemap/BuildingTilemapProjection.gd`
+
+Rol:
+
+- Proyección dedicada para pintar visuales de walls/structures en `StructureWallsMap` a partir de eventos de dominio o snapshots de estado.
+- Mantiene `terrain_connect` y limpieza de tiles huérfanos sin convertir el TileMap en fuente de verdad.
+- Pensado para rebuild seguro desde estado persistido (`apply_snapshot`) y actualización incremental por eventos (`apply_events`).
+
 ### 🧱 WALL PERSISTENCE (Adapter)
 
 Ubicación:
