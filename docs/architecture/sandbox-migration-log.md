@@ -27,3 +27,16 @@ Con base en la evidencia anterior, se declara formalmente:
 ## Habilitación de siguiente fase
 
 Queda habilitada la **Fase 2: vertical slice walls/building**.
+
+## Reconfirmación operativa (2026-04-05)
+
+Se revalida el checklist de arquitectura con evidencia documental y de código:
+
+- Contrato vigente: `docs/architecture/sandbox-contract.md`.
+- Auditoría `world.gd`: `docs/architecture/world_gd_audit_phase1.md`.
+- Checklist de PR activo: `docs/ai_squad_refactor_board.md`.
+- Dispatcher operativo: `scripts/runtime/world/GameplayCommandDispatcher.gd` + delegación en `scripts/world/world.gd`.
+- Contratos de transición: `scripts/world/contracts/*` + `docs/architecture/world_phase1_transition_adapters.md`.
+- Métricas base: `docs/architecture/world_gd_metrics.md`.
+
+Resultado: se mantiene la declaración formal de **Fase 1 cerrada** y la **Fase 2 (vertical slice walls/building) habilitada**.
