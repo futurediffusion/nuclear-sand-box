@@ -25,8 +25,15 @@ var _zones: Array[Dictionary] = []
 
 # Canonical rebuild entrypoint: derive from explicit source snapshots.
 func rebuild_from_sources(sources: Dictionary) -> void:
-	var workbench_nodes: Array = sources.get("workbench_nodes", []) as Array
-	var detected_bases: Array = sources.get("detected_bases", []) as Array
+	apply_inputs(sources)
+
+func apply_inputs(inputs: Dictionary) -> void:
+	var workbench_nodes: Array = inputs.get("workbench_nodes", []) as Array
+	var detected_bases: Array = inputs.get("detected_bases", []) as Array
+	rebuild(workbench_nodes, detected_bases)
+
+# Compatibility API.
+func rebuild_from_runtime(workbench_nodes: Array, detected_bases: Array) -> void:
 	rebuild(workbench_nodes, detected_bases)
 
 

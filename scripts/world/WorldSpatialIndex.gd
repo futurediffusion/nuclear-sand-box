@@ -505,7 +505,11 @@ func get_debug_snapshot() -> Dictionary:
 func notify_placeables_changed(item_id: String, tile_pos: Vector2i) -> void:
 	var t0_usec: int = Time.get_ticks_usec()
 	if _placeables_projection != null:
-		_placeables_projection.notify_placeables_changed(item_id, tile_pos)
+		_placeables_projection.apply_inputs({
+			"item_id": item_id,
+			"tile_pos": tile_pos,
+			"source": "world_spatial_index.notify_placeables_changed",
+		})
 	var projection_snapshot: Dictionary = _placeables_projection.get_debug_snapshot() if _placeables_projection != null else {}
 	var chunk_pos: Vector2i = _world_to_chunk(tile_pos)
 	PlacementPerfTelemetryScript.record_stage(

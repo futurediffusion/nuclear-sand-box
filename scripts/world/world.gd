@@ -783,7 +783,7 @@ func _ready() -> void:
 		"world_spatial_index": _world_spatial_index,
 	})
 	_player_territory = TerritoryProjection.new()
-	_player_territory_dirty = true
+	_request_player_territory_rebuild("startup")
 	_tavern_memory   = TavernLocalMemory.new()
 	_tavern_policy   = TavernAuthorityPolicy.new()
 	_tavern_policy.setup({"memory": _tavern_memory})
@@ -846,7 +846,7 @@ func _ready() -> void:
 		"tavern_policy": _tavern_policy,
 		"tavern_director": _tavern_director,
 		"register_drop_compaction_hotspot": Callable(self, "_register_drop_compaction_hotspot"),
-		"mark_player_territory_dirty": func() -> void: _player_territory_dirty = true,
+		"mark_player_territory_dirty": func() -> void: _request_player_territory_rebuild("gameplay_dispatcher"),
 		"find_nearest_player": Callable(self, "_find_nearest_player"),
 	})
 	PlacementSystem.register_placement_validator(Callable(self, "_validate_placement_restrictions"))
@@ -1705,7 +1705,7 @@ func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) ->
 				chunks_enqueued += 1
 	if _settlement_intel != null and not tile_positions.is_empty():
 		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_positions[0]))
-	_player_territory_dirty = true
+	_request_player_territory_rebuild("legacy_wall_refresh")
 	PlacementPerfTelemetryScript.record_stage(
 		"world_mark_walls_dirty_and_refresh_for_tiles",
 		Time.get_ticks_usec() - t0_usec,
@@ -1722,7 +1722,7 @@ func _mark_settlement_base_scan_dirty_from_projection(world_pos: Vector2) -> voi
 		_settlement_intel.mark_base_scan_dirty_near(world_pos)
 
 func _mark_player_territory_dirty_from_projection() -> void:
-	_player_territory_dirty = true
+	_request_player_territory_rebuild("wall_collider_projection")
 
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	if _chunk_wall_collider_cache != null:
@@ -2204,7 +2204,7 @@ func _on_wall_drop_for_intel(tile_pos: Vector2i, _item_id: String, _amount: int)
 	if _settlement_intel != null:
 		_settlement_intel.mark_base_scan_dirty_near(_tile_to_world(tile_pos))
 	_register_drop_compaction_hotspot(_tile_to_world(tile_pos), maxi(1, _amount))
-	_player_territory_dirty = true
+	_request_player_territory_rebuild("wall_drop")
 
 func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 	var world_pos: Vector2 = _tile_to_world(tile_pos)
@@ -2269,9 +2269,19 @@ func _tick_player_territory() -> void:
 	if not _player_territory_dirty or _player_territory == null or _settlement_intel == null:
 		return
 	_player_territory_dirty = false
+	_player_territory.apply_inputs(_collect_player_territory_projection_inputs())
+
+func _collect_player_territory_projection_inputs() -> Dictionary:
 	var wb_nodes: Array = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH) if _world_spatial_index != null else get_tree().get_nodes_in_group("workbench")
 	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_near(Vector2.ZERO, 999999.0)
-	_player_territory.rebuild_from_sources({"workbench_nodes": wb_nodes, "detected_bases": bases})
+	return {
+		"workbench_nodes": wb_nodes,
+		"detected_bases": bases,
+		"source": "world_tick_player_territory",
+	}
+
+func _request_player_territory_rebuild(_reason: String) -> void:
+	_player_territory_dirty = true
 
 func is_in_player_territory(world_pos: Vector2) -> bool:
 	if _player_territory == null:

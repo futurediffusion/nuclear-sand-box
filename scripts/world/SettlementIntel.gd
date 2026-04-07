@@ -546,8 +546,6 @@ func _on_placement_completed(item_id: String, tile_pos: Vector2i) -> void:
 	var chunk_pos: Vector2i = _tile_to_chunk(tile_pos)
 	_dirty_workbench_chunks[chunk_pos] = true
 	_dirty_base_chunks[chunk_pos] = true
-	if _world_spatial_index != null:
-		_world_spatial_index.notify_placeables_changed(item_id, tile_pos)
 	# Workbench: trigger workbench scan
 	if item_id == "workbench":
 		_dirty = true

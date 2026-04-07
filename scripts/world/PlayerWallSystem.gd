@@ -711,7 +711,10 @@ func project_building_events(events: Array[Dictionary]) -> void:
 	if building_tilemap_projection != null:
 		building_tilemap_projection.apply_events(events)
 	if wall_collider_projection != null:
-		wall_collider_projection.apply_events(events)
+		wall_collider_projection.apply_input({
+			"source": "player_wall_system.project_building_events",
+			"events": events,
+		})
 
 func _emit_building_events(events: Array[Dictionary]) -> void:
 	if events.is_empty():
@@ -1032,6 +1035,12 @@ func _has_expected_wall_neighbor(tile_pos: Vector2i, expected_cells: Dictionary 
 	return false
 
 func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) -> void:
+	if wall_collider_projection != null:
+		wall_collider_projection.apply_input({
+			"source": "player_wall_system.direct_tiles",
+			"base_tiles": tile_positions,
+		})
+		return
 	if projection_refresh_port != null:
 		projection_refresh_port.refresh_for_tiles(tile_positions)
 		return
