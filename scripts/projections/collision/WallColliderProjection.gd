@@ -19,6 +19,10 @@ var projection_refresh_port: WorldProjectionRefreshContract
 var chunk_dirty_notifier_port: WorldChunkDirtyNotifierContract
 var wall_refresh_queue: WallRefreshQueue
 var loaded_chunks: Dictionary = {}
+var _apply_calls: int = 0
+var _last_apply_source: String = "startup"
+var _last_scope_tile_count: int = 0
+var _last_dirty_chunk_count: int = 0
 
 func setup(ctx: Dictionary) -> void:
 	is_valid_world_tile_cb = ctx.get("is_valid_world_tile", Callable())
@@ -39,6 +43,8 @@ func setup(ctx: Dictionary) -> void:
 		wall_reconnect_offsets = [Vector2i.ZERO]
 
 func apply_events(events: Array[Dictionary]) -> void:
+	_apply_calls += 1
+	_last_apply_source = "events"
 	apply_input({
 		"source": "building_events",
 		"events": events,
@@ -82,6 +88,8 @@ func _apply_events_internal(events: Array[Dictionary]) -> void:
 	_apply_tiles(_dict_keys_to_vector2i_array(touched_tiles))
 
 func apply_change_set(changed_structures: Array[Dictionary]) -> void:
+	_apply_calls += 1
+	_last_apply_source = "change_set"
 	if changed_structures.is_empty():
 		return
 	var touched_tiles: Dictionary = {}
@@ -101,6 +109,8 @@ func apply_change_set(changed_structures: Array[Dictionary]) -> void:
 	_apply_tiles(_dict_keys_to_vector2i_array(touched_tiles))
 
 func apply_snapshot(structures: Array[Dictionary]) -> void:
+	_apply_calls += 1
+	_last_apply_source = "snapshot"
 	if structures.is_empty():
 		return
 	var touched_tiles: Dictionary = {}
@@ -120,6 +130,7 @@ func _apply_tiles(base_tiles: Array[Vector2i]) -> void:
 	if base_tiles.is_empty():
 		return
 	var scope_tiles: Array[Vector2i] = _collect_scope_for_cells(base_tiles)
+	_last_scope_tile_count = scope_tiles.size()
 	if scope_tiles.is_empty():
 		return
 	if projection_refresh_port != null:
@@ -130,6 +141,7 @@ func _apply_tiles(base_tiles: Array[Vector2i]) -> void:
 
 func _mark_scope_chunks_dirty(scope_tiles: Array[Vector2i]) -> void:
 	if chunk_dirty_notifier_port == null:
+		_last_dirty_chunk_count = 0
 		return
 	var chunks_seen: Dictionary = {}
 	for tile_pos in scope_tiles:
@@ -142,6 +154,17 @@ func _mark_scope_chunks_dirty(scope_tiles: Array[Vector2i]) -> void:
 			wall_refresh_queue.record_activity(cpos)
 			if loaded_chunks.has(cpos):
 				wall_refresh_queue.enqueue(cpos)
+	_last_dirty_chunk_count = chunks_seen.size()
+
+func get_debug_snapshot() -> Dictionary:
+	return {
+		"apply_calls": _apply_calls,
+		"last_apply_source": _last_apply_source,
+		"last_scope_tile_count": _last_scope_tile_count,
+		"last_dirty_chunk_count": _last_dirty_chunk_count,
+		"uses_projection_refresh_port": projection_refresh_port != null,
+		"uses_chunk_dirty_notifier_port": chunk_dirty_notifier_port != null,
+	}
 
 func _mark_runtime_side_effects(scope_tiles: Array[Vector2i]) -> void:
 	if mark_player_territory_dirty_cb.is_valid():
