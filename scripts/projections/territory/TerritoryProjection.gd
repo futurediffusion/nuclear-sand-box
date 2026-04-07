@@ -21,6 +21,9 @@ const TILE_SIZE: float = 32.0
 #   workbench: {"type":"workbench", "center":Vector2, "radius":float}
 #   enclosed:  {"type":"enclosed", "center":Vector2, "rect_world":Rect2, "id":String}
 var _zones: Array[Dictionary] = []
+var _rebuild_calls: int = 0
+var _last_input_workbench_count: int = 0
+var _last_input_base_count: int = 0
 
 
 # Canonical rebuild entrypoint: derive from explicit source snapshots.
@@ -39,6 +42,9 @@ func rebuild_from_runtime(workbench_nodes: Array, detected_bases: Array) -> void
 
 # Compatibility rebuild API used by existing territory consumers.
 func rebuild(workbench_nodes: Array, detected_bases: Array) -> void:
+	_rebuild_calls += 1
+	_last_input_workbench_count = workbench_nodes.size()
+	_last_input_base_count = detected_bases.size()
 	_zones.clear()
 
 	for wb in workbench_nodes:
@@ -142,3 +148,13 @@ func _count_by_type(zone_type: String) -> int:
 		if String(zone.get("type", "")) == zone_type:
 			n += 1
 	return n
+
+func get_debug_snapshot() -> Dictionary:
+	return {
+		"rebuild_calls": _rebuild_calls,
+		"last_input_workbench_count": _last_input_workbench_count,
+		"last_input_base_count": _last_input_base_count,
+		"workbench_zone_count": _count_by_type("workbench"),
+		"enclosed_zone_count": _count_by_type("enclosed"),
+		"zone_count": _zones.size(),
+	}
