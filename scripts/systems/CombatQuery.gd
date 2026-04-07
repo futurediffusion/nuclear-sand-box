@@ -99,7 +99,8 @@ static func find_first_wall_hit(
 		return {}
 
 	var collider: Variant = hit.get("collider", null)
-	if not is_wall_collider(collider):
+	var hit_pos: Vector2 = hit.get("position", Vector2.INF) as Vector2
+	if not is_wall_obstacle_hit(context, collider, hit_pos):
 		return {}
 	return hit
 
@@ -127,10 +128,13 @@ static func shape_overlaps_wall(
 	var results := space_state.intersect_shape(params, 32)
 	for result in results:
 		var collider: Variant = result.get("collider", null)
-		if collider is CollisionObject2D:
-			# Props destructibles (WALLPROPS + Resources) no bloquean el slash — solo muros reales
-			if not (collider as CollisionObject2D).get_collision_layer_value(CollisionLayersScript.RESOURCES_LAYER_BIT):
-				return true
+		var hit_pos: Vector2 = result.get("point", shape_node.global_position) as Vector2
+		if not is_wall_obstacle_hit(context, collider, hit_pos):
+			continue
+		if collider is CollisionObject2D \
+				and (collider as CollisionObject2D).get_collision_layer_value(CollisionLayersScript.RESOURCES_LAYER_BIT):
+			continue
+		return true
 	return false
 
 static func is_wall_collider(collider: Variant) -> bool:
@@ -138,6 +142,14 @@ static func is_wall_collider(collider: Variant) -> bool:
 		return false
 	var collision_object := collider as CollisionObject2D
 	return collision_object.get_collision_layer_value(CollisionLayersScript.WORLD_WALL_LAYER_BIT)
+
+static func is_wall_obstacle_hit(context: Node, collider: Variant, world_pos: Vector2 = Vector2.INF) -> bool:
+	# Domain-first boundary: wall tile occupancy is canonical when available.
+	if context != null and world_pos != Vector2.INF and WorldSave.wall_tile_occupancy_fn.is_valid():
+		if WorldSave.wall_tile_occupancy_fn.call(world_pos):
+			return true
+	# Compatibility bridge: collider identity fallback for non-tile wall bodies.
+	return is_wall_collider(collider)
 
 static func _resolve_entity_with_damage_methods(start_node: Node) -> Node:
 	var current := start_node

@@ -1,6 +1,9 @@
 extends RefCounted
 class_name ChunkWallColliderCache
 
+const FLAG_PROJECTION_WALLS_DIRTY: String = "walls_dirty"
+const FLAG_PROJECTION_WALLS_HASH: String = "walls_hash"
+
 var walls_tilemap: TileMap
 var collision_builder: CollisionBuilder
 var chunk_size: int = 32
@@ -46,15 +49,15 @@ func clear_all() -> void:
 	_chunk_wall_use_counter = 0
 
 func mark_dirty(cx: int, cy: int) -> void:
-	WorldSave.set_chunk_flag(cx, cy, "walls_dirty", true)
+	_set_projection_walls_dirty(cx, cy, true)
 
 func ensure_for_chunk(chunk_pos: Vector2i) -> void:
 	var collider_start_us: int = Time.get_ticks_usec()
 	var cx: int = chunk_pos.x
 	var cy: int = chunk_pos.y
 	var chunk_key_str: String = _chunk_key(chunk_pos)
-	var dirty: bool = WorldSave.get_chunk_flag(cx, cy, "walls_dirty") == true
-	var saved_hash = WorldSave.get_chunk_flag(cx, cy, "walls_hash")
+	var dirty: bool = _is_projection_walls_dirty(cx, cy)
+	var saved_hash = _get_projection_walls_hash(cx, cy)
 	var collider_exists: bool = _has_valid_chunk_wall_body(chunk_pos)
 
 	if collider_exists and not dirty and saved_hash != null:
@@ -90,8 +93,8 @@ func ensure_for_chunk(chunk_pos: Vector2i) -> void:
 			collision_builder.set_chunk_collider_enabled(body, true)
 			_touch_chunk_wall_usage(chunk_pos)
 
-		WorldSave.set_chunk_flag(cx, cy, "walls_hash", current_hash)
-		WorldSave.set_chunk_flag(cx, cy, "walls_dirty", false)
+		_set_projection_walls_hash(cx, cy, current_hash)
+		_set_projection_walls_dirty(cx, cy, false)
 		if debug_collision_cache:
 			var reason: String = ""
 			if dirty:
@@ -208,3 +211,17 @@ func _chunk_key(chunk_pos: Vector2i) -> String:
 func _record_collider_time(chunk_pos: Vector2i, start_us: int) -> void:
 	if record_stage_time.is_valid():
 		record_stage_time.call(chunk_perf_stage_collider_build, chunk_pos, float(Time.get_ticks_usec() - start_us) / 1000.0)
+
+func _is_projection_walls_dirty(cx: int, cy: int) -> bool:
+	return WorldSave.get_chunk_flag(cx, cy, FLAG_PROJECTION_WALLS_DIRTY) == true
+
+func _get_projection_walls_hash(cx: int, cy: int):
+	return WorldSave.get_chunk_flag(cx, cy, FLAG_PROJECTION_WALLS_HASH)
+
+func _set_projection_walls_dirty(cx: int, cy: int, value: bool) -> void:
+	# Projection bookkeeping only: never canonical wall ownership.
+	WorldSave.set_chunk_flag(cx, cy, FLAG_PROJECTION_WALLS_DIRTY, value)
+
+func _set_projection_walls_hash(cx: int, cy: int, value: int) -> void:
+	# Projection bookkeeping only: hash tracks collider rebuild parity.
+	WorldSave.set_chunk_flag(cx, cy, FLAG_PROJECTION_WALLS_HASH, value)

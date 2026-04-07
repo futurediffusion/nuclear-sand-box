@@ -251,7 +251,8 @@ func _handle_body_hit(hit: Dictionary) -> bool:
 
 	global_position = hit.get("position", global_position)
 
-	if CombatQueryScript.is_wall_collider(body):
+	var hit_pos: Vector2 = hit.get("position", global_position) as Vector2
+	if CombatQueryScript.is_wall_obstacle_hit(self, body, hit_pos):
 		_damage_generic_wall(hit)
 		height = 0.0
 		vertical_velocity = 0.0

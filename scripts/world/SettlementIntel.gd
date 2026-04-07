@@ -220,6 +220,11 @@ func get_detected_bases_near(world_pos: Vector2, radius: float) -> Array[Diction
 			result.append(b)
 	return result
 
+## Snapshot helper for read-model consumers that need full projection state.
+## Explicitly returns a copy so callers cannot mutate projection-owned internals.
+func get_detected_bases_snapshot() -> Array[Dictionary]:
+	return _bases.duplicate(true)
+
 
 ## True if any detected base center is within `radius` of `world_pos`.
 func has_detected_base_near(world_pos: Vector2, radius: float) -> bool:
@@ -552,6 +557,9 @@ func _on_placement_completed(item_id: String, tile_pos: Vector2i) -> void:
 	# doorwood or wallwood placement may close or open a room
 	if item_id == "doorwood" or item_id == "wallwood":
 		_base_scan_dirty = true
+	# Compatibility bridge:
+	# keep emitting marker events here for legacy consumers until all gameplay
+	# command paths route structure-interest events through GameplayCommandDispatcher.
 	record_interest_event("structure_placed", wpos, {"item_id": item_id})
 	PlacementPerfTelemetryScript.record_stage(
 		"settlement_intel_on_placement_completed",
