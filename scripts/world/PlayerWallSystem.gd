@@ -5,6 +5,7 @@ signal player_wall_hit(tile_pos: Vector2i)
 signal structural_wall_hit(tile_pos: Vector2i)
 signal player_wall_drop(tile_pos: Vector2i, item_id: String, amount: int)
 signal structural_wall_drop(tile_pos: Vector2i, item_id: String, amount: int)
+signal building_events_emitted(events: Array[Dictionary])
 
 const WallTileResolverScript := preload("res://scripts/world/WallTileResolver.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
@@ -290,7 +291,9 @@ func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> boo
 		return false
 	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
 	_reconcile_wall_ownership_in_scope(reconnect_scope)
-	project_building_events(place_result.get(BuildingSystem.RESULT_KEY_EVENTS, []))
+	var place_events: Array[Dictionary] = place_result.get(BuildingSystem.RESULT_KEY_EVENTS, [])
+	project_building_events(place_events)
+	_emit_building_events(place_events)
 	return true
 
 func damage_player_wall_from_contact(hit_pos: Vector2, hit_normal: Vector2, amount: int = 1) -> bool:
@@ -616,9 +619,11 @@ func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	)
 	if not bool(damage_result.get(BuildingSystem.RESULT_KEY_SUCCESS, false)):
 		return false
-	project_building_events(damage_result.get(BuildingSystem.RESULT_KEY_EVENTS, []))
+	var damage_events: Array[Dictionary] = damage_result.get(BuildingSystem.RESULT_KEY_EVENTS, [])
+	project_building_events(damage_events)
+	_emit_building_events(damage_events)
 	var was_removed: bool = false
-	for event_raw in damage_result.get(BuildingSystem.RESULT_KEY_EVENTS, []):
+	for event_raw in damage_events:
 		if typeof(event_raw) != TYPE_DICTIONARY:
 			continue
 		var event: Dictionary = event_raw as Dictionary
@@ -638,7 +643,9 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 	)
 	if not bool(remove_result.get(BuildingSystem.RESULT_KEY_SUCCESS, false)):
 		return false
-	project_building_events(remove_result.get(BuildingSystem.RESULT_KEY_EVENTS, []))
+	var remove_events: Array[Dictionary] = remove_result.get(BuildingSystem.RESULT_KEY_EVENTS, [])
+	project_building_events(remove_events)
+	_emit_building_events(remove_events)
 	_finalize_player_wall_removal(tile_pos, drop_item)
 	return true
 
@@ -698,6 +705,11 @@ func project_building_events(events: Array[Dictionary]) -> void:
 		building_tilemap_projection.apply_events(events)
 	if building_collider_refresh_projection != null:
 		building_collider_refresh_projection.apply_events(events)
+
+func _emit_building_events(events: Array[Dictionary]) -> void:
+	if events.is_empty():
+		return
+	emit_signal("building_events_emitted", events.duplicate(true))
 
 
 func _get_wall_tile_size_vec() -> Vector2:
