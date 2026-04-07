@@ -150,7 +150,7 @@ var _player_wall_system: PlayerWallSystem
 var _building_repository: BuildingRepository
 var _building_system: BuildingSystem
 var _building_tilemap_projection: BuildingTilemapProjection
-var _building_collider_refresh_projection: BuildingColliderRefreshProjection
+var _wall_collider_projection: WallColliderProjection
 var _threat_assessment_system: ThreatAssessmentSystem
 var _group_intent_system: GroupIntentSystem
 var _placement_reaction_system: PlacementReactionSystem
@@ -232,7 +232,7 @@ const PlayerWallSystemScript := preload("res://scripts/world/PlayerWallSystem.gd
 const BuildingSystemScript := preload("res://scripts/domain/building/BuildingSystem.gd")
 const WorldSaveBuildingRepositoryScript := preload("res://scripts/persistence/save/WorldSaveBuildingRepository.gd")
 const BuildingTilemapProjectionScript := preload("res://scripts/projections/tilemap/BuildingTilemapProjection.gd")
-const BuildingColliderRefreshProjectionScript := preload("res://scripts/projections/collider/BuildingColliderRefreshProjection.gd")
+const WallColliderProjectionScript := preload("res://scripts/projections/collision/WallColliderProjection.gd")
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
 const GroupIntentSystemScript := preload("res://scripts/domain/factions/GroupIntentSystem.gd")
 const PlacementReactionSystemScript := preload("res://scripts/domain/factions/PlacementReactionSystem.gd")
@@ -380,13 +380,18 @@ func _setup_building_module() -> void:
 		"has_player_wall_state": Callable(self, "_has_player_wall_state"),
 		"has_structural_wall_state": Callable(self, "_has_structural_wall_state"),
 	})
-	_building_collider_refresh_projection = BuildingColliderRefreshProjectionScript.new()
-	_building_collider_refresh_projection.setup({
+	_wall_collider_projection = WallColliderProjectionScript.new()
+	_wall_collider_projection.setup({
 		"is_valid_world_tile": Callable(self, "_is_valid_world_tile"),
 		"tile_to_chunk": Callable(self, "_tile_to_chunk"),
+		"tile_to_world": Callable(self, "_tile_to_world"),
 		"wall_reconnect_offsets": WALL_RECONNECT_OFFSETS,
 		"projection_refresh_port": _wall_projection_refresh_port,
 		"chunk_dirty_notifier_port": _wall_chunk_dirty_notifier_port,
+		"wall_refresh_queue": _wall_refresh_queue,
+		"loaded_chunks": loaded_chunks,
+		"mark_base_scan_dirty_near": Callable(self, "_mark_settlement_base_scan_dirty_from_projection"),
+		"mark_player_territory_dirty": Callable(self, "_mark_player_territory_dirty_from_projection"),
 	})
 
 func _ready() -> void:
@@ -515,7 +520,8 @@ func _ready() -> void:
 		"building_repository": _building_repository,
 		"building_system": _building_system,
 		"building_tilemap_projection": _building_tilemap_projection,
-		"building_collider_refresh_projection": _building_collider_refresh_projection,
+		"wall_collider_projection": _wall_collider_projection,
+		"building_collider_refresh_projection": _wall_collider_projection,
 	})
 	Debug.log("boot", "World._ready begin")
 	ground_tilemap.z_index = -1
@@ -1710,6 +1716,13 @@ func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) ->
 		},
 		"collider"
 	)
+
+func _mark_settlement_base_scan_dirty_from_projection(world_pos: Vector2) -> void:
+	if _settlement_intel != null:
+		_settlement_intel.mark_base_scan_dirty_near(world_pos)
+
+func _mark_player_territory_dirty_from_projection() -> void:
+	_player_territory_dirty = true
 
 func mark_chunk_walls_dirty(cx: int, cy: int) -> void:
 	if _chunk_wall_collider_cache != null:

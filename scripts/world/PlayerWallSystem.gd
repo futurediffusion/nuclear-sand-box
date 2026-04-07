@@ -14,7 +14,7 @@ const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/wo
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
 const WorldProjectionRefreshCallableAdapterScript := preload("res://scripts/world/contracts/WorldProjectionRefreshCallableAdapter.gd")
 const BuildingTilemapProjectionScript := preload("res://scripts/projections/tilemap/BuildingTilemapProjection.gd")
-const BuildingColliderRefreshProjectionScript := preload("res://scripts/projections/collider/BuildingColliderRefreshProjection.gd")
+const WallColliderProjectionScript := preload("res://scripts/projections/collision/WallColliderProjection.gd")
 const BuildingEventsScript := preload("res://scripts/domain/building/BuildingEvents.gd")
 const BuildingCommandsScript := preload("res://scripts/domain/building/BuildingCommands.gd")
 const BuildingStateScript := preload("res://scripts/domain/building/BuildingState.gd")
@@ -77,7 +77,7 @@ var sound_panel_getter_cb: Callable
 var wall_persistence: WallPersistence
 var structural_wall_persistence: StructuralWallPersistence
 var building_tilemap_projection: BuildingTilemapProjection
-var building_collider_refresh_projection: BuildingColliderRefreshProjection
+var wall_collider_projection: WallColliderProjection
 var building_system: BuildingSystem
 var building_repository: BuildingRepository
 
@@ -182,15 +182,22 @@ func setup(ctx: Dictionary) -> void:
 			"has_structural_wall_state": Callable(self, "_is_structural_wall_tile"),
 		})
 
-	building_collider_refresh_projection = ctx.get("building_collider_refresh_projection")
-	if building_collider_refresh_projection == null:
-		building_collider_refresh_projection = BuildingColliderRefreshProjectionScript.new()
-		building_collider_refresh_projection.setup({
+	wall_collider_projection = ctx.get("wall_collider_projection")
+	if wall_collider_projection == null:
+		wall_collider_projection = ctx.get("building_collider_refresh_projection")
+	if wall_collider_projection == null:
+		wall_collider_projection = WallColliderProjectionScript.new()
+		wall_collider_projection.setup({
 			"is_valid_world_tile": Callable(self, "_is_valid_world_tile"),
 			"tile_to_chunk": Callable(self, "_tile_to_chunk"),
+			"tile_to_world": Callable(self, "_tile_to_world"),
 			"wall_reconnect_offsets": wall_reconnect_offsets,
 			"projection_refresh_port": projection_refresh_port,
 			"chunk_dirty_notifier_port": chunk_dirty_notifier_port,
+			"mark_player_territory_dirty": ctx.get("mark_player_territory_dirty", Callable()),
+			"mark_base_scan_dirty_near": ctx.get("mark_base_scan_dirty_near", Callable()),
+			"wall_refresh_queue": ctx.get("wall_refresh_queue"),
+			"loaded_chunks": loaded_chunks,
 		})
 
 	var legacy_audio_config: Dictionary = {}
@@ -703,8 +710,8 @@ func project_building_events(events: Array[Dictionary]) -> void:
 		return
 	if building_tilemap_projection != null:
 		building_tilemap_projection.apply_events(events)
-	if building_collider_refresh_projection != null:
-		building_collider_refresh_projection.apply_events(events)
+	if wall_collider_projection != null:
+		wall_collider_projection.apply_events(events)
 
 func _emit_building_events(events: Array[Dictionary]) -> void:
 	if events.is_empty():
