@@ -1,6 +1,7 @@
 extends RefCounted
 class_name PlacementReactionSystem
 
+const BuildingEventsScript := preload("res://scripts/domain/building/BuildingEvents.gd")
 const DEFAULT_INTENT_LOCK_SECONDS: float = 90.0
 const DEFAULT_STRUCT_ASSAULT_SQUAD: int = 3
 const DEFAULT_EVENT_MIN_INTERVAL: float = 0.20
@@ -64,9 +65,12 @@ func setup(config: Dictionary = {}) -> void:
 	_debug_max_events = maxi(1, int(config.get("debug_max_events", _debug_max_events)))
 
 
-func handle_placement_completed(item_id: String, target_pos: Vector2) -> void:
-	if not target_pos.is_finite():
+func handle_building_event(event_data: Dictionary) -> void:
+	var normalized: Dictionary = _normalize_building_event(event_data)
+	if normalized.is_empty():
 		return
+	var item_id: String = String(normalized.get("item_id", ""))
+	var target_pos: Vector2 = normalized.get("target_position", Vector2.ZERO) as Vector2
 	var now: float = RunClock.now()
 	if now - _placement_react_last_event_at < _event_min_interval:
 		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
@@ -75,21 +79,7 @@ func handle_placement_completed(item_id: String, target_pos: Vector2) -> void:
 		_record_debug_event(item_id, target_pos, 0, 0, 1, 0)
 		return
 	_placement_react_last_event_at = now
-	_trigger_placement_react(item_id, target_pos)
-
-
-func observe_assessment(assessment: Dictionary) -> void:
-	if assessment.is_empty():
-		return
-	var source_event: Dictionary = assessment.get("source_event", {}) as Dictionary
-	Debug.log("placement_react", "threat_ingestion source=%s event=%s item=%s priority=%s severity=%.2f relevant=%s" % [
-		String((source_event.get("metadata", {}) as Dictionary).get("source", "building_event_adapter")),
-		String(source_event.get("event_type", "")),
-		String(source_event.get("item_id", "")),
-		String(assessment.get("priority", "none")),
-		float(assessment.get("severity", 0.0)),
-		str(bool(assessment.get("is_relevant", false))),
-	])
+	_trigger_placement_react(normalized)
 
 
 func reset_debug_metrics() -> void:
@@ -113,7 +103,11 @@ func get_debug_snapshot() -> Dictionary:
 	}
 
 
-func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
+func _trigger_placement_react(source_event: Dictionary) -> void:
+	var item_id: String = String(source_event.get("item_id", ""))
+	var event_type: String = String(source_event.get("event_type", ThreatAssessmentSystem.EVENT_TYPE_PLACEMENT_COMPLETED))
+	var source_metadata: Dictionary = source_event.get("metadata", {}) as Dictionary
+	var target_pos: Vector2 = source_event.get("target_position", Vector2.ZERO) as Vector2
 	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
 	var is_wall_assault_event: bool = _is_wall_assault_placement_item(item_id)
 	var react_radius: float = _get_placement_react_radius(item_id)
@@ -187,13 +181,14 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		return
 	var assessment: Dictionary = _threat_assessment_system.assess_building_event(
 		{
-			"type": "placement_completed",
+			"type": event_type,
 			"item_id": item_id,
 			"target_position": target_pos,
-			"metadata": {
+			"tile_pos": source_event.get("tile_pos", Vector2i.ZERO),
+			"metadata": source_metadata.merged({
 				"is_wall_assault_event": is_wall_assault_event,
 				"react_radius": react_radius,
-			},
+			}, true),
 		},
 		{
 			"group_candidates": candidate_groups,
@@ -201,6 +196,14 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 			"max_groups": _max_groups_per_event,
 		}
 	)
+	Debug.log("placement_react", "threat_ingestion source=%s event=%s item=%s priority=%s severity=%.2f relevant=%s" % [
+		String(source_metadata.get("source", "building_event")),
+		event_type,
+		item_id,
+		String(assessment.get("priority", "none")),
+		float(assessment.get("severity", 0.0)),
+		str(bool(assessment.get("is_relevant", false))),
+	])
 	var scoped: Dictionary = assessment.get("candidate_group_scope", {}) as Dictionary
 	var scoped_candidates: Array = scoped.get("candidates", []) as Array
 	if not bool(assessment.get("is_relevant", false)) or scoped_candidates.is_empty():
@@ -288,6 +291,66 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2) -> void:
 		0, skipped_by_lock, groups_activated, item_id, str(target_pos)
 	])
 	_record_debug_event(item_id, target_pos, groups_activated, intent_published, 0, skipped_by_lock)
+
+
+func _normalize_building_event(event_data: Dictionary) -> Dictionary:
+	if event_data.is_empty():
+		return {}
+	var source_type: String = String(event_data.get("type", event_data.get("event_type", ""))).strip_edges()
+	if source_type.is_empty():
+		return {}
+	var mapped_event_type: String = ""
+	match source_type:
+		ThreatAssessmentSystem.EVENT_TYPE_PLACEMENT_COMPLETED:
+			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_PLACEMENT_COMPLETED
+		ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_PLACED:
+			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_PLACED
+		ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_DAMAGED:
+			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_DAMAGED
+		ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_REMOVED:
+			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_REMOVED
+		BuildingEventsScript.TYPE_STRUCTURE_PLACED:
+			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_PLACED
+		BuildingEventsScript.TYPE_STRUCTURE_DAMAGED:
+			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_DAMAGED
+		BuildingEventsScript.TYPE_STRUCTURE_REMOVED:
+			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_REMOVED
+		_:
+			return {}
+	var item_id: String = _resolve_item_id(event_data)
+	var tile_pos_variant: Variant = event_data.get("tile_pos", Vector2i.ZERO)
+	var tile_pos: Vector2i = tile_pos_variant if tile_pos_variant is Vector2i else Vector2i.ZERO
+	var target_variant: Variant = event_data.get("world_pos", event_data.get("target_position", Vector2.ZERO))
+	var target_pos: Vector2 = target_variant if target_variant is Vector2 else _tile_to_world(tile_pos)
+	if not target_pos.is_finite():
+		return {}
+	var metadata: Dictionary = event_data.duplicate(true)
+	if metadata.has("structure"):
+		metadata.erase("structure")
+	return {
+		"event_type": mapped_event_type,
+		"item_id": item_id,
+		"tile_pos": tile_pos,
+		"target_position": target_pos,
+		"metadata": metadata,
+	}
+
+
+func _resolve_item_id(event_data: Dictionary) -> String:
+	var explicit_item_id: String = String(event_data.get("item_id", "")).strip_edges()
+	if not explicit_item_id.is_empty():
+		return explicit_item_id
+	var structure: Dictionary = event_data.get("structure", {}) as Dictionary
+	if structure.is_empty():
+		return ""
+	var metadata: Dictionary = structure.get("metadata", {}) as Dictionary
+	explicit_item_id = String(metadata.get("item_id", "")).strip_edges()
+	if not explicit_item_id.is_empty():
+		return explicit_item_id
+	var kind: String = String(structure.get("kind", "")).strip_edges()
+	if kind == "player_wall":
+		return BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD)
+	return kind
 
 
 func _record_debug_event(item_id: String, target_pos: Vector2, groups_activated: int,

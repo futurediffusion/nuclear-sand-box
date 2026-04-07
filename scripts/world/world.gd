@@ -154,7 +154,6 @@ var _building_collider_refresh_projection: BuildingColliderRefreshProjection
 var _threat_assessment_system: ThreatAssessmentSystem
 var _group_intent_system: GroupIntentSystem
 var _placement_reaction_system: PlacementReactionSystem
-var _building_threat_event_adapter: BuildingThreatEventAdapter
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
 var _structural_wall_persistence: StructuralWallPersistence
@@ -237,7 +236,6 @@ const BuildingColliderRefreshProjectionScript := preload("res://scripts/projecti
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
 const GroupIntentSystemScript := preload("res://scripts/domain/factions/GroupIntentSystem.gd")
 const PlacementReactionSystemScript := preload("res://scripts/domain/factions/PlacementReactionSystem.gd")
-const BuildingThreatEventAdapterScript := preload("res://scripts/world/BuildingThreatEventAdapter.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
@@ -367,12 +365,6 @@ func _setup_building_module() -> void:
 		"event_min_interval": _PLACEMENT_REACT_EVENT_MIN_INTERVAL,
 		"intent_lock_seconds": _PLACEMENT_REACT_INTENT_LOCK_SECONDS,
 		"debug_max_events": _PLACEMENT_REACT_DEBUG_MAX_EVENTS,
-	})
-	_building_threat_event_adapter = BuildingThreatEventAdapterScript.new()
-	_building_threat_event_adapter.setup({
-		"threat_assessment_system": _threat_assessment_system,
-		"tile_to_world": Callable(self, "_tile_to_world"),
-		"assessment_sink": Callable(self, "_on_building_threat_assessment"),
 	})
 	_building_tilemap_projection.setup({
 		"walls_tilemap": walls_tilemap,
@@ -2205,21 +2197,25 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 	var world_pos: Vector2 = _tile_to_world(tile_pos)
 	Debug.log("placement_react", "placement_completed item=%s tile=%s world=%s" % [
 		_item_id, str(tile_pos), str(world_pos)])
-	if _building_threat_event_adapter != null:
-		_building_threat_event_adapter.ingest_placement_completed(_item_id, tile_pos, {
+	if _placement_reaction_system != null:
+		# Compatibility bridge: keep PlacementSystem signal wiring in world.gd,
+		# but always route through PlacementReactionSystem canonical pipeline:
+		# BuildingEvent -> ThreatAssessmentSystem -> GroupIntentSystem.
+		_placement_reaction_system.handle_building_event({
+			"type": ThreatAssessmentSystem.EVENT_TYPE_PLACEMENT_COMPLETED,
+			"item_id": _item_id,
+			"tile_pos": tile_pos,
+			"world_pos": world_pos,
 			"source": "placement_system",
 		})
-	if _placement_reaction_system != null:
-		_placement_reaction_system.handle_placement_completed(_item_id, world_pos)
 
 func _on_building_events_emitted(events: Array[Dictionary]) -> void:
-	if _building_threat_event_adapter == null:
+	if _placement_reaction_system == null:
 		return
-	_building_threat_event_adapter.ingest_building_events(events)
-
-func _on_building_threat_assessment(assessment: Dictionary) -> void:
-	if _placement_reaction_system != null:
-		_placement_reaction_system.observe_assessment(assessment)
+	for event_data in events:
+		if not (event_data is Dictionary):
+			continue
+		_placement_reaction_system.handle_building_event(event_data as Dictionary)
 
 
 func reset_placement_react_debug_metrics() -> void:
