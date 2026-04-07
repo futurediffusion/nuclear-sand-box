@@ -773,6 +773,7 @@ func _ready() -> void:
 			_player_wall_system.building_events_emitted.connect(_on_building_events_emitted)
 
 	WorldSave.wall_tile_blocker_fn = _has_wall_tile_between
+	WorldSave.wall_tile_occupancy_fn = _has_wall_tile_at_world_pos
 
 	_settlement_intel = SettlementIntelScript.new()
 	_settlement_intel.setup({
@@ -1515,6 +1516,12 @@ func _has_wall_tile_between(from_pos: Vector2, to_pos: Vector2) -> bool:
 	if from_tile == to_tile:
 		return false
 	return _tile_line_has_wall(from_tile, to_tile)
+
+func _has_wall_tile_at_world_pos(world_pos: Vector2) -> bool:
+	if walls_tilemap == null:
+		return false
+	var tile_pos: Vector2i = walls_tilemap.local_to_map(walls_tilemap.to_local(world_pos))
+	return walls_tilemap.get_cell_source_id(WALLS_MAP_LAYER, tile_pos) == SRC_WALLS
 
 func _tile_line_has_wall(from_tile: Vector2i, to_tile: Vector2i) -> bool:
 	var dx := absi(to_tile.x - from_tile.x)
@@ -2272,13 +2279,20 @@ func _tick_player_territory() -> void:
 	_player_territory.apply_inputs(_collect_player_territory_projection_inputs())
 
 func _collect_player_territory_projection_inputs() -> Dictionary:
-	var wb_nodes: Array = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH) if _world_spatial_index != null else get_tree().get_nodes_in_group("workbench")
-	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_near(Vector2.ZERO, 999999.0)
+	var wb_anchors: Array = _collect_player_workbench_projection_anchors()
+	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_snapshot()
 	return {
-		"workbench_nodes": wb_nodes,
+		"workbench_nodes": wb_anchors,
 		"detected_bases": bases,
-		"source": "world_tick_player_territory",
+		"source": "world_tick_player_territory_explicit_sources",
 	}
+
+func _collect_player_workbench_projection_anchors() -> Array:
+	# Domain-first input: canonical placeables snapshot (via derived index cache).
+	if _world_spatial_index != null:
+		return _world_spatial_index.get_all_placeables_by_item_id("workbench")
+	# Compatibility bridge: runtime nodes are accepted if the projection cache is absent.
+	return get_tree().get_nodes_in_group("workbench")
 
 func _request_player_territory_rebuild(_reason: String) -> void:
 	_player_territory_dirty = true

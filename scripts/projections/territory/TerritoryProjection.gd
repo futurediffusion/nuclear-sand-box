@@ -42,12 +42,12 @@ func rebuild(workbench_nodes: Array, detected_bases: Array) -> void:
 	_zones.clear()
 
 	for wb in workbench_nodes:
-		var n2d: Node2D = wb as Node2D
-		if n2d == null or not is_instance_valid(n2d):
+		var center: Vector2 = _resolve_workbench_anchor_world_pos(wb)
+		if center == Vector2.INF:
 			continue
 		_zones.append({
 			"type": "workbench",
-			"center": n2d.global_position,
+			"center": center,
 			"radius": WORKBENCH_RADIUS,
 		})
 
@@ -78,6 +78,21 @@ func rebuild(workbench_nodes: Array, detected_bases: Array) -> void:
 
 	Debug.log("territory", "[TerritoryProjection] rebuilt — workbench_zones=%d enclosed_zones=%d" % [
 		_count_by_type("workbench"), _count_by_type("enclosed")])
+
+func _resolve_workbench_anchor_world_pos(anchor: Variant) -> Vector2:
+	var n2d: Node2D = anchor as Node2D
+	if n2d != null and is_instance_valid(n2d):
+		return n2d.global_position
+	if anchor is Dictionary:
+		var entry: Dictionary = anchor as Dictionary
+		if entry.has("world_pos"):
+			return entry.get("world_pos", Vector2.INF) as Vector2
+		if entry.has("tile_pos_x") and entry.has("tile_pos_y"):
+			return Vector2(
+				float(int(entry.get("tile_pos_x", 0))) * TILE_SIZE,
+				float(int(entry.get("tile_pos_y", 0))) * TILE_SIZE
+			)
+	return Vector2.INF
 
 
 func is_in_player_territory(world_pos: Vector2) -> bool:

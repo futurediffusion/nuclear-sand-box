@@ -71,6 +71,11 @@ const PLAYER_WALL_HP_KEY: String = "hp"
 ## Callable registrado por world.gd para verificar si hay una pared de tilemap entre dos posiciones.
 ## Signature: func(from_pos: Vector2, to_pos: Vector2) -> bool
 var wall_tile_blocker_fn: Callable = Callable()
+## Callable registrado por world.gd para chequear ocupación de pared en un punto.
+## Signature: func(world_pos: Vector2) -> bool
+## Compat: los sistemas de combate usan este contrato primero para evitar tratar colliders
+## como fuente canónica de existencia de muros.
+var wall_tile_occupancy_fn: Callable = Callable()
 
 func add_placed_entity(entry: Dictionary) -> void:
 	var uid := String(entry.get("uid", ""))

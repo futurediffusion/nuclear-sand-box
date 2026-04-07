@@ -401,7 +401,8 @@ func _get_world_node() -> Node:
 	return worlds[0]
 
 func _on_body_entered(body: Node) -> void:
-	if CombatQueryScript.is_wall_collider(body) and CombatQueryScript.resolve_damage_target(body).is_empty():
+	var body_pos: Vector2 = (body as Node2D).global_position if body is Node2D else Vector2.INF
+	if CombatQueryScript.is_wall_obstacle_hit(self, body, body_pos) and CombatQueryScript.resolve_damage_target(body).is_empty():
 		# Solo activar daño a paredes si es un cuerpo de pared real del mundo,
 		# no un prop estático sin método hit() que esté en la misma layer.
 		if body.is_in_group("world_wall_body"):
