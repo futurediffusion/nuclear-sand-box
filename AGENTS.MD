@@ -341,6 +341,18 @@ Rol:
 - Objetivo de fase 1: mantener compatibilidad con wiring actual mediante adaptadores de transición sin ejecutar todavía la migración completa de fase 2.
 - Primer consumidor migrado: `PlayerWallSystem` (coordenadas, dirty chunks, refresh/projections).
 
+### 🧭 THREAT ASSESSMENT (Building/Placement Domain Service)
+
+Ubicación:
+
+- `scripts/domain/factions/ThreatAssessmentSystem.gd`
+
+Rol:
+
+- Servicio de dominio dedicado para evaluar si un evento de construcción/placement es suficientemente amenazante para generar candidatos de reacción hostil.
+- Recibe un evento de building/placement + contexto (candidatos de grupo, umbrales) y devuelve una evaluación estructurada (`is_relevant`, `priority`, `severity`, `target_position`, `source_event`, `candidate_group_scope`, `debug`).
+- No despacha IA ni ejecuta comportamiento runtime; solo produce datos para que capas de orquestación (ej. `world.gd`) publiquen intents downstream.
+
 ### ⏱️ AWAKE RAMP QUEUE (Autoload)
 
 Ubicación:

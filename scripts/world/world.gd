@@ -151,6 +151,7 @@ var _building_repository: BuildingRepository
 var _building_system: BuildingSystem
 var _building_tilemap_projection: BuildingTilemapProjection
 var _building_collider_refresh_projection: BuildingColliderRefreshProjection
+var _threat_assessment_system: ThreatAssessmentSystem
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
 var _structural_wall_persistence: StructuralWallPersistence
@@ -236,6 +237,7 @@ const BuildingSystemScript := preload("res://scripts/domain/building/BuildingSys
 const WorldSaveBuildingRepositoryScript := preload("res://scripts/persistence/save/WorldSaveBuildingRepository.gd")
 const BuildingTilemapProjectionScript := preload("res://scripts/projections/tilemap/BuildingTilemapProjection.gd")
 const BuildingColliderRefreshProjectionScript := preload("res://scripts/projections/collider/BuildingColliderRefreshProjection.gd")
+const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
@@ -334,6 +336,7 @@ func _setup_building_module() -> void:
 	_building_repository = WorldSaveBuildingRepositoryScript.new()
 	_building_system = BuildingSystemScript.new()
 	_building_tilemap_projection = BuildingTilemapProjectionScript.new()
+	_threat_assessment_system = ThreatAssessmentSystemScript.new()
 	_building_tilemap_projection.setup({
 		"walls_tilemap": walls_tilemap,
 		"walls_map_layer": WALLS_MAP_LAYER,
@@ -2254,25 +2257,60 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 			return float(a.get("dist_sq", INF)) < float(b.get("dist_sq", INF))
 		return a_score > b_score
 	)
-	if placement_react_max_groups_per_event > 0 and candidate_groups.size() > placement_react_max_groups_per_event:
-		candidate_groups.resize(placement_react_max_groups_per_event)
+	var assessment: Dictionary = _threat_assessment_system.assess_building_event(
+		{
+			"type": "placement_completed",
+			"item_id": item_id,
+			"target_position": target_pos,
+			"metadata": {
+				"is_wall_assault_event": is_wall_assault_event,
+				"react_radius": react_radius,
+			},
+		},
+		{
+			"group_candidates": candidate_groups,
+			"min_group_score": min_score_threshold,
+			"max_groups": placement_react_max_groups_per_event,
+		}
+	)
+	var scoped: Dictionary = assessment.get("candidate_group_scope", {}) as Dictionary
+	var scoped_candidates: Array = scoped.get("candidates", []) as Array
+	if not bool(assessment.get("is_relevant", false)) or scoped_candidates.is_empty():
+		_record_placement_react_debug_event(item_id, target_pos, 0, 0, skipped_by_interval, 0)
+		Debug.log("placement_react", "  SKIP: threat_assessment not relevant priority=%s severity=%.2f details=%s" % [
+			String(assessment.get("priority", "none")),
+			float(assessment.get("severity", 0.0)),
+			str(assessment.get("debug", {}))
+		])
+		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
+			skipped_by_interval, 0, 0, item_id, str(target_pos)
+		])
+		return
+	var scoped_by_gid: Dictionary = {}
+	for scoped_entry_raw in scoped_candidates:
+		if not (scoped_entry_raw is Dictionary):
+			continue
+		var scoped_entry := scoped_entry_raw as Dictionary
+		var scoped_gid: String = String(scoped_entry.get("group_id", ""))
+		if scoped_gid.is_empty():
+			continue
+		scoped_by_gid[scoped_gid] = scoped_entry
 	var intent_published: int = 0
 	var groups_activated: int = 0
 	var skipped_by_lock: int = 0
 	for entry in candidate_groups:
 		var gid: String = String(entry.get("gid", ""))
+		if not scoped_by_gid.has(gid):
+			continue
 		var g: Dictionary = entry.get("group_data", {}) as Dictionary
 		var faction_id: String = String(entry.get("faction_id", ""))
 		var anchor_kind: String = String(entry.get("anchor_kind", "unknown"))
 		var score_pack: Dictionary = entry.get("score_pack", {}) as Dictionary
-		var score: float = float(score_pack.get("score", 0.0))
+		var scoped_entry: Dictionary = scoped_by_gid.get(gid, {}) as Dictionary
+		var score: float = float(scoped_entry.get("score", score_pack.get("score", 0.0)))
 		var anchor_dist: float = sqrt(float(entry.get("dist_sq", INF)))
 		var members: Array = g.get("member_ids", []) as Array
 		if members.is_empty():
-			continue
-		if score < min_score_threshold:
-			Debug.log("placement_react", "  decision=ignored_by_relevance group=%s score=%.2f min=%.2f anchor=%s details=%s" % [
-				gid, score, min_score_threshold, anchor_kind, str(score_pack)])
 			continue
 		var lock_active: bool = BanditGroupMemory.has_placement_react_lock(gid)
 		if lock_active:
