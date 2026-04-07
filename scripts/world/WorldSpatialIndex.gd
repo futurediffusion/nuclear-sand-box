@@ -53,10 +53,14 @@ func setup(ctx: Dictionary) -> void:
 	_chunk_size = maxi(int(ctx.get("chunk_size", 32)), 1)
 	add_to_group("world_spatial_index")
 	# SpatialIndexProjection is an explicit derived read model; WorldSave remains truth owner.
-	_placeables_projection = SpatialIndexProjectionScript.new()
-	_placeables_projection.setup({
-		"chunk_size": _chunk_size,
-	})
+	# Composition root can inject the projection explicitly. Fallback keeps legacy setup behavior.
+	_placeables_projection = ctx.get("placeables_projection", null) as SpatialIndexProjection
+	if _placeables_projection == null:
+		_placeables_projection = SpatialIndexProjectionScript.new()
+	if _placeables_projection != null:
+		_placeables_projection.setup({
+			"chunk_size": _chunk_size,
+		})
 	if PlacementSystem != null \
 			and not PlacementSystem.placement_completed.is_connected(_on_placement_completed):
 		PlacementSystem.placement_completed.connect(_on_placement_completed)

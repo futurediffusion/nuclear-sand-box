@@ -125,6 +125,7 @@ var _player_territory: TerritoryProjection
 var _player_territory_dirty: bool = false
 var _bandit_behavior_layer: BanditBehaviorLayer
 var _world_spatial_index: WorldSpatialIndex
+var _spatial_index_projection: SpatialIndexProjection
 var _world_territory_policy: WorldTerritoryPolicy
 var _local_social_ports: LocalSocialAuthorityPorts
 var _tavern_memory:            TavernLocalMemory
@@ -233,6 +234,8 @@ const BuildingSystemScript := preload("res://scripts/domain/building/BuildingSys
 const WorldSaveBuildingRepositoryScript := preload("res://scripts/persistence/save/WorldSaveBuildingRepository.gd")
 const BuildingTilemapProjectionScript := preload("res://scripts/projections/tilemap/BuildingTilemapProjection.gd")
 const WallColliderProjectionScript := preload("res://scripts/projections/collision/WallColliderProjection.gd")
+const SpatialIndexProjectionScript := preload("res://scripts/projections/index/SpatialIndexProjection.gd")
+const TerritoryProjectionScript := preload("res://scripts/projections/territory/TerritoryProjection.gd")
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
 const GroupIntentSystemScript := preload("res://scripts/domain/factions/GroupIntentSystem.gd")
 const PlacementReactionSystemScript := preload("res://scripts/domain/factions/PlacementReactionSystem.gd")
@@ -724,10 +727,15 @@ func _ready() -> void:
 	_world_spatial_index = WorldSpatialIndexScript.new()
 	_world_spatial_index.name = "WorldSpatialIndex"
 	add_child(_world_spatial_index)
+	_spatial_index_projection = SpatialIndexProjectionScript.new()
+	_spatial_index_projection.setup({
+		"chunk_size": chunk_size,
+	})
 	_world_spatial_index.setup({
 		"world_to_tile": Callable(self, "_world_to_tile"),
 		"tile_to_world": Callable(self, "_tile_to_world"),
 		"chunk_size": chunk_size,
+		"placeables_projection": _spatial_index_projection,
 	})
 
 	_bandit_behavior_layer = BanditBehaviorLayerScript.new()
@@ -783,7 +791,7 @@ func _ready() -> void:
 		"player_pos_getter": Callable(self, "_get_player_world_pos"),
 		"world_spatial_index": _world_spatial_index,
 	})
-	_player_territory = TerritoryProjection.new()
+	_player_territory = TerritoryProjectionScript.new()
 	_request_player_territory_rebuild("startup")
 	_tavern_memory   = TavernLocalMemory.new()
 	_tavern_policy   = TavernAuthorityPolicy.new()
