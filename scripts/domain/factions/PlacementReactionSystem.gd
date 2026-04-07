@@ -6,6 +6,7 @@ const DEFAULT_INTENT_LOCK_SECONDS: float = 90.0
 const DEFAULT_STRUCT_ASSAULT_SQUAD: int = 3
 const DEFAULT_EVENT_MIN_INTERVAL: float = 0.20
 const DEFAULT_DEBUG_MAX_EVENTS: int = 96
+const DEFAULT_EVENT_DEDUPE_WINDOW: float = 0.35
 
 var _threat_assessment_system: ThreatAssessmentSystem
 var _group_intent_system: GroupIntentSystem
@@ -21,6 +22,8 @@ var _placement_react_debug_total_events: int = 0
 var _placement_react_debug_total_activated_groups: int = 0
 var _placement_react_debug_total_intents_published: int = 0
 var _placement_react_debug_recent_events: Array[Dictionary] = []
+var _placement_react_debug_skipped_duplicate_events: int = 0
+var _recent_event_fingerprints: Dictionary = {}
 
 var _default_radius: float = 640.0
 var _radius_by_item_id: Dictionary = {}
@@ -36,6 +39,7 @@ var _wall_assault_global_mode: bool = true
 var _wall_assault_radius: float = 12000.0
 var _wall_assault_min_score: float = 0.18
 var _event_min_interval: float = DEFAULT_EVENT_MIN_INTERVAL
+var _event_dedupe_window: float = DEFAULT_EVENT_DEDUPE_WINDOW
 var _intent_lock_seconds: float = DEFAULT_INTENT_LOCK_SECONDS
 var _debug_max_events: int = DEFAULT_DEBUG_MAX_EVENTS
 
@@ -61,6 +65,7 @@ func setup(config: Dictionary = {}) -> void:
 	_wall_assault_radius = maxf(0.0, float(config.get("wall_assault_radius", _wall_assault_radius)))
 	_wall_assault_min_score = clampf(float(config.get("wall_assault_min_score", _wall_assault_min_score)), 0.0, 1.0)
 	_event_min_interval = maxf(0.0, float(config.get("event_min_interval", _event_min_interval)))
+	_event_dedupe_window = maxf(0.0, float(config.get("event_dedupe_window", _event_dedupe_window)))
 	_intent_lock_seconds = maxf(0.0, float(config.get("intent_lock_seconds", _intent_lock_seconds)))
 	_debug_max_events = maxi(1, int(config.get("debug_max_events", _debug_max_events)))
 
@@ -72,11 +77,17 @@ func handle_building_event(event_data: Dictionary) -> void:
 	var item_id: String = String(normalized.get("item_id", ""))
 	var target_pos: Vector2 = normalized.get("target_position", Vector2.ZERO) as Vector2
 	var now: float = RunClock.now()
-	if now - _placement_react_last_event_at < _event_min_interval:
-		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
-			1, 0, 0, item_id, str(target_pos)
+	if _is_duplicate_event(normalized, now):
+		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_duplicate=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
+			0, 1, 0, 0, item_id, str(target_pos)
 		])
-		_record_debug_event(item_id, target_pos, 0, 0, 1, 0)
+		_record_debug_event(item_id, target_pos, 0, 0, 0, 0, 1)
+		return
+	if now - _placement_react_last_event_at < _event_min_interval:
+		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_duplicate=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
+			1, 0, 0, 0, item_id, str(target_pos)
+		])
+		_record_debug_event(item_id, target_pos, 0, 0, 1, 0, 0)
 		return
 	_placement_react_last_event_at = now
 	_trigger_placement_react(normalized)
@@ -86,7 +97,9 @@ func reset_debug_metrics() -> void:
 	_placement_react_debug_total_events = 0
 	_placement_react_debug_total_activated_groups = 0
 	_placement_react_debug_total_intents_published = 0
+	_placement_react_debug_skipped_duplicate_events = 0
 	_placement_react_debug_recent_events.clear()
+	_recent_event_fingerprints.clear()
 
 
 func get_debug_snapshot() -> Dictionary:
@@ -97,6 +110,7 @@ func get_debug_snapshot() -> Dictionary:
 		"events_total": _placement_react_debug_total_events,
 		"groups_activated_total": _placement_react_debug_total_activated_groups,
 		"intents_published_total": _placement_react_debug_total_intents_published,
+		"skipped_duplicate_events_total": _placement_react_debug_skipped_duplicate_events,
 		"dispatches_per_event_avg": avg_dispatches_per_event,
 		"last_event": _placement_react_debug_recent_events.back() if not _placement_react_debug_recent_events.is_empty() else {},
 		"recent_events": _placement_react_debug_recent_events.duplicate(true),
@@ -123,8 +137,8 @@ func _trigger_placement_react(source_event: Dictionary) -> void:
 	if all_ids.is_empty():
 		_record_debug_event(item_id, target_pos, 0, 0, 0, 0)
 		Debug.log("placement_react", "  SKIP: no hay grupos registrados en BanditGroupMemory")
-		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
-			0, 0, 0, item_id, str(target_pos)
+		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_duplicate=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
+			0, 0, 0, 0, item_id, str(target_pos)
 		])
 		return
 	var groups_evaluated: int = 0
@@ -166,7 +180,7 @@ func _trigger_placement_react(source_event: Dictionary) -> void:
 	if candidate_groups.is_empty():
 		_record_debug_event(item_id, target_pos, 0, 0, 0, 0)
 		Debug.log("placement_react", "  SKIP: no hay grupos cercanos (evaluated=%d eligible=%d radius=%.1f)" % [groups_evaluated, groups_eligible, react_radius])
-		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [0, 0, 0, item_id, str(target_pos)])
+		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_duplicate=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [0, 0, 0, 0, item_id, str(target_pos)])
 		return
 	candidate_groups.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var a_pack: Dictionary = a.get("score_pack", {}) as Dictionary
@@ -209,7 +223,7 @@ func _trigger_placement_react(source_event: Dictionary) -> void:
 	if not bool(assessment.get("is_relevant", false)) or scoped_candidates.is_empty():
 		_record_debug_event(item_id, target_pos, 0, 0, 0, 0)
 		Debug.log("placement_react", "  SKIP: threat_assessment not relevant priority=%s severity=%.2f details=%s" % [String(assessment.get("priority", "none")), float(assessment.get("severity", 0.0)), str(assessment.get("debug", {}))])
-		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [0, 0, 0, item_id, str(target_pos)])
+		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_duplicate=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [0, 0, 0, 0, item_id, str(target_pos)])
 		return
 	var scoped_by_gid: Dictionary = {}
 	for scoped_entry_raw in scoped_candidates:
@@ -287,10 +301,10 @@ func _trigger_placement_react(source_event: Dictionary) -> void:
 		int(blocking_metrics.get("cache_misses", 0)),
 		int(blocking_metrics.get("cache_size", 0))
 	])
-	Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
-		0, skipped_by_lock, groups_activated, item_id, str(target_pos)
+	Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_duplicate=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
+		0, 0, skipped_by_lock, groups_activated, item_id, str(target_pos)
 	])
-	_record_debug_event(item_id, target_pos, groups_activated, intent_published, 0, skipped_by_lock)
+	_record_debug_event(item_id, target_pos, groups_activated, intent_published, 0, skipped_by_lock, 0)
 
 
 func _normalize_building_event(event_data: Dictionary) -> Dictionary:
@@ -354,10 +368,12 @@ func _resolve_item_id(event_data: Dictionary) -> String:
 
 
 func _record_debug_event(item_id: String, target_pos: Vector2, groups_activated: int,
-		intents_published: int, skipped_by_interval: int, skipped_by_lock: int) -> void:
+		intents_published: int, skipped_by_interval: int, skipped_by_lock: int,
+		skipped_by_duplicate: int = 0) -> void:
 	_placement_react_debug_total_events += 1
 	_placement_react_debug_total_activated_groups += maxi(groups_activated, 0)
 	_placement_react_debug_total_intents_published += maxi(intents_published, 0)
+	_placement_react_debug_skipped_duplicate_events += maxi(skipped_by_duplicate, 0)
 	_placement_react_debug_recent_events.append({
 		"at": RunClock.now(),
 		"item_id": item_id,
@@ -366,9 +382,49 @@ func _record_debug_event(item_id: String, target_pos: Vector2, groups_activated:
 		"intents_published": maxi(intents_published, 0),
 		"skipped_by_interval": maxi(skipped_by_interval, 0),
 		"skipped_by_lock": maxi(skipped_by_lock, 0),
+		"skipped_by_duplicate": maxi(skipped_by_duplicate, 0),
 	})
 	while _placement_react_debug_recent_events.size() > _debug_max_events:
 		_placement_react_debug_recent_events.remove_at(0)
+
+
+func _is_duplicate_event(normalized_event: Dictionary, now: float) -> bool:
+	if _event_dedupe_window <= 0.0:
+		return false
+	var item_id: String = String(normalized_event.get("item_id", ""))
+	var tile_pos: Vector2i = normalized_event.get("tile_pos", Vector2i.ZERO) as Vector2i
+	var event_type: String = String(normalized_event.get("event_type", ""))
+	var dedupe_family: String = _dedupe_family_for_event_type(event_type)
+	var fingerprint: String = "%s|%s|%d|%d" % [dedupe_family, item_id, tile_pos.x, tile_pos.y]
+	_prune_expired_event_fingerprints(now)
+	if _recent_event_fingerprints.has(fingerprint):
+		return true
+	_recent_event_fingerprints[fingerprint] = now + _event_dedupe_window
+	return false
+
+
+func _dedupe_family_for_event_type(event_type: String) -> String:
+	match event_type:
+		ThreatAssessmentSystem.EVENT_TYPE_PLACEMENT_COMPLETED, ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_PLACED:
+			return "placed"
+		ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_DAMAGED:
+			return "damaged"
+		ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_REMOVED:
+			return "removed"
+		_:
+			return event_type
+
+
+func _prune_expired_event_fingerprints(now: float) -> void:
+	if _recent_event_fingerprints.is_empty():
+		return
+	var stale: Array[String] = []
+	for key_variant in _recent_event_fingerprints.keys():
+		var key: String = String(key_variant)
+		if float(_recent_event_fingerprints.get(key, 0.0)) <= now:
+			stale.append(key)
+	for key in stale:
+		_recent_event_fingerprints.erase(key)
 
 
 func _resolve_squad_size(is_high_priority: bool) -> int:
