@@ -153,6 +153,7 @@ var _building_tilemap_projection: BuildingTilemapProjection
 var _building_collider_refresh_projection: BuildingColliderRefreshProjection
 var _threat_assessment_system: ThreatAssessmentSystem
 var _group_intent_system: GroupIntentSystem
+var _placement_reaction_system: PlacementReactionSystem
 var _building_threat_event_adapter: BuildingThreatEventAdapter
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
@@ -178,13 +179,7 @@ const _PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD: int = 3
 const _PLACEMENT_REACT_EVENT_MIN_INTERVAL: float = 0.20
 ## Empty filter = query all player placeables from WorldSpatialIndex persistent cache.
 const _PLAYER_RAID_PLACEABLE_ITEM_IDS: Array[String] = []
-var _placement_react_last_event_at: float = -9999.0
-var _placement_react_pulse_seq: int = 0
 const _PLACEMENT_REACT_DEBUG_MAX_EVENTS: int = 96
-var _placement_react_debug_total_events: int = 0
-var _placement_react_debug_total_activated_groups: int = 0
-var _placement_react_debug_total_intents_published: int = 0
-var _placement_react_debug_recent_events: Array[Dictionary] = []
 @export_group("Placement Reaction")
 @export var placement_react_default_radius: float = 640.0
 @export var placement_react_radius_by_item_id: Dictionary = {}
@@ -241,6 +236,7 @@ const BuildingTilemapProjectionScript := preload("res://scripts/projections/tile
 const BuildingColliderRefreshProjectionScript := preload("res://scripts/projections/collider/BuildingColliderRefreshProjection.gd")
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
 const GroupIntentSystemScript := preload("res://scripts/domain/factions/GroupIntentSystem.gd")
+const PlacementReactionSystemScript := preload("res://scripts/domain/factions/PlacementReactionSystem.gd")
 const BuildingThreatEventAdapterScript := preload("res://scripts/world/BuildingThreatEventAdapter.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
@@ -345,6 +341,32 @@ func _setup_building_module() -> void:
 	_group_intent_system.setup({
 		"group_memory": BanditGroupMemory,
 		"now_provider": Callable(RunClock, "now"),
+	})
+	_placement_reaction_system = PlacementReactionSystemScript.new()
+	_placement_reaction_system.setup({
+		"threat_assessment_system": _threat_assessment_system,
+		"group_intent_system": _group_intent_system,
+		"enemy_node_provider": Callable(self, "_get_enemy_node_for_react"),
+		"world_spatial_index": _world_spatial_index,
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"nearest_workbench_world_pos": Callable(self, "find_nearest_player_workbench_world_pos"),
+		"drop_hotspots_provider": Callable(self, "_get_drop_compaction_hotspots"),
+		"default_radius": placement_react_default_radius,
+		"radius_by_item_id": placement_react_radius_by_item_id.duplicate(true),
+		"max_groups_per_event": placement_react_max_groups_per_event,
+		"min_score": placement_react_min_score,
+		"high_priority_score": placement_react_high_priority_score,
+		"struct_assault_squad_size": placement_react_struct_assault_squad_size,
+		"high_priority_squad_size_override": placement_react_high_priority_squad_size_override,
+		"blocking_checks_budget": placement_react_blocking_checks_budget,
+		"lock_min_relevance_delta": placement_react_lock_min_relevance_delta,
+		"lock_min_distance_delta_px": placement_react_lock_min_distance_delta_px,
+		"wall_assault_global_mode": placement_react_wall_assault_global_mode,
+		"wall_assault_radius": placement_react_wall_assault_radius,
+		"wall_assault_min_score": placement_react_wall_assault_min_score,
+		"event_min_interval": _PLACEMENT_REACT_EVENT_MIN_INTERVAL,
+		"intent_lock_seconds": _PLACEMENT_REACT_INTENT_LOCK_SECONDS,
+		"debug_max_events": _PLACEMENT_REACT_DEBUG_MAX_EVENTS,
 	})
 	_building_threat_event_adapter = BuildingThreatEventAdapterScript.new()
 	_building_threat_event_adapter.setup({
@@ -2187,15 +2209,8 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 		_building_threat_event_adapter.ingest_placement_completed(_item_id, tile_pos, {
 			"source": "placement_system",
 		})
-	# Throttle mínimo para evitar duplicados por input/drag en el mismo frame.
-	var now: float = RunClock.now()
-	if now - _placement_react_last_event_at < _PLACEMENT_REACT_EVENT_MIN_INTERVAL:
-		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
-			1, 0, 0, _item_id, str(world_pos)
-		])
-		return
-	_placement_react_last_event_at = now
-	_trigger_placement_react(_item_id, world_pos, 0)
+	if _placement_reaction_system != null:
+		_placement_reaction_system.handle_placement_completed(_item_id, world_pos)
 
 func _on_building_events_emitted(events: Array[Dictionary]) -> void:
 	if _building_threat_event_adapter == null:
@@ -2203,466 +2218,29 @@ func _on_building_events_emitted(events: Array[Dictionary]) -> void:
 	_building_threat_event_adapter.ingest_building_events(events)
 
 func _on_building_threat_assessment(assessment: Dictionary) -> void:
-	if assessment.is_empty():
-		return
-	var source_event: Dictionary = assessment.get("source_event", {}) as Dictionary
-	Debug.log("placement_react", "threat_ingestion source=%s event=%s item=%s priority=%s severity=%.2f relevant=%s" % [
-		String((source_event.get("metadata", {}) as Dictionary).get("source", "building_event_adapter")),
-		String(source_event.get("event_type", "")),
-		String(source_event.get("item_id", "")),
-		String(assessment.get("priority", "none")),
-		float(assessment.get("severity", 0.0)),
-		str(bool(assessment.get("is_relevant", false))),
-	])
-
-
-func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_interval: int = 0) -> void:
-	var all_ids: Array = BanditGroupMemory.get_all_group_ids()
-	var is_wall_assault_event: bool = _is_wall_assault_placement_item(item_id)
-	var react_radius: float = _get_placement_react_radius(item_id)
-	var react_radius_sq: float = react_radius * react_radius
-	var min_score_threshold: float = placement_react_wall_assault_min_score if is_wall_assault_event else placement_react_min_score
-	_placement_react_pulse_seq += 1
-	var blocking_query_ctx: Dictionary = {
-		"pulse_id": _placement_react_pulse_seq,
-		"blocking_checks_budget": 0 if is_wall_assault_event else maxi(0, placement_react_blocking_checks_budget),
-	}
-	Debug.log("placement_react", "--- placement react target=%s groups_total=%d ---" % [
-		str(target_pos), all_ids.size()])
-	if all_ids.is_empty():
-		_record_placement_react_debug_event(item_id, target_pos, 0, 0, skipped_by_interval, 0)
-		Debug.log("placement_react", "  SKIP: no hay grupos registrados en BanditGroupMemory")
-		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
-			skipped_by_interval, 0, 0, item_id, str(target_pos)
-		])
-		return
-	var groups_evaluated: int = 0
-	var groups_eligible: int = 0
-	var candidate_groups: Array[Dictionary] = []
-	for gid in all_ids:
-		var g: Dictionary = BanditGroupMemory.get_group(gid)
-		var faction_id: String = String(g.get("faction_id", ""))
-		var eradicated: bool = bool(g.get("eradicated", false))
-		var members: Array = g.get("member_ids", []) as Array
-		if eradicated or members.is_empty():
-			continue
-		if not _is_group_hostile_for_structure_assault(g):
-			Debug.log("placement_react", "  group=%s faction=%s skipped (not hostile for structures)" % [
-				gid, faction_id])
-			continue
-		var anchor: Dictionary = _get_group_react_anchor(g)
-		var anchor_pos: Vector2 = anchor.get("pos", Vector2.ZERO) as Vector2
-		var anchor_kind: String = String(anchor.get("kind", "none"))
-		if anchor_kind == "none":
-			continue
-		groups_evaluated += 1
-		var dist_sq: float = anchor_pos.distance_squared_to(target_pos)
-		if dist_sq > react_radius_sq:
-			Debug.log("placement_react", "  group=%s skipped (far) dist=%.1f radius=%.1f anchor=%s" % [
-				gid, sqrt(dist_sq), react_radius, anchor_kind])
-			continue
-		if not is_wall_assault_event and int(blocking_query_ctx.get("blocking_checks_budget", 0)) <= 0:
-			Debug.log("placement_react", "  blocking_checks_budget exhausted pulse=%d groups_evaluated=%d" % [
-				int(blocking_query_ctx.get("pulse_id", -1)),
-				groups_evaluated
-			])
-			break
-		var score_pack: Dictionary = _score_placement_relevance(
-			item_id, target_pos, anchor_pos, g, react_radius, blocking_query_ctx, is_wall_assault_event
-		)
-		groups_eligible += 1
-		candidate_groups.append({
-			"gid": gid,
-			"group_data": g,
-			"faction_id": faction_id,
-			"anchor_kind": anchor_kind,
-			"dist_sq": dist_sq,
-			"score_pack": score_pack,
-		})
-	if candidate_groups.is_empty():
-		_record_placement_react_debug_event(item_id, target_pos, 0, 0, skipped_by_interval, 0)
-		Debug.log("placement_react", "  SKIP: no hay grupos cercanos (evaluated=%d eligible=%d radius=%.1f)" % [
-			groups_evaluated, groups_eligible, react_radius])
-		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
-			skipped_by_interval, 0, 0, item_id, str(target_pos)
-		])
-		return
-	candidate_groups.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var a_pack: Dictionary = a.get("score_pack", {}) as Dictionary
-		var b_pack: Dictionary = b.get("score_pack", {}) as Dictionary
-		var a_score: float = float(a_pack.get("score", 0.0))
-		var b_score: float = float(b_pack.get("score", 0.0))
-		if is_equal_approx(a_score, b_score):
-			return float(a.get("dist_sq", INF)) < float(b.get("dist_sq", INF))
-		return a_score > b_score
-	)
-	var assessment: Dictionary = _threat_assessment_system.assess_building_event(
-		{
-			"type": "placement_completed",
-			"item_id": item_id,
-			"target_position": target_pos,
-			"metadata": {
-				"is_wall_assault_event": is_wall_assault_event,
-				"react_radius": react_radius,
-			},
-		},
-		{
-			"group_candidates": candidate_groups,
-			"min_group_score": min_score_threshold,
-			"max_groups": placement_react_max_groups_per_event,
-		}
-	)
-	var scoped: Dictionary = assessment.get("candidate_group_scope", {}) as Dictionary
-	var scoped_candidates: Array = scoped.get("candidates", []) as Array
-	if not bool(assessment.get("is_relevant", false)) or scoped_candidates.is_empty():
-		_record_placement_react_debug_event(item_id, target_pos, 0, 0, skipped_by_interval, 0)
-		Debug.log("placement_react", "  SKIP: threat_assessment not relevant priority=%s severity=%.2f details=%s" % [
-			String(assessment.get("priority", "none")),
-			float(assessment.get("severity", 0.0)),
-			str(assessment.get("debug", {}))
-		])
-		Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
-			skipped_by_interval, 0, 0, item_id, str(target_pos)
-		])
-		return
-	var scoped_by_gid: Dictionary = {}
-	for scoped_entry_raw in scoped_candidates:
-		if not (scoped_entry_raw is Dictionary):
-			continue
-		var scoped_entry := scoped_entry_raw as Dictionary
-		var scoped_gid: String = String(scoped_entry.get("group_id", ""))
-		if scoped_gid.is_empty():
-			continue
-		scoped_by_gid[scoped_gid] = scoped_entry
-	var intent_published: int = 0
-	var groups_activated: int = 0
-	var skipped_by_lock: int = 0
-	for entry in candidate_groups:
-		var gid: String = String(entry.get("gid", ""))
-		if not scoped_by_gid.has(gid):
-			continue
-		var g: Dictionary = entry.get("group_data", {}) as Dictionary
-		var faction_id: String = String(entry.get("faction_id", ""))
-		var anchor_kind: String = String(entry.get("anchor_kind", "unknown"))
-		var score_pack: Dictionary = entry.get("score_pack", {}) as Dictionary
-		var scoped_entry: Dictionary = scoped_by_gid.get(gid, {}) as Dictionary
-		var score: float = float(scoped_entry.get("score", score_pack.get("score", 0.0)))
-		var anchor_dist: float = sqrt(float(entry.get("dist_sq", INF)))
-		var members: Array = g.get("member_ids", []) as Array
-		if members.is_empty():
-			continue
-		var is_high_priority: bool = score >= placement_react_high_priority_score
-		var effective_squad_size: int = _resolve_placement_react_squad_size(is_high_priority)
-		var publish_outcome: Dictionary = _group_intent_system.publish_placement_reaction_intent(
-			assessment,
-			{
-				"group_id": gid,
-				"score": score,
-				"anchor_distance": anchor_dist,
-				"anchor_kind": anchor_kind,
-				"anchor_position": target_pos,
-			},
-			{
-				"lock_min_relevance_delta": placement_react_lock_min_relevance_delta,
-				"lock_min_distance_delta_px": placement_react_lock_min_distance_delta_px,
-				"lock_seconds": _PLACEMENT_REACT_INTENT_LOCK_SECONDS,
-				"squad_size": effective_squad_size,
-				"ttl_seconds": BanditTuning.structure_assault_active_ttl(),
-				"reason_source": "placed_structure",
-				"source": BanditGroupMemory.ASSAULT_INTENT_SOURCE_PLACEMENT_REACT,
-				"origin_event_ref": assessment.get("source_event", {}),
-			}
-		)
-		var publish_status: String = String(publish_outcome.get("status", "unknown"))
-		if publish_status == "ignored_by_lock":
-			skipped_by_lock += 1
-			Debug.log("placement_react", "  decision=ignored_by_lock group=%s score=%.2f prev_score=%.2f score_delta=%.2f dist=%.1f prev_dist=%.1f dist_delta=%.1f lock_active=%s anchor=%s" % [
-				gid,
-				score,
-				float(publish_outcome.get("previous_score", -1.0)),
-				float(publish_outcome.get("score_delta", 0.0)),
-				anchor_dist,
-				float(publish_outcome.get("previous_anchor_distance", INF)),
-				float(publish_outcome.get("anchor_distance_delta", 0.0)),
-				"true",
-				anchor_kind
-			])
-			continue
-		var published: bool = bool(publish_outcome.get("published", false))
-		if published:
-			intent_published += 1
-		groups_activated += 1
-		var decision_tag: String = "reacted_high_priority" if is_high_priority else ("reacted_wall_global" if is_wall_assault_event else "reacted_local")
-		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f squad_size=%d intent_published=%s intent_status=%s precedence=placement_react>raid_queue>opportunistic anchor=%s details=%s" % [
-			decision_tag, gid, faction_id, score, effective_squad_size, str(published), publish_status, anchor_kind, str(score_pack)])
-	Debug.log("placement_react", "  SUMMARY evaluated=%d eligible=%d activated=%d intents_published=%d radius=%.1f max_groups=%d precedence=placement_react>raid_queue>opportunistic" % [
-		groups_evaluated,
-		groups_eligible,
-		groups_activated,
-		intent_published,
-		react_radius,
-		placement_react_max_groups_per_event
-	])
-	var blocking_metrics: Dictionary = NpcPathService.get_line_clear_budget_metrics()
-	Debug.log("placement_react", "  blocking_budget pulse=%d used=%d left=%d exhausted=%d cache_hits=%d cache_misses=%d cache_size=%d" % [
-		int(blocking_metrics.get("pulse_id", -1)),
-		int(blocking_metrics.get("checks_used", 0)),
-		int(blocking_query_ctx.get("blocking_checks_budget", 0)),
-		int(blocking_metrics.get("budget_exhausted", 0)),
-		int(blocking_metrics.get("cache_hits", 0)),
-		int(blocking_metrics.get("cache_misses", 0)),
-		int(blocking_metrics.get("cache_size", 0))
-	])
-	Debug.log("placement_react", "  SUMMARY placement_event skipped_by_interval=%d skipped_by_lock=%d activated=%d item=%s target=%s" % [
-		skipped_by_interval,
-		skipped_by_lock,
-		groups_activated,
-		item_id,
-		str(target_pos)
-	])
-	_record_placement_react_debug_event(
-		item_id,
-		target_pos,
-		groups_activated,
-		intent_published,
-		skipped_by_interval,
-		skipped_by_lock
-	)
-
-
-func _record_placement_react_debug_event(
-		item_id: String,
-		target_pos: Vector2,
-		groups_activated: int,
-		intents_published: int,
-		skipped_by_interval: int,
-		skipped_by_lock: int) -> void:
-	_placement_react_debug_total_events += 1
-	_placement_react_debug_total_activated_groups += maxi(groups_activated, 0)
-	_placement_react_debug_total_intents_published += maxi(intents_published, 0)
-	_placement_react_debug_recent_events.append({
-		"at": RunClock.now(),
-		"item_id": item_id,
-		"target_pos": target_pos,
-		"groups_activated": maxi(groups_activated, 0),
-		"intents_published": maxi(intents_published, 0),
-		"skipped_by_interval": maxi(skipped_by_interval, 0),
-		"skipped_by_lock": maxi(skipped_by_lock, 0),
-	})
-	while _placement_react_debug_recent_events.size() > _PLACEMENT_REACT_DEBUG_MAX_EVENTS:
-		_placement_react_debug_recent_events.remove_at(0)
+	if _placement_reaction_system != null:
+		_placement_reaction_system.observe_assessment(assessment)
 
 
 func reset_placement_react_debug_metrics() -> void:
-	_placement_react_debug_total_events = 0
-	_placement_react_debug_total_activated_groups = 0
-	_placement_react_debug_total_intents_published = 0
-	_placement_react_debug_recent_events.clear()
+	if _placement_reaction_system != null:
+		_placement_reaction_system.reset_debug_metrics()
 
 
 func get_placement_react_debug_snapshot() -> Dictionary:
-	var avg_dispatches_per_event: float = 0.0
-	if _placement_react_debug_total_events > 0:
-		avg_dispatches_per_event = float(_placement_react_debug_total_intents_published) / float(_placement_react_debug_total_events)
-	return {
-		"events_total": _placement_react_debug_total_events,
-		"groups_activated_total": _placement_react_debug_total_activated_groups,
-		"intents_published_total": _placement_react_debug_total_intents_published,
-		"dispatches_per_event_avg": avg_dispatches_per_event,
-		"last_event": _placement_react_debug_recent_events.back() if not _placement_react_debug_recent_events.is_empty() else {},
-		"recent_events": _placement_react_debug_recent_events.duplicate(true),
-	}
+	if _placement_reaction_system != null:
+		return _placement_reaction_system.get_debug_snapshot()
+	return {}
 
 
-func _resolve_placement_react_squad_size(is_high_priority: bool) -> int:
-	var base_size: int = maxi(1, placement_react_struct_assault_squad_size)
-	if is_high_priority:
-		var override_size: int = int(placement_react_high_priority_squad_size_override)
-		if override_size > 0:
-			return maxi(1, override_size)
-	return base_size
+func _get_enemy_node_for_react(enemy_id: String) -> Node:
+	if npc_simulator == null:
+		return null
+	return npc_simulator.get_enemy_node(enemy_id)
 
 
-func _score_placement_relevance(item_id: String, target_pos: Vector2, anchor_pos: Vector2,
-		group_data: Dictionary, react_radius: float, blocking_query_ctx: Dictionary,
-		is_wall_assault_event: bool = false) -> Dictionary:
-	var safe_radius: float = maxf(1.0, react_radius)
-	var dist: float = anchor_pos.distance_to(target_pos)
-	var distance_score: float = clampf(1.0 - (dist / safe_radius), 0.0, 1.0)
-
-	var home_pos: Vector2 = group_data.get("home_world_pos", Vector2.ZERO) as Vector2
-	var base_proximity_score: float = 0.0
-	if home_pos != Vector2.ZERO:
-		var base_dist: float = home_pos.distance_to(target_pos)
-		base_proximity_score = clampf(1.0 - (base_dist / (safe_radius * 0.85)), 0.0, 1.0)
-
-	var poi_score: float = _score_placement_react_points_of_interest(item_id, target_pos, safe_radius)
-	var blocking_score: float = _score_placement_react_blocking(anchor_pos, target_pos, home_pos, blocking_query_ctx)
-
-	var score: float = 0.0
-	if is_wall_assault_event:
-		# Wall-demolition reacciona casi global: la distancia deja de ser un filtro dominante.
-		score = 0.55 \
-			+ distance_score * 0.18 \
-			+ base_proximity_score * 0.08 \
-			+ poi_score * 0.24
-	else:
-		score = distance_score * 0.50 \
-			+ base_proximity_score * 0.22 \
-			+ poi_score * 0.28 \
-			- blocking_score * 0.35
-	score = clampf(score, 0.0, 1.0)
-	return {
-		"score": score,
-		"distance": distance_score,
-		"enemy_base": base_proximity_score,
-		"poi": poi_score,
-		"blocking": blocking_score,
-		"blocking_checks_left": int(blocking_query_ctx.get("blocking_checks_budget", 0)),
-	}
-
-
-func _score_placement_react_points_of_interest(_item_id: String, target_pos: Vector2, safe_radius: float) -> float:
-	var poi_radius: float = minf(420.0, maxf(140.0, safe_radius * 0.65))
-	var best_dist_sq: float = INF
-
-	if _world_spatial_index != null:
-		var res_nodes: Array = _world_spatial_index.get_runtime_nodes_near(
-			WorldSpatialIndex.KIND_WORLD_RESOURCE,
-			target_pos,
-			poi_radius,
-			{"enough_threshold": 3}
-		)
-		for node in res_nodes:
-			if node is Node2D:
-				var d_sq: float = (node as Node2D).global_position.distance_squared_to(target_pos)
-				if d_sq < best_dist_sq:
-					best_dist_sq = d_sq
-		var storage_and_workbench: Array[Dictionary] = _world_spatial_index.get_placeables_by_item_ids_near(
-			target_pos,
-			poi_radius,
-			["chest", "barrel", "workbench"],
-			{"enough_threshold": 4}
-		)
-		for entry in storage_and_workbench:
-			var tile_pos := Vector2i(int(entry.get("tile_pos_x", -999999)), int(entry.get("tile_pos_y", -999999)))
-			if tile_pos.x <= -999999 or tile_pos.y <= -999999:
-				continue
-			var wpos: Vector2 = _tile_to_world(tile_pos)
-			var d_sq: float = wpos.distance_squared_to(target_pos)
-			if d_sq < best_dist_sq:
-				best_dist_sq = d_sq
-
-	var nearest_wb: Vector2 = find_nearest_player_workbench_world_pos(target_pos, poi_radius, {"enough_threshold": 1})
-	if nearest_wb != Vector2.ZERO:
-		best_dist_sq = minf(best_dist_sq, nearest_wb.distance_squared_to(target_pos))
-
-	for hotspot in _drop_compaction_hotspots:
-		var hpos: Vector2 = hotspot.get("pos", Vector2.ZERO) as Vector2
-		if hpos == Vector2.ZERO:
-			continue
-		var d_sq: float = hpos.distance_squared_to(target_pos)
-		if d_sq < best_dist_sq:
-			best_dist_sq = d_sq
-
-	if best_dist_sq == INF:
-		return 0.0
-	return clampf(1.0 - (sqrt(best_dist_sq) / poi_radius), 0.0, 1.0)
-
-
-func _score_placement_react_blocking(anchor_pos: Vector2, target_pos: Vector2, home_pos: Vector2, blocking_query_ctx: Dictionary) -> float:
-	if int(blocking_query_ctx.get("blocking_checks_budget", 0)) <= 0:
-		return 0.0
-	var blocked_votes: int = 0
-	var checks_used: int = 0
-	if not NpcPathService.has_line_clear(anchor_pos, target_pos, blocking_query_ctx):
-		blocked_votes += 1
-	checks_used += 1
-
-	if int(blocking_query_ctx.get("blocking_checks_budget", 0)) > 0 and home_pos != Vector2.ZERO:
-		if not NpcPathService.has_line_clear(home_pos, target_pos, blocking_query_ctx):
-			blocked_votes += 1
-		checks_used += 1
-	if checks_used <= 0:
-		return 0.0
-	return float(blocked_votes) / float(checks_used)
-
-
-func _get_placement_react_radius(item_id: String) -> float:
-	if placement_react_wall_assault_global_mode and _is_wall_assault_placement_item(item_id):
-		return maxf(placement_react_wall_assault_radius, placement_react_default_radius)
-	var by_item: Variant = placement_react_radius_by_item_id.get(item_id, -1.0)
-	var parsed: float = float(by_item)
-	if parsed > 0.0:
-		return parsed
-	return maxf(0.0, placement_react_default_radius)
-
-
-func _is_wall_assault_placement_item(item_id: String) -> bool:
-	return item_id == BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD)
-
-
-func _get_group_react_anchor(group_data: Dictionary) -> Dictionary:
-	var leader_id: String = String(group_data.get("leader_id", ""))
-	if leader_id != "" and npc_simulator != null:
-		var leader_node: Node = npc_simulator.get_enemy_node(leader_id)
-		if leader_node != null and leader_node is Node2D:
-			return {"pos": (leader_node as Node2D).global_position, "kind": "leader"}
-	var members: Array = group_data.get("member_ids", []) as Array
-	if npc_simulator != null and not members.is_empty():
-		var sum: Vector2 = Vector2.ZERO
-		var count: int = 0
-		for raw_mid in members:
-			var member_id: String = String(raw_mid)
-			if member_id == "":
-				continue
-			var member_node: Node = npc_simulator.get_enemy_node(member_id)
-			if member_node != null and member_node is Node2D:
-				sum += (member_node as Node2D).global_position
-				count += 1
-		if count > 0:
-			return {"pos": sum / float(count), "kind": "center"}
-	var home_pos: Vector2 = group_data.get("home_world_pos", Vector2.ZERO) as Vector2
-	if home_pos != Vector2.ZERO:
-		return {"pos": home_pos, "kind": "home"}
-	return {"pos": Vector2.ZERO, "kind": "none"}
-
-
-func _is_group_hostile_for_structure_assault(group_data: Dictionary) -> bool:
-	var faction_id: String = String(group_data.get("faction_id", ""))
-	if faction_id == "":
-		return false
-	if _is_faction_baseline_hostile_to_player(faction_id):
-		return true
-	var profile: FactionBehaviorProfile = FactionHostilityManager.get_behavior_profile(faction_id)
-	return profile.can_attack_punitively \
-		or profile.can_probe_walls \
-		or profile.can_damage_workbenches \
-		or profile.can_damage_storage \
-		or profile.can_damage_walls \
-		or profile.can_raid_base
-
-
-func _is_faction_baseline_hostile_to_player(faction_id: String) -> bool:
-	var fid: String = faction_id.strip_edges().to_lower()
-	if fid == "":
-		return false
-	var aliases: Array[String] = [fid]
-	if fid.ends_with("s"):
-		var singular: String = fid.substr(0, fid.length() - 1)
-		if singular != "":
-			aliases.append(singular)
-	else:
-		aliases.append(fid + "s")
-	for raw_alias in aliases:
-		var alias: String = String(raw_alias)
-		var faction_data: Dictionary = FactionSystem.get_faction(alias)
-		if faction_data.is_empty():
-			continue
-		if float(faction_data.get("hostility_to_player", 0.0)) > 0.0:
-			return true
-	# Fallback defensivo para facciones hostiles no registradas aún en FactionSystem.
-	return fid.find("bandit") >= 0 or fid.find("goblin") >= 0 or fid.find("raider") >= 0
+func _get_drop_compaction_hotspots() -> Array[Dictionary]:
+	return _drop_compaction_hotspots
 
 
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
