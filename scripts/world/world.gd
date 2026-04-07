@@ -152,6 +152,7 @@ var _building_system: BuildingSystem
 var _building_tilemap_projection: BuildingTilemapProjection
 var _building_collider_refresh_projection: BuildingColliderRefreshProjection
 var _threat_assessment_system: ThreatAssessmentSystem
+var _group_intent_system: GroupIntentSystem
 var _building_threat_event_adapter: BuildingThreatEventAdapter
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
@@ -239,6 +240,7 @@ const WorldSaveBuildingRepositoryScript := preload("res://scripts/persistence/sa
 const BuildingTilemapProjectionScript := preload("res://scripts/projections/tilemap/BuildingTilemapProjection.gd")
 const BuildingColliderRefreshProjectionScript := preload("res://scripts/projections/collider/BuildingColliderRefreshProjection.gd")
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
+const GroupIntentSystemScript := preload("res://scripts/domain/factions/GroupIntentSystem.gd")
 const BuildingThreatEventAdapterScript := preload("res://scripts/world/BuildingThreatEventAdapter.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
@@ -339,6 +341,11 @@ func _setup_building_module() -> void:
 	_building_system = BuildingSystemScript.new()
 	_building_tilemap_projection = BuildingTilemapProjectionScript.new()
 	_threat_assessment_system = ThreatAssessmentSystemScript.new()
+	_group_intent_system = GroupIntentSystemScript.new()
+	_group_intent_system.setup({
+		"group_memory": BanditGroupMemory,
+		"now_provider": Callable(RunClock, "now"),
+	})
 	_building_threat_event_adapter = BuildingThreatEventAdapterScript.new()
 	_building_threat_event_adapter.setup({
 		"threat_assessment_system": _threat_assessment_system,
@@ -2344,41 +2351,50 @@ func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_i
 		var members: Array = g.get("member_ids", []) as Array
 		if members.is_empty():
 			continue
-		var lock_active: bool = BanditGroupMemory.has_placement_react_lock(gid)
-		if lock_active:
-			var last_attempt: Dictionary = BanditGroupMemory.get_placement_react_attempt(gid)
-			var last_score: float = float(last_attempt.get("score", -1.0))
-			var last_dist: float = float(last_attempt.get("anchor_distance", INF))
-			var score_delta: float = score - last_score
-			var dist_delta: float = last_dist - anchor_dist
-			var improves_relevance: bool = score_delta >= placement_react_lock_min_relevance_delta
-			var improves_distance: bool = dist_delta >= placement_react_lock_min_distance_delta_px
-			if not improves_relevance and not improves_distance:
-				skipped_by_lock += 1
-				Debug.log("placement_react", "  decision=ignored_by_lock group=%s score=%.2f prev_score=%.2f score_delta=%.2f dist=%.1f prev_dist=%.1f dist_delta=%.1f lock_active=%s anchor=%s" % [
-					gid, score, last_score, score_delta, anchor_dist, last_dist, dist_delta, str(lock_active), anchor_kind
-				])
-				continue
-		BanditGroupMemory.record_interest(gid, target_pos, "structure_placed")
-		BanditGroupMemory.set_placement_react_lock(gid, _PLACEMENT_REACT_INTENT_LOCK_SECONDS)
-		BanditGroupMemory.set_placement_react_attempt(gid, target_pos, score, anchor_dist)
-		BanditGroupMemory.update_intent(gid, "raiding")
 		var is_high_priority: bool = score >= placement_react_high_priority_score
 		var effective_squad_size: int = _resolve_placement_react_squad_size(is_high_priority)
-		var published: bool = BanditGroupMemory.publish_assault_target_intent(
-			gid,
-			target_pos,
-			target_pos,
-			"placed_structure:squad=%d" % effective_squad_size,
-			BanditTuning.structure_assault_active_ttl(),
-			BanditGroupMemory.ASSAULT_INTENT_SOURCE_PLACEMENT_REACT
+		var publish_outcome: Dictionary = _group_intent_system.publish_placement_reaction_intent(
+			assessment,
+			{
+				"group_id": gid,
+				"score": score,
+				"anchor_distance": anchor_dist,
+				"anchor_kind": anchor_kind,
+				"anchor_position": target_pos,
+			},
+			{
+				"lock_min_relevance_delta": placement_react_lock_min_relevance_delta,
+				"lock_min_distance_delta_px": placement_react_lock_min_distance_delta_px,
+				"lock_seconds": _PLACEMENT_REACT_INTENT_LOCK_SECONDS,
+				"squad_size": effective_squad_size,
+				"ttl_seconds": BanditTuning.structure_assault_active_ttl(),
+				"reason_source": "placed_structure",
+				"source": BanditGroupMemory.ASSAULT_INTENT_SOURCE_PLACEMENT_REACT,
+				"origin_event_ref": assessment.get("source_event", {}),
+			}
 		)
+		var publish_status: String = String(publish_outcome.get("status", "unknown"))
+		if publish_status == "ignored_by_lock":
+			skipped_by_lock += 1
+			Debug.log("placement_react", "  decision=ignored_by_lock group=%s score=%.2f prev_score=%.2f score_delta=%.2f dist=%.1f prev_dist=%.1f dist_delta=%.1f lock_active=%s anchor=%s" % [
+				gid,
+				score,
+				float(publish_outcome.get("previous_score", -1.0)),
+				float(publish_outcome.get("score_delta", 0.0)),
+				anchor_dist,
+				float(publish_outcome.get("previous_anchor_distance", INF)),
+				float(publish_outcome.get("anchor_distance_delta", 0.0)),
+				"true",
+				anchor_kind
+			])
+			continue
+		var published: bool = bool(publish_outcome.get("published", false))
 		if published:
 			intent_published += 1
 		groups_activated += 1
 		var decision_tag: String = "reacted_high_priority" if is_high_priority else ("reacted_wall_global" if is_wall_assault_event else "reacted_local")
-		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f squad_size=%d intent_published=%s precedence=placement_react>raid_queue>opportunistic anchor=%s details=%s" % [
-			decision_tag, gid, faction_id, score, effective_squad_size, str(published), anchor_kind, str(score_pack)])
+		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f squad_size=%d intent_published=%s intent_status=%s precedence=placement_react>raid_queue>opportunistic anchor=%s details=%s" % [
+			decision_tag, gid, faction_id, score, effective_squad_size, str(published), publish_status, anchor_kind, str(score_pack)])
 	Debug.log("placement_react", "  SUMMARY evaluated=%d eligible=%d activated=%d intents_published=%d radius=%.1f max_groups=%d precedence=placement_react>raid_queue>opportunistic" % [
 		groups_evaluated,
 		groups_eligible,
