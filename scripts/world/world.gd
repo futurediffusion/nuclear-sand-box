@@ -121,7 +121,7 @@ var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
 var _pending_tile_erases: Array[Vector2i] = []
 var _settlement_intel: SettlementIntel
-var _player_territory: PlayerTerritoryMap
+var _player_territory: TerritoryProjection
 var _player_territory_dirty: bool = false
 var _bandit_behavior_layer: BanditBehaviorLayer
 var _world_spatial_index: WorldSpatialIndex
@@ -782,7 +782,7 @@ func _ready() -> void:
 		"player_pos_getter": Callable(self, "_get_player_world_pos"),
 		"world_spatial_index": _world_spatial_index,
 	})
-	_player_territory = PlayerTerritoryMap.new()
+	_player_territory = TerritoryProjection.new()
 	_player_territory_dirty = true
 	_tavern_memory   = TavernLocalMemory.new()
 	_tavern_policy   = TavernAuthorityPolicy.new()
@@ -2264,14 +2264,14 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 
 
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.
-## PlayerTerritoryMap — territorio del jugador
+## TerritoryProjection — territorio del jugador (derived read-model)
 func _tick_player_territory() -> void:
 	if not _player_territory_dirty or _player_territory == null or _settlement_intel == null:
 		return
 	_player_territory_dirty = false
 	var wb_nodes: Array = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_WORKBENCH) if _world_spatial_index != null else get_tree().get_nodes_in_group("workbench")
 	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_near(Vector2.ZERO, 999999.0)
-	_player_territory.rebuild(wb_nodes, bases)
+	_player_territory.rebuild_from_sources({"workbench_nodes": wb_nodes, "detected_bases": bases})
 
 func is_in_player_territory(world_pos: Vector2) -> bool:
 	if _player_territory == null:
