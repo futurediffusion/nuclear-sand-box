@@ -75,6 +75,12 @@ func ensure_synced() -> void:
 func rebuild_from_source(reason: String = "manual_rebuild") -> void:
 	_rebuild_placeables_cache_full(reason)
 
+func apply_inputs(inputs: Dictionary) -> void:
+	var item_id: String = String(inputs.get("item_id", "")).strip_edges()
+	var tile_pos_raw: Variant = inputs.get("tile_pos", Vector2i(-1, -1))
+	if tile_pos_raw is Vector2i:
+		notify_placeables_changed(item_id, tile_pos_raw as Vector2i)
+
 func notify_placeables_changed(item_id: String, tile_pos: Vector2i) -> void:
 	_placeables_sync_pending = true
 	var item_key: String = item_id.strip_edges()

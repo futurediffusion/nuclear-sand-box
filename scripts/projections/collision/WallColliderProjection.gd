@@ -39,6 +39,29 @@ func setup(ctx: Dictionary) -> void:
 		wall_reconnect_offsets = [Vector2i.ZERO]
 
 func apply_events(events: Array[Dictionary]) -> void:
+	apply_input({
+		"source": "building_events",
+		"events": events,
+	})
+
+func apply_input(input: Dictionary) -> void:
+	var events: Array[Dictionary] = input.get("events", []) as Array[Dictionary]
+	var changed_structures: Array[Dictionary] = input.get("changed_structures", []) as Array[Dictionary]
+	var structures: Array[Dictionary] = input.get("structures", []) as Array[Dictionary]
+	var base_tiles: Array[Vector2i] = input.get("base_tiles", []) as Array[Vector2i]
+	if not events.is_empty():
+		_apply_events_internal(events)
+		return
+	if not changed_structures.is_empty():
+		apply_change_set(changed_structures)
+		return
+	if not structures.is_empty():
+		apply_snapshot(structures)
+		return
+	if not base_tiles.is_empty():
+		_apply_tiles(base_tiles)
+
+func _apply_events_internal(events: Array[Dictionary]) -> void:
 	if events.is_empty():
 		return
 	var touched_tiles: Dictionary = {}
