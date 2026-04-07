@@ -299,6 +299,19 @@ Rol:
 - Mantiene `terrain_connect` y limpieza de tiles huérfanos sin convertir el TileMap en fuente de verdad.
 - Pensado para rebuild seguro desde estado persistido (`apply_snapshot`) y actualización incremental por eventos (`apply_events`).
 
+### 🧱 WALL COLLIDER PROJECTION
+
+Ubicación:
+
+- `scripts/projections/collision/WallColliderProjection.gd`
+- Compat legacy: `scripts/projections/collider/BuildingColliderRefreshProjection.gd` (wrapper)
+
+Rol:
+
+- Proyección física explícita que deriva dirty/rebuild de colliders desde eventos/snapshots del estado de building, sin convertir colliders en fuente de verdad.
+- Centraliza el scope de tiles de pared que deben gatillar refresh y permite rebuild desde estado (`apply_snapshot` / `rebuild_from_state`).
+- Se integra con `WorldProjectionRefreshContract` y, como fallback, con `WorldChunkDirtyNotifierContract` + `WallRefreshQueue`.
+
 ### 🧱 WALL PERSISTENCE (Adapter)
 
 Ubicación:
