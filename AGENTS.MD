@@ -299,6 +299,19 @@ Rol:
 - Mantiene `terrain_connect` y limpieza de tiles huérfanos sin convertir el TileMap en fuente de verdad.
 - Pensado para rebuild seguro desde estado persistido (`apply_snapshot`) y actualización incremental por eventos (`apply_events`).
 
+### 🗺️ TERRITORY PROJECTION
+
+Ubicación:
+
+- `scripts/projections/territory/TerritoryProjection.gd`
+- Compat legacy: `scripts/world/PlayerTerritoryMap.gd` (wrapper)
+
+Rol:
+
+- Proyección/read-model explícita para queries de territorio del jugador (workbench + bases cerradas detectadas).
+- Deriva estado runtime desde inputs canónicos (`WorldSpatialIndex`/grupo `workbench` y snapshots de `SettlementIntel`), sin ser fuente de verdad.
+- Rebuild seguro mediante `rebuild_from_sources(...)` para invalidación y recomposición determinista.
+
 ### 🧱 WALL COLLIDER PROJECTION
 
 Ubicación:
