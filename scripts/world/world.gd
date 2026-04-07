@@ -152,6 +152,7 @@ var _building_system: BuildingSystem
 var _building_tilemap_projection: BuildingTilemapProjection
 var _building_collider_refresh_projection: BuildingColliderRefreshProjection
 var _threat_assessment_system: ThreatAssessmentSystem
+var _building_threat_event_adapter: BuildingThreatEventAdapter
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
 var _structural_wall_persistence: StructuralWallPersistence
@@ -238,6 +239,7 @@ const WorldSaveBuildingRepositoryScript := preload("res://scripts/persistence/sa
 const BuildingTilemapProjectionScript := preload("res://scripts/projections/tilemap/BuildingTilemapProjection.gd")
 const BuildingColliderRefreshProjectionScript := preload("res://scripts/projections/collider/BuildingColliderRefreshProjection.gd")
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
+const BuildingThreatEventAdapterScript := preload("res://scripts/world/BuildingThreatEventAdapter.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
@@ -337,6 +339,12 @@ func _setup_building_module() -> void:
 	_building_system = BuildingSystemScript.new()
 	_building_tilemap_projection = BuildingTilemapProjectionScript.new()
 	_threat_assessment_system = ThreatAssessmentSystemScript.new()
+	_building_threat_event_adapter = BuildingThreatEventAdapterScript.new()
+	_building_threat_event_adapter.setup({
+		"threat_assessment_system": _threat_assessment_system,
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"assessment_sink": Callable(self, "_on_building_threat_assessment"),
+	})
 	_building_tilemap_projection.setup({
 		"walls_tilemap": walls_tilemap,
 		"walls_map_layer": WALLS_MAP_LAYER,
@@ -734,6 +742,8 @@ func _ready() -> void:
 			_player_wall_system.player_wall_hit.connect(_on_wall_hit_activity)
 		if not _player_wall_system.structural_wall_hit.is_connected(_on_wall_hit_activity):
 			_player_wall_system.structural_wall_hit.connect(_on_wall_hit_activity)
+		if not _player_wall_system.building_events_emitted.is_connected(_on_building_events_emitted):
+			_player_wall_system.building_events_emitted.connect(_on_building_events_emitted)
 
 	WorldSave.wall_tile_blocker_fn = _has_wall_tile_between
 
@@ -2166,6 +2176,10 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 	var world_pos: Vector2 = _tile_to_world(tile_pos)
 	Debug.log("placement_react", "placement_completed item=%s tile=%s world=%s" % [
 		_item_id, str(tile_pos), str(world_pos)])
+	if _building_threat_event_adapter != null:
+		_building_threat_event_adapter.ingest_placement_completed(_item_id, tile_pos, {
+			"source": "placement_system",
+		})
 	# Throttle mínimo para evitar duplicados por input/drag en el mismo frame.
 	var now: float = RunClock.now()
 	if now - _placement_react_last_event_at < _PLACEMENT_REACT_EVENT_MIN_INTERVAL:
@@ -2175,6 +2189,24 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 		return
 	_placement_react_last_event_at = now
 	_trigger_placement_react(_item_id, world_pos, 0)
+
+func _on_building_events_emitted(events: Array[Dictionary]) -> void:
+	if _building_threat_event_adapter == null:
+		return
+	_building_threat_event_adapter.ingest_building_events(events)
+
+func _on_building_threat_assessment(assessment: Dictionary) -> void:
+	if assessment.is_empty():
+		return
+	var source_event: Dictionary = assessment.get("source_event", {}) as Dictionary
+	Debug.log("placement_react", "threat_ingestion source=%s event=%s item=%s priority=%s severity=%.2f relevant=%s" % [
+		String((source_event.get("metadata", {}) as Dictionary).get("source", "building_event_adapter")),
+		String(source_event.get("event_type", "")),
+		String(source_event.get("item_id", "")),
+		String(assessment.get("priority", "none")),
+		float(assessment.get("severity", 0.0)),
+		str(bool(assessment.get("is_relevant", false))),
+	])
 
 
 func _trigger_placement_react(item_id: String, target_pos: Vector2, skipped_by_interval: int = 0) -> void:
