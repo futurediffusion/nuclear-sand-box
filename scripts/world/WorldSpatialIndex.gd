@@ -33,6 +33,9 @@ var _chunk_size: int = 32
 var _runtime_nodes_by_kind: Dictionary = {}
 # instance_id -> {"kind": StringName, "chunk_pos": Vector2i, "node": Node}
 var _runtime_meta_by_id: Dictionary = {}
+var _runtime_count_by_kind: Dictionary = {}
+# kind -> chunk_pos(Vector2i) -> count
+var _runtime_count_by_kind_chunk: Dictionary = {}
 var _placeables_projection: SpatialIndexProjection
 
 var _queries_total: int = 0
@@ -81,6 +84,7 @@ func register_runtime_node(kind: StringName, node: Node) -> void:
 		by_chunk[chunk_pos] = {}
 	var chunk_bucket: Dictionary = by_chunk[chunk_pos]
 	chunk_bucket[iid] = node
+	_increment_runtime_count(kind, chunk_pos, 1)
 	_runtime_meta_by_id[iid] = {
 		"kind": kind,
 		"chunk_pos": chunk_pos,
@@ -183,6 +187,34 @@ func get_all_runtime_nodes(kind: StringName) -> Array:
 		for stale_id in stale_ids:
 			_unregister_runtime_id(stale_id)
 	return result
+
+
+func get_runtime_node_count(kind: StringName) -> int:
+	return maxi(int(_runtime_count_by_kind.get(kind, 0)), 0)
+
+
+func get_runtime_node_count_by_chunk(kind: StringName) -> Dictionary:
+	var counts: Dictionary = _runtime_count_by_kind_chunk.get(kind, {})
+	return counts.duplicate()
+
+
+func get_hot_runtime_chunks(kind: StringName, min_count: int = 1) -> Array[Vector2i]:
+	var threshold: int = maxi(min_count, 1)
+	var by_chunk: Dictionary = _runtime_count_by_kind_chunk.get(kind, {})
+	var chunks: Array[Vector2i] = []
+	for key in by_chunk.keys():
+		if int(by_chunk.get(key, 0)) >= threshold:
+			chunks.append(key)
+	chunks.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var ac: int = int(by_chunk.get(a, 0))
+		var bc: int = int(by_chunk.get(b, 0))
+		if ac != bc:
+			return ac > bc
+		if a.y != b.y:
+			return a.y < b.y
+		return a.x < b.x
+	)
+	return chunks
 
 
 func get_placeables_by_item_ids_near(world_pos: Vector2, radius: float, item_ids: Array[String], query_ctx: Dictionary = {}) -> Array[Dictionary]:
@@ -349,9 +381,30 @@ func _unregister_runtime_id(iid: int) -> void:
 	if by_chunk.has(chunk_pos):
 		var bucket: Dictionary = by_chunk[chunk_pos]
 		bucket.erase(iid)
+		_increment_runtime_count(kind, chunk_pos, -1)
 		if bucket.is_empty():
 			by_chunk.erase(chunk_pos)
 	_runtime_meta_by_id.erase(iid)
+
+
+func _increment_runtime_count(kind: StringName, chunk_pos: Vector2i, delta: int) -> void:
+	if delta == 0:
+		return
+	var next_total: int = int(_runtime_count_by_kind.get(kind, 0)) + delta
+	if next_total <= 0:
+		_runtime_count_by_kind.erase(kind)
+	else:
+		_runtime_count_by_kind[kind] = next_total
+	var by_chunk: Dictionary = _runtime_count_by_kind_chunk.get(kind, {})
+	var next_chunk: int = int(by_chunk.get(chunk_pos, 0)) + delta
+	if next_chunk <= 0:
+		by_chunk.erase(chunk_pos)
+	else:
+		by_chunk[chunk_pos] = next_chunk
+	if by_chunk.is_empty():
+		_runtime_count_by_kind_chunk.erase(kind)
+	else:
+		_runtime_count_by_kind_chunk[kind] = by_chunk
 
 
 func _get_chunk_positions_for_radius(world_pos: Vector2, radius: float) -> Array[Vector2i]:
@@ -453,10 +506,10 @@ func _ensure_placeables_cache() -> void:
 
 func get_debug_snapshot() -> Dictionary:
 	var runtime_counts := {
-		"item_drop": get_all_runtime_nodes(KIND_ITEM_DROP).size(),
-		"world_resource": get_all_runtime_nodes(KIND_WORLD_RESOURCE).size(),
-		"workbench": get_all_runtime_nodes(KIND_WORKBENCH).size(),
-		"storage": get_all_runtime_nodes(KIND_STORAGE).size(),
+		"item_drop": get_runtime_node_count(KIND_ITEM_DROP),
+		"world_resource": get_runtime_node_count(KIND_WORLD_RESOURCE),
+		"workbench": get_runtime_node_count(KIND_WORKBENCH),
+		"storage": get_runtime_node_count(KIND_STORAGE),
 	}
 	_ensure_placeables_cache()
 	var persistent_counts: Dictionary = {}
