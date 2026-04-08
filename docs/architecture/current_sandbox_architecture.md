@@ -113,7 +113,7 @@ Current rules:
 - Save/load authority is snapshot-based (`WorldSnapshot` contract).
 - Snapshots include explicit `snapshot_version`.
 - Version transitions are deterministic and stepwise through `WorldSnapshotVersioning` migrations.
-- Legacy formats may be ingested only through explicit one-way migration into canonical snapshot contracts.
+- Legacy formats may be ingested only through explicit deprecated one-way migration into canonical snapshot contracts.
 - Runtime/projection caches are non-canonical and must not be persisted as authoritative game state.
 
 ---
@@ -125,8 +125,8 @@ Diagnostics/telemetry are runtime observability surfaces, not domain or persiste
 Allowed boundaries:
 
 - Orchestration counters/snapshots may be written by world/bootstrap owners.
-- Domain/pipeline/projection owners may emit lightweight stage diagnostics and transition warnings.
-- Compatibility bridges must be instrumented (warnings/counters) while active.
+- Domain/pipeline/projection owners may emit lightweight stage diagnostics and deprecation warnings.
+- Deprecated compatibility bridges must be instrumented (warnings/counters) while active.
 
 Forbidden boundary crossings:
 
@@ -138,18 +138,24 @@ Forbidden boundary crossings:
 
 ## 8) Explicit legacy/deprecated surfaces (current)
 
-Known remaining compatibility surfaces include:
+Known remaining deprecated compatibility surfaces include:
 
 - `scripts/world/PlayerTerritoryMap.gd` (legacy wrapper over territory projection)
 - `scripts/projections/collider/BuildingColliderRefreshProjection.gd` (legacy refresh wrapper)
-- `scripts/world/contracts/*CallableAdapter.gd` (transition adapters)
+- `scripts/world/contracts/*CallableAdapter.gd` (deprecated transition adapters)
 - UI/placeable wrappers in `Chest*` over `Container*`
 
-Policy for legacy surfaces:
+Policy for deprecated legacy surfaces:
 
-- Do not add new bridges unless blocked.
-- Mark every bridge as deprecated and instrumented.
+- Do not add new bridges unless migration is concretely blocked.
+- Mark every bridge as deprecated, instrumented, and non-primary.
 - Prefer deleting bridges by migrating callers onto canonical owner APIs.
+
+Classification intent:
+
+- **Current**: canonical owners and contracts described in sections 1–7.
+- **Deprecated**: listed compatibility surfaces kept only for bounded migration exits.
+- **Historical only**: phase logs/audits/contracts outside this file; they must not redefine current ownership.
 
 ---
 
