@@ -5,8 +5,8 @@ class_name TerritoryProjection
 # Explicit read-model projection for player territory queries.
 #
 # Source-of-truth inputs (canonical owners):
-#  1) Runtime workbench anchors from scene/runtime index snapshots
-#     - e.g. WorldSpatialIndex KIND_WORKBENCH or SceneTree group "workbench"
+#  1) Canonical workbench anchors from persistence-derived snapshots
+#     - e.g. WorldSpatialIndex placeables projection / WorldSave placeable entries
 #  2) Detected enclosed bases from SettlementIntel scan snapshots
 #     - e.g. SettlementIntel.get_detected_bases_near(...)
 #
@@ -24,6 +24,7 @@ var _zones: Array[Dictionary] = []
 var _rebuild_calls: int = 0
 var _last_input_workbench_count: int = 0
 var _last_input_base_count: int = 0
+var _legacy_runtime_anchor_reads: int = 0
 
 
 # Canonical rebuild entrypoint: derive from explicit source snapshots.
@@ -31,11 +32,12 @@ func rebuild_from_sources(sources: Dictionary) -> void:
 	apply_inputs(sources)
 
 func apply_inputs(inputs: Dictionary) -> void:
-	var workbench_nodes: Array = inputs.get("workbench_nodes", []) as Array
+	var workbench_nodes: Array = inputs.get("workbench_anchors", inputs.get("workbench_nodes", [])) as Array
 	var detected_bases: Array = inputs.get("detected_bases", []) as Array
 	rebuild(workbench_nodes, detected_bases)
 
 # Compatibility API.
+# Temporary bridge for legacy callers that still pass runtime nodes directly.
 func rebuild_from_runtime(workbench_nodes: Array, detected_bases: Array) -> void:
 	rebuild(workbench_nodes, detected_bases)
 
@@ -88,6 +90,7 @@ func rebuild(workbench_nodes: Array, detected_bases: Array) -> void:
 func _resolve_workbench_anchor_world_pos(anchor: Variant) -> Vector2:
 	var n2d: Node2D = anchor as Node2D
 	if n2d != null and is_instance_valid(n2d):
+		_legacy_runtime_anchor_reads += 1
 		return n2d.global_position
 	if anchor is Dictionary:
 		var entry: Dictionary = anchor as Dictionary
@@ -154,6 +157,7 @@ func get_debug_snapshot() -> Dictionary:
 		"rebuild_calls": _rebuild_calls,
 		"last_input_workbench_count": _last_input_workbench_count,
 		"last_input_base_count": _last_input_base_count,
+		"legacy_runtime_anchor_reads": _legacy_runtime_anchor_reads,
 		"workbench_zone_count": _count_by_type("workbench"),
 		"enclosed_zone_count": _count_by_type("enclosed"),
 		"zone_count": _zones.size(),
