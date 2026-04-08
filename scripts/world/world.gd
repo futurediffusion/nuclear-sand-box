@@ -152,6 +152,7 @@ var _drop_compaction_service: WorldDropCompactionService
 var _world_sim_telemetry: WorldSimTelemetry
 var _sandbox_diagnostics: SandboxDiagnostics
 var _projection_rebuild_coordinator: WorldProjectionRebuildCoordinator
+var _maintenance_pulse_runtime: WorldMaintenancePulseRuntime
 var _gameplay_command_dispatcher: GameplayCommandDispatcher
 var _domain_event_dispatcher: SandboxDomainEventDispatcher
 var _save_count: int = 0
@@ -230,6 +231,7 @@ const WorldChunkLifecycleCoordinatorScript := preload("res://scripts/runtime/wor
 const WorldDropPressureServiceScript := preload("res://scripts/runtime/world/WorldDropPressureService.gd")
 const WorldDropCompactionServiceScript := preload("res://scripts/runtime/world/WorldDropCompactionService.gd")
 const WorldProjectionRebuildCoordinatorScript := preload("res://scripts/runtime/world/WorldProjectionRebuildCoordinator.gd")
+const WorldMaintenancePulseRuntimeScript := preload("res://scripts/runtime/world/WorldMaintenancePulseRuntime.gd")
 const PlacementReactionRuntimeConfigScript := preload("res://scripts/world/PlacementReactionRuntimeConfig.gd")
 const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
@@ -697,6 +699,18 @@ func _ready() -> void:
 		"on_unload_chunk": Callable(self, "unload_chunk"),
 	})
 
+	_maintenance_pulse_runtime = WorldMaintenancePulseRuntimeScript.new()
+	_maintenance_pulse_runtime.setup({
+		"chunk_lifecycle_coordinator": _chunk_lifecycle_coordinator,
+		"wall_refresh_queue": _wall_refresh_queue,
+		"loaded_chunks": loaded_chunks,
+		"ensure_chunk_wall_collision": Callable(self, "_ensure_chunk_wall_collision"),
+		"cadence": _cadence,
+		"lane_short_pulse": LANE_SHORT_PULSE,
+		"wall_refresh_budget_per_pulse": BUDGET_WALL_REFRESH_PER_PULSE,
+		"tile_erase_budget_per_pulse": BUDGET_TILE_ERASE_PER_PULSE,
+	})
+
 	npc_simulator.setup({
 		"player": player,
 		"bandit_scene": bandit_scene,
@@ -1018,43 +1032,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		SaveManager.new_game()
 		get_tree().reload_current_scene()
 
-func _process_tile_erase_queue(max_erases_per_frame: int = BUDGET_TILE_ERASE_PER_PULSE) -> void:
-	if _chunk_lifecycle_coordinator == null:
-		return
-	_chunk_lifecycle_coordinator.process_tile_erase_queue(max_erases_per_frame)
-
-func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
-	var t0_usec: int = Time.get_ticks_usec()
-	if _wall_refresh_queue == null:
-		return
-	var rebuild_budget: int = maxi(0, max_rebuilds_per_frame)
-	var rebuilds_executed: int = 0
-	while rebuild_budget > 0:
-		var result: Dictionary = _wall_refresh_queue.try_pop_next()
-		if not result.ok:
-			break
-
-		var chunk_pos: Vector2i = result.chunk_pos
-		if not loaded_chunks.has(chunk_pos):
-			if _wall_refresh_queue != null:
-				_wall_refresh_queue.purge_chunk(chunk_pos)
-			continue
-
-		_ensure_chunk_wall_collision(chunk_pos)
-		_wall_refresh_queue.confirm_rebuild(chunk_pos, result.revision)
-		rebuilds_executed += 1
-		rebuild_budget -= 1
-	PlacementPerfTelemetryScript.record_stage(
-		"world_process_wall_refresh_queue",
-		Time.get_ticks_usec() - t0_usec,
-		{
-			"rebuild_budget": maxi(0, max_rebuilds_per_frame),
-			"rebuilds_executed": rebuilds_executed,
-		},
-		"collider"
-	)
-
-
 func _register_drop_compaction_hotspot(world_pos: Vector2, score: int = 1) -> void:
 	if _drop_compaction_service == null:
 		return
@@ -1085,13 +1062,8 @@ func _process(delta: float) -> void:
 		_tick_player_territory()
 	pipeline.process(delta)
 	var short_pulses: int = _cadence.consume_lane(LANE_SHORT_PULSE) if _cadence != null else 1
-	var short_lane_ops: int = 0
-	for _pulse in short_pulses:
-		_process_wall_refresh_queue(BUDGET_WALL_REFRESH_PER_PULSE)
-		_process_tile_erase_queue(BUDGET_TILE_ERASE_PER_PULSE)
-		short_lane_ops += BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE
-	if _cadence != null and short_pulses > 0:
-		_cadence.report_lane_work(LANE_SHORT_PULSE, short_lane_ops, BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE)
+	if _maintenance_pulse_runtime != null:
+		_maintenance_pulse_runtime.execute_short_pulse(short_pulses)
 	var occlusion_pulses: int = _cadence.consume_lane(LANE_OCCLUSION_PULSE) if _cadence != null else 0
 	if _occlusion_controller != null and occlusion_pulses > 0:
 		var occlusion_updates: int = _occlusion_controller.tick_from_cadence(occlusion_pulses, BUDGET_OCCLUSION_MATERIALS_PER_PULSE)
@@ -1953,16 +1925,17 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 	var autosave_due: int = _cadence.lane_due(LANE_AUTOSAVE) if _cadence != null else 0
 	var last_save_age: float = -1.0
 	var drop_compaction_metrics: Dictionary = _drop_compaction_service.get_metrics_snapshot() if _drop_compaction_service != null else {}
+	var maintenance_snapshot: Dictionary = _maintenance_pulse_runtime.get_debug_snapshot() if _maintenance_pulse_runtime != null else {}
 	if _last_save_time_msec >= 0:
 		last_save_age = float(Time.get_ticks_msec() - _last_save_time_msec) / 1000.0
 	return {
-		"pending_tile_erases": _chunk_lifecycle_coordinator.pending_tile_erase_count() if _chunk_lifecycle_coordinator != null else 0,
+		"pending_tile_erases": int(maintenance_snapshot.get("pending_tile_erases", 0)),
 		"loaded_chunks": loaded_count,
 		"generated_chunks": generated_count,
 		"terrain_paint_ring0_pending": terrain_pending,
 		"day_night_cycle": _day_night_controller.get_debug_snapshot() if _day_night_controller != null else {},
 		"spawn_queue": _spawn_queue.debug_dump() if _spawn_queue != null else {},
-		"wall_refresh": _wall_refresh_queue.get_debug_snapshot() if _wall_refresh_queue != null else {},
+		"wall_refresh": maintenance_snapshot.get("wall_refresh", {}) as Dictionary,
 		"autosave": {
 			"interval": autosave_interval,
 			"due": autosave_due,
@@ -1983,7 +1956,7 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 			"occlusion_controller": {"script": "scripts/world/OcclusionController.gd", "lane": String(LANE_OCCLUSION_PULSE), "domain": String(TICK_DOMAIN_EXECUTION_RUNTIME), "interval": OCCLUSION_INTERVAL_SEC, "budget": BUDGET_OCCLUSION_MATERIALS_PER_PULSE},
 			"resource_repopulator": {"script": "scripts/world/ResourceRepopulator.gd", "lane": String(LANE_RESOURCE_REPOP_PULSE), "domain": String(TICK_DOMAIN_SIMULATION), "interval": RESOURCE_REPOP_INTERVAL_SEC, "budget": BUDGET_RESOURCE_REPOP_OPS_PER_PULSE},
 			"bandit_work_loop": {"script": "scripts/world/BanditBehaviorLayer.gd::_process", "lane": String(LANE_BANDIT_WORK_LOOP), "domain": String(TICK_DOMAIN_AI_DECISION), "interval": BANDIT_WORK_LOOP_INTERVAL_SEC, "budget": BUDGET_BANDIT_WORK_TICKS_PER_PULSE},
-			"maintenance_short_pulse": {"script": "scripts/world/world.gd::_process", "lane": String(LANE_SHORT_PULSE), "domain": String(TICK_DOMAIN_MAINTENANCE), "interval": 0.12, "budget": BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE},
+			"maintenance_short_pulse": {"script": "scripts/runtime/world/WorldMaintenancePulseRuntime.gd::execute_short_pulse", "lane": String(LANE_SHORT_PULSE), "domain": String(TICK_DOMAIN_MAINTENANCE), "interval": 0.12, "budget": BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE},
 			"drop_compaction": {"script": "scripts/runtime/world/WorldDropCompactionService.gd::execute_compaction_pass", "lane": String(LANE_DROP_COMPACT_PULSE), "domain": String(TICK_DOMAIN_MAINTENANCE), "interval": DROP_COMPACT_INTERVAL_SEC, "budget": BUDGET_DROP_COMPACT_PULSES_PER_FRAME},
 		},
 	}
