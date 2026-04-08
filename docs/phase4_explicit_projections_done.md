@@ -1,42 +1,47 @@
-# Phase 4 Closure — Explicit Projections
+# Phase 4 Closure — Explicit Projections (Historical Record)
 
-This closes the Phase 4 migration scope for explicit projections (spatial index, wall collider refresh, and territory read model) without starting Phase 5 AI normalization.
+> [!WARNING]
+> **Historical phase closure artifact.**
+> This document captures the projection migration boundary as of Phase 4 closure.
+> It has been **superseded by later work** and must **not** be used as current architecture truth.
 
-## Source of truth (now)
+## Current status after later phases
 
-- **Placeables and persisted placement data** remain canonical in `WorldSave` (`placed_entities_by_chunk`, `placed_entity_chunk_by_uid`, revisions/change log).
-- **Player wall ownership/state** remains canonical in building/domain + persistence (`BuildingState`/`PlayerWallSystem`/`WorldSave.player_walls_by_chunk`).
-- **Territory-driving facts** remain canonical at input boundaries:
-  - workbench presence from canonical placeables snapshots,
-  - enclosed base detections from `SettlementIntel` snapshot outputs.
+For current projection and ownership boundaries, use:
 
-## What became an explicit projection / read model
+- [`docs/architecture/ownership/projections.md`](docs/architecture/ownership/projections.md)
+- [`docs/architecture/ownership/persistence.md`](docs/architecture/ownership/persistence.md)
+- [`docs/architecture/ownership/territory-settlement.md`](docs/architecture/ownership/territory-settlement.md)
+- [`docs/architecture/ownership/README.md`](docs/architecture/ownership/README.md)
 
-- `SpatialIndexProjection` is the explicit read model for placeable lookups and chunk/item query acceleration.
-- `WallColliderProjection` is the explicit physics refresh projection for collider dirty/rebuild scope orchestration.
-- `TerritoryProjection` is the explicit read model for territory zone queries (`workbench` radius + enclosed-base derived zones).
+Read this file as historical migration evidence only.
 
-## Compatibility that remains
+## Phase 4 scope that was closed (at that time)
 
-- Existing compatibility entrypoints stay active (`apply_events`, `apply_change_set`, `apply_snapshot`, `rebuild_from_runtime`) while routing through explicit projection classes.
-- Wall collider refresh keeps dual path wiring:
-  - preferred `WorldProjectionRefreshContract` refresh,
-  - fallback `WorldChunkDirtyNotifierContract` chunk dirty invalidation.
-- Runtime-side bridge behavior (territory/base dirty marks from wall projection updates) remains to preserve current world orchestration behavior.
+This closure covered explicit projections (spatial index, wall collider refresh, territory read model) and explicitly did not include broader Phase 5 AI normalization.
 
-## Regression protection and observability added in this closure
+## Recorded closure state at Phase 4
 
-- Added deterministic Phase 4 harness: `scripts/tests/phase4_explicit_projections_regression_runner.gd`.
-  - Covers rebuild/sync flow for `SpatialIndexProjection` from canonical `WorldSave` data.
-  - Covers `WallColliderProjection` refresh scope and fallback dirty-chunk invalidation.
-  - Covers `TerritoryProjection` rebuild-from-sources contract.
-  - Asserts projection outputs do **not** become canonical truth (projection invalidation/copies do not mutate canonical ownership).
-- Added lightweight projection observability snapshots:
-  - `WallColliderProjection.get_debug_snapshot()` for apply source/scope/fallback state.
-  - `TerritoryProjection.get_debug_snapshot()` for rebuild counters and zone totals.
+### Canonical owners recorded at closure (historical)
+- Placeables/persisted placement data remained canonical in `WorldSave`.
+- Player wall ownership/state remained canonical in building domain + persistence.
+- Territory-driving facts were sourced from canonical placeables and `SettlementIntel` snapshots.
 
-## Remaining migration work (later phases, out of Phase 4 scope)
+### Explicit projection/read-model boundaries (historical)
+- `SpatialIndexProjection` for placeable lookup/query acceleration.
+- `WallColliderProjection` for physics refresh orchestration.
+- `TerritoryProjection` for territory-zone read queries.
 
-- Remove remaining transitional compatibility wiring only after parity confidence in runtime environments.
-- Continue cleanup of cross-projection coupling and feed channels where still legacy-bridged.
-- Address broader AI/authority normalization and behavior-layer ownership in **later phases** (explicitly not part of this closure).
+### Transitional compatibility retained (historical)
+- Compatibility entrypoints (`apply_events`, `apply_change_set`, `apply_snapshot`, `rebuild_from_runtime`) remained.
+- Wall collider refresh kept preferred contract path plus fallback dirty-chunk invalidation path.
+- Runtime bridge behavior for territory/base dirty marks remained for orchestration compatibility.
+
+## Regression + observability added in Phase 4
+
+- Runner: `scripts/tests/phase4_explicit_projections_regression_runner.gd`
+- Added projection debug snapshots on wall collider and territory projections.
+
+## Notes on superseded wording
+
+Any “source of truth (now)” phrasing in Phase 4 materials should be interpreted as “now, **as of Phase 4 closure**,” not as present-day architecture policy.

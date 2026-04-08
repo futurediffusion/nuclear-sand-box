@@ -1,58 +1,50 @@
-# Phase 3 Closure — Placement Reaction Refactor
+# Phase 3 Closure — Placement Reaction Refactor (Historical Record)
 
-This closes the **Phase 3 placement reaction migration** in parity mode with regression hooks.
+> [!WARNING]
+> **Historical phase closure artifact.**
+> This document captures what was true at Phase 3 closure time.
+> It is **superseded by later architecture changes** and is **not** the current source of truth.
 
-## What now triggers placement reaction
+## Current status after later phases
 
-Placement reaction is now event-driven via `PlacementReactionSystem.handle_building_event(...)`, fed by:
+Use these docs for current architecture/ownership:
 
-- `PlacementSystem.placement_completed` bridged in `world.gd::_on_placement_completed`.
-- `PlayerWallSystem.building_events_emitted` bridged in `world.gd::_on_building_events_emitted` (covers structure placed/damaged/removed events).
+- [`docs/architecture/ownership/ai-pipeline.md`](docs/architecture/ownership/ai-pipeline.md)
+- [`docs/architecture/ownership/world-bootstrap-orchestration.md`](docs/architecture/ownership/world-bootstrap-orchestration.md)
+- [`docs/architecture/ownership/README.md`](docs/architecture/ownership/README.md)
+- [`docs/phase3_placement_reaction_contract.md`](docs/phase3_placement_reaction_contract.md) (contract context)
 
-## Where threat is assessed
+Treat this page strictly as migration history.
 
-- Threat relevance and severity are assessed in `ThreatAssessmentSystem.assess_building_event(...)`.
-- The result is a behavior-neutral assessment payload (`is_relevant`, `priority`, `severity`, `candidate_group_scope`, `debug`).
+## Phase 3 scope that was closed (at that time)
 
-## Where intent is published
+This closure was limited to placement-reaction migration in parity mode with regression hooks.
 
-- Canonical placement-reaction intent publication is owned by `GroupIntentSystem.publish_placement_reaction_intent(...)`.
-- The canonical publication path remains `BanditGroupMemory.publish_assault_target_intent(...)` with source precedence kept intact.
+## Recorded closure state at Phase 3
 
-## What `world.gd` no longer owns
+### Placement reaction triggers (historical)
+Placement reaction became event-driven through `PlacementReactionSystem.handle_building_event(...)`, fed by:
+- `PlacementSystem.placement_completed` via `world.gd::_on_placement_completed`
+- `PlayerWallSystem.building_events_emitted` via `world.gd::_on_building_events_emitted`
 
-`world.gd` no longer owns placement-reaction threat scoring or intent mutation logic. It now only:
+### Threat assessment + intent publication (historical)
+- Threat relevance/severity were assessed in `ThreatAssessmentSystem.assess_building_event(...)`.
+- Canonical placement-reaction intent publication was owned by `GroupIntentSystem.publish_placement_reaction_intent(...)`.
 
-- subscribes to runtime source signals,
-- adapts those into building events,
-- delegates to `PlacementReactionSystem`.
+### `world.gd` responsibilities at closure time (historical)
+`world.gd` no longer owned threat scoring or intent mutation for placement reaction; it subscribed to signals, adapted events, and delegated to `PlacementReactionSystem`.
 
-## What remains legacy
+### Legacy retained at closure (historical)
+- `BanditGroupIntel` and other non-placement raid producers stayed active.
+- `RaidFlow` / `BanditBehaviorLayer` runtime dispatch paths stayed unchanged.
+- Compatibility wrappers/facades in `world.gd` remained.
 
-- `BanditGroupIntel` and other non-placement raid producers remain active.
-- `RaidFlow` / `BanditBehaviorLayer` runtime dispatch paths remain unchanged.
-- Existing compatibility wrappers and facades in `world.gd` remain in place.
+## Regression + observability added in Phase 3
 
-## What was added for regression protection + observability
+- Runner: `scripts/tests/placement_reaction_phase3_regression_runner.gd`
+- Coverage included event normalization, threat filtering, canonical publication contract, and duplicate suppression.
+- Added telemetry fields including `skipped_by_duplicate` and `skipped_duplicate_events_total`.
 
-- New regression harness: `scripts/tests/placement_reaction_phase3_regression_runner.gd`.
-  - Covers building event ingestion normalization.
-  - Covers threat assessment candidate filtering/output generation.
-  - Covers canonical intent publication contract.
-  - Covers duplicate reaction path suppression (dedupe window).
-- Placement reaction telemetry now includes:
-  - `skipped_by_duplicate` in per-event debug records.
-  - `skipped_duplicate_events_total` in debug snapshot aggregates.
-  - Summary logs now report `skipped_by_duplicate`.
+## Notes on superseded wording
 
-## What should migrate next (later phases)
-
-1. Move remaining placement-react tuning ownership out of `world.gd` exports into a dedicated config boundary.
-2. Introduce explicit typed event DTOs for building/placement events (reduce dictionary-shape drift).
-3. Retire legacy duplicate producers once parity metrics stay stable (especially overlap with intel-driven raid enqueue).
-4. After parity, remove any no-longer-used compatibility wrappers from `world.gd`.
-
-## Scope guard
-
-This closure is intentionally limited to **placement reaction only**.  
-No full AI normalization, raid redesign, or unrelated telemetry redesign is included in this phase.
+Statements phrased as “now” or “canonical” in this file are **historical-to-Phase-3 statements**, not guarantees about today’s full AI architecture.
