@@ -770,6 +770,7 @@ func _tick_behaviors() -> int:
 	var group_perception_payload: Dictionary = _build_group_perception_payload(res_nodes_snapshot)
 	var leader_pos_by_group: Dictionary = {}
 	var leader_forward_by_group: Dictionary = {}
+	var group_intent_by_group: Dictionary = {}
 	var members_by_group: Dictionary = {}
 	var orders_by_member: Dictionary = {}
 	var scans_by_group: Dictionary = {}
@@ -825,6 +826,9 @@ func _tick_behaviors() -> int:
 			if leader_fwd.length_squared() < 0.1:
 				leader_fwd = Vector2.RIGHT
 			leader_forward_by_group[beh.group_id] = leader_fwd
+		if not group_intent_by_group.has(beh.group_id):
+			var runtime_group: Dictionary = BanditGroupMemory.get_group(beh.group_id)
+			group_intent_by_group[beh.group_id] = String(runtime_group.get("current_group_intent", "idle"))
 	var guard_slots_by_member: Dictionary = _build_guard_slots_by_member(members_by_group, leader_pos_by_group, leader_forward_by_group)
 	orders_by_member = _compute_group_orders(members_by_group, leader_pos_by_group)
 	_group_lod_profile_decisions = _build_group_lod_profile_decisions(orders_by_member)
@@ -896,6 +900,7 @@ func _tick_behaviors() -> int:
 		}), true)
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
+			ctx["group_intent"] = String(group_intent_by_group.get(beh.group_id, "idle"))
 			if guard_slots_by_member.has(beh.member_id):
 				var slot_info: Dictionary = guard_slots_by_member[beh.member_id] as Dictionary
 				ctx["follow_slot_pos"] = slot_info.get("slot_pos", beh.home_pos)
@@ -1074,6 +1079,8 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 	var order_type: String = String(order.get("order", ""))
 	if order_type == "":
 		return
+	ctx["execution_order_active"] = true
+	ctx["execution_order_type"] = order_type
 	var structure_assault_active: bool = BanditGroupMemory.is_structure_assault_active(beh.group_id)
 	var structure_target_alive: bool = _group_has_live_structure_target(beh.group_id)
 	var structure_assault_sticky_member: bool = beh.role == "bodyguard" or beh.role == "leader"
