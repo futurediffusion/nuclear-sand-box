@@ -10,6 +10,8 @@ var _world: Node = null
 var _pending_player_pos: Vector2 = Vector2.ZERO
 var _pending_player_inv: Array = []
 var _pending_player_gold: int = -1
+var _last_save_pipeline_snapshot: Dictionary = {}
+var _last_load_pipeline_snapshot: Dictionary = {}
 
 func register_world(world: Node) -> void:
 	_world = world
@@ -40,6 +42,8 @@ func save_world() -> void:
 
 	var canonical_state: Dictionary = _build_canonical_save_state(player_pos, player_inv, player_gold)
 	var world_snapshot = WorldSaveAdapter.build_world_snapshot(canonical_state)
+	_last_save_pipeline_snapshot = _summarize_world_snapshot(world_snapshot)
+	_last_save_pipeline_snapshot["source"] = "save_world"
 	var data: Dictionary = WorldSnapshotSerializer.serialize(world_snapshot)
 	data["version"] = SAVE_VERSION
 	data["chunk_save"] = _ser(_world.chunk_save)
@@ -99,13 +103,41 @@ func load_world_save() -> bool:
 		deserialized_payload[String(key_raw)] = _des((data as Dictionary).get(key_raw))
 
 	var restored_from_snapshot: bool = false
+	var restore_path: String = "none"
 	if deserialized_payload.has("snapshot_version"):
 		var world_snapshot = WorldSnapshotSerializer.deserialize(deserialized_payload)
 		restored_from_snapshot = WorldSaveAdapter.apply_world_snapshot(world_snapshot)
+		if restored_from_snapshot:
+			restore_path = "world_snapshot"
+			_last_load_pipeline_snapshot = _summarize_world_snapshot(world_snapshot)
 	if not restored_from_snapshot:
 		restored_from_snapshot = WorldSaveAdapter.restore_world_snapshot_state(deserialized_payload)
+		if restored_from_snapshot:
+			restore_path = "world_snapshot_state"
+			var chunk_count: int = 0
+			var state_raw: Variant = deserialized_payload.get(WorldSaveAdapter.SNAPSHOT_STATE_KEY, {})
+			if state_raw is Dictionary:
+				var chunks_raw: Variant = (state_raw as Dictionary).get("chunks", [])
+				if chunks_raw is Array:
+					chunk_count = (chunks_raw as Array).size()
+			_last_load_pipeline_snapshot = {
+				"snapshot_version": int(deserialized_payload.get("snapshot_version", 0)),
+				"save_version": int(deserialized_payload.get("save_version", 0)),
+				"chunk_count": chunk_count,
+				"structure_count": 0,
+				"placed_entity_count": 0,
+			}
 	if not restored_from_snapshot:
 		WorldSaveAdapter.restore_legacy_worldsave_payload(deserialized_payload)
+		restore_path = "legacy_worldsave_payload"
+		_last_load_pipeline_snapshot = {
+			"snapshot_version": 0,
+			"save_version": int(deserialized_payload.get("version", 0)),
+			"chunk_count": int(WorldSave.chunks.size()),
+			"structure_count": 0,
+			"placed_entity_count": int(WorldSave.placed_entity_chunk_by_uid.size()),
+		}
+	_last_load_pipeline_snapshot["source"] = restore_path
 
 	# --- Migration / Loading of placed entities ---
 	WorldSave.clear_placed_entities()
@@ -280,4 +312,28 @@ func _build_canonical_save_state(player_pos: Vector2, player_inv: Array, player_
 		"run_clock": RunClock.get_save_data(),
 		"world_time": WorldTime.get_save_data(),
 		"faction_hostility": FactionHostilityManager.serialize(),
+	}
+
+func get_last_save_pipeline_snapshot() -> Dictionary:
+	return _last_save_pipeline_snapshot.duplicate(true)
+
+func get_last_load_pipeline_snapshot() -> Dictionary:
+	return _last_load_pipeline_snapshot.duplicate(true)
+
+func _summarize_world_snapshot(world_snapshot: WorldSnapshot) -> Dictionary:
+	if world_snapshot == null:
+		return {}
+	var structure_count: int = 0
+	var placed_entity_count: int = 0
+	for chunk_snapshot in world_snapshot.chunks:
+		if chunk_snapshot == null:
+			continue
+		structure_count += (chunk_snapshot.structures as Array).size()
+		placed_entity_count += (chunk_snapshot.placed_entities as Array).size()
+	return {
+		"snapshot_version": int(world_snapshot.snapshot_version),
+		"save_version": int(world_snapshot.save_version),
+		"chunk_count": int(world_snapshot.chunks.size()),
+		"structure_count": structure_count,
+		"placed_entity_count": placed_entity_count,
 	}
