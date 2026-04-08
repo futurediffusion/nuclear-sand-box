@@ -1,7 +1,7 @@
 extends SceneTree
 
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
-const GroupIntentSystemScript := preload("res://scripts/domain/factions/GroupIntentSystem.gd")
+const BanditIntentSystemScript := preload("res://scripts/domain/factions/BanditIntentSystem.gd")
 const PlacementReactionSystemScript := preload("res://scripts/domain/factions/PlacementReactionSystem.gd")
 const BuildingEventsScript := preload("res://scripts/domain/building/BuildingEvents.gd")
 
@@ -124,7 +124,7 @@ func _test_threat_assessment_generation() -> void:
 
 func _test_canonical_intent_publication() -> void:
 	var fake_memory := FakeGroupMemory.new()
-	var intents: GroupIntentSystem = GroupIntentSystemScript.new()
+	var intents: BanditIntentSystem = BanditIntentSystemScript.new()
 	intents.setup({
 		"group_memory": fake_memory,
 		"now_provider": func() -> float: return 1234.0,
@@ -161,7 +161,7 @@ func _test_canonical_intent_publication() -> void:
 	assert(bool(outcome.get("published", false)),
 		"group intent publication must publish through canonical BanditGroupMemory path")
 	var canonical_intent: Dictionary = outcome.get("intent", {}) as Dictionary
-	assert(String(canonical_intent.get("kind", "")) == GroupIntentSystem.INTENT_KIND_PLACEMENT_REACTION,
+	assert(String(canonical_intent.get("kind", "")) == BanditIntentSystem.INTENT_KIND_PLACEMENT_REACTION,
 		"published intent must use canonical placement reaction kind")
 	var publication: Dictionary = canonical_intent.get("publication", {}) as Dictionary
 	assert(String(publication.get("path", "")) == "BanditGroupMemory.publish_assault_target_intent",
