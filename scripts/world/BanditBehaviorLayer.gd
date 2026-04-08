@@ -43,6 +43,8 @@ const BanditWorkCoordinatorScript   := preload("res://scripts/world/BanditWorkCo
 const BanditGroupBrainScript        := preload("res://scripts/world/BanditGroupBrain.gd")
 const BanditPerceptionSystemScript  := preload("res://scripts/domain/factions/BanditPerceptionSystem.gd")
 const BanditIntentSystemScript      := preload("res://scripts/domain/factions/BanditIntentSystem.gd")
+const PerceptionReadModelScript     := preload("res://scripts/domain/factions/PerceptionReadModel.gd")
+const IntentStateReadModelScript    := preload("res://scripts/domain/factions/IntentStateReadModel.gd")
 const SimulationLODPolicyScript     := preload("res://scripts/world/SimulationLODPolicy.gd")
 const AIComponentScript             := preload("res://scripts/components/AIComponent.gd")
 const MethodCapabilityCacheScript   := preload("res://scripts/utils/MethodCapabilityCache.gd")
@@ -256,6 +258,8 @@ var _work_coordinator:   BanditWorkCoordinator   = null
 var _group_brain:        BanditGroupBrain        = null
 var _perception_system:  BanditPerceptionSystem  = null
 var _intent_system:      BanditIntentSystem      = null
+var _perception_read_model: PerceptionReadModel  = PerceptionReadModelScript.new()
+var _intent_state_read_model: IntentStateReadModel = IntentStateReadModelScript.new()
 var _find_wall_cb:       Callable                = Callable()
 var _find_wall_samples_cb: Callable              = Callable()
 var _find_workbench_cb:  Callable                = Callable()
@@ -1049,13 +1053,10 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			continue
 		var members: Array = members_by_group[group_id] as Array
 		var blackboard: Dictionary = BanditGroupMemory.bb_get(group_id)
-		var status: Dictionary = blackboard.get("status", {}) as Dictionary
-		var canonical_intent_entry: Dictionary = status.get("canonical_intent_record", {}) as Dictionary
-		var canonical_intent: Dictionary = canonical_intent_entry.get("value", {}) as Dictionary
-		var has_canonical_intent: bool = _has_canonical_pipeline_intent(canonical_intent)
-		var perception: Dictionary = blackboard.get("perception", {})
-		var prioritized_drops_entry: Dictionary = perception.get("prioritized_drops", {})
-		var prioritized_resources_entry: Dictionary = perception.get("prioritized_resources", {})
+		var intent_state: Dictionary = _intent_state_read_model.from_blackboard(blackboard)
+		var canonical_intent: Dictionary = intent_state.get("canonical_intent", {}) as Dictionary
+		var has_canonical_intent: bool = bool(intent_state.get("has_canonical_intent", false))
+		var perception_state: Dictionary = _perception_read_model.from_blackboard(blackboard)
 		var any_scavenger_busy: bool = false
 		var any_member_threatened: bool = false
 		for _m in members:
@@ -1071,8 +1072,8 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			"home_pos": group.get("home_world_pos", Vector2.ZERO),
 			"interest_pos": group.get("last_interest_pos", Vector2.ZERO),
 			"group_blackboard": blackboard,
-			"prioritized_drops": prioritized_drops_entry.get("value", []),
-			"prioritized_resources": prioritized_resources_entry.get("value", []),
+			"prioritized_drops": perception_state.get("prioritized_drops", []),
+			"prioritized_resources": perception_state.get("prioritized_resources", []),
 			"canonical_intent": canonical_intent,
 			"any_scavenger_busy": any_scavenger_busy,
 			"any_member_threatened": any_member_threatened,
@@ -1118,6 +1119,8 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 	var planning_trace: Dictionary = task_payload.get("planning_trace", {}) as Dictionary
 	var planning_authority: String = String(planning_trace.get("authority", "legacy_proposed_order"))
 	var planning_flow: String = String(planning_trace.get("flow", "continue_current_work"))
+	var planning_legacy_input_used: bool = bool(planning_trace.get("legacy_input_used", false))
+	var planning_legacy_input_source: String = String(planning_trace.get("legacy_input_source", ""))
 	if task_kind != "":
 		log_worker_event("pipeline_execution_task_consumed", {
 			"npc_id": beh.member_id,
@@ -1129,6 +1132,8 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 			"macro_state": String(task_payload.get("macro_state", "")),
 			"planning_authority": planning_authority,
 			"planning_flow": planning_flow,
+			"legacy_input_used": planning_legacy_input_used,
+			"legacy_input_source": planning_legacy_input_source,
 		})
 		log_worker_event("pipeline_task_authority", {
 			"npc_id": beh.member_id,
@@ -1137,6 +1142,8 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 			"planning_authority": planning_authority,
 			"planning_flow": planning_flow,
 			"legacy_driven": planning_authority != "canonical_pipeline",
+			"legacy_input_used": planning_legacy_input_used,
+			"legacy_input_source": planning_legacy_input_source,
 		})
 	if task_kind != "" and task_kind != order_type:
 		log_worker_event("pipeline_duplicate_decision_path_blocked", {
