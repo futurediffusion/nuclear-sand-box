@@ -1078,40 +1078,15 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			"any_member_threatened": any_member_threatened,
 			"structure_assault_active": BanditGroupMemory.is_structure_assault_active(group_id),
 		}
-		if bool(group_ctx.get("structure_assault_active", false)) and not has_canonical_intent and _perception_system != null and _intent_system != null:
-			var perception_snapshot: Dictionary = _perception_system.build_group_intent_perception({
+		if bool(group_ctx.get("structure_assault_active", false)) and not has_canonical_intent:
+			log_worker_event("pipeline_missing_canonical_intent", {
 				"group_id": group_id,
-				"members": members,
-				"prioritized_drops": group_ctx.get("prioritized_drops", []),
-				"prioritized_resources": group_ctx.get("prioritized_resources", []),
-				"structure_assault_active": true,
-				"has_assault_target": _group_has_live_structure_target(group_id),
-			})
-			var intent_record: Dictionary = _intent_system.decide_group_intent(
-				perception_snapshot,
-				{
-					"current_group_intent": String(group.get("current_group_intent", "idle")),
-					"has_placement_react_lock": BanditGroupMemory.has_placement_react_lock(group_id),
-				},
-				{
-					"policy_next_intent": "raiding",
-					"reason": "structure_assault_pipeline",
-					"source": "BanditBehaviorLayer._compute_group_orders",
-				}
-			)
-			_intent_system.apply_group_intent_record(group_id, intent_record, {
-				"source": "structure_assault_pipeline_compatibility_bridge",
-			})
-			intent_record["pipeline_path"] = "Perception->Intent->Task->Execution"
-			intent_record["compatibility_bridge"] = "structure_assault_missing_canonical_intent"
-			canonical_intent = intent_record
-			log_worker_event("pipeline_compatibility_bridge_applied", {
-				"group_id": group_id,
-				"bridge": "structure_assault_missing_canonical_intent",
-				"intent_decision": String(intent_record.get("decision_type", "")),
-				"group_mode": String(intent_record.get("group_mode", "")),
+				"reason": "structure_assault_missing_canonical_intent",
+				"group_mode": String(group_ctx.get("group_mode", "idle")),
 				"pipeline_path": "Perception->Intent->Task->Execution",
 			})
+			if OS.is_debug_build():
+				push_error("BanditBehaviorLayer: missing canonical intent for active structure_assault group=%s." % group_id)
 		group_ctx["canonical_intent"] = canonical_intent
 		log_worker_event("pipeline_group_decision", {
 			"group_id": group_id,

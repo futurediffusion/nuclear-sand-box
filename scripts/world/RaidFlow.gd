@@ -28,6 +28,8 @@ const STRUCTURE_TARGET_STABILITY_EPSILON: float = 56.0
 const STRUCTURE_TARGET_STABILITY_EPSILON_SQ: float = STRUCTURE_TARGET_STABILITY_EPSILON * STRUCTURE_TARGET_STABILITY_EPSILON
 
 const INVALID_TARGET: Vector2 = Vector2(-1.0, -1.0)
+const BanditPerceptionSystemScript := preload("res://scripts/domain/factions/BanditPerceptionSystem.gd")
+const BanditIntentSystemScript := preload("res://scripts/domain/factions/BanditIntentSystem.gd")
 
 var _npc_simulator: NpcSimulator = null
 var _find_wall: Callable = Callable()
@@ -35,6 +37,8 @@ var _find_workbench: Callable = Callable()
 var _find_storage: Callable = Callable()
 var _find_placeable: Callable = Callable()
 var _dispatch_group_to_target: Callable = Callable()
+var _perception_system: BanditPerceptionSystem = BanditPerceptionSystemScript.new()
+var _intent_system: BanditIntentSystem = BanditIntentSystemScript.new()
 
 var _active_jobs: Dictionary = {}  # group_id -> job
 
@@ -42,23 +46,34 @@ var _active_jobs: Dictionary = {}  # group_id -> job
 func setup(ctx: Dictionary) -> void:
 	_npc_simulator = ctx.get("npc_simulator")
 	_dispatch_group_to_target = ctx.get("dispatch_group_to_target_cb", Callable())
+	if _perception_system != null:
+		_perception_system.setup({})
+	if _intent_system != null:
+		_intent_system.setup({
+			"group_memory": BanditGroupMemory,
+			"now_provider": Callable(RunClock, "now"),
+		})
 	set_process(false)
 
 
 func set_wall_query(cb: Callable) -> void:
 	_find_wall = cb
+	_update_perception_queries()
 
 
 func set_workbench_query(cb: Callable) -> void:
 	_find_workbench = cb
+	_update_perception_queries()
 
 
 func set_storage_query(cb: Callable) -> void:
 	_find_storage = cb
+	_update_perception_queries()
 
 
 func set_placeable_query(cb: Callable) -> void:
 	_find_placeable = cb
+	_update_perception_queries()
 
 
 func process_flow() -> void:
@@ -178,6 +193,7 @@ func _create_job(gid: String, intent: Dictionary) -> void:
 	])
 	if raid_type == "structure_assault":
 		BanditGroupMemory.mark_structure_assault_active(gid, BanditTuning.structure_assault_active_ttl())
+		_publish_structure_assault_canonical_intent(gid, true)
 
 
 func _tick_jobs() -> void:
@@ -307,6 +323,7 @@ func _tick_placeable_assault(job: Dictionary, gid: String) -> void:
 
 func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 	BanditGroupMemory.mark_structure_assault_active(gid, BanditTuning.structure_assault_active_ttl())
+	_publish_structure_assault_canonical_intent(gid, true)
 	if RunClock.now() < float(job.get("wall_assault_next_at", 0.0)):
 		return
 
@@ -337,6 +354,7 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 		if not _is_valid_target(target_pos) and _is_valid_target(intent_target):
 			target_pos = intent_target
 	if not _is_valid_target(target_pos):
+		_publish_structure_assault_canonical_intent(gid, false)
 		var near_assault_area: bool = _is_group_near_assault_area(gid, anchor)
 		if float(job.get("no_target_since", 0.0)) <= 0.0:
 			job["no_target_since"] = now
@@ -361,6 +379,7 @@ func _tick_structure_assault(job: Dictionary, gid: String) -> void:
 	# Esto renueva el TTL corto del intent (heartbeat) y propaga el target a los NPCs.
 	BanditGroupMemory.refresh_assault_target_pos(gid, anchor, target_pos, BanditTuning.structure_assault_active_ttl())
 	BanditGroupMemory.record_interest(gid, target_pos, "structure_assault_target")
+	_publish_structure_assault_canonical_intent(gid, true)
 	var requested: int = int(job.get("probe_squad_size", -1))
 	if requested == 0:
 		requested = -1
@@ -414,6 +433,55 @@ func _next_dispatch_at(group_id: String, interval: float) -> float:
 	var phase: float = float(h % 997) / 997.0
 	var jitter: float = clamped_interval * DISPATCH_JITTER_RATIO * phase
 	return RunClock.now() + clamped_interval + jitter
+
+
+func _update_perception_queries() -> void:
+	if _perception_system == null:
+		return
+	_perception_system.update_queries({
+		"find_nearest_player_wall": _find_wall,
+		"find_nearest_player_workbench": _find_workbench,
+		"find_nearest_player_storage": _find_storage,
+		"find_nearest_player_placeable": _find_placeable,
+	})
+
+
+func _publish_structure_assault_canonical_intent(gid: String, has_assault_target: bool) -> void:
+	if gid == "" or _intent_system == null or _perception_system == null:
+		return
+	var g: Dictionary = BanditGroupMemory.get_group(gid)
+	if g.is_empty():
+		return
+	var member_ids: Array = g.get("member_ids", []) as Array
+	var members: Array = []
+	for raw_member_id in member_ids:
+		members.append({"member_id": String(raw_member_id)})
+	var perception: Dictionary = _perception_system.build_group_intent_perception({
+		"group_id": gid,
+		"members": members,
+		"prioritized_drops": [],
+		"prioritized_resources": [],
+		"structure_assault_active": BanditGroupMemory.is_structure_assault_active(gid),
+		"has_assault_target": has_assault_target,
+	})
+	var intent_record: Dictionary = _intent_system.decide_group_intent(
+		perception,
+		{
+			"current_group_intent": String(g.get("current_group_intent", "idle")),
+			"has_placement_react_lock": BanditGroupMemory.has_placement_react_lock(gid),
+		},
+		{
+			"policy_next_intent": "raiding",
+			"reason": "structure_assault_runtime_pipeline",
+			"source": "RaidFlow._publish_structure_assault_canonical_intent",
+		}
+	)
+	intent_record["pipeline_path"] = "Perception->Intent->Task->Execution"
+	intent_record["structure_assault_active"] = true
+	intent_record["has_assault_target"] = has_assault_target
+	_intent_system.apply_group_intent_record(gid, intent_record, {
+		"source": "structure_assault_canonical_pipeline",
+	})
 
 
 func _tick_attacking(job: Dictionary, gid: String) -> bool:
