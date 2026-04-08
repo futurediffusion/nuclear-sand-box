@@ -9,6 +9,7 @@ class_name WorldSaveBuildingRepository
 ## data into the BuildingState record shape required by the domain.
 
 const PLAYER_WALL_KIND: String = "player_wall"
+const SandboxStructureContractScript := preload("res://scripts/domain/building/SandboxStructureContract.gd")
 
 func save_structure(structure: Dictionary) -> Dictionary:
 	var normalized: Dictionary = _normalize_structure(structure)
@@ -109,14 +110,22 @@ func _normalize_structure(structure: Dictionary) -> Dictionary:
 	var structure_id: String = String(structure.get(BuildingState.STRUCTURE_KEY_ID, "")).strip_edges()
 	if structure_id.is_empty():
 		structure_id = BuildingState.build_structure_key(kind, chunk_pos, tile_pos)
+	var canonical_record: Dictionary = SandboxStructureContractScript.create_player_wall_record(
+		chunk_pos,
+		tile_pos,
+		hp,
+		metadata,
+		max_hp
+	)
+	structure_id = String(canonical_record.get(SandboxStructureContractScript.KEY_STRUCTURE_ID, structure_id))
 	return BuildingState.create_structure_record(
 		structure_id,
 		chunk_pos,
 		tile_pos,
 		kind,
-		hp,
-		max_hp,
-		metadata
+		int(canonical_record.get(SandboxStructureContractScript.KEY_HP, hp)),
+		int(canonical_record.get(SandboxStructureContractScript.KEY_MAX_HP, max_hp)),
+		canonical_record.get(SandboxStructureContractScript.KEY_METADATA, metadata) as Dictionary
 	)
 
 func _parse_structure_key(structure_id: String) -> Dictionary:

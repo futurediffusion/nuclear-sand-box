@@ -1,6 +1,8 @@
 extends RefCounted
 class_name StructuralWallPersistence
 
+const SandboxStructureContractScript := preload("res://scripts/domain/building/SandboxStructureContract.gd")
+
 const WALL_HP_KEY: String = "hp"
 const WALL_TILE_KEY: String = "tile"
 const WALL_LAYER_KEY: String = "layer"
@@ -134,6 +136,33 @@ func deserialize_wall_data(raw_data: Dictionary) -> Dictionary:
 	if raw_data.has(WALL_TYPE_KEY):
 		out[WALL_TYPE_KEY] = raw_data.get(WALL_TYPE_KEY)
 	return out
+
+func load_chunk_structure_records(chunk_pos: Vector2i) -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	for wall in load_chunk_walls(chunk_pos):
+		if typeof(wall) != TYPE_DICTIONARY:
+			continue
+		var wall_data: Dictionary = wall as Dictionary
+		var tile_raw: Variant = wall_data.get(WALL_TILE_KEY, Vector2i(-1, -1))
+		if not (tile_raw is Vector2i):
+			continue
+		var metadata: Dictionary = {
+			WALL_LAYER_KEY: int(wall_data.get(WALL_LAYER_KEY, walls_map_layer)),
+			WALL_ATLAS_KEY: wall_data.get(WALL_ATLAS_KEY, Vector2i(-1, -1)),
+		}
+		if wall_data.has(WALL_KIND_KEY):
+			metadata[WALL_KIND_KEY] = wall_data.get(WALL_KIND_KEY)
+		if wall_data.has(WALL_TYPE_KEY):
+			metadata[WALL_TYPE_KEY] = wall_data.get(WALL_TYPE_KEY)
+		entries.append(SandboxStructureContractScript.create_structural_wall_record(
+			chunk_pos,
+			tile_raw as Vector2i,
+			int(wall_data.get(WALL_HP_KEY, structural_wall_default_hp)),
+			structural_wall_source,
+			metadata,
+			int(wall_data.get(WALL_HP_KEY, structural_wall_default_hp))
+		))
+	return entries
 
 func _is_structural_entry(tile_data: Dictionary) -> bool:
 	var layer: int = int(tile_data.get(WALL_LAYER_KEY, -9999))

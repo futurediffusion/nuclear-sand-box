@@ -325,6 +325,22 @@ Rol:
 - Centraliza el scope de tiles de pared que deben gatillar refresh y permite rebuild desde estado (`apply_snapshot` / `rebuild_from_state`).
 - Se integra con `WorldProjectionRefreshContract` y, como fallback, con `WorldChunkDirtyNotifierContract` + `WallRefreshQueue`.
 
+### 🧱 SANDBOX STRUCTURE REPOSITORY (Unification Layer)
+
+Ubicación:
+
+- `scripts/world/SandboxStructureRepository.gd`
+- `scripts/domain/building/SandboxStructureContract.gd`
+
+Rol:
+
+- Capa incremental de unificación para objetos tipo estructura del sandbox.
+- Expone un lenguaje canónico compartido (`structure_id`, `kind`, `owner`, `chunk_pos`, `tile_pos`, `hp`, `max_hp`, `metadata`, `persistence_bucket`) para:
+  - paredes de jugador,
+  - paredes estructurales,
+  - placeables persistentes.
+- No reemplaza los stores actuales; adapta `WorldSave.player_walls_by_chunk`, `chunk_save.placed_tiles` (via `StructuralWallPersistence`) y `placed_entities_*` a un contrato común de consulta por chunk.
+
 ### 🧱 WALL PERSISTENCE (Adapter)
 
 Ubicación:
