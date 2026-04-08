@@ -120,7 +120,6 @@ var _entity_root: Node2D
 var chunk_save: Dictionary = {}
 var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
-var _pending_tile_erases: Array[Vector2i] = []
 var _settlement_intel: SettlementIntel
 var _player_territory: TerritoryProjection
 var _player_territory_dirty: bool = false
@@ -162,6 +161,7 @@ var _sandbox_structure_repository: SandboxStructureRepository
 var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
+var _chunk_lifecycle_coordinator: WorldChunkLifecycleCoordinator
 var _world_sim_telemetry: WorldSimTelemetry
 var _sandbox_diagnostics: SandboxDiagnostics
 var _last_snapshot_rebuild_report: Dictionary = {
@@ -247,6 +247,7 @@ const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerf
 const DayNightControllerScript := preload("res://scripts/world/DayNightController.gd")
 const GameplayCommandDispatcherScript := preload("res://scripts/runtime/world/GameplayCommandDispatcher.gd")
 const SandboxDomainEventDispatcherScript := preload("res://scripts/runtime/world/SandboxDomainEventDispatcher.gd")
+const WorldChunkLifecycleCoordinatorScript := preload("res://scripts/runtime/world/WorldChunkLifecycleCoordinator.gd")
 const PlacementReactionRuntimeConfigScript := preload("res://scripts/world/PlacementReactionRuntimeConfig.gd")
 const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
@@ -710,6 +711,25 @@ func _ready() -> void:
 		"cliffs_tilemap": cliffs_tilemap,
 	})
 	pipeline.current_player_chunk = current_player_chunk
+	_chunk_lifecycle_coordinator = WorldChunkLifecycleCoordinatorScript.new()
+	_chunk_lifecycle_coordinator.setup({
+		"pipeline": pipeline,
+		"entity_coordinator": entity_coordinator,
+		"chunk_generator": chunk_generator,
+		"vegetation_root": _vegetation_root,
+		"loaded_chunks": loaded_chunks,
+		"ground_terrain_painted_chunks": _ground_terrain_painted_chunks,
+		"chunk_occupied_tiles": chunk_occupied_tiles,
+		"chunk_size": chunk_size,
+		"active_radius": active_radius,
+		"width": width,
+		"height": height,
+		"debug_log": func(channel: String, msg: String) -> void: Debug.log(channel, msg),
+		"debug_check_tile_alignment": Callable(self, "_debug_check_tile_alignment"),
+		"debug_check_player_chunk": Callable(self, "_debug_check_player_chunk"),
+		"is_chunk_in_active_window": Callable(self, "_is_chunk_in_active_window"),
+		"on_unload_chunk": Callable(self, "unload_chunk"),
+	})
 
 	npc_simulator.setup({
 		"player": player,
@@ -1062,13 +1082,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_tree().reload_current_scene()
 
 func _process_tile_erase_queue(max_erases_per_frame: int = BUDGET_TILE_ERASE_PER_PULSE) -> void:
-	var budget := maxi(0, max_erases_per_frame)
-	while budget > 0 and not _pending_tile_erases.is_empty():
-		var cpos: Vector2i = _pending_tile_erases.pop_front()
-		if loaded_chunks.has(cpos):
-			continue  # el chunk volvió al rango antes de que borráramos — saltar
-		unload_chunk(cpos)
-		budget -= 1
+	if _chunk_lifecycle_coordinator == null:
+		return
+	_chunk_lifecycle_coordinator.process_tile_erase_queue(max_erases_per_frame)
 
 func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 	var t0_usec: int = Time.get_ticks_usec()
@@ -1414,77 +1430,10 @@ func _is_chunk_in_active_window(chunk_pos: Vector2i, center: Vector2i) -> bool:
 	return abs(chunk_pos.x - center.x) <= active_radius and abs(chunk_pos.y - center.y) <= active_radius
 
 func update_chunks(center: Vector2i) -> void:
-	if pipeline.is_updating:
+	if _chunk_lifecycle_coordinator == null:
 		return
-	Debug.log("boot", "ChunkManager load begin center=%s" % center)
-	Debug.log("chunk", "CENTER moved -> (%d,%d)" % [center.x, center.y])
-	if player:
-		_debug_check_tile_alignment(player.global_position)
-		_debug_check_player_chunk(player.global_position)
-
-	var needed: Dictionary = {}
-	var needed_chunks: Array[Vector2i] = []
-	var max_chunk_x: int = int(floor(float(width - 1) / float(chunk_size)))
-	var max_chunk_y: int = int(floor(float(height - 1) / float(chunk_size)))
-
-	for cy in range(center.y - active_radius, center.y + active_radius + 1):
-		for cx in range(center.x - active_radius, center.x + active_radius + 1):
-			if cx < 0 or cx > max_chunk_x or cy < 0 or cy > max_chunk_y:
-				continue
-			var cpos := Vector2i(cx, cy)
-			needed[cpos] = true
-			needed_chunks.append(cpos)
-
-	if pipeline.terrain_paint_ring_priority_enabled:
-		needed_chunks.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-			var ring_a: int = max(abs(a.x - center.x), abs(a.y - center.y))
-			var ring_b: int = max(abs(b.x - center.x), abs(b.y - center.y))
-			if ring_a == ring_b:
-				if a.y == b.y:
-					return a.x < b.x
-				return a.y < b.y
-			return ring_a < ring_b
-		)
-
-	if pipeline.progressive_terrain_paint_enabled:
-		pipeline.reset_terrain_paint_epoch()
-
-	for cpos in needed_chunks:
-		if not pipeline.generated_chunks.has(cpos) and not pipeline.generating_chunks.has(cpos):
-			pipeline.generating_chunks[cpos] = true
-			await pipeline.generate_chunk(cpos, true)
-		if pipeline.generating_chunks.has(cpos):
-			continue
-		if not loaded_chunks.has(cpos):
-			entity_coordinator.load_chunk(cpos)
-			loaded_chunks[cpos] = true
-		if pipeline.progressive_terrain_paint_enabled and _is_chunk_in_active_window(cpos, center):
-			pipeline.enqueue_terrain_paint(cpos, center, pipeline.terrain_paint_epoch)
-
-	# Pass 2: paint GroundTileMap for new chunks (batched so set_cells_terrain_connect sees neighbors)
-	var ground_to_paint: Array[Vector2i] = []
-	for cpos in needed_chunks:
-		if not _ground_terrain_painted_chunks.has(cpos):
-			ground_to_paint.append(cpos)
-	if not ground_to_paint.is_empty():
-		await chunk_generator.apply_ground_terrain_ctx(ground_to_paint, pipeline.make_ground_terrain_ctx())
-		for cpos in ground_to_paint:
-			_ground_terrain_painted_chunks[cpos] = true
-			_vegetation_root.load_chunk(cpos, chunk_occupied_tiles.get(cpos, {}))
-
-	for cpos in loaded_chunks.keys():
-		if not needed.has(cpos):
-			# Lógica inmediata: sacar del mapa activo y descargar entidades
-			loaded_chunks.erase(cpos)
-			entity_coordinator.unload_entities(cpos)
-			pipeline.on_chunk_unloaded(cpos)
-			# Erasure de tiles diferida: evita 4× erase_chunk_region por frame
-			_ground_terrain_painted_chunks.erase(cpos)
-			_pending_tile_erases.append(cpos)
-
-	if pipeline.progressive_terrain_paint_enabled and pipeline.terrain_paint_center_ring0_pending == 0:
-		pipeline.is_updating = false
-	Debug.log("boot", "ChunkManager load end center=%s" % center)
+	var player_pos: Vector2 = player.global_position if player != null else Vector2.INF
+	await _chunk_lifecycle_coordinator.update_chunks(center, player_pos)
 
 
 func _record_chunk_stage_time(stage: String, chunk_pos: Vector2i, elapsed_ms: float) -> void:
@@ -2594,7 +2543,7 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 	if _last_save_time_msec >= 0:
 		last_save_age = float(Time.get_ticks_msec() - _last_save_time_msec) / 1000.0
 	return {
-		"pending_tile_erases": _pending_tile_erases.size(),
+		"pending_tile_erases": _chunk_lifecycle_coordinator.pending_tile_erase_count() if _chunk_lifecycle_coordinator != null else 0,
 		"loaded_chunks": loaded_count,
 		"generated_chunks": generated_count,
 		"terrain_paint_ring0_pending": terrain_pending,
