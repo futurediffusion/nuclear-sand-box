@@ -1,10 +1,11 @@
 extends Node
 
 const SAVE_PATH: String = "user://savegame.json"
-const SAVE_VERSION: int = 1
+const SAVE_VERSION: int = 2
 
 const WorldSaveAdapter := preload("res://scripts/persistence/save/WorldSaveAdapter.gd")
 const WorldSnapshotSerializer := preload("res://scripts/persistence/save/WorldSnapshotSerializer.gd")
+const WorldSnapshot := preload("res://scripts/core/WorldSnapshot.gd")
 
 var _world: Node = null
 var _pending_player_pos: Vector2 = Vector2.ZERO
@@ -44,17 +45,10 @@ func save_world() -> void:
 	var world_snapshot = WorldSaveAdapter.build_world_snapshot(canonical_state)
 	_last_save_pipeline_snapshot = _summarize_world_snapshot(world_snapshot)
 	_last_save_pipeline_snapshot["source"] = "save_world"
+	_last_save_pipeline_snapshot["canonical_snapshot_path_used"] = true
+	_last_save_pipeline_snapshot["legacy_migration_used"] = false
 	var data: Dictionary = WorldSnapshotSerializer.serialize(world_snapshot)
 	data["version"] = SAVE_VERSION
-	data["chunk_save"] = _ser(_world.chunk_save)
-	data["placed_entities_by_chunk"] = _ser(WorldSave.placed_entities_by_chunk)
-	data["placed_entity_data_by_uid"] = _ser(WorldSave.placed_entity_data_by_uid)
-	data[WorldSaveAdapter.SNAPSHOT_STATE_KEY] = _ser(WorldSaveAdapter.capture_world_snapshot_state())
-
-	# Keep explicit compatibility with existing save storage sections.
-	var legacy_worldsave_payload: Dictionary = WorldSaveAdapter.export_legacy_worldsave_payload()
-	for key in legacy_worldsave_payload.keys():
-		data[String(key)] = _ser(legacy_worldsave_payload[key])
 
 	var json_str: String = JSON.stringify(data)
 	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -82,8 +76,8 @@ func load_world_save() -> bool:
 		return false
 
 	var version: int = int(data.get("version", 0))
-	if version != SAVE_VERSION:
-		push_warning("SaveManager: save version mismatch (got %d, expected %d)" % [version, SAVE_VERSION])
+	if version > SAVE_VERSION or version <= 0:
+		push_warning("SaveManager: unsupported save version %d (current %d)" % [version, SAVE_VERSION])
 		return false
 
 	# Restore seed value (chunk_seed() is deterministic from run_seed; no global seed() reset needed)
@@ -102,76 +96,37 @@ func load_world_save() -> bool:
 	for key_raw in (data as Dictionary).keys():
 		deserialized_payload[String(key_raw)] = _des((data as Dictionary).get(key_raw))
 
-	var restored_from_snapshot: bool = false
-	var restore_path: String = "none"
+	var world_snapshot: WorldSnapshot = null
+	var used_legacy_migration: bool = false
+	var restore_path: String = "canonical_snapshot"
 	if deserialized_payload.has("snapshot_version"):
-		var world_snapshot = WorldSnapshotSerializer.deserialize(deserialized_payload)
-		restored_from_snapshot = WorldSaveAdapter.apply_world_snapshot(world_snapshot)
-		if restored_from_snapshot:
-			restore_path = "world_snapshot"
-			_last_load_pipeline_snapshot = _summarize_world_snapshot(world_snapshot)
-	if not restored_from_snapshot:
-		restored_from_snapshot = WorldSaveAdapter.restore_world_snapshot_state(deserialized_payload)
-		if restored_from_snapshot:
-			restore_path = "world_snapshot_state"
-			var chunk_count: int = 0
-			var state_raw: Variant = deserialized_payload.get(WorldSaveAdapter.SNAPSHOT_STATE_KEY, {})
-			if state_raw is Dictionary:
-				var chunks_raw: Variant = (state_raw as Dictionary).get("chunks", [])
-				if chunks_raw is Array:
-					chunk_count = (chunks_raw as Array).size()
-			_last_load_pipeline_snapshot = {
-				"snapshot_version": int(deserialized_payload.get("snapshot_version", 0)),
-				"save_version": int(deserialized_payload.get("save_version", 0)),
-				"chunk_count": chunk_count,
-				"structure_count": 0,
-				"placed_entity_count": 0,
-			}
-	if not restored_from_snapshot:
-		WorldSaveAdapter.restore_legacy_worldsave_payload(deserialized_payload)
-		restore_path = "legacy_worldsave_payload"
-		_last_load_pipeline_snapshot = {
-			"snapshot_version": 0,
-			"save_version": int(deserialized_payload.get("version", 0)),
-			"chunk_count": int(WorldSave.chunks.size()),
-			"structure_count": 0,
-			"placed_entity_count": int(WorldSave.placed_entity_chunk_by_uid.size()),
-		}
-	_last_load_pipeline_snapshot["source"] = restore_path
-
-	# --- Migration / Loading of placed entities ---
-	WorldSave.clear_placed_entities()
-
-	# Try loading the new chunk-based format first
-	var placed_chunk_raw = _des(data.get("placed_entities_by_chunk", {}))
-	if placed_chunk_raw is Dictionary and not placed_chunk_raw.is_empty():
-		WorldSave.placed_entities_by_chunk = placed_chunk_raw
-		# Rebuild index UID -> Chunk
-		WorldSave.placed_entity_chunk_by_uid.clear()
-		for ckey in WorldSave.placed_entities_by_chunk:
-			var dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
-			for uid in dict:
-				WorldSave.placed_entity_chunk_by_uid[uid] = ckey
+		world_snapshot = WorldSnapshotSerializer.deserialize(deserialized_payload)
 	else:
-		# FALLBACK / MIGRATION: detect legacy 'placed_entities' array
-		var placed_legacy = _des(data.get("placed_entities", []))
-		if placed_legacy is Array:
-			for entry in placed_legacy:
-				if entry is Dictionary:
-					# add_placed_entity will automatically resolve chunk_key and update indices
-					WorldSave.add_placed_entity(entry)
-			if not placed_legacy.is_empty():
-				Debug.log("save", "Migration: Converted %d legacy placed entities to chunk-based storage." % placed_legacy.size())
+		var migration_result: Dictionary = WorldSaveAdapter.migrate_legacy_payload_to_world_snapshot(deserialized_payload)
+		var snapshot_raw: Variant = migration_result.get("snapshot", null)
+		if snapshot_raw is WorldSnapshot:
+			world_snapshot = snapshot_raw as WorldSnapshot
+		used_legacy_migration = bool(migration_result.get("legacy_migration_used", false))
+		restore_path = String(migration_result.get("legacy_source", "legacy_migration"))
 
-	# Restore placed entity data by uid (backward-compatible: defaults to empty dictionary)
-	var placed_data_raw = _des(data.get("placed_entity_data_by_uid", {}))
-	WorldSave.placed_entity_data_by_uid.clear()
-	if placed_data_raw is Dictionary:
-		for uid in placed_data_raw.keys():
-			var uid_str := String(uid)
-			var entity_data = placed_data_raw[uid]
-			if entity_data is Dictionary:
-				WorldSave.placed_entity_data_by_uid[uid_str] = (entity_data as Dictionary).duplicate(true)
+	if world_snapshot == null:
+		push_error("SaveManager: failed to obtain a world snapshot for load")
+		return false
+
+	if not WorldSaveAdapter.apply_world_snapshot(world_snapshot):
+		push_error("SaveManager: failed to apply world snapshot")
+		return false
+
+	_last_load_pipeline_snapshot = _summarize_world_snapshot(world_snapshot)
+	_last_load_pipeline_snapshot["source"] = restore_path
+	_last_load_pipeline_snapshot["loaded_save_file_version"] = version
+	_last_load_pipeline_snapshot["canonical_snapshot_path_used"] = true
+	_last_load_pipeline_snapshot["legacy_migration_used"] = used_legacy_migration
+	Debug.log("save", "Load telemetry: save_version=%d canonical_snapshot_path_used=true legacy_migration_used=%s source=%s" % [
+		version,
+		str(used_legacy_migration),
+		restore_path,
+	])
 
 	# Restore Faction / Site / NpcProfile systems (backward-compatible: get with empty default)
 	var fs = data.get("faction_system", {})
@@ -203,14 +158,6 @@ func load_world_save() -> bool:
 	var fh = data.get("faction_hostility", {})
 	if fh is Dictionary:
 		FactionHostilityManager.deserialize(fh)
-
-	# Restore chunk_save into world's existing dict (mutate in-place so references stay valid)
-	if _world != null:
-		var cs = _des(data.get("chunk_save", {}))
-		if cs is Dictionary:
-			_world.chunk_save.clear()
-			for k in cs.keys():
-				_world.chunk_save[k] = cs[k]
 
 	Debug.log("save", "World loaded from %s" % SAVE_PATH)
 	return true
