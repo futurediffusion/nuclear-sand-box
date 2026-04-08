@@ -1165,18 +1165,11 @@ func _build_drop_compaction_anchor_list() -> Array[Vector2]:
 			continue
 		seen_tiles[tile] = true
 		anchors.append(pos)
-	var drops: Array = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_ITEM_DROP) \
-		if _world_spatial_index != null else []
-	var density_by_chunk: Dictionary = {}
+	var density_by_chunk: Dictionary = _world_spatial_index.get_runtime_node_count_by_chunk(WorldSpatialIndex.KIND_ITEM_DROP) \
+		if _world_spatial_index != null else {}
 	var chunk_center_by_chunk: Dictionary = {}
-	for raw_node in drops:
-		var drop_node := raw_node as ItemDrop
-		if drop_node == null or not is_instance_valid(drop_node) or drop_node.is_queued_for_deletion():
-			continue
-		var cpos: Vector2i = _tile_to_chunk(_world_to_tile(drop_node.global_position))
-		density_by_chunk[cpos] = int(density_by_chunk.get(cpos, 0)) + 1
-		if not chunk_center_by_chunk.has(cpos):
-			chunk_center_by_chunk[cpos] = _tile_to_world(cpos * chunk_size + Vector2i(chunk_size / 2, chunk_size / 2))
+	for cpos in density_by_chunk.keys():
+		chunk_center_by_chunk[cpos] = _tile_to_world(cpos * chunk_size + Vector2i(chunk_size / 2, chunk_size / 2))
 	var density_rank: Array[Dictionary] = []
 	for cpos in density_by_chunk.keys():
 		var count: int = int(density_by_chunk[cpos])
@@ -1215,7 +1208,7 @@ func _get_drop_pressure_level_for_count(item_drop_count: int) -> StringName:
 func _update_drop_pressure_snapshot() -> void:
 	if _world_spatial_index == null:
 		return
-	var item_drop_count: int = _world_spatial_index.get_all_runtime_nodes(WorldSpatialIndex.KIND_ITEM_DROP).size()
+	var item_drop_count: int = _world_spatial_index.get_runtime_node_count(WorldSpatialIndex.KIND_ITEM_DROP)
 	var level: StringName = _get_drop_pressure_level_for_count(item_drop_count)
 	var stage: int = DROP_PRESSURE_STAGE_NORMAL
 	if level == DROP_PRESSURE_HIGH:
