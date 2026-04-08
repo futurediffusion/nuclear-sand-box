@@ -122,7 +122,6 @@ var _spawn_queue: SpawnBudgetQueue
 var _perf_monitor := ChunkPerfMonitor.new()
 var _settlement_intel: SettlementIntel
 var _player_territory: TerritoryProjection
-var _player_territory_dirty: bool = false
 var _bandit_behavior_layer: BanditBehaviorLayer
 var _world_spatial_index: WorldSpatialIndex
 var _spatial_index_projection: SpatialIndexProjection
@@ -166,15 +165,7 @@ var _drop_pressure_service: WorldDropPressureService
 var _drop_compaction_service: WorldDropCompactionService
 var _world_sim_telemetry: WorldSimTelemetry
 var _sandbox_diagnostics: SandboxDiagnostics
-var _last_snapshot_rebuild_report: Dictionary = {
-	"calls": 0,
-	"warnings": [],
-	"loaded_structure_count": 0,
-	"tilemap_projection_applied": 0,
-	"collider_projection_rebuilt": 0,
-	"spatial_projection_rebuilt": 0,
-	"territory_rebuild_requests": 0,
-}
+var _projection_rebuild_coordinator: WorldProjectionRebuildCoordinator
 var _gameplay_command_dispatcher: GameplayCommandDispatcher
 var _domain_event_dispatcher: SandboxDomainEventDispatcher
 var _save_count: int = 0
@@ -252,6 +243,7 @@ const SandboxDomainEventDispatcherScript := preload("res://scripts/runtime/world
 const WorldChunkLifecycleCoordinatorScript := preload("res://scripts/runtime/world/WorldChunkLifecycleCoordinator.gd")
 const WorldDropPressureServiceScript := preload("res://scripts/runtime/world/WorldDropPressureService.gd")
 const WorldDropCompactionServiceScript := preload("res://scripts/runtime/world/WorldDropCompactionService.gd")
+const WorldProjectionRebuildCoordinatorScript := preload("res://scripts/runtime/world/WorldProjectionRebuildCoordinator.gd")
 const PlacementReactionRuntimeConfigScript := preload("res://scripts/world/PlacementReactionRuntimeConfig.gd")
 const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
@@ -746,6 +738,18 @@ func _ready() -> void:
 	_spatial_index_projection.setup({
 		"chunk_size": chunk_size,
 	})
+	_projection_rebuild_coordinator = WorldProjectionRebuildCoordinatorScript.new()
+	_projection_rebuild_coordinator.setup({
+		"domain_event_dispatcher": _domain_event_dispatcher,
+		"building_tilemap_projection": _building_tilemap_projection,
+		"wall_collider_projection": _wall_collider_projection,
+		"spatial_index_projection": _spatial_index_projection,
+		"sandbox_structure_repository": _sandbox_structure_repository,
+		"building_repository": _building_repository,
+		"loaded_chunks": loaded_chunks,
+		"request_player_territory_rebuild_cb": Callable(self, "_request_player_territory_rebuild_internal"),
+		"tick_player_territory_cb": Callable(self, "_tick_player_territory"),
+	})
 	_world_spatial_index.setup({
 		"world_to_tile": Callable(self, "_world_to_tile"),
 		"tile_to_world": Callable(self, "_tile_to_world"),
@@ -986,7 +990,9 @@ func _on_structure_domain_event(event_record: Dictionary) -> void:
 	_placement_reaction_system.handle_building_event(payload)
 
 func _on_snapshot_loaded_domain_event(_event_record: Dictionary) -> void:
-	_rebuild_explicit_projections_after_snapshot_load()
+	if _projection_rebuild_coordinator == null:
+		return
+	_projection_rebuild_coordinator.rebuild_explicit_projections_after_snapshot_load()
 
 func _on_projection_rebuild_requested_domain_event(event_record: Dictionary) -> void:
 	var payload: Dictionary = event_record.get("payload", {}) as Dictionary
@@ -1022,57 +1028,10 @@ func _on_spawn_job_completed(job: Dictionary, node: Node) -> void:
 	if String(job.get("kind", "")) == "npc_keeper":
 		_wire_keeper_incident_reporter()  # incluye _register_tavern_containers()
 
-func _rebuild_explicit_projections_after_snapshot_load() -> void:
-	if _domain_event_dispatcher != null:
-		_domain_event_dispatcher.publish("projection_rebuild_requested", {
-			"projection": "snapshot_explicit",
-			"reason": "snapshot_loaded",
-		})
-	# Keep projection rebuild order explicit after canonical save state restore:
-	#  1) tilemap projection (loaded chunks only, visual runtime representation)
-	#  2) wall collider projection (loaded chunks only, runtime collision invalidation)
-	#  3) spatial index projection (full canonical placeables rebuild)
-	#  4) territory projection (derived from rebuilt read models + settlement scan snapshot)
-	var loaded_structure_snapshot: Array[Dictionary] = []
-	var warnings: Array[String] = []
-	for chunk_pos_raw in loaded_chunks.keys():
-		if not (chunk_pos_raw is Vector2i):
-			continue
-		var chunk_pos: Vector2i = chunk_pos_raw as Vector2i
-		if _sandbox_structure_repository != null:
-			loaded_structure_snapshot.append_array(_sandbox_structure_repository.list_structures_in_chunk(chunk_pos, false))
-		elif _building_repository != null:
-			loaded_structure_snapshot.append_array(_building_repository.load_structures_in_chunk(chunk_pos))
-	if _building_tilemap_projection != null and not loaded_structure_snapshot.is_empty():
-		_building_tilemap_projection.apply_snapshot(loaded_structure_snapshot)
-	elif _building_tilemap_projection == null:
-		warnings.append("missing_building_tilemap_projection")
-	if _wall_collider_projection != null and not loaded_structure_snapshot.is_empty():
-		_wall_collider_projection.rebuild_from_state(loaded_structure_snapshot)
-	elif _wall_collider_projection == null:
-		warnings.append("missing_wall_collider_projection")
-	if _spatial_index_projection != null:
-		_spatial_index_projection.rebuild_from_source("snapshot_load")
-	else:
-		warnings.append("missing_spatial_index_projection")
-	_request_player_territory_rebuild("snapshot_load")
-	_tick_player_territory()
-	_last_snapshot_rebuild_report["calls"] = int(_last_snapshot_rebuild_report.get("calls", 0)) + 1
-	_last_snapshot_rebuild_report["warnings"] = warnings.duplicate(true)
-	_last_snapshot_rebuild_report["loaded_structure_count"] = loaded_structure_snapshot.size()
-	_last_snapshot_rebuild_report["tilemap_projection_applied"] = int(_building_tilemap_projection != null and not loaded_structure_snapshot.is_empty())
-	_last_snapshot_rebuild_report["collider_projection_rebuilt"] = int(_wall_collider_projection != null and not loaded_structure_snapshot.is_empty())
-	_last_snapshot_rebuild_report["spatial_projection_rebuilt"] = int(_spatial_index_projection != null)
-	_last_snapshot_rebuild_report["territory_rebuild_requests"] = 1
-	if _domain_event_dispatcher != null:
-		_domain_event_dispatcher.publish("projection_rebuild_completed", {
-			"projection": "snapshot_explicit",
-			"reason": "snapshot_loaded",
-			"report": get_snapshot_rebuild_report(),
-		})
-
 func get_snapshot_rebuild_report() -> Dictionary:
-	return SnapshotRebuildNotificationDtoScript.build(_last_snapshot_rebuild_report)
+	if _projection_rebuild_coordinator == null:
+		return SnapshotRebuildNotificationDtoScript.build({})
+	return _projection_rebuild_coordinator.get_snapshot_rebuild_report()
 
 func get_domain_event_trace(limit: int = 64) -> Array[Dictionary]:
 	if _domain_event_dispatcher == null:
@@ -2143,9 +2102,12 @@ func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) ->
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.
 ## TerritoryProjection — territorio del jugador (derived read-model)
 func _tick_player_territory() -> void:
-	if not _player_territory_dirty or _player_territory == null or _settlement_intel == null:
+	if _player_territory == null or _settlement_intel == null:
 		return
-	_player_territory_dirty = false
+	if _projection_rebuild_coordinator == null:
+		return
+	if not _projection_rebuild_coordinator.consume_player_territory_rebuild_request():
+		return
 	_player_territory.apply_inputs(_collect_player_territory_projection_inputs())
 
 func _collect_player_territory_projection_inputs() -> Dictionary:
@@ -2178,12 +2140,12 @@ func _collect_player_workbench_projection_anchors() -> Array:
 	return anchors
 
 func _request_player_territory_rebuild(_reason: String) -> void:
-	_player_territory_dirty = true
-	if _domain_event_dispatcher != null:
-		_domain_event_dispatcher.publish("projection_rebuild_requested", {
-			"projection": "player_territory",
-			"reason": _reason,
-		})
+	_request_player_territory_rebuild_internal(_reason)
+
+func _request_player_territory_rebuild_internal(reason: String) -> void:
+	if _projection_rebuild_coordinator == null:
+		return
+	_projection_rebuild_coordinator.request_player_territory_rebuild(reason)
 
 func is_in_player_territory(world_pos: Vector2) -> bool:
 	if _player_territory == null:
