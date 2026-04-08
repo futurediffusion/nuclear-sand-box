@@ -18,7 +18,7 @@ Reglas operativas:
 
 1. El estado de gameplay no debe depender de nodos visuales/transitorios.
 2. Las proyecciones deben ser reconstruibles desde inputs canónicos.
-3. Compatibilidad legacy solo como puente acotado y explícitamente marcado como deprecated.
+3. Compatibilidad legacy solo como superficie **deprecated** y de salida controlada; no forma parte del diseño objetivo.
 
 ---
 
@@ -69,7 +69,7 @@ Notas clave:
 
 - `Perception/Intent/Task` producen datos trazables y no ejecutan movimiento/combate directo.
 - La ejecución runtime consume órdenes declarativas (`order.task`) y aplica side-effects.
-- Inputs/hints legacy se mantienen solo como fallback instrumentado (contadores/warnings), no como authority.
+- Inputs/hints legacy existentes son **solo de compatibilidad deprecated** e instrumentada (contadores/warnings), nunca authority ni camino por defecto.
 
 ---
 
@@ -111,9 +111,9 @@ Caso explícito: `TerritoryProjection` rechaza entrypoints runtime legacy y exig
 
 ---
 
-## 5) Compatibilidad y deprecaciones (mantener acotado)
+## 5) Compatibilidad y deprecaciones (estado actual)
 
-Compat wrappers/bridges aún presentes (ejemplos):
+Superficies deprecated aún presentes (ejemplos):
 
 - `scripts/world/PlayerTerritoryMap.gd` (wrapper legacy de `TerritoryProjection`).
 - `scripts/projections/collider/BuildingColliderRefreshProjection.gd` (wrapper legacy).
@@ -122,9 +122,15 @@ Compat wrappers/bridges aún presentes (ejemplos):
 
 Política:
 
-- No crear nuevos puentes legacy salvo bloqueo real de migración.
-- Todo puente debe estar marcado como deprecated, con telemetría/observabilidad.
-- El target de diseño sigue siendo ruta canónica end-to-end.
+- No crear nuevos puentes/bridges legacy salvo bloqueo real y temporal de migración.
+- Toda superficie legacy debe estar marcada como deprecated, con telemetría/observabilidad.
+- El camino canónico de diseño y mantenimiento es end-to-end sin wrappers de transición.
+
+Clasificación explícita:
+
+- **Actual**: APIs/owners canónicos de dominio, proyección y snapshot.
+- **Deprecated**: wrappers/adapters legacy solo para compatibilidad de callers pendientes.
+- **Histórico**: decisiones y fases cerradas; consultar solo en `REGISTRO_CAMBIOS_DESDE_AGENTS.md`.
 
 ---
 
@@ -135,7 +141,7 @@ Cuando cambies código:
 1. Preserva separación **Dominio / Persistencia / Proyección / Runtime**.
 2. Si tocas building, valida flujo completo: comando → evento → proyección → persistencia.
 3. Si tocas IA, respeta pipeline **Perception → Intent → Task → Execution**.
-4. Si tocas persistencia, actualiza versionado/migración y evita caminos bidireccionales legacy.
+4. Si tocas persistencia, actualiza versionado/migración y evita reintroducir fallback legacy como flujo primario.
 5. Si agregas o reemplazas un subsistema arquitectural, actualiza este documento en términos de estado actual (no cronología histórica).
 
 ---

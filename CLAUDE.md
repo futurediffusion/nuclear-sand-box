@@ -57,7 +57,7 @@ godot --path . --check-only --script scripts/world/world.gd
   - `scripts/persistence/save/WorldSnapshotVersioning.gd`
   - `scripts/persistence/save/WorldSaveAdapter.gd`
   - `scripts/systems/SaveManager.gd`
-- Legacy compatibility flows should remain one-way into canonical snapshot contracts.
+- Legacy compatibility flows are deprecated ingestion-only paths (one-way into canonical snapshots), never primary save/load design.
 
 ## 3) Primary files to read before modifying architecture
 
@@ -74,9 +74,15 @@ godot --path . --check-only --script scripts/world/world.gd
 - Do **not** bypass domain owners by mutating canonical building/persistence dictionaries from random gameplay scripts.
 - Do **not** treat tilemaps, colliders, spatial indices, or other runtime caches as persistence truth.
 - Do **not** collapse Bandit stages into hidden one-module logic that mixes perception/intent/task/execution authority.
-- Do **not** introduce new legacy callable/setup bridges unless migration is blocked and deprecation is explicit.
+- Do **not** introduce new legacy callable/setup bridges unless migration is blocked and the bridge is explicitly temporary + deprecated.
 
-## 5) Deeper docs (current)
+## 5) Current vs deprecated vs historical
+
+- **Current**: architecture authority is `docs/architecture/current_sandbox_architecture.md` plus `docs/architecture/ownership/*`.
+- **Deprecated**: compatibility wrappers/adapters may still exist for bounded callers, but are not the target design.
+- **Historical only**: migration phase logs/contracts are context docs, not current implementation guidance.
+
+## 6) Deeper docs (current)
 
 - Current architecture source of truth: `docs/architecture/current_sandbox_architecture.md`
 - Collaboration quick rules: `AGENTS.MD`
