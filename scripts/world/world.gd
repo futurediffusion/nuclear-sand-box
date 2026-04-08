@@ -163,6 +163,7 @@ var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
 var _chunk_lifecycle_coordinator: WorldChunkLifecycleCoordinator
 var _drop_pressure_service: WorldDropPressureService
+var _drop_compaction_service: WorldDropCompactionService
 var _world_sim_telemetry: WorldSimTelemetry
 var _sandbox_diagnostics: SandboxDiagnostics
 var _last_snapshot_rebuild_report: Dictionary = {
@@ -250,6 +251,7 @@ const GameplayCommandDispatcherScript := preload("res://scripts/runtime/world/Ga
 const SandboxDomainEventDispatcherScript := preload("res://scripts/runtime/world/SandboxDomainEventDispatcher.gd")
 const WorldChunkLifecycleCoordinatorScript := preload("res://scripts/runtime/world/WorldChunkLifecycleCoordinator.gd")
 const WorldDropPressureServiceScript := preload("res://scripts/runtime/world/WorldDropPressureService.gd")
+const WorldDropCompactionServiceScript := preload("res://scripts/runtime/world/WorldDropCompactionService.gd")
 const PlacementReactionRuntimeConfigScript := preload("res://scripts/world/PlacementReactionRuntimeConfig.gd")
 const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
@@ -301,8 +303,6 @@ const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(-1, 1),
 	Vector2i(1, 1),
 ]
-const DROP_COMPACT_HOTSPOT_MAX_TRACKED: int = 32
-
 # Biome IDs used by PropSpawner via get_spawn_biome()
 const BIOME_ID_GRASSLAND: int = 1
 const BIOME_ID_DENSE_GRASS: int = 2
@@ -326,9 +326,6 @@ const BIOME_ID_DENSE_GRASS: int = 2
 @export var drop_pressure_critical_merges_mult: float = 2.40
 @export var drop_pressure_high_orphan_ttl_sec: float = 25.0
 @export_group("")
-
-var merged_drop_events: int = 0
-var _drop_compaction_hotspots: Array[Dictionary] = []
 
 func _configure_world_cadence_lanes() -> void:
 	if _cadence == null:
@@ -764,6 +761,28 @@ func _ready() -> void:
 		"high_orphan_ttl_sec": drop_pressure_high_orphan_ttl_sec,
 		"now_msec_provider": Callable(Time, "get_ticks_msec"),
 	})
+	_drop_compaction_service = WorldDropCompactionServiceScript.new()
+	_drop_compaction_service.setup({
+		"world_spatial_index": _world_spatial_index,
+		"drop_pressure_service": _drop_pressure_service,
+		"world_to_tile": Callable(self, "_world_to_tile"),
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"chunk_size": chunk_size,
+		"drop_compaction_enabled": drop_compaction_enabled,
+		"drop_compaction_radius_px": drop_compaction_radius_px,
+		"drop_compaction_max_nodes_inspected": drop_compaction_max_nodes_inspected,
+		"drop_compaction_max_merges_per_exec": drop_compaction_max_merges_per_exec,
+		"drop_compaction_hotspot_ttl_sec": drop_compaction_hotspot_ttl_sec,
+		"drop_compaction_hotspot_radius_px": drop_compaction_hotspot_radius_px,
+		"drop_compaction_min_cluster_size": drop_compaction_min_cluster_size,
+		"drop_pressure_high_merge_radius_mult": drop_pressure_high_merge_radius_mult,
+		"drop_pressure_high_nodes_mult": drop_pressure_high_nodes_mult,
+		"drop_pressure_high_merges_mult": drop_pressure_high_merges_mult,
+		"drop_pressure_critical_merge_radius_mult": drop_pressure_critical_merge_radius_mult,
+		"drop_pressure_critical_nodes_mult": drop_pressure_critical_nodes_mult,
+		"drop_pressure_critical_merges_mult": drop_pressure_critical_merges_mult,
+		"now_msec_provider": Callable(Time, "get_ticks_msec"),
+	})
 
 	_bandit_behavior_layer = BanditBehaviorLayerScript.new()
 	_bandit_behavior_layer.name = "BanditBehaviorLayer"
@@ -1119,98 +1138,9 @@ func _process_wall_refresh_queue(max_rebuilds_per_frame: int = 1) -> void:
 
 
 func _register_drop_compaction_hotspot(world_pos: Vector2, score: int = 1) -> void:
-	if world_pos == Vector2.INF:
+	if _drop_compaction_service == null:
 		return
-	var now_sec: float = float(Time.get_ticks_msec()) / 1000.0
-	var ttl: float = maxf(1.0, drop_compaction_hotspot_ttl_sec)
-	var merge_radius: float = maxf(16.0, drop_compaction_hotspot_radius_px)
-	var merge_radius_sq: float = merge_radius * merge_radius
-	for i in _drop_compaction_hotspots.size():
-		var entry: Dictionary = _drop_compaction_hotspots[i]
-		var pos: Vector2 = entry.get("pos", Vector2.INF)
-		if pos == Vector2.INF:
-			continue
-		if pos.distance_squared_to(world_pos) <= merge_radius_sq:
-			entry["score"] = int(entry.get("score", 1)) + maxi(1, score)
-			entry["last_seen"] = now_sec
-			entry["expires_at"] = now_sec + ttl
-			_drop_compaction_hotspots[i] = entry
-			return
-	_drop_compaction_hotspots.append({
-		"pos": world_pos,
-		"score": maxi(1, score),
-		"last_seen": now_sec,
-		"expires_at": now_sec + ttl,
-	})
-	while _drop_compaction_hotspots.size() > DROP_COMPACT_HOTSPOT_MAX_TRACKED:
-		_drop_compaction_hotspots.pop_front()
-
-
-func _prune_drop_compaction_hotspots(now_sec: float) -> void:
-	for i in range(_drop_compaction_hotspots.size() - 1, -1, -1):
-		var entry: Dictionary = _drop_compaction_hotspots[i]
-		if now_sec > float(entry.get("expires_at", -1.0)):
-			_drop_compaction_hotspots.remove_at(i)
-
-
-func _build_drop_compaction_anchor_list() -> Array[Vector2]:
-	var anchors: Array[Vector2] = []
-	var seen_tiles: Dictionary = {}
-	var now_sec: float = float(Time.get_ticks_msec()) / 1000.0
-	_prune_drop_compaction_hotspots(now_sec)
-	var weighted_hotspots: Array[Dictionary] = []
-	for entry in _drop_compaction_hotspots:
-		var pos: Vector2 = entry.get("pos", Vector2.INF)
-		if pos == Vector2.INF:
-			continue
-		var age: float = maxf(0.0, now_sec - float(entry.get("last_seen", now_sec)))
-		var freshness: float = maxf(0.10, 1.0 - (age / maxf(1.0, drop_compaction_hotspot_ttl_sec)))
-		weighted_hotspots.append({
-			"pos": pos,
-			"weight": float(entry.get("score", 1)) * freshness,
-		})
-	weighted_hotspots.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return float(a.get("weight", 0.0)) > float(b.get("weight", 0.0))
-	)
-	for entry in weighted_hotspots:
-		var pos: Vector2 = entry.get("pos", Vector2.INF)
-		if pos == Vector2.INF:
-			continue
-		var tile: Vector2i = _world_to_tile(pos)
-		if seen_tiles.has(tile):
-			continue
-		seen_tiles[tile] = true
-		anchors.append(pos)
-	var density_by_chunk: Dictionary = _world_spatial_index.get_runtime_node_count_by_chunk(WorldSpatialIndex.KIND_ITEM_DROP) \
-		if _world_spatial_index != null else {}
-	var chunk_center_by_chunk: Dictionary = {}
-	for cpos in density_by_chunk.keys():
-		chunk_center_by_chunk[cpos] = _tile_to_world(cpos * chunk_size + Vector2i(chunk_size / 2, chunk_size / 2))
-	var density_rank: Array[Dictionary] = []
-	for cpos in density_by_chunk.keys():
-		var count: int = int(density_by_chunk[cpos])
-		if count < maxi(drop_compaction_min_cluster_size, 2):
-			continue
-		density_rank.append({
-			"pos": chunk_center_by_chunk[cpos],
-			"count": count,
-		})
-	density_rank.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return int(a.get("count", 0)) > int(b.get("count", 0))
-	)
-	for entry in density_rank:
-		var pos: Vector2 = entry.get("pos", Vector2.INF)
-		if pos == Vector2.INF:
-			continue
-		var tile: Vector2i = _world_to_tile(pos)
-		if seen_tiles.has(tile):
-			continue
-		seen_tiles[tile] = true
-		anchors.append(pos)
-	var max_anchors: int = maxi(4, int(float(maxi(0, drop_compaction_max_nodes_inspected)) / 12.0))
-	if anchors.size() > max_anchors:
-		anchors.resize(max_anchors)
-	return anchors
+	_drop_compaction_service.register_hotspot(world_pos, score)
 
 
 func _update_drop_pressure_snapshot() -> void:
@@ -1219,110 +1149,10 @@ func _update_drop_pressure_snapshot() -> void:
 	_drop_pressure_service.update_snapshot()
 
 
-func _drop_pressure_scaled_int(base_value: int, high_mult: float, critical_mult: float) -> int:
-	if _drop_pressure_service == null:
-		return maxi(int(ceil(float(base_value))), 1)
-	return _drop_pressure_service.scale_int(base_value, high_mult, critical_mult)
-
-
-func _drop_pressure_scaled_float(base_value: float, high_mult: float, critical_mult: float) -> float:
-	if _drop_pressure_service == null:
-		return base_value
-	return _drop_pressure_service.scale_float(base_value, high_mult, critical_mult)
-
-
 func _compact_item_drops_once() -> int:
-	if not drop_compaction_enabled or _world_spatial_index == null:
+	if _drop_compaction_service == null:
 		return 0
-	var max_inspect: int = maxi(_drop_pressure_scaled_int(
-		drop_compaction_max_nodes_inspected,
-		drop_pressure_high_nodes_mult,
-		drop_pressure_critical_nodes_mult
-	), 0)
-	var max_merges: int = maxi(_drop_pressure_scaled_int(
-		drop_compaction_max_merges_per_exec,
-		drop_pressure_high_merges_mult,
-		drop_pressure_critical_merges_mult
-	), 0)
-	if max_inspect <= 0 or max_merges <= 0:
-		return 0
-	var anchors: Array[Vector2] = _build_drop_compaction_anchor_list()
-	if anchors.is_empty():
-		return 0
-	var inspected: int = 0
-	var merges: int = 0
-	var consumed_ids: Dictionary = {}
-	var scan_radius: float = maxf(8.0, _drop_pressure_scaled_float(
-		drop_compaction_radius_px,
-		drop_pressure_high_merge_radius_mult,
-		drop_pressure_critical_merge_radius_mult
-	))
-	var scan_radius_sq: float = scan_radius * scan_radius
-	for anchor in anchors:
-		if inspected >= max_inspect or merges >= max_merges:
-			break
-		var candidates: Array = _world_spatial_index.get_runtime_nodes_near(
-			WorldSpatialIndex.KIND_ITEM_DROP,
-			anchor,
-			scan_radius,
-			{"max_candidates_eval": max_inspect - inspected}
-		)
-		var by_item_id: Dictionary = {}
-		for raw_node in candidates:
-			if inspected >= max_inspect:
-				break
-			var drop_node := raw_node as ItemDrop
-			if drop_node == null or not is_instance_valid(drop_node) or drop_node.is_queued_for_deletion():
-				continue
-			inspected += 1
-			var iid: int = drop_node.get_instance_id()
-			if consumed_ids.has(iid):
-				continue
-			var id_key: String = String(drop_node.item_id).strip_edges()
-			if id_key == "":
-				continue
-			if not by_item_id.has(id_key):
-				by_item_id[id_key] = []
-			(by_item_id[id_key] as Array).append(drop_node)
-		for item_id in by_item_id.keys():
-			if merges >= max_merges:
-				break
-			var cluster: Array = by_item_id[item_id]
-			if cluster.size() < 2:
-				continue
-			cluster.sort_custom(func(a: ItemDrop, b: ItemDrop) -> bool:
-				var ad: float = a.global_position.distance_squared_to(anchor)
-				var bd: float = b.global_position.distance_squared_to(anchor)
-				return ad < bd
-			)
-			var target := cluster[0] as ItemDrop
-			if target == null or not is_instance_valid(target) or target.is_queued_for_deletion():
-				continue
-			for idx in range(1, cluster.size()):
-				if merges >= max_merges:
-					break
-				var source := cluster[idx] as ItemDrop
-				if source == null or not is_instance_valid(source) or source.is_queued_for_deletion():
-					continue
-				if consumed_ids.has(source.get_instance_id()) or source == target:
-					continue
-				if target.global_position.distance_squared_to(source.global_position) > scan_radius_sq:
-					continue
-				var src_amount: int = maxi(int(source.amount), 0)
-				if src_amount <= 0:
-					continue
-				target.amount = maxi(0, int(target.amount)) + src_amount
-				consumed_ids[source.get_instance_id()] = true
-				if source.is_in_group("item_drop"):
-					source.remove_from_group("item_drop")
-				_world_spatial_index.unregister_runtime_node(source)
-				source.queue_free()
-				merges += 1
-				merged_drop_events += 1
-				_register_drop_compaction_hotspot(target.global_position, 1)
-				if merges >= max_merges:
-					break
-	return merges
+	return _drop_compaction_service.execute_compaction_pass()
 
 func _process(delta: float) -> void:
 	if _cadence != null:
@@ -2294,7 +2124,9 @@ func _get_enemy_node_for_react(enemy_id: String) -> Node:
 
 
 func _get_drop_compaction_hotspots() -> Array[Dictionary]:
-	return _drop_compaction_hotspots
+	if _drop_compaction_service == null:
+		return []
+	return _drop_compaction_service.get_hotspots()
 
 
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
@@ -2510,6 +2342,7 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 	var terrain_pending: int = pipeline.terrain_paint_center_ring0_pending if pipeline != null else 0
 	var autosave_due: int = _cadence.lane_due(LANE_AUTOSAVE) if _cadence != null else 0
 	var last_save_age: float = -1.0
+	var drop_compaction_metrics: Dictionary = _drop_compaction_service.get_metrics_snapshot() if _drop_compaction_service != null else {}
 	if _last_save_time_msec >= 0:
 		last_save_age = float(Time.get_ticks_msec() - _last_save_time_msec) / 1000.0
 	return {
@@ -2528,12 +2361,12 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 		},
 		"drop_compaction": {
 			"enabled": drop_compaction_enabled,
-			"merged_drop_events": merged_drop_events,
+			"merged_drop_events": int(drop_compaction_metrics.get("merged_drop_events", 0)),
 			"spawn_metrics": LootSystem.get_drop_spawn_metrics() if LootSystem != null and LootSystem.has_method("get_drop_spawn_metrics") else {},
-			"hotspots": _drop_compaction_hotspots.size(),
-			"radius_px": drop_compaction_radius_px,
-			"max_nodes_inspected": drop_compaction_max_nodes_inspected,
-			"max_merges_per_exec": drop_compaction_max_merges_per_exec,
+			"hotspots": int(drop_compaction_metrics.get("hotspots", 0)),
+			"radius_px": float(drop_compaction_metrics.get("radius_px", drop_compaction_radius_px)),
+			"max_nodes_inspected": int(drop_compaction_metrics.get("max_nodes_inspected", drop_compaction_max_nodes_inspected)),
+			"max_merges_per_exec": int(drop_compaction_metrics.get("max_merges_per_exec", drop_compaction_max_merges_per_exec)),
 			"pressure": get_drop_pressure_snapshot(),
 		},
 		"lane_inventory": {
@@ -2541,6 +2374,6 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 			"resource_repopulator": {"script": "scripts/world/ResourceRepopulator.gd", "lane": String(LANE_RESOURCE_REPOP_PULSE), "domain": String(TICK_DOMAIN_SIMULATION), "interval": RESOURCE_REPOP_INTERVAL_SEC, "budget": BUDGET_RESOURCE_REPOP_OPS_PER_PULSE},
 			"bandit_work_loop": {"script": "scripts/world/BanditBehaviorLayer.gd::_process", "lane": String(LANE_BANDIT_WORK_LOOP), "domain": String(TICK_DOMAIN_AI_DECISION), "interval": BANDIT_WORK_LOOP_INTERVAL_SEC, "budget": BUDGET_BANDIT_WORK_TICKS_PER_PULSE},
 			"maintenance_short_pulse": {"script": "scripts/world/world.gd::_process", "lane": String(LANE_SHORT_PULSE), "domain": String(TICK_DOMAIN_MAINTENANCE), "interval": 0.12, "budget": BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE},
-			"drop_compaction": {"script": "scripts/world/world.gd::_compact_item_drops_once", "lane": String(LANE_DROP_COMPACT_PULSE), "domain": String(TICK_DOMAIN_MAINTENANCE), "interval": DROP_COMPACT_INTERVAL_SEC, "budget": BUDGET_DROP_COMPACT_PULSES_PER_FRAME},
+			"drop_compaction": {"script": "scripts/runtime/world/WorldDropCompactionService.gd::execute_compaction_pass", "lane": String(LANE_DROP_COMPACT_PULSE), "domain": String(TICK_DOMAIN_MAINTENANCE), "interval": DROP_COMPACT_INTERVAL_SEC, "budget": BUDGET_DROP_COMPACT_PULSES_PER_FRAME},
 		},
 	}
