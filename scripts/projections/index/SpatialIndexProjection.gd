@@ -1,5 +1,6 @@
 extends RefCounted
 class_name SpatialIndexProjection
+const ProjectionUpdateInputDtoScript := preload("res://scripts/domain/contracts/ProjectionUpdateInputDto.gd")
 
 # Projection-only derived read model for placeable spatial queries.
 # This class MUST NOT own domain truth; canonical placeables remain in WorldSave.
@@ -76,10 +77,13 @@ func rebuild_from_source(reason: String = "manual_rebuild") -> void:
 	_rebuild_placeables_cache_full(reason)
 
 func apply_inputs(inputs: Dictionary) -> void:
-	var item_id: String = String(inputs.get("item_id", "")).strip_edges()
-	var tile_pos_raw: Variant = inputs.get("tile_pos", Vector2i(-1, -1))
-	if tile_pos_raw is Vector2i:
-		notify_placeables_changed(item_id, tile_pos_raw as Vector2i)
+	var normalized: Dictionary = ProjectionUpdateInputDtoScript.normalize_placeables_change(inputs)
+	if normalized.is_empty():
+		return
+	notify_placeables_changed(
+		String(normalized.get("item_id", "")),
+		normalized.get("tile_pos", Vector2i(-1, -1)) as Vector2i
+	)
 
 func notify_placeables_changed(item_id: String, tile_pos: Vector2i) -> void:
 	_placeables_sync_pending = true

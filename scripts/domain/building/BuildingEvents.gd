@@ -1,6 +1,8 @@
 extends RefCounted
 class_name BuildingEvents
 
+const BuildingEventDtoScript := preload("res://scripts/domain/contracts/BuildingEventDto.gd")
+
 ## Building domain event payload constructors.
 ##
 ## Events represent immutable facts emitted by BuildingSystem
@@ -11,10 +13,7 @@ const TYPE_STRUCTURE_DAMAGED := "structure_damaged"
 const TYPE_STRUCTURE_REMOVED := "structure_removed"
 
 static func structure_placed(structure: Dictionary) -> Dictionary:
-	return {
-		"type": TYPE_STRUCTURE_PLACED,
-		"structure": structure.duplicate(true),
-	}
+	return BuildingEventDtoScript.structure_placed(structure)
 
 static func structure_damaged(
 		structure_id: String,
@@ -23,23 +22,17 @@ static func structure_damaged(
 		remaining_hp: int,
 		was_destroyed: bool
 	) -> Dictionary:
-	return {
-		"type": TYPE_STRUCTURE_DAMAGED,
-		"structure_id": structure_id,
-		"tile_pos": tile_pos,
-		"damage_amount": maxi(0, damage_amount),
-		"remaining_hp": maxi(0, remaining_hp),
-		"was_destroyed": was_destroyed,
-	}
+	return BuildingEventDtoScript.structure_damaged(
+		structure_id,
+		tile_pos,
+		damage_amount,
+		remaining_hp,
+		was_destroyed
+	)
 
 static func structure_removed(
 		structure_id: String,
 		tile_pos: Vector2i,
 		reason: String = ""
 	) -> Dictionary:
-	return {
-		"type": TYPE_STRUCTURE_REMOVED,
-		"structure_id": structure_id,
-		"tile_pos": tile_pos,
-		"reason": reason,
-	}
+	return BuildingEventDtoScript.structure_removed(structure_id, tile_pos, reason)
