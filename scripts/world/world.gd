@@ -170,30 +170,12 @@ var _wall_coordinate_transform_port: WorldCoordinateTransformContract
 var _wall_chunk_dirty_notifier_port: WorldChunkDirtyNotifierContract
 var _wall_projection_refresh_port: WorldProjectionRefreshContract
 
-# Placement reaction
-## Every hostile eligible group receives structure-assault targeting on player placement.
-## Dispatch never uses ALL members here; size is explicitly capped by tuning.
-## RaidQueue receives per-group structure_assault intents so behavior keeps consuming targets.
-const _PLACEMENT_REACT_INTENT_LOCK_SECONDS: float = 90.0
-const _PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD: int = 3
-const _PLACEMENT_REACT_EVENT_MIN_INTERVAL: float = 0.20
+# Placement reaction tuning/config lives in PlacementReactionRuntimeConfig.
+# world.gd only composes and forwards the config payload to PlacementReactionSystem.
 ## Empty filter = query all player placeables from WorldSpatialIndex persistent cache.
 const _PLAYER_RAID_PLACEABLE_ITEM_IDS: Array[String] = []
-const _PLACEMENT_REACT_DEBUG_MAX_EVENTS: int = 96
 @export_group("Placement Reaction")
-@export var placement_react_default_radius: float = 640.0
-@export var placement_react_radius_by_item_id: Dictionary = {}
-@export var placement_react_max_groups_per_event: int = 3
-@export var placement_react_min_score: float = 0.40
-@export var placement_react_high_priority_score: float = 0.72
-@export var placement_react_struct_assault_squad_size: int = _PLACEMENT_REACT_STRUCT_ASSAULT_SQUAD
-@export var placement_react_high_priority_squad_size_override: int = 4
-@export var placement_react_blocking_checks_budget: int = 4
-@export var placement_react_lock_min_relevance_delta: float = 0.12
-@export var placement_react_lock_min_distance_delta_px: float = 96.0
-@export var placement_react_wall_assault_global_mode: bool = true
-@export var placement_react_wall_assault_radius: float = 12000.0
-@export var placement_react_wall_assault_min_score: float = 0.18
+@export var placement_reaction_config: PlacementReactionRuntimeConfig
 @export_group("")
 
 const CHUNK_PERF_STAGE_COLLIDER_BUILD: String = "collider build"
@@ -249,6 +231,7 @@ const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.
 const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 const DayNightControllerScript := preload("res://scripts/world/DayNightController.gd")
 const GameplayCommandDispatcherScript := preload("res://scripts/runtime/world/GameplayCommandDispatcher.gd")
+const PlacementReactionRuntimeConfigScript := preload("res://scripts/world/PlacementReactionRuntimeConfig.gd")
 const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
 const WorldProjectionRefreshCallableAdapterScript := preload("res://scripts/world/contracts/WorldProjectionRefreshCallableAdapter.gd")
@@ -333,6 +316,11 @@ var _drop_pressure_snapshot: Dictionary = {
 	"drop_pressure_stage": DROP_PRESSURE_STAGE_NORMAL,
 }
 
+func _ensure_placement_reaction_config() -> PlacementReactionRuntimeConfig:
+	if placement_reaction_config == null:
+		placement_reaction_config = PlacementReactionRuntimeConfigScript.new()
+	return placement_reaction_config
+
 func _setup_building_module() -> void:
 	_building_repository = WorldSaveBuildingRepositoryScript.new()
 	_building_system = BuildingSystemScript.new()
@@ -344,31 +332,16 @@ func _setup_building_module() -> void:
 		"now_provider": Callable(RunClock, "now"),
 	})
 	_placement_reaction_system = PlacementReactionSystemScript.new()
-	_placement_reaction_system.setup({
-		"threat_assessment_system": _threat_assessment_system,
-		"group_intent_system": _group_intent_system,
-		"enemy_node_provider": Callable(self, "_get_enemy_node_for_react"),
-		"world_spatial_index": _world_spatial_index,
-		"tile_to_world": Callable(self, "_tile_to_world"),
-		"nearest_workbench_world_pos": Callable(self, "find_nearest_player_workbench_world_pos"),
-		"drop_hotspots_provider": Callable(self, "_get_drop_compaction_hotspots"),
-		"default_radius": placement_react_default_radius,
-		"radius_by_item_id": placement_react_radius_by_item_id.duplicate(true),
-		"max_groups_per_event": placement_react_max_groups_per_event,
-		"min_score": placement_react_min_score,
-		"high_priority_score": placement_react_high_priority_score,
-		"struct_assault_squad_size": placement_react_struct_assault_squad_size,
-		"high_priority_squad_size_override": placement_react_high_priority_squad_size_override,
-		"blocking_checks_budget": placement_react_blocking_checks_budget,
-		"lock_min_relevance_delta": placement_react_lock_min_relevance_delta,
-		"lock_min_distance_delta_px": placement_react_lock_min_distance_delta_px,
-		"wall_assault_global_mode": placement_react_wall_assault_global_mode,
-		"wall_assault_radius": placement_react_wall_assault_radius,
-		"wall_assault_min_score": placement_react_wall_assault_min_score,
-		"event_min_interval": _PLACEMENT_REACT_EVENT_MIN_INTERVAL,
-		"intent_lock_seconds": _PLACEMENT_REACT_INTENT_LOCK_SECONDS,
-		"debug_max_events": _PLACEMENT_REACT_DEBUG_MAX_EVENTS,
-	})
+	var placement_config: PlacementReactionRuntimeConfig = _ensure_placement_reaction_config()
+	_placement_reaction_system.setup(placement_config.build_setup_payload(
+		_threat_assessment_system,
+		_group_intent_system,
+		Callable(self, "_get_enemy_node_for_react"),
+		_world_spatial_index,
+		Callable(self, "_tile_to_world"),
+		Callable(self, "find_nearest_player_workbench_world_pos"),
+		Callable(self, "_get_drop_compaction_hotspots")
+	))
 	_building_tilemap_projection.setup({
 		"walls_tilemap": walls_tilemap,
 		"walls_map_layer": WALLS_MAP_LAYER,
@@ -1642,6 +1615,7 @@ func _has_player_wall_state(tile_pos: Vector2i) -> bool:
 func _has_structural_wall_state(tile_pos: Vector2i) -> bool:
 	return _player_wall_system != null and _player_wall_system.has_structural_wall_state(tile_pos)
 
+## Legacy façade-only API: external callers may still use world.has_method()/world.call() for wall commands.
 func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	return _gameplay_command_dispatcher != null and _gameplay_command_dispatcher.can_place_player_wall_at_tile(tile_pos)
 
@@ -2374,6 +2348,7 @@ func _validate_placement_restrictions(tile_pos: Vector2i) -> bool:
 
 
 ## SettlementIntel — interest marker facade
+## Legacy façade-only API: preserve compatibility while GameplayCommandDispatcher owns behavior.
 func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionary = {}) -> void:
 	if _gameplay_command_dispatcher == null:
 		return
@@ -2404,6 +2379,7 @@ func mark_interest_scan_dirty() -> void:
 	_gameplay_command_dispatcher.mark_interest_scan_dirty()
 
 ## SettlementIntel — base detection facade
+## Legacy façade-only API: read-only forwarding to SettlementIntel for existing integration points.
 func get_detected_bases_near(world_pos: Vector2, radius: float) -> Array[Dictionary]:
 	if _settlement_intel == null:
 		return []
