@@ -341,6 +341,18 @@ Rol:
   - placeables persistentes.
 - No reemplaza los stores actuales; adapta `WorldSave.player_walls_by_chunk`, `chunk_save.placed_tiles` (via `StructuralWallPersistence`) y `placed_entities_*` a un contrato común de consulta por chunk.
 
+### 💾 SNAPSHOT VERSIONING + MIGRATION POLICY
+
+Ubicación:
+- `scripts/persistence/save/WorldSnapshotVersioning.gd`
+- `scripts/persistence/save/WorldSnapshotSerializer.gd`
+- `scripts/systems/SaveManager.gd`
+
+Rol:
+- Política explícita de versionado de snapshots canónicos (`snapshot_version`) con migraciones determinísticas por paso.
+- Punto único para normalizar payloads y reportar ruta de migración aplicada (`migration_path`) + warnings de compatibilidad.
+- Observabilidad de salud de persistencia en `SaveManager` (`loaded_snapshot_version`, `snapshot_target_version`, `snapshot_migration_path`, `canonical_snapshot_path_used`).
+
 ### 🧱 WALL PERSISTENCE (Adapter)
 
 Ubicación:

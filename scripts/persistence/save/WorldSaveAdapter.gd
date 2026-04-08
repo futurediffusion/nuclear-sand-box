@@ -4,6 +4,7 @@ class_name WorldSaveAdapter
 const ChunkSnapshotSerializer := preload("res://scripts/persistence/save/ChunkSnapshotSerializer.gd")
 const ChunkSnapshot := preload("res://scripts/core/ChunkSnapshot.gd")
 const WorldSnapshot := preload("res://scripts/core/WorldSnapshot.gd")
+const WorldSnapshotVersioning := preload("res://scripts/persistence/save/WorldSnapshotVersioning.gd")
 
 const LEGACY_SNAPSHOT_STATE_KEY: String = "world_snapshot_state"
 const LEGACY_MIGRATION_ALLOW_KEY: String = "allow_legacy_migration_bridge"
@@ -64,6 +65,10 @@ static func build_world_snapshot(canonical_state: Dictionary) -> WorldSnapshot:
 	snapshot.bandit_group_memory = _dict_copy(canonical_state.get("bandit_group_memory", {}))
 	snapshot.extortion_queue = canonical_state.get("extortion_queue", {})
 	snapshot.faction_hostility = _dict_copy(canonical_state.get("faction_hostility", {}))
+	snapshot.persistence_meta = {
+		"snapshot_contract": "canonical_world_snapshot_v2",
+		"canonical_snapshot_path": true,
+	}
 
 	for chunk_snapshot in _collect_chunk_snapshots():
 		snapshot.chunks.append(chunk_snapshot)
@@ -169,6 +174,9 @@ static func migrate_legacy_payload_to_world_snapshot(payload: Dictionary) -> Dic
 		"snapshot": snapshot,
 		"legacy_migration_used": legacy_source != "none",
 		"legacy_source": legacy_source,
+		"loaded_snapshot_version": 1,
+		"migration_path": ["legacy_payload_to_snapshot_v%d" % WorldSnapshotVersioning.LATEST_SNAPSHOT_VERSION],
+		"warnings": [],
 	}
 
 static func get_debug_snapshot() -> Dictionary:

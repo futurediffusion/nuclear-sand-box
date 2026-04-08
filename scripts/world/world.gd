@@ -162,6 +162,15 @@ var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
 var _world_sim_telemetry: WorldSimTelemetry
+var _last_snapshot_rebuild_report: Dictionary = {
+	"calls": 0,
+	"warnings": [],
+	"loaded_structure_count": 0,
+	"tilemap_projection_applied": 0,
+	"collider_projection_rebuilt": 0,
+	"spatial_projection_rebuilt": 0,
+	"territory_rebuild_requests": 0,
+}
 var _gameplay_command_dispatcher: GameplayCommandDispatcher
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
@@ -901,6 +910,7 @@ func _rebuild_explicit_projections_after_snapshot_load() -> void:
 	#  3) spatial index projection (full canonical placeables rebuild)
 	#  4) territory projection (derived from rebuilt read models + settlement scan snapshot)
 	var loaded_structure_snapshot: Array[Dictionary] = []
+	var warnings: Array[String] = []
 	for chunk_pos_raw in loaded_chunks.keys():
 		if not (chunk_pos_raw is Vector2i):
 			continue
@@ -911,12 +921,28 @@ func _rebuild_explicit_projections_after_snapshot_load() -> void:
 			loaded_structure_snapshot.append_array(_building_repository.load_structures_in_chunk(chunk_pos))
 	if _building_tilemap_projection != null and not loaded_structure_snapshot.is_empty():
 		_building_tilemap_projection.apply_snapshot(loaded_structure_snapshot)
+	elif _building_tilemap_projection == null:
+		warnings.append("missing_building_tilemap_projection")
 	if _wall_collider_projection != null and not loaded_structure_snapshot.is_empty():
 		_wall_collider_projection.rebuild_from_state(loaded_structure_snapshot)
+	elif _wall_collider_projection == null:
+		warnings.append("missing_wall_collider_projection")
 	if _spatial_index_projection != null:
 		_spatial_index_projection.rebuild_from_source("snapshot_load")
+	else:
+		warnings.append("missing_spatial_index_projection")
 	_request_player_territory_rebuild("snapshot_load")
 	_tick_player_territory()
+	_last_snapshot_rebuild_report["calls"] = int(_last_snapshot_rebuild_report.get("calls", 0)) + 1
+	_last_snapshot_rebuild_report["warnings"] = warnings.duplicate(true)
+	_last_snapshot_rebuild_report["loaded_structure_count"] = loaded_structure_snapshot.size()
+	_last_snapshot_rebuild_report["tilemap_projection_applied"] = int(_building_tilemap_projection != null and not loaded_structure_snapshot.is_empty())
+	_last_snapshot_rebuild_report["collider_projection_rebuilt"] = int(_wall_collider_projection != null and not loaded_structure_snapshot.is_empty())
+	_last_snapshot_rebuild_report["spatial_projection_rebuilt"] = int(_spatial_index_projection != null)
+	_last_snapshot_rebuild_report["territory_rebuild_requests"] = 1
+
+func get_snapshot_rebuild_report() -> Dictionary:
+	return _last_snapshot_rebuild_report.duplicate(true)
 
 func _clear_chunk_wall_runtime_cache() -> void:
 	if _chunk_wall_collider_cache != null:
@@ -2410,6 +2436,7 @@ func get_debug_snapshot() -> Dictionary:
 		return {"enabled": false}
 	var snapshot: Dictionary = _world_sim_telemetry.get_debug_snapshot()
 	snapshot["day_night_cycle"] = _day_night_controller.get_debug_snapshot() if _day_night_controller != null else {}
+	snapshot["snapshot_rebuild_report"] = get_snapshot_rebuild_report()
 	return snapshot
 
 
