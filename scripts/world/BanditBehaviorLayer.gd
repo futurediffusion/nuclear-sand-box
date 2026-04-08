@@ -1115,6 +1115,9 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 		return
 	var task_payload: Dictionary = order.get("task", {}) as Dictionary
 	var task_kind: String = String(task_payload.get("kind", ""))
+	var planning_trace: Dictionary = task_payload.get("planning_trace", {}) as Dictionary
+	var planning_authority: String = String(planning_trace.get("authority", "legacy_proposed_order"))
+	var planning_flow: String = String(planning_trace.get("flow", "continue_current_work"))
 	if task_kind != "":
 		log_worker_event("pipeline_execution_task_consumed", {
 			"npc_id": beh.member_id,
@@ -1124,6 +1127,16 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 			"task_kind": task_kind,
 			"intent_decision": String((task_payload.get("intent", {}) as Dictionary).get("decision_type", "")),
 			"macro_state": String(task_payload.get("macro_state", "")),
+			"planning_authority": planning_authority,
+			"planning_flow": planning_flow,
+		})
+		log_worker_event("pipeline_task_authority", {
+			"npc_id": beh.member_id,
+			"group_id": beh.group_id,
+			"task_kind": task_kind,
+			"planning_authority": planning_authority,
+			"planning_flow": planning_flow,
+			"legacy_driven": planning_authority != "canonical_pipeline",
 		})
 	if task_kind != "" and task_kind != order_type:
 		log_worker_event("pipeline_duplicate_decision_path_blocked", {

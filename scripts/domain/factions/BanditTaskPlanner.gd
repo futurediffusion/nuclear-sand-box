@@ -28,9 +28,10 @@ const ORDER_KIND_ALLOWLIST := {
 
 func plan_member_task(canonical_intent: Dictionary, member_ctx: Dictionary, proposed_order: Dictionary) -> Dictionary:
 	var intent_record: Dictionary = _normalize_canonical_intent(canonical_intent, member_ctx)
-	var resolved_order: Dictionary = _resolve_order_from_intent(intent_record, member_ctx, proposed_order)
+	var planning_trace: Dictionary = {}
+	var resolved_order: Dictionary = _resolve_order_from_intent(intent_record, member_ctx, proposed_order, planning_trace)
 	var sanitized_order: Dictionary = _sanitize_order(resolved_order, member_ctx)
-	var task_payload: Dictionary = _build_task_payload(sanitized_order, intent_record, member_ctx)
+	var task_payload: Dictionary = _build_task_payload(sanitized_order, intent_record, member_ctx, planning_trace)
 	var out: Dictionary = sanitized_order.duplicate(true)
 	out["task"] = task_payload
 	return out
@@ -47,33 +48,43 @@ func _normalize_canonical_intent(canonical_intent: Dictionary, member_ctx: Dicti
 	return out
 
 
-func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionary, proposed_order: Dictionary) -> Dictionary:
+func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionary, proposed_order: Dictionary,
+		planning_trace: Dictionary) -> Dictionary:
 	var decision_type: String = String(intent_record.get("decision_type", BanditIntentSystemScript.DECISION_CONTINUE_WORK))
 	var role: String = String(member_ctx.get("role", "scavenger"))
+	planning_trace["decision_type"] = decision_type
+	planning_trace["authority"] = "legacy_proposed_order"
+	planning_trace["flow"] = "continue_current_work"
 	match decision_type:
 		BanditIntentSystemScript.DECISION_RETURN_HOME:
+			planning_trace["authority"] = "canonical_pipeline"
+			planning_trace["flow"] = "return_home"
 			return {"order": ORDER_RETURN_HOME}
 		BanditIntentSystemScript.DECISION_STRUCTURE_ASSAULT:
+			planning_trace["authority"] = "canonical_pipeline"
+			planning_trace["flow"] = "structure_assault_focus"
 			var assault_target: Vector2 = _resolve_target_pos(member_ctx, proposed_order)
 			if (role == "leader" or role == "bodyguard") and assault_target != Vector2.ZERO:
 				return {"order": ORDER_ASSAULT_STRUCTURE_TARGET, "target_pos": assault_target}
 			return proposed_order
 		BanditIntentSystemScript.DECISION_PURSUE_TARGET, BanditIntentSystemScript.DECISION_REACT_THREAT:
-			if _is_order_allowed(proposed_order):
-				return proposed_order
+			planning_trace["authority"] = "canonical_pipeline"
+			planning_trace["flow"] = "threat_response"
 			var threat_target: Vector2 = _resolve_target_pos(member_ctx, proposed_order)
 			if threat_target != Vector2.ZERO:
 				return {"order": ORDER_ATTACK_TARGET, "target_pos": threat_target}
 			return {"order": ORDER_FOLLOW_SLOT, "slot_name": "frontal"}
 		BanditIntentSystemScript.DECISION_LOOT_RESOURCE:
-			if _is_economic_order(proposed_order):
-				return proposed_order
-			return _fallback_economic_order(member_ctx)
+			planning_trace["authority"] = "canonical_pipeline"
+			planning_trace["flow"] = "loot_resource_interest"
+			return _plan_canonical_loot_order(member_ctx, role)
 		_:
 			return proposed_order
 
 
-func _fallback_economic_order(member_ctx: Dictionary) -> Dictionary:
+func _plan_canonical_loot_order(member_ctx: Dictionary, role: String) -> Dictionary:
+	if role != "scavenger":
+		return {"order": ORDER_FOLLOW_SLOT, "slot_name": "escort_left"}
 	var resources: Array = member_ctx.get("prioritized_resources", []) as Array
 	if not resources.is_empty():
 		var first_resource: Dictionary = resources[0] as Dictionary
@@ -116,7 +127,8 @@ func _sanitize_order(order_data: Dictionary, member_ctx: Dictionary) -> Dictiona
 	return out
 
 
-func _build_task_payload(order_data: Dictionary, intent_record: Dictionary, member_ctx: Dictionary) -> Dictionary:
+func _build_task_payload(order_data: Dictionary, intent_record: Dictionary, member_ctx: Dictionary,
+		planning_trace: Dictionary = {}) -> Dictionary:
 	var order_type: String = String(order_data.get("order", ORDER_RETURN_HOME))
 	var payload: Dictionary = {
 		"kind": order_type,
@@ -125,6 +137,10 @@ func _build_task_payload(order_data: Dictionary, intent_record: Dictionary, memb
 			"kind": String(intent_record.get("kind", "group_intent_decision")),
 			"group_mode": String(intent_record.get("group_mode", member_ctx.get("group_mode", "idle"))),
 			"decision_type": String(intent_record.get("decision_type", BanditIntentSystemScript.DECISION_CONTINUE_WORK)),
+		},
+		"planning_trace": {
+			"authority": String(planning_trace.get("authority", "legacy_proposed_order")),
+			"flow": String(planning_trace.get("flow", "continue_current_work")),
 		},
 	}
 	match order_type:
@@ -153,11 +169,3 @@ func _resolve_target_pos(member_ctx: Dictionary, order_data: Dictionary) -> Vect
 func _is_order_allowed(order_data: Dictionary) -> bool:
 	var order_type: String = String(order_data.get("order", ""))
 	return ORDER_KIND_ALLOWLIST.has(order_type)
-
-
-func _is_economic_order(order_data: Dictionary) -> bool:
-	var order_type: String = String(order_data.get("order", ""))
-	return order_type == ORDER_MINE_TARGET \
-			or order_type == ORDER_PICKUP_TARGET \
-			or order_type == ORDER_MOVE_TO_TARGET \
-			or order_type == ORDER_RETURN_HOME
