@@ -1,8 +1,6 @@
 extends RefCounted
 class_name BanditGroupBrain
 
-const BodyguardControllerScript := preload("res://scripts/world/BodyguardController.gd")
-const ScavengerControllerScript := preload("res://scripts/world/ScavengerController.gd")
 const BanditTaskPlannerScript := preload("res://scripts/domain/factions/BanditTaskPlanner.gd")
 
 const MACRO_STATES: Array[String] = [
@@ -17,8 +15,6 @@ const MACRO_STATES: Array[String] = [
 	"defending_camp",
 ]
 
-var _bodyguard_controller: BodyguardController = BodyguardControllerScript.new()
-var _scavenger_controller: ScavengerController = ScavengerControllerScript.new()
 var _task_planner: BanditTaskPlanner = BanditTaskPlannerScript.new()
 
 const GROUP_ORDER_CACHE_TTL_SECONDS: float = 0.9
@@ -159,11 +155,11 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 		planning_ctx["macro_state"] = macro_state
 		for key in member_ctx.keys():
 			planning_ctx[key] = member_ctx[key]
-		var legacy_input_hints: Dictionary = _build_input_hints_for_member(role, group_ctx, member_ctx)
+		var canonical_hints: Dictionary = _build_canonical_hints_for_member(role, group_ctx, member_ctx)
 		var order: Dictionary = _task_planner.plan_member_task(
 			group_ctx.get("canonical_intent", {}) as Dictionary,
 			planning_ctx,
-			legacy_input_hints
+			canonical_hints
 		)
 		order["macro_state"] = macro_state
 		out[member_id] = order
@@ -324,63 +320,26 @@ func _resolve_macro_state(group_ctx: Dictionary) -> String:
 			return "idle"
 
 
-func _build_input_hints_for_member(role: String, group_ctx: Dictionary, member_ctx: Dictionary) -> Dictionary:
-	var merged: Dictionary = group_ctx.duplicate(true)
-	merged["macro_state"] = _resolve_macro_state(group_ctx)
-	for key in member_ctx.keys():
-		merged[key] = member_ctx[key]
+func _build_canonical_hints_for_member(role: String, group_ctx: Dictionary, member_ctx: Dictionary) -> Dictionary:
 	var hints: Dictionary = {}
-	match role:
-		"leader":
-			hints = _extract_legacy_hints(_build_leader_order(merged))
-		"bodyguard":
-			hints = _extract_legacy_hints(_bodyguard_controller.build_order(merged))
-		_:
-			hints = _extract_legacy_hints(_scavenger_controller.build_order(merged))
-	hints["hint_source"] = "legacy_role_controller"
+	var assigned_slot: String = String(member_ctx.get("assigned_slot", ""))
+	if assigned_slot != "":
+		hints["slot_name"] = assigned_slot
+	elif role == "leader":
+		hints["slot_name"] = "frontal"
+	elif role == "bodyguard":
+		hints["slot_name"] = "lateral_left"
+	else:
+		hints["slot_name"] = "escort_left"
+	var candidate_target: Vector2 = Vector2.ZERO
+	var existing_assignment: Dictionary = member_ctx.get("existing_assignment", {}) as Dictionary
+	if String(existing_assignment.get("order", "")) in ["assault_structure_target", "attack_target", "move_to_target"]:
+		candidate_target = existing_assignment.get("target_pos", Vector2.ZERO) as Vector2
+	if candidate_target == Vector2.ZERO:
+		candidate_target = member_ctx.get("interest_pos", Vector2.ZERO) as Vector2
+	if candidate_target == Vector2.ZERO and bool(group_ctx.get("structure_assault_active", false)):
+		candidate_target = group_ctx.get("interest_pos", Vector2.ZERO) as Vector2
+	if candidate_target != Vector2.ZERO:
+		hints["target_pos"] = candidate_target
+	hints["hint_source"] = "canonical_context"
 	return hints
-
-
-func _extract_legacy_hints(order_candidate: Dictionary) -> Dictionary:
-	var hints: Dictionary = {}
-	var slot_name: String = String(order_candidate.get("slot_name", ""))
-	if slot_name != "":
-		hints["slot_name"] = slot_name
-	var target_pos: Variant = order_candidate.get("target_pos", null)
-	if target_pos is Vector2 and (target_pos as Vector2) != Vector2.ZERO:
-		hints["target_pos"] = target_pos as Vector2
-	return hints
-
-
-func _build_leader_order(ctx: Dictionary) -> Dictionary:
-	var macro_state: String = String(ctx.get("macro_state", _resolve_macro_state(ctx)))
-	var interest_pos: Vector2 = ctx.get("interest_pos", Vector2.ZERO)
-	var structure_assault_active: bool = bool(ctx.get("structure_assault_active", false))
-	if structure_assault_active:
-		var existing_assignment: Dictionary = ctx.get("existing_assignment", {}) as Dictionary
-		var assigned_target: Vector2 = existing_assignment.get("target_pos", Vector2.ZERO) as Vector2
-		if String(existing_assignment.get("order", "")) == "assault_structure_target" and assigned_target != Vector2.ZERO:
-			Debug.log("bandit_group", "[BGB][structure_assault_target_preserved] group=%s member=%s role=leader target=%s" % [
-				String(ctx.get("group_id", "")),
-				String(ctx.get("member_id", "")),
-				str(assigned_target),
-			])
-			return {"order": "assault_structure_target", "target_pos": assigned_target}
-		if interest_pos != Vector2.ZERO:
-			return {"order": "assault_structure_target", "target_pos": interest_pos}
-	match macro_state:
-		"retreating", "depositing":
-			return {"order": "return_home"}
-		"working":
-			return {"order": "move_to_target", "target_pos": interest_pos if interest_pos != Vector2.ZERO else ctx.get("home_pos", Vector2.ZERO)}
-		"hunting", "raiding", "alerted":
-			return {"order": "attack_target", "target_pos": interest_pos}
-		_:
-			# Never relax while someone in the group is under attack.
-			if bool(ctx.get("any_member_threatened", false)):
-				return {"order": "follow_slot", "slot_name": "frontal"}
-			# Relax at home while any scavenger is actively working.
-			# Wake up and lead formation again once everyone is idle.
-			if bool(ctx.get("any_scavenger_busy", false)):
-				return {"order": "relax_at_home"}
-			return {"order": "follow_slot", "slot_name": "frontal"}
