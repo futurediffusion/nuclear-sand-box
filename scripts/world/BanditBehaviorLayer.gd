@@ -301,6 +301,8 @@ var _structure_reassign_cooldown_until_by_member: Dictionary = {} # member_id ->
 var _structure_repaths_this_pulse: int = 0
 var _structure_repaths_last_pulse: int = 0
 var _debug_scavenger_non_econ_orders: int = 0
+var _legacy_input_counter_window_started_at: float = 0.0
+var _legacy_input_counter_by_group: Dictionary = {}
 @export var structure_dispatch_allow_leader: bool = false
 
 
@@ -320,6 +322,7 @@ func log_worker_event(event_name: String, payload: Dictionary = {}) -> void:
 	var role: String = String(payload.get("role", ""))
 	if role == "scavenger" and event_name.begins_with("tactical_"):
 		_debug_scavenger_non_econ_orders += 1
+	_accumulate_legacy_input_counter(event_name, payload)
 	if not is_worker_instrumentation_enabled():
 		return
 	var normalized := payload.duplicate(true)
@@ -345,6 +348,37 @@ func log_worker_event(event_name: String, payload: Dictionary = {}) -> void:
 	Debug.log("bandit_pipeline", "[BANDIT_WORKER_EVENT] %s" % " ".join(parts))
 
 
+func _accumulate_legacy_input_counter(event_name: String, payload: Dictionary) -> void:
+	if event_name != "pipeline_task_authority":
+		return
+	var group_id: String = str(payload.get("group_id", payload.get("camp_id", "")))
+	if group_id == "":
+		group_id = "unknown"
+	if _legacy_input_counter_window_started_at <= 0.0:
+		_legacy_input_counter_window_started_at = RunClock.now()
+	var group_counter: Dictionary = _legacy_input_counter_by_group.get(group_id, {
+		"events": 0,
+		"legacy_input_used": 0,
+		"legacy_driven": 0,
+	})
+	group_counter["events"] = int(group_counter.get("events", 0)) + 1
+	if bool(payload.get("legacy_input_used", false)):
+		group_counter["legacy_input_used"] = int(group_counter.get("legacy_input_used", 0)) + 1
+	if bool(payload.get("legacy_driven", false)):
+		group_counter["legacy_driven"] = int(group_counter.get("legacy_driven", 0)) + 1
+	_legacy_input_counter_by_group[group_id] = group_counter
+	var now: float = RunClock.now()
+	if now - _legacy_input_counter_window_started_at < 60.0:
+		return
+	Debug.log("perf_telemetry", "[BanditCanonicalCounters][per_minute] window_start=%.2f window_end=%.2f counters=%s" % [
+		_legacy_input_counter_window_started_at,
+		now,
+		JSON.stringify(_legacy_input_counter_by_group),
+	])
+	_legacy_input_counter_window_started_at = now
+	_legacy_input_counter_by_group.clear()
+
+
 
 
 func _on_work_coordinator_group_event(event_name: String, payload: Dictionary = {}) -> void:
@@ -361,6 +395,8 @@ func setup(ctx: Dictionary) -> void:
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
 	_worker_loop_enabled = _world_spatial_index != null
 	_reset_perf_window_metrics()
+	_legacy_input_counter_window_started_at = RunClock.now()
+	_legacy_input_counter_by_group.clear()
 	assert(_worker_loop_enabled, "BanditBehaviorLayer.setup requires world_spatial_index before worker loop startup.")
 	if not _worker_loop_enabled:
 		_log_missing_world_spatial_index_once("setup")
@@ -1358,10 +1394,8 @@ func _group_has_canonical_pipeline_intent(group_id: String) -> bool:
 	if group_id == "":
 		return false
 	var blackboard: Dictionary = BanditGroupMemory.bb_get(group_id)
-	var status: Dictionary = blackboard.get("status", {}) as Dictionary
-	var canonical_intent_entry: Dictionary = status.get("canonical_intent_record", {}) as Dictionary
-	var canonical_intent: Dictionary = canonical_intent_entry.get("value", {}) as Dictionary
-	return _has_canonical_pipeline_intent(canonical_intent)
+	var intent_state: Dictionary = _intent_state_read_model.from_blackboard(blackboard)
+	return bool(intent_state.get("has_canonical_intent", false))
 
 
 func _resolve_member_simulation_profile_decision(
@@ -2562,6 +2596,7 @@ func get_structure_dispatch_debug_snapshot() -> Dictionary:
 		"repaths_last_pulse": _structure_repaths_last_pulse,
 		"pending_dispatch_jobs": _pending_structure_dispatches.size(),
 		"scavenger_non_econ_orders": _debug_scavenger_non_econ_orders,
+		"legacy_input_counters_per_minute": _legacy_input_counter_by_group.duplicate(true),
 	}
 
 
@@ -2569,6 +2604,8 @@ func reset_structure_dispatch_debug_metrics() -> void:
 	_structure_repaths_last_pulse = 0
 	_structure_repaths_this_pulse = 0
 	_debug_scavenger_non_econ_orders = 0
+	_legacy_input_counter_window_started_at = RunClock.now()
+	_legacy_input_counter_by_group.clear()
 
 
 func _is_member_already_assaulting_near_target(group_id: String, member_id: String, target_pos: Vector2) -> bool:

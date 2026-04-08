@@ -16,6 +16,7 @@ const THRESHOLDS := {
 	"invalidate_path_per_sec_max": 140.0,
 	"groups_activated_per_event_min": 0.8,
 	"scavenger_non_econ_orders_max": 0,
+	"legacy_input_used_max": 0,
 	"raid_loot_carry_coexistence_min_hits": 1,
 }
 
@@ -248,6 +249,11 @@ func _run() -> void:
 	var invalidate_per_sec: float = float(invalidate_total) / maxf(HARNESS_DURATION_SEC, 1.0)
 	var dispatch_final_snap: Dictionary = bbl.call("get_structure_dispatch_debug_snapshot") if bbl.has_method("get_structure_dispatch_debug_snapshot") else {}
 	var scav_non_econ_total: int = int(dispatch_final_snap.get("scavenger_non_econ_orders", 0))
+	var legacy_counters: Dictionary = dispatch_final_snap.get("legacy_input_counters_per_minute", {}) as Dictionary
+	var legacy_input_used_total: int = 0
+	for group_id in legacy_counters.keys():
+		var entry: Dictionary = legacy_counters[group_id] as Dictionary
+		legacy_input_used_total += int(entry.get("legacy_input_used", 0))
 
 	_record("frame_p95_ms", p95 <= float(THRESHOLDS["p95_frame_ms_max"]), "p95=%.2f threshold<=%.2f" % [p95, float(THRESHOLDS["p95_frame_ms_max"])])
 	_record("frame_p99_ms", p99 <= float(THRESHOLDS["p99_frame_ms_max"]), "p99=%.2f threshold<=%.2f" % [p99, float(THRESHOLDS["p99_frame_ms_max"])])
@@ -256,6 +262,11 @@ func _run() -> void:
 	_record("invalidate_path_per_sec", invalidate_per_sec <= float(THRESHOLDS["invalidate_path_per_sec_max"]), "invalidate/s=%.2f threshold<=%.2f" % [invalidate_per_sec, float(THRESHOLDS["invalidate_path_per_sec_max"])])
 	_record("groups_activated_per_event", groups_per_event >= float(THRESHOLDS["groups_activated_per_event_min"]), "groups/event=%.2f threshold>=%.2f" % [groups_per_event, float(THRESHOLDS["groups_activated_per_event_min"])])
 	_record("scavenger_non_economic_orders", scav_non_econ_total <= int(THRESHOLDS["scavenger_non_econ_orders_max"]), "count=%d threshold<=%d" % [scav_non_econ_total, int(THRESHOLDS["scavenger_non_econ_orders_max"])])
+	_record("legacy_input_used", legacy_input_used_total <= int(THRESHOLDS["legacy_input_used_max"]), "count=%d threshold<=%d by_group=%s" % [
+		legacy_input_used_total,
+		int(THRESHOLDS["legacy_input_used_max"]),
+		str(legacy_counters),
+	])
 	_record("raid_loot_carry_coexistence", raid_loot_carry_hits >= int(THRESHOLDS["raid_loot_carry_coexistence_min_hits"]), "hits=%d threshold>=%d spawned_extra_hostiles=%d" % [raid_loot_carry_hits, int(THRESHOLDS["raid_loot_carry_coexistence_min_hits"]), spawned_extra])
 
 	var report: Dictionary = {
@@ -271,6 +282,7 @@ func _run() -> void:
 			"repaths_per_pulse_peak": repaths_per_pulse_peak,
 			"invalidate_path_per_sec": invalidate_per_sec,
 			"scavenger_non_economic_orders": scav_non_econ_total,
+			"legacy_input_used": legacy_input_used_total,
 			"raid_loot_carry_coexistence_hits": raid_loot_carry_hits,
 			"spawned_extra_hostiles": spawned_extra,
 		},

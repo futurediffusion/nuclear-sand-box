@@ -27,10 +27,10 @@ const ORDER_KIND_ALLOWLIST := {
 var _legacy_input_hint_uses: int = 0
 
 
-func plan_member_task(canonical_intent: Dictionary, member_ctx: Dictionary, legacy_input_hints: Dictionary) -> Dictionary:
+func plan_member_task(canonical_intent: Dictionary, member_ctx: Dictionary, planner_hints: Dictionary) -> Dictionary:
 	var intent_record: Dictionary = _normalize_canonical_intent(canonical_intent, member_ctx)
 	var planning_trace: Dictionary = {}
-	var resolved_order: Dictionary = _resolve_order_from_intent(intent_record, member_ctx, legacy_input_hints, planning_trace)
+	var resolved_order: Dictionary = _resolve_order_from_intent(intent_record, member_ctx, planner_hints, planning_trace)
 	var sanitized_order: Dictionary = _sanitize_order(resolved_order, member_ctx)
 	var task_payload: Dictionary = _build_task_payload(sanitized_order, intent_record, member_ctx, planning_trace)
 	var out: Dictionary = sanitized_order.duplicate(true)
@@ -49,7 +49,7 @@ func _normalize_canonical_intent(canonical_intent: Dictionary, member_ctx: Dicti
 	return out
 
 
-func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionary, legacy_input_hints: Dictionary,
+func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionary, planner_hints: Dictionary,
 		planning_trace: Dictionary) -> Dictionary:
 	var decision_type: String = String(intent_record.get("decision_type", BanditIntentSystemScript.DECISION_CONTINUE_WORK))
 	var role: String = String(member_ctx.get("role", "scavenger"))
@@ -66,7 +66,7 @@ func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionar
 			planning_trace["flow"] = "structure_assault_focus"
 			var assault_target: Vector2 = _resolve_target_pos(member_ctx, {})
 			if assault_target == Vector2.ZERO:
-				assault_target = _read_legacy_target_hint(legacy_input_hints, planning_trace, "structure_assault_target")
+				assault_target = _read_target_hint(planner_hints, planning_trace, "structure_assault_target")
 			if (role == "leader" or role == "bodyguard") and assault_target != Vector2.ZERO:
 				return {"order": ORDER_ASSAULT_STRUCTURE_TARGET, "target_pos": assault_target}
 			return {"order": ORDER_FOLLOW_SLOT, "slot_name": "frontal"}
@@ -74,7 +74,7 @@ func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionar
 			planning_trace["flow"] = "threat_response"
 			var threat_target: Vector2 = _resolve_target_pos(member_ctx, {})
 			if threat_target == Vector2.ZERO:
-				threat_target = _read_legacy_target_hint(legacy_input_hints, planning_trace, "threat_target")
+				threat_target = _read_target_hint(planner_hints, planning_trace, "threat_target")
 			if threat_target != Vector2.ZERO:
 				return {"order": ORDER_ATTACK_TARGET, "target_pos": threat_target}
 			return {"order": ORDER_FOLLOW_SLOT, "slot_name": "frontal"}
@@ -83,10 +83,10 @@ func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionar
 			return _plan_canonical_loot_order(member_ctx, role)
 		BanditIntentSystemScript.DECISION_CONTINUE_WORK:
 			planning_trace["flow"] = "continue_current_work"
-			return _plan_continue_work_order(member_ctx, role, legacy_input_hints, planning_trace)
+			return _plan_continue_work_order(member_ctx, role, planner_hints, planning_trace)
 		_:
 			planning_trace["flow"] = "unknown_decision_type_defaulted_to_continue_work"
-			return _plan_continue_work_order(member_ctx, role, legacy_input_hints, planning_trace)
+			return _plan_continue_work_order(member_ctx, role, planner_hints, planning_trace)
 
 
 func _plan_canonical_loot_order(member_ctx: Dictionary, role: String) -> Dictionary:
@@ -114,7 +114,7 @@ func _plan_canonical_loot_order(member_ctx: Dictionary, role: String) -> Diction
 	return {"order": ORDER_FOLLOW_SLOT, "slot_name": "escort_left"}
 
 
-func _plan_continue_work_order(member_ctx: Dictionary, role: String, legacy_input_hints: Dictionary,
+func _plan_continue_work_order(member_ctx: Dictionary, role: String, planner_hints: Dictionary,
 		planning_trace: Dictionary) -> Dictionary:
 	var macro_state: String = String(member_ctx.get("macro_state", "idle"))
 	var carry_count: int = int(member_ctx.get("cargo_count", 0))
@@ -148,14 +148,9 @@ func _plan_continue_work_order(member_ctx: Dictionary, role: String, legacy_inpu
 	var assigned_slot: String = String(member_ctx.get("assigned_slot", ""))
 	if assigned_slot != "":
 		return {"order": ORDER_FOLLOW_SLOT, "slot_name": assigned_slot}
-	var legacy_slot: String = String(legacy_input_hints.get("slot_name", ""))
+	var legacy_slot: String = String(planner_hints.get("slot_name", ""))
 	if legacy_slot != "":
-		_register_legacy_input_hint_usage(
-			"bandit_task_planner.legacy_slot_hint",
-			"continue_current_work used legacy slot_name as input hint."
-		)
-		planning_trace["legacy_input_used"] = true
-		planning_trace["legacy_input_source"] = "slot_hint"
+		_mark_hint_usage(planner_hints, planning_trace, "slot_hint")
 		return {"order": ORDER_FOLLOW_SLOT, "slot_name": legacy_slot}
 	return {"order": ORDER_FOLLOW_SLOT, "slot_name": "frontal" if role == "leader" else "lateral_left"}
 
@@ -246,17 +241,23 @@ func _resolve_target_pos(member_ctx: Dictionary, order_data: Dictionary) -> Vect
 	return member_ctx.get("leader_pos", Vector2.ZERO) as Vector2
 
 
-func _read_legacy_target_hint(legacy_input_hints: Dictionary, planning_trace: Dictionary, hint_name: String) -> Vector2:
-	var target: Variant = legacy_input_hints.get("target_pos", null)
+func _read_target_hint(planner_hints: Dictionary, planning_trace: Dictionary, hint_name: String) -> Vector2:
+	var target: Variant = planner_hints.get("target_pos", null)
 	if target is Vector2 and (target as Vector2) != Vector2.ZERO:
+		_mark_hint_usage(planner_hints, planning_trace, hint_name)
+		return target as Vector2
+	return Vector2.ZERO
+
+
+func _mark_hint_usage(planner_hints: Dictionary, planning_trace: Dictionary, hint_name: String) -> void:
+	var hint_source: String = String(planner_hints.get("hint_source", "unknown"))
+	if hint_source.begins_with("legacy"):
 		_register_legacy_input_hint_usage(
-			"bandit_task_planner.legacy_target_hint",
-			"%s resolved target_pos from legacy proposed_order hint." % hint_name
+			"bandit_task_planner.legacy_%s" % hint_name,
+			"%s resolved from legacy hint_source=%s." % [hint_name, hint_source]
 		)
 		planning_trace["legacy_input_used"] = true
 		planning_trace["legacy_input_source"] = hint_name
-		return target as Vector2
-	return Vector2.ZERO
 
 
 func _is_order_allowed(order_data: Dictionary) -> bool:
