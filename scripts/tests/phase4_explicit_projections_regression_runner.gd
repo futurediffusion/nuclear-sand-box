@@ -117,7 +117,7 @@ func _test_wall_collider_projection_refresh_and_chunk_dirty_fallback() -> void:
 func _test_territory_projection_rebuild_contract() -> void:
 	var territory: TerritoryProjection = TerritoryProjectionScript.new()
 	var sources := {
-		"workbench_nodes": [{"world_pos": Vector2(96.0, 96.0)}],
+		"workbench_anchors": [{"world_pos": Vector2(96.0, 96.0)}],
 		"detected_bases": [{
 			"id": "base-alpha",
 			"center_world_pos": Vector2(320.0, 320.0),
