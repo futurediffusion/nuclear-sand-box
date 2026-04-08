@@ -1,6 +1,8 @@
 extends RefCounted
 class_name WorldSnapshotVersioning
 
+const SandboxDomainLanguageScript := preload("res://scripts/core/SandboxDomainLanguage.gd")
+
 const LATEST_SNAPSHOT_VERSION: int = 2
 const MIN_SUPPORTED_SNAPSHOT_VERSION: int = 1
 
@@ -92,6 +94,17 @@ static func _migrate_v1_to_v2(payload: Dictionary) -> Dictionary:
 		persistence_meta = (meta_raw as Dictionary).duplicate(true)
 	persistence_meta["snapshot_contract"] = "canonical_world_snapshot_v2"
 	persistence_meta["canonical_snapshot_path"] = true
+	persistence_meta["domain_language"] = SandboxDomainLanguageScript.get_snapshot()
+	persistence_meta["migration_steps"] = ["v1_to_v2_persistence_meta"]
+	persistence_meta["runtime_derived_sections"] = [
+		"projections",
+		"telemetry",
+		"runtime_caches",
+	]
+	persistence_meta["compat_legacy_hints"] = {
+		"legacy_snapshot_key": "version",
+		"legacy_envelope_key": "world_snapshot_state",
+	}
 	if not persistence_meta.has("migration_origin"):
 		persistence_meta["migration_origin"] = "v1"
 	migrated["persistence_meta"] = persistence_meta

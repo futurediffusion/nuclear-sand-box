@@ -6,6 +6,9 @@ Date: 2026-04-08
 
 Unify the language for sandbox-owned structure-like world objects (player walls, structural walls, and placed buildables/placeables) without a large rewrite and without changing gameplay behavior.
 
+For cross-module vocabulary standards beyond structure unification, see:
+- `docs/architecture/sandbox_domain_language_migration.md`
+
 ---
 
 ## 1) Audit of current families and overlap
@@ -99,4 +102,3 @@ This is a **unification layer**, not a persistence rewrite. Existing stores rema
 1. Route additional structure queries (raid target selection, settlement scans) through `SandboxStructureRepository`.
 2. Introduce optional shared HP adapter for breakable placeables using the same canonical structure record fields.
 3. Expand snapshot adapters to include structural wall records directly where beneficial, still preserving legacy schemas.
-
