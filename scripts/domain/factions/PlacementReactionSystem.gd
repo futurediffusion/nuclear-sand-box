@@ -9,7 +9,7 @@ const DEFAULT_DEBUG_MAX_EVENTS: int = 96
 const DEFAULT_EVENT_DEDUPE_WINDOW: float = 0.35
 
 var _threat_assessment_system: ThreatAssessmentSystem
-var _group_intent_system: GroupIntentSystem
+var _group_intent_system: BanditIntentSystem
 var _world_spatial_index: WorldSpatialIndex
 var _tile_to_world_cb: Callable
 var _nearest_workbench_world_pos_cb: Callable
@@ -45,7 +45,7 @@ var _debug_max_events: int = DEFAULT_DEBUG_MAX_EVENTS
 
 func setup(config: Dictionary = {}) -> void:
 	_threat_assessment_system = config.get("threat_assessment_system") as ThreatAssessmentSystem
-	_group_intent_system = config.get("group_intent_system") as GroupIntentSystem
+	_group_intent_system = config.get("group_intent_system") as BanditIntentSystem
 	_world_spatial_index = config.get("world_spatial_index") as WorldSpatialIndex
 	_tile_to_world_cb = config.get("tile_to_world", Callable()) as Callable
 	_nearest_workbench_world_pos_cb = config.get("nearest_workbench_world_pos", Callable()) as Callable
