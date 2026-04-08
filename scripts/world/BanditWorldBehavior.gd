@@ -239,10 +239,12 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	if role == "leader":
 		_tick_leader_phase(delta)
 
+	var has_execution_order: bool = _has_execution_order(ctx)
+	var allow_autonomous_runtime_work: bool = not has_execution_order
+
 	# ── 1. React to group intent changes ──────────────────────────────────
 	if group_id != "":
-		var g: Dictionary = BanditGroupMemory.get_group(group_id)
-		var intent: String = String(g.get("current_group_intent", "idle"))
+		var intent: String = _resolve_runtime_group_intent(ctx)
 		if intent != _last_intent:
 			_last_intent = intent
 			_on_group_intent_changed(intent, ctx)
@@ -305,14 +307,15 @@ func tick(delta: float, ctx: Dictionary) -> void:
 		if suppress_generic_pickup:
 			_log_assault_pickup_suppressed("visible_drop")
 		else:
-			_try_grab_visible_drop(ctx)
+			_try_grab_visible_drop(ctx, allow_autonomous_runtime_work)
 
 	# ── 4b. From quiescent states, try to find other useful work ─────────
 	if pending_collect_id == 0 and (state == State.IDLE_AT_HOME or state == State.PATROL):
 		if _should_suppress_generic_drop_pickup(ctx):
 			_log_assault_pickup_suppressed("find_work")
 		else:
-			_try_find_work(ctx)
+			if allow_autonomous_runtime_work:
+				_try_find_work(ctx)
 
 	# ── 4c. Oportunistic wall assault (nivel 6+, no en raid) ─────────────
 	# Enemigos cercanos a la base del jugador comienzan a atacar muros de forma
@@ -322,7 +325,7 @@ func tick(delta: float, ctx: Dictionary) -> void:
 		_try_property_sabotage(ctx)
 
 	# ── 5. Leader: proactive roam toward reported resources / territory ───
-	if role == "leader" and (state == State.IDLE_AT_HOME or state == State.PATROL):
+	if allow_autonomous_runtime_work and role == "leader" and (state == State.IDLE_AT_HOME or state == State.PATROL):
 		_leader_roam_timer -= delta
 		if _leader_roam_timer <= 0.0:
 			_try_leader_roam()
@@ -467,8 +470,10 @@ func _enter_patrol_away_from_home() -> void:
 # Drop grab — alta prioridad, interrumpe cualquier estado excepto los críticos
 # ---------------------------------------------------------------------------
 
-func _try_grab_visible_drop(ctx: Dictionary) -> void:
+func _try_grab_visible_drop(ctx: Dictionary, allow_autonomous_work: bool = true) -> void:
 	if pending_collect_id != 0:
+		return
+	if not allow_autonomous_work:
 		return
 	match state:
 		State.RETURN_HOME, State.HOLD_POSITION, \
@@ -488,6 +493,20 @@ func _try_grab_visible_drop(ctx: Dictionary) -> void:
 	var best_id: int = _pick_nearest_drop_id(drops, node_pos)
 	if best_id != 0:
 		enter_loot_approach(best_id)
+
+
+func _resolve_runtime_group_intent(ctx: Dictionary) -> String:
+	var intent_from_ctx: Variant = ctx.get("group_intent", null)
+	if intent_from_ctx is String and String(intent_from_ctx) != "":
+		return String(intent_from_ctx)
+	if group_id == "":
+		return "idle"
+	var g: Dictionary = BanditGroupMemory.get_group(group_id)
+	return String(g.get("current_group_intent", "idle"))
+
+
+func _has_execution_order(ctx: Dictionary) -> bool:
+	return bool(ctx.get("execution_order_active", false))
 
 
 # ---------------------------------------------------------------------------
