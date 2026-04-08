@@ -156,7 +156,6 @@ var _threat_assessment_system: ThreatAssessmentSystem
 var _group_intent_system: BanditIntentSystem
 var _placement_reaction_system: PlacementReactionSystem
 var _wall_feedback: WallFeedback
-var _wall_persistence: WallPersistence
 var _structural_wall_persistence: StructuralWallPersistence
 var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
@@ -239,7 +238,6 @@ const TerritoryProjectionScript := preload("res://scripts/projections/territory/
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
 const BanditIntentSystemScript := preload("res://scripts/domain/factions/BanditIntentSystem.gd")
 const PlacementReactionSystemScript := preload("res://scripts/domain/factions/PlacementReactionSystem.gd")
-const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
 const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
@@ -441,7 +439,6 @@ func _ready() -> void:
 	add_to_group("world")
 	get_tree().set_auto_accept_quit(false)
 	_player_wall_system = PlayerWallSystemScript.new()
-	_wall_persistence = WallPersistenceScript.new()
 	_structural_wall_persistence = StructuralWallPersistenceScript.new()
 	_structural_wall_persistence.setup({
 		"chunk_save": chunk_save,
@@ -487,7 +484,6 @@ func _ready() -> void:
 		"owner": self,
 		"feedback": _wall_feedback,
 		"sound_panel_getter": Callable(self, "_get_sound_panel_for_walls"),
-		"wall_persistence": _wall_persistence,
 		"structural_wall_persistence": _structural_wall_persistence,
 		"walls_tilemap": walls_tilemap,
 		"cliffs_tilemap": cliffs_tilemap,
