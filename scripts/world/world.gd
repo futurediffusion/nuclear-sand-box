@@ -162,6 +162,7 @@ var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
 var _chunk_lifecycle_coordinator: WorldChunkLifecycleCoordinator
+var _drop_pressure_service: WorldDropPressureService
 var _world_sim_telemetry: WorldSimTelemetry
 var _sandbox_diagnostics: SandboxDiagnostics
 var _last_snapshot_rebuild_report: Dictionary = {
@@ -248,6 +249,7 @@ const DayNightControllerScript := preload("res://scripts/world/DayNightControlle
 const GameplayCommandDispatcherScript := preload("res://scripts/runtime/world/GameplayCommandDispatcher.gd")
 const SandboxDomainEventDispatcherScript := preload("res://scripts/runtime/world/SandboxDomainEventDispatcher.gd")
 const WorldChunkLifecycleCoordinatorScript := preload("res://scripts/runtime/world/WorldChunkLifecycleCoordinator.gd")
+const WorldDropPressureServiceScript := preload("res://scripts/runtime/world/WorldDropPressureService.gd")
 const PlacementReactionRuntimeConfigScript := preload("res://scripts/world/PlacementReactionRuntimeConfig.gd")
 const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
@@ -300,12 +302,6 @@ const WALL_RECONNECT_OFFSETS: Array[Vector2i] = [
 	Vector2i(1, 1),
 ]
 const DROP_COMPACT_HOTSPOT_MAX_TRACKED: int = 32
-const DROP_PRESSURE_NORMAL: StringName = &"normal"
-const DROP_PRESSURE_HIGH: StringName = &"high"
-const DROP_PRESSURE_CRITICAL: StringName = &"critical"
-const DROP_PRESSURE_STAGE_NORMAL: int = 0
-const DROP_PRESSURE_STAGE_HIGH: int = 5
-const DROP_PRESSURE_STAGE_CRITICAL: int = 6
 
 # Biome IDs used by PropSpawner via get_spawn_biome()
 const BIOME_ID_GRASSLAND: int = 1
@@ -333,11 +329,6 @@ const BIOME_ID_DENSE_GRASS: int = 2
 
 var merged_drop_events: int = 0
 var _drop_compaction_hotspots: Array[Dictionary] = []
-var _drop_pressure_snapshot: Dictionary = {
-	"level": String(DROP_PRESSURE_NORMAL),
-	"item_drop_count": 0,
-	"drop_pressure_stage": DROP_PRESSURE_STAGE_NORMAL,
-}
 
 func _configure_world_cadence_lanes() -> void:
 	if _cadence == null:
@@ -763,6 +754,15 @@ func _ready() -> void:
 		"tile_to_world": Callable(self, "_tile_to_world"),
 		"chunk_size": chunk_size,
 		"placeables_projection": _spatial_index_projection,
+	})
+	_drop_pressure_service = WorldDropPressureServiceScript.new()
+	_drop_pressure_service.setup({
+		"world_spatial_index": _world_spatial_index,
+		"loot_system": LootSystem,
+		"high_item_drop_count": drop_pressure_high_item_drop_count,
+		"critical_item_drop_count": drop_pressure_critical_item_drop_count,
+		"high_orphan_ttl_sec": drop_pressure_high_orphan_ttl_sec,
+		"now_msec_provider": Callable(Time, "get_ticks_msec"),
 	})
 
 	_bandit_behavior_layer = BanditBehaviorLayerScript.new()
@@ -1213,54 +1213,22 @@ func _build_drop_compaction_anchor_list() -> Array[Vector2]:
 	return anchors
 
 
-func _get_drop_pressure_level_for_count(item_drop_count: int) -> StringName:
-	if item_drop_count >= maxi(drop_pressure_critical_item_drop_count, drop_pressure_high_item_drop_count + 1):
-		return DROP_PRESSURE_CRITICAL
-	if item_drop_count >= maxi(0, drop_pressure_high_item_drop_count):
-		return DROP_PRESSURE_HIGH
-	return DROP_PRESSURE_NORMAL
-
-
 func _update_drop_pressure_snapshot() -> void:
-	if _world_spatial_index == null:
+	if _drop_pressure_service == null:
 		return
-	var item_drop_count: int = _world_spatial_index.get_runtime_node_count(WorldSpatialIndex.KIND_ITEM_DROP)
-	var level: StringName = _get_drop_pressure_level_for_count(item_drop_count)
-	var stage: int = DROP_PRESSURE_STAGE_NORMAL
-	if level == DROP_PRESSURE_HIGH:
-		stage = DROP_PRESSURE_STAGE_HIGH
-	elif level == DROP_PRESSURE_CRITICAL:
-		stage = DROP_PRESSURE_STAGE_CRITICAL
-	_drop_pressure_snapshot = {
-		"level": String(level),
-		"item_drop_count": item_drop_count,
-		"drop_pressure_stage": stage,
-		"force_compact_deposit": level != DROP_PRESSURE_NORMAL,
-		"high_orphan_ttl_sec": drop_pressure_high_orphan_ttl_sec if level != DROP_PRESSURE_NORMAL else 0.0,
-		"pickup_budget_scale": 0.80 if level != DROP_PRESSURE_NORMAL else 1.0,
-		"updated_at_msec": Time.get_ticks_msec(),
-	}
-	if LootSystem != null and LootSystem.has_method("set_drop_pressure_snapshot"):
-		LootSystem.set_drop_pressure_snapshot(_drop_pressure_snapshot)
+	_drop_pressure_service.update_snapshot()
 
 
 func _drop_pressure_scaled_int(base_value: int, high_mult: float, critical_mult: float) -> int:
-	var level: String = String(_drop_pressure_snapshot.get("level", String(DROP_PRESSURE_NORMAL)))
-	var scaled: float = float(base_value)
-	if level == String(DROP_PRESSURE_HIGH):
-		scaled *= maxf(1.0, high_mult)
-	elif level == String(DROP_PRESSURE_CRITICAL):
-		scaled *= maxf(1.0, critical_mult)
-	return maxi(int(ceil(scaled)), 1)
+	if _drop_pressure_service == null:
+		return maxi(int(ceil(float(base_value))), 1)
+	return _drop_pressure_service.scale_int(base_value, high_mult, critical_mult)
 
 
 func _drop_pressure_scaled_float(base_value: float, high_mult: float, critical_mult: float) -> float:
-	var level: String = String(_drop_pressure_snapshot.get("level", String(DROP_PRESSURE_NORMAL)))
-	if level == String(DROP_PRESSURE_HIGH):
-		return base_value * maxf(1.0, high_mult)
-	if level == String(DROP_PRESSURE_CRITICAL):
-		return base_value * maxf(1.0, critical_mult)
-	return base_value
+	if _drop_pressure_service == null:
+		return base_value
+	return _drop_pressure_service.scale_float(base_value, high_mult, critical_mult)
 
 
 func _compact_item_drops_once() -> int:
@@ -2487,7 +2455,9 @@ func get_world_diagnostics_snapshot() -> Dictionary:
 
 
 func get_drop_pressure_snapshot() -> Dictionary:
-	return _drop_pressure_snapshot.duplicate(true)
+	if _drop_pressure_service == null:
+		return {}
+	return _drop_pressure_service.get_snapshot()
 
 
 func dump_debug_summary() -> String:
@@ -2564,7 +2534,7 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 			"radius_px": drop_compaction_radius_px,
 			"max_nodes_inspected": drop_compaction_max_nodes_inspected,
 			"max_merges_per_exec": drop_compaction_max_merges_per_exec,
-			"pressure": _drop_pressure_snapshot.duplicate(true),
+			"pressure": get_drop_pressure_snapshot(),
 		},
 		"lane_inventory": {
 			"occlusion_controller": {"script": "scripts/world/OcclusionController.gd", "lane": String(LANE_OCCLUSION_PULSE), "domain": String(TICK_DOMAIN_EXECUTION_RUNTIME), "interval": OCCLUSION_INTERVAL_SEC, "budget": BUDGET_OCCLUSION_MATERIALS_PER_PULSE},
