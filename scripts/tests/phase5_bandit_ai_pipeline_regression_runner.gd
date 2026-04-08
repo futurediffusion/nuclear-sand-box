@@ -47,6 +47,7 @@ func run() -> void:
 	_test_perception_output_generation()
 	_test_canonical_intent_output_generation()
 	_test_task_planning_output_generation()
+	_test_nominal_loop_tasks_are_canonical()
 	_test_execution_consumes_task_for_migrated_slice()
 	_test_duplicate_decision_path_prevention()
 	print("[PHASE5] PASS: perception/intent/task/execution slice remains stable")
@@ -138,6 +139,76 @@ func _test_execution_consumes_task_for_migrated_slice() -> void:
 		"execution layer should consume migrated task and route to wall assault behavior")
 	assert(fake_beh.last_wall_assault_target == Vector2(96, 96),
 		"execution layer should consume task target position for wall assault")
+
+
+func _test_nominal_loop_tasks_are_canonical() -> void:
+	var planner: BanditTaskPlanner = BanditTaskPlannerScript.new()
+	var cases: Array[Dictionary] = [
+		{
+			"name": "idle_continue",
+			"intent": {
+				"kind": "group_intent_decision",
+				"group_mode": "idle",
+				"decision_type": BanditIntentSystemScript.DECISION_CONTINUE_WORK,
+			},
+			"ctx": {
+				"role": "scavenger",
+				"macro_state": "idle",
+				"prioritized_resources": [{"id": 22, "pos": Vector2(64, 64)}],
+			},
+		},
+		{
+			"name": "working_continue",
+			"intent": {
+				"kind": "group_intent_decision",
+				"group_mode": "working",
+				"decision_type": BanditIntentSystemScript.DECISION_CONTINUE_WORK,
+			},
+			"ctx": {
+				"role": "scavenger",
+				"macro_state": "working",
+				"prioritized_drops": [{"id": 101, "pos": Vector2(70, 40)}],
+			},
+		},
+		{
+			"name": "return_home_explicit",
+			"intent": {
+				"kind": "group_intent_decision",
+				"group_mode": "idle",
+				"decision_type": BanditIntentSystemScript.DECISION_RETURN_HOME,
+			},
+			"ctx": {
+				"role": "bodyguard",
+				"macro_state": "retreating",
+				"home_pos": Vector2(0, 0),
+			},
+		},
+		{
+			"name": "depositing_continue",
+			"intent": {
+				"kind": "group_intent_decision",
+				"group_mode": "depositing",
+				"decision_type": BanditIntentSystemScript.DECISION_CONTINUE_WORK,
+			},
+			"ctx": {
+				"role": "scavenger",
+				"macro_state": "depositing",
+				"cargo_count": 1,
+			},
+		},
+	]
+	for entry in cases:
+		var planned: Dictionary = planner.plan_member_task(
+			entry.get("intent", {}) as Dictionary,
+			entry.get("ctx", {}) as Dictionary,
+			{}
+		)
+		var task: Dictionary = planned.get("task", {}) as Dictionary
+		var trace: Dictionary = task.get("planning_trace", {}) as Dictionary
+		assert(String(trace.get("authority", "")) == "canonical_pipeline",
+			"nominal loop must remain canonical: %s" % String(entry.get("name", "unknown")))
+		assert(not bool(trace.get("legacy_input_used", true)),
+			"nominal loop must not depend on legacy hints: %s" % String(entry.get("name", "unknown")))
 
 
 func _test_duplicate_decision_path_prevention() -> void:

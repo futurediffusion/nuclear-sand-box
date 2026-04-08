@@ -415,6 +415,17 @@ Rol:
 - Consume `canonical_intent_record` + contexto de miembro y transforma esa intención en salidas concretas de orden/tarea (`follow_slot`, `move_to_target`, `mine_target`, `pickup_target`, `return_home`, `assault_structure_target`, `attack_target`).
 - Emite payload estructurado en `order.task` para que la capa ejecutora consuma datos declarativos sin mezclar decisión de intención ni side effects de movimiento/combate.
 
+### 📚 BANDIT BLACKBOARD READ MODELS (Transition Adapters)
+
+Ubicación:
+- `scripts/domain/factions/PerceptionReadModel.gd`
+- `scripts/domain/factions/IntentStateReadModel.gd`
+
+Rol:
+- Adaptadores de lectura transicional sobre `BanditGroupMemory` para desacoplar consumo de ramas raw del blackboard.
+- `PerceptionReadModel` expone hechos de percepción normalizados (drops/resources priorizados y conteos).
+- `IntentStateReadModel` expone estado de intención canónica (`canonical_intent`, `has_canonical_intent`) sin mezclar ownership táctico.
+
 ### ⏱️ AWAKE RAMP QUEUE (Autoload)
 
 Ubicación:

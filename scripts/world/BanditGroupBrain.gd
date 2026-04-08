@@ -159,11 +159,11 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 		planning_ctx["macro_state"] = macro_state
 		for key in member_ctx.keys():
 			planning_ctx[key] = member_ctx[key]
-		var proposed_order: Dictionary = _build_candidate_order_for_member(role, group_ctx, member_ctx)
+		var legacy_input_hints: Dictionary = _build_input_hints_for_member(role, group_ctx, member_ctx)
 		var order: Dictionary = _task_planner.plan_member_task(
 			group_ctx.get("canonical_intent", {}) as Dictionary,
 			planning_ctx,
-			proposed_order
+			legacy_input_hints
 		)
 		order["macro_state"] = macro_state
 		out[member_id] = order
@@ -324,18 +324,32 @@ func _resolve_macro_state(group_ctx: Dictionary) -> String:
 			return "idle"
 
 
-func _build_candidate_order_for_member(role: String, group_ctx: Dictionary, member_ctx: Dictionary) -> Dictionary:
+func _build_input_hints_for_member(role: String, group_ctx: Dictionary, member_ctx: Dictionary) -> Dictionary:
 	var merged: Dictionary = group_ctx.duplicate(true)
 	merged["macro_state"] = _resolve_macro_state(group_ctx)
 	for key in member_ctx.keys():
 		merged[key] = member_ctx[key]
+	var hints: Dictionary = {}
 	match role:
 		"leader":
-			return _build_leader_order(merged)
+			hints = _extract_legacy_hints(_build_leader_order(merged))
 		"bodyguard":
-			return _bodyguard_controller.build_order(merged)
+			hints = _extract_legacy_hints(_bodyguard_controller.build_order(merged))
 		_:
-			return _scavenger_controller.build_order(merged)
+			hints = _extract_legacy_hints(_scavenger_controller.build_order(merged))
+	hints["hint_source"] = "legacy_role_controller"
+	return hints
+
+
+func _extract_legacy_hints(order_candidate: Dictionary) -> Dictionary:
+	var hints: Dictionary = {}
+	var slot_name: String = String(order_candidate.get("slot_name", ""))
+	if slot_name != "":
+		hints["slot_name"] = slot_name
+	var target_pos: Variant = order_candidate.get("target_pos", null)
+	if target_pos is Vector2 and (target_pos as Vector2) != Vector2.ZERO:
+		hints["target_pos"] = target_pos as Vector2
+	return hints
 
 
 func _build_leader_order(ctx: Dictionary) -> Dictionary:
