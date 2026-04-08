@@ -3,6 +3,7 @@ class_name BanditGroupBrain
 
 const BodyguardControllerScript := preload("res://scripts/world/BodyguardController.gd")
 const ScavengerControllerScript := preload("res://scripts/world/ScavengerController.gd")
+const BanditTaskPlannerScript := preload("res://scripts/domain/factions/BanditTaskPlanner.gd")
 
 const MACRO_STATES: Array[String] = [
 	"idle",
@@ -18,6 +19,7 @@ const MACRO_STATES: Array[String] = [
 
 var _bodyguard_controller: BodyguardController = BodyguardControllerScript.new()
 var _scavenger_controller: ScavengerController = ScavengerControllerScript.new()
+var _task_planner: BanditTaskPlanner = BanditTaskPlannerScript.new()
 
 const GROUP_ORDER_CACHE_TTL_SECONDS: float = 0.9
 const GROUP_RECOMPUTE_SAFETY_TTL_TICKS: int = 12
@@ -154,7 +156,16 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 		if memory_assignment.is_empty():
 			memory_assignment = member_ctx.get("current_assignment", {}) as Dictionary
 		member_ctx["existing_assignment"] = memory_assignment
-		var order: Dictionary = _build_order_for_member(role, group_ctx, member_ctx)
+		var planning_ctx: Dictionary = group_ctx.duplicate(true)
+		planning_ctx["macro_state"] = macro_state
+		for key in member_ctx.keys():
+			planning_ctx[key] = member_ctx[key]
+		var proposed_order: Dictionary = _build_candidate_order_for_member(role, group_ctx, member_ctx)
+		var order: Dictionary = _task_planner.plan_member_task(
+			group_ctx.get("canonical_intent", {}) as Dictionary,
+			planning_ctx,
+			proposed_order
+		)
 		order["macro_state"] = macro_state
 		out[member_id] = order
 		BanditGroupMemory.bb_set_assignment(group_id, member_id, order, 8.0, "group_brain")
@@ -314,7 +325,7 @@ func _resolve_macro_state(group_ctx: Dictionary) -> String:
 			return "idle"
 
 
-func _build_order_for_member(role: String, group_ctx: Dictionary, member_ctx: Dictionary) -> Dictionary:
+func _build_candidate_order_for_member(role: String, group_ctx: Dictionary, member_ctx: Dictionary) -> Dictionary:
 	var merged: Dictionary = group_ctx.duplicate(true)
 	merged["macro_state"] = _resolve_macro_state(group_ctx)
 	for key in member_ctx.keys():

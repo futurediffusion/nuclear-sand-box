@@ -1036,6 +1036,9 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			continue
 		var members: Array = members_by_group[group_id] as Array
 		var blackboard: Dictionary = BanditGroupMemory.bb_get(group_id)
+		var status: Dictionary = blackboard.get("status", {}) as Dictionary
+		var canonical_intent_entry: Dictionary = status.get("canonical_intent_record", {}) as Dictionary
+		var canonical_intent: Dictionary = canonical_intent_entry.get("value", {}) as Dictionary
 		var perception: Dictionary = blackboard.get("perception", {})
 		var prioritized_drops_entry: Dictionary = perception.get("prioritized_drops", {})
 		var prioritized_resources_entry: Dictionary = perception.get("prioritized_resources", {})
@@ -1056,6 +1059,7 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			"group_blackboard": blackboard,
 			"prioritized_drops": prioritized_drops_entry.get("value", []),
 			"prioritized_resources": prioritized_resources_entry.get("value", []),
+			"canonical_intent": canonical_intent,
 			"any_scavenger_busy": any_scavenger_busy,
 			"any_member_threatened": any_member_threatened,
 			"structure_assault_active": BanditGroupMemory.is_structure_assault_active(group_id),
