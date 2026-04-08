@@ -28,6 +28,18 @@ static func save_chunk_snapshot(snapshot: ChunkSnapshot) -> void:
 static func load_chunk_snapshot(chunk_key: String) -> ChunkSnapshot:
 	return ChunkSnapshotSerializer.serialize_chunk_from_worldsave(chunk_key)
 
+
+static func load_canonical_chunk_state(chunk_pos: Vector2i) -> Dictionary:
+	if chunk_pos == WorldSave.INVALID_CHUNK_POS:
+		return {}
+	var chunk_key: String = WorldSave.chunk_key_from_pos(chunk_pos)
+	if chunk_key.is_empty():
+		return {}
+	var snapshot: ChunkSnapshot = load_chunk_snapshot(chunk_key)
+	if snapshot == null:
+		return {}
+	return ChunkSnapshotSerializer.deserialize_chunk_snapshot(snapshot)
+
 static func capture_world_snapshot_state() -> Dictionary:
 	var chunk_dicts: Array[Dictionary] = []
 	for snapshot in _collect_chunk_snapshots():

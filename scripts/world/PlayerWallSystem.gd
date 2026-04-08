@@ -20,6 +20,7 @@ const BuildingCommandsScript := preload("res://scripts/domain/building/BuildingC
 const BuildingStateScript := preload("res://scripts/domain/building/BuildingState.gd")
 const BuildingSystemScript := preload("res://scripts/domain/building/BuildingSystem.gd")
 const WorldSaveBuildingRepositoryScript := preload("res://scripts/persistence/save/WorldSaveBuildingRepository.gd")
+const WorldSaveAdapterScript := preload("res://scripts/persistence/save/WorldSaveAdapter.gd")
 const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
@@ -674,11 +675,12 @@ func _finalize_player_wall_removal(tile_pos: Vector2i, drop_item: bool) -> void:
 func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
 	if not loaded_chunks.has(chunk_pos):
 		return
-	var entries: Array[Dictionary] = []
-	if building_repository != null:
-		entries = building_repository.load_structures_in_chunk(chunk_pos)
-	else:
-		entries = wall_persistence.load_chunk_walls(chunk_pos)
+	var entries: Array[Dictionary] = _load_canonical_structures_for_chunk(chunk_pos)
+	if entries.is_empty():
+		if building_repository != null:
+			entries = building_repository.load_structures_in_chunk(chunk_pos)
+		else:
+			entries = wall_persistence.load_chunk_walls(chunk_pos)
 	if entries.is_empty():
 		return
 	_refresh_building_state_for_chunk(chunk_pos, entries)
@@ -1069,6 +1071,24 @@ func _building_bootstrap_state_from_repository() -> void:
 			continue
 		BuildingStateScript.upsert_structure(initial_state, normalized)
 	building_system.setup(initial_state)
+
+
+func _load_canonical_structures_for_chunk(chunk_pos: Vector2i) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var canonical_chunk: Dictionary = WorldSaveAdapterScript.load_canonical_chunk_state(chunk_pos)
+	if canonical_chunk.is_empty():
+		return out
+	var structures_raw: Variant = canonical_chunk.get("structures", [])
+	if not (structures_raw is Array):
+		return out
+	for raw in structures_raw:
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var normalized: Dictionary = _normalize_player_wall_structure(raw as Dictionary)
+		if normalized.is_empty():
+			continue
+		out.append(normalized)
+	return out
 
 func _refresh_building_state_for_chunk(chunk_pos: Vector2i, structures: Array[Dictionary]) -> void:
 	if building_system == null:
