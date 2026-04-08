@@ -9,10 +9,10 @@
 
 For current AI ownership and orchestration boundaries, use:
 
-- [`docs/architecture/ownership/ai-pipeline.md`](docs/architecture/ownership/ai-pipeline.md)
-- [`docs/architecture/ownership/world-bootstrap-orchestration.md`](docs/architecture/ownership/world-bootstrap-orchestration.md)
-- [`docs/architecture/ownership/README.md`](docs/architecture/ownership/README.md)
-- [`docs/phase5_bandit_ai_pipeline_contract.md`](docs/phase5_bandit_ai_pipeline_contract.md) (phase contract context)
+- [`docs/architecture/ownership/ai-pipeline.md`](../../architecture/ownership/ai-pipeline.md)
+- [`docs/architecture/ownership/world-bootstrap-orchestration.md`](../../architecture/ownership/world-bootstrap-orchestration.md)
+- [`docs/architecture/ownership/README.md`](../../architecture/ownership/README.md)
+- [`docs/phase5_bandit_ai_pipeline_contract.md`](phase5_bandit_ai_pipeline_contract.md) (phase contract context)
 
 This document should be used as historical migration context only.
 

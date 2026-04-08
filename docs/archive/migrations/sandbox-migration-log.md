@@ -7,7 +7,7 @@ Checklist de validación de cierre de Fase 1:
 - [x] **Contrato publicado y vigente**
   - Evidencia: `docs/architecture/sandbox-contract.md` define freeze funcional de `world.gd` y puerta de comandos por dispatcher.
 - [x] **Auditoría de `world.gd` completada**
-  - Evidencia: `docs/architecture/world_gd_audit_phase1.md` documenta mapa de responsabilidades, riesgo y bloques de extracción.
+  - Evidencia: `docs/archive/migrations/world_gd_audit_phase1.md` documenta mapa de responsabilidades, riesgo y bloques de extracción.
 - [x] **Checklist de PR activo**
   - Evidencia: `docs/ai_squad_refactor_board.md` mantiene checklist obligatorio de PR para fase activa.
 - [x] **Dispatcher de comandos operativo**
@@ -33,7 +33,7 @@ Queda habilitada la **Fase 2: vertical slice walls/building**.
 Se revalida el checklist de arquitectura con evidencia documental y de código:
 
 - Contrato vigente: `docs/architecture/sandbox-contract.md`.
-- Auditoría `world.gd`: `docs/architecture/world_gd_audit_phase1.md`.
+- Auditoría `world.gd`: `docs/archive/migrations/world_gd_audit_phase1.md`.
 - Checklist de PR activo: `docs/ai_squad_refactor_board.md`.
 - Dispatcher operativo: `scripts/runtime/world/GameplayCommandDispatcher.gd` + delegación en `scripts/world/world.gd`.
 - Contratos de transición: `scripts/world/contracts/*` + `docs/architecture/world_phase1_transition_adapters.md`.
