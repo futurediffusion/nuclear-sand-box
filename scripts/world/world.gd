@@ -153,7 +153,7 @@ var _building_system: BuildingSystem
 var _building_tilemap_projection: BuildingTilemapProjection
 var _wall_collider_projection: WallColliderProjection
 var _threat_assessment_system: ThreatAssessmentSystem
-var _group_intent_system: GroupIntentSystem
+var _group_intent_system: BanditIntentSystem
 var _placement_reaction_system: PlacementReactionSystem
 var _wall_feedback: WallFeedback
 var _wall_persistence: WallPersistence
@@ -237,7 +237,7 @@ const WallColliderProjectionScript := preload("res://scripts/projections/collisi
 const SpatialIndexProjectionScript := preload("res://scripts/projections/index/SpatialIndexProjection.gd")
 const TerritoryProjectionScript := preload("res://scripts/projections/territory/TerritoryProjection.gd")
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
-const GroupIntentSystemScript := preload("res://scripts/domain/factions/GroupIntentSystem.gd")
+const BanditIntentSystemScript := preload("res://scripts/domain/factions/BanditIntentSystem.gd")
 const PlacementReactionSystemScript := preload("res://scripts/domain/factions/PlacementReactionSystem.gd")
 const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
@@ -338,7 +338,7 @@ func _setup_building_module() -> void:
 	_building_system = BuildingSystemScript.new()
 	_building_tilemap_projection = BuildingTilemapProjectionScript.new()
 	_threat_assessment_system = ThreatAssessmentSystemScript.new()
-	_group_intent_system = GroupIntentSystemScript.new()
+	_group_intent_system = BanditIntentSystemScript.new()
 	_group_intent_system.setup({
 		"group_memory": BanditGroupMemory,
 		"now_provider": Callable(RunClock, "now"),
@@ -2228,7 +2228,7 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 	if _placement_reaction_system != null:
 		# Compatibility bridge: keep PlacementSystem signal wiring in world.gd,
 		# but always route through PlacementReactionSystem canonical pipeline:
-		# BuildingEvent -> ThreatAssessmentSystem -> GroupIntentSystem.
+		# BuildingEvent -> ThreatAssessmentSystem -> BanditIntentSystem.
 		_placement_reaction_system.handle_building_event({
 			"type": ThreatAssessmentSystem.EVENT_TYPE_PLACEMENT_COMPLETED,
 			"item_id": _item_id,
