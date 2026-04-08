@@ -42,6 +42,7 @@ const BanditTerritoryResponseScript := preload("res://scripts/world/BanditTerrit
 const BanditWorkCoordinatorScript   := preload("res://scripts/world/BanditWorkCoordinator.gd")
 const BanditGroupBrainScript        := preload("res://scripts/world/BanditGroupBrain.gd")
 const BanditPerceptionSystemScript  := preload("res://scripts/domain/factions/BanditPerceptionSystem.gd")
+const BanditIntentSystemScript      := preload("res://scripts/domain/factions/BanditIntentSystem.gd")
 const SimulationLODPolicyScript     := preload("res://scripts/world/SimulationLODPolicy.gd")
 const AIComponentScript             := preload("res://scripts/components/AIComponent.gd")
 const MethodCapabilityCacheScript   := preload("res://scripts/utils/MethodCapabilityCache.gd")
@@ -254,6 +255,7 @@ var _territory_response: BanditTerritoryResponse = null
 var _work_coordinator:   BanditWorkCoordinator   = null
 var _group_brain:        BanditGroupBrain        = null
 var _perception_system:  BanditPerceptionSystem  = null
+var _intent_system:      BanditIntentSystem      = null
 var _find_wall_cb:       Callable                = Callable()
 var _find_wall_samples_cb: Callable              = Callable()
 var _find_workbench_cb:  Callable                = Callable()
@@ -436,6 +438,12 @@ func setup(ctx: Dictionary) -> void:
 		"player": _player,
 		"work_coordinator": _work_coordinator,
 		"log_worker_event_cb": Callable(self, "log_worker_event"),
+	})
+	if _intent_system == null:
+		_intent_system = BanditIntentSystemScript.new() as BanditIntentSystem
+	_intent_system.setup({
+		"group_memory": BanditGroupMemory,
+		"now_provider": Callable(RunClock, "now"),
 	})
 
 
@@ -1069,6 +1077,34 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			"any_member_threatened": any_member_threatened,
 			"structure_assault_active": BanditGroupMemory.is_structure_assault_active(group_id),
 		}
+		if bool(group_ctx.get("structure_assault_active", false)) and _perception_system != null and _intent_system != null:
+			var perception_snapshot: Dictionary = _perception_system.build_group_intent_perception({
+				"group_id": group_id,
+				"members": members,
+				"prioritized_drops": group_ctx.get("prioritized_drops", []),
+				"prioritized_resources": group_ctx.get("prioritized_resources", []),
+				"structure_assault_active": true,
+				"has_assault_target": _group_has_live_structure_target(group_id),
+			})
+			var intent_record: Dictionary = _intent_system.decide_group_intent(
+				perception_snapshot,
+				{
+					"current_group_intent": String(group.get("current_group_intent", "idle")),
+					"has_placement_react_lock": BanditGroupMemory.has_placement_react_lock(group_id),
+				},
+				{
+					"policy_next_intent": "raiding",
+					"reason": "structure_assault_pipeline",
+					"source": "BanditBehaviorLayer._compute_group_orders",
+				}
+			)
+			_intent_system.apply_group_intent_record(group_id, intent_record, {
+				"source": "structure_assault_pipeline",
+			})
+			intent_record["pipeline_path"] = "Perception->Intent->Task->Execution"
+			intent_record["compatibility_bridge"] = "legacy_canonical_intent_fallback_for_non_assault"
+			canonical_intent = intent_record
+		group_ctx["canonical_intent"] = canonical_intent
 		var member_orders: Dictionary = _group_brain.assign_group_orders(group_id, members, group_ctx)
 		for member_id in member_orders.keys():
 			out[str(member_id)] = member_orders[member_id]
@@ -1079,6 +1115,16 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 	var order_type: String = String(order.get("order", ""))
 	if order_type == "":
 		return
+	var task_payload: Dictionary = order.get("task", {}) as Dictionary
+	if String(task_payload.get("kind", "")) == "assault_structure_target":
+		log_worker_event("structure_assault_pipeline_execution", {
+			"npc_id": beh.member_id,
+			"group_id": beh.group_id,
+			"order": order_type,
+			"task_kind": String(task_payload.get("kind", "")),
+			"intent_decision": String((task_payload.get("intent", {}) as Dictionary).get("decision_type", "")),
+			"pipeline_path": "Perception->Intent->Task->Execution",
+		})
 	ctx["execution_order_active"] = true
 	ctx["execution_order_type"] = order_type
 	var structure_assault_active: bool = BanditGroupMemory.is_structure_assault_active(beh.group_id)

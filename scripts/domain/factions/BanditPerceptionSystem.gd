@@ -262,6 +262,42 @@ func build_member_context(input: Dictionary) -> Dictionary:
 	}
 
 
+func build_group_intent_perception(input: Dictionary) -> Dictionary:
+	var members: Array = input.get("members", []) as Array
+	var threat_count: int = 0
+	var recently_engaged_count: int = 0
+	for raw_member in members:
+		if not (raw_member is Dictionary):
+			continue
+		var member: Dictionary = raw_member as Dictionary
+		if bool(member.get("in_combat", false)):
+			threat_count += 1
+		if bool(member.get("recently_engaged", false)):
+			recently_engaged_count += 1
+	var nearby_loot: Array = input.get("prioritized_drops", []) as Array
+	var nearby_resources: Array = input.get("prioritized_resources", []) as Array
+	var structure_assault_active: bool = bool(input.get("structure_assault_active", false))
+	var has_assault_target: bool = bool(input.get("has_assault_target", structure_assault_active))
+	var group_id: String = String(input.get("group_id", ""))
+	return {
+		"group_id": group_id,
+		"stage": "perception",
+		"threat_signals": {
+			"in_combat_member_count": threat_count,
+			"recently_engaged_member_count": recently_engaged_count,
+			"threat_detected": threat_count > 0 or recently_engaged_count > 0,
+		},
+		"nearby_loot_count": nearby_loot.size(),
+		"nearby_resource_count": nearby_resources.size(),
+		"has_assault_target": has_assault_target,
+		"structure_assault_active": structure_assault_active,
+		"trace": {
+			"path": "BanditPerceptionSystem.build_group_intent_perception",
+			"compatibility_bridge": "group_blackboard_perception_fallback",
+		},
+	}
+
+
 func _build_player_presence(node_pos: Vector2) -> Dictionary:
 	if _player == null or not is_instance_valid(_player):
 		return {
