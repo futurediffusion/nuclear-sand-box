@@ -379,6 +379,16 @@ Rol:
 - Recibe un evento de building/placement + contexto (candidatos de grupo, umbrales) y devuelve una evaluación estructurada (`is_relevant`, `priority`, `severity`, `target_position`, `source_event`, `candidate_group_scope`, `debug`).
 - No despacha IA ni ejecuta comportamiento runtime; solo produce datos para que capas de orquestación (ej. `world.gd`) publiquen intents downstream.
 
+### 👁️ BANDIT PERCEPTION SYSTEM (Faction Domain Service)
+
+Ubicación:
+- `scripts/domain/factions/BanditPerceptionSystem.gd`
+
+Rol:
+- Capa dedicada de percepción para bandidos: centraliza normalización de señales de entorno (drops/resources cercanos, presencia del player, señales de combate reciente y targets de asalto estructural).
+- Produce salidas estructuradas consumibles por capas downstream (`BanditBehaviorLayer`, blackboard/group pulse) sin asignar tareas ni ejecutar movimiento/combate.
+- Mantiene compatibilidad con el runtime actual exportando tanto payload estructurado (`perception`) como campos legacy de contexto usados por comportamientos existentes.
+
 ### ⏱️ AWAKE RAMP QUEUE (Autoload)
 
 Ubicación:
