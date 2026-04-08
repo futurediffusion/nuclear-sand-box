@@ -6,6 +6,7 @@ class_name BanditTaskPlanner
 ## This planner never executes movement/combat side effects.
 
 const BanditIntentSystemScript := preload("res://scripts/domain/factions/BanditIntentSystem.gd")
+const TaskPlanOutputDtoScript := preload("res://scripts/domain/contracts/TaskPlanOutputDto.gd")
 
 const ORDER_FOLLOW_SLOT := "follow_slot"
 const ORDER_MOVE_TO_TARGET := "move_to_target"
@@ -33,9 +34,7 @@ func plan_member_task(canonical_intent: Dictionary, member_ctx: Dictionary, plan
 	var resolved_order: Dictionary = _resolve_order_from_intent(intent_record, member_ctx, planner_hints, planning_trace)
 	var sanitized_order: Dictionary = _sanitize_order(resolved_order, member_ctx)
 	var task_payload: Dictionary = _build_task_payload(sanitized_order, intent_record, member_ctx, planning_trace)
-	var out: Dictionary = sanitized_order.duplicate(true)
-	out["task"] = task_payload
-	return out
+	return TaskPlanOutputDtoScript.build(sanitized_order, task_payload)
 
 
 func _normalize_canonical_intent(canonical_intent: Dictionary, member_ctx: Dictionary) -> Dictionary:

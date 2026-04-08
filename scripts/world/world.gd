@@ -230,6 +230,8 @@ const TerritoryProjectionScript := preload("res://scripts/projections/territory/
 const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/ThreatAssessmentSystem.gd")
 const BanditIntentSystemScript := preload("res://scripts/domain/factions/BanditIntentSystem.gd")
 const PlacementReactionSystemScript := preload("res://scripts/domain/factions/PlacementReactionSystem.gd")
+const BuildingEventDtoScript := preload("res://scripts/domain/contracts/BuildingEventDto.gd")
+const SnapshotRebuildNotificationDtoScript := preload("res://scripts/domain/contracts/SnapshotRebuildNotificationDto.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const SandboxStructureRepositoryScript := preload("res://scripts/world/SandboxStructureRepository.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
@@ -942,7 +944,7 @@ func _rebuild_explicit_projections_after_snapshot_load() -> void:
 	_last_snapshot_rebuild_report["territory_rebuild_requests"] = 1
 
 func get_snapshot_rebuild_report() -> Dictionary:
-	return _last_snapshot_rebuild_report.duplicate(true)
+	return SnapshotRebuildNotificationDtoScript.build(_last_snapshot_rebuild_report)
 
 func _clear_chunk_wall_runtime_cache() -> void:
 	if _chunk_wall_collider_cache != null:
@@ -2257,13 +2259,9 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 		# Compatibility bridge: keep PlacementSystem signal wiring in world.gd,
 		# but always route through PlacementReactionSystem canonical pipeline:
 		# BuildingEvent -> ThreatAssessmentSystem -> BanditIntentSystem.
-		_placement_reaction_system.handle_building_event({
-			"type": ThreatAssessmentSystem.EVENT_TYPE_PLACEMENT_COMPLETED,
-			"item_id": _item_id,
-			"tile_pos": tile_pos,
-			"world_pos": world_pos,
-			"source": "placement_system",
-		})
+		_placement_reaction_system.handle_building_event(
+			BuildingEventDtoScript.placement_completed(_item_id, tile_pos, world_pos, "placement_system")
+		)
 
 func _on_building_events_emitted(events: Array[Dictionary]) -> void:
 	if _placement_reaction_system == null:

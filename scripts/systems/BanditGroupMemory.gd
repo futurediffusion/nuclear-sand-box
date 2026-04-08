@@ -1,4 +1,5 @@
 extends Node
+const IntentPublicationRecordDtoScript := preload("res://scripts/domain/contracts/IntentPublicationRecordDto.gd")
 
 # Responsibility boundary:
 # BanditGroupMemory stores shared bandit-group memory plus current_group_intent.
@@ -344,16 +345,16 @@ func publish_assault_target_intent(group_id: String, anchor: Vector2, target_pos
 			])
 			return false
 	var g: Dictionary = _groups[group_id]
-	g["assault_target_intent"] = {
-		"anchor": anchor if anchor.is_finite() else target_pos,
-		"target_pos": target_pos,
-		"reason": reason,
-		"source": source_key,
-		"priority": incoming_priority,
-		"created_at": now,
-		"expires_at": now + ttl,
-		"ttl": ttl,
-	}
+	g["assault_target_intent"] = IntentPublicationRecordDtoScript.build_assault_target_record(
+		group_id,
+		anchor if anchor.is_finite() else target_pos,
+		target_pos,
+		reason,
+		source_key,
+		incoming_priority,
+		now,
+		ttl
+	)
 	return true
 
 
@@ -364,7 +365,7 @@ func get_assault_target_intent(group_id: String) -> Dictionary:
 	var intent: Dictionary = g.get("assault_target_intent", {}) as Dictionary
 	if intent.is_empty():
 		return {}
-	if RunClock.now() > float(intent.get("expires_at", 0.0)):
+	if RunClock.now() > IntentPublicationRecordDtoScript.get_expires_at(intent):
 		g.erase("assault_target_intent")
 		return {}
 	return intent
@@ -390,20 +391,26 @@ func refresh_assault_target_pos(group_id: String, anchor: Vector2,
 	var now: float = RunClock.now()
 	var intent: Dictionary = g.get("assault_target_intent", {}) as Dictionary
 	if not intent.is_empty():
-		intent["target_pos"] = new_pos
-		intent["expires_at"] = now + ttl
+		var next_anchor: Vector2 = anchor if anchor.is_finite() else new_pos
+		g["assault_target_intent"] = IntentPublicationRecordDtoScript.with_target_update(
+			intent,
+			next_anchor,
+			new_pos,
+			now,
+			ttl
+		)
 	else:
 		var safe_anchor: Vector2 = anchor if anchor.is_finite() else new_pos
-		g["assault_target_intent"] = {
-			"anchor": safe_anchor,
-			"target_pos": new_pos,
-			"reason": "session_continue",
-			"source": ASSAULT_INTENT_SOURCE_RAID_QUEUE,
-			"priority": _assault_intent_source_priority(ASSAULT_INTENT_SOURCE_RAID_QUEUE),
-			"created_at": now,
-			"expires_at": now + ttl,
-			"ttl": ttl,
-		}
+		g["assault_target_intent"] = IntentPublicationRecordDtoScript.build_assault_target_record(
+			group_id,
+			safe_anchor,
+			new_pos,
+			"session_continue",
+			ASSAULT_INTENT_SOURCE_RAID_QUEUE,
+			_assault_intent_source_priority(ASSAULT_INTENT_SOURCE_RAID_QUEUE),
+			now,
+			ttl
+		)
 
 
 ## Compat wrappers (legacy callers).

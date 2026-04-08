@@ -1,7 +1,7 @@
 extends RefCounted
 class_name PlacementReactionSystem
 
-const BuildingEventsScript := preload("res://scripts/domain/building/BuildingEvents.gd")
+const BuildingEventDtoScript := preload("res://scripts/domain/contracts/BuildingEventDto.gd")
 const DEFAULT_INTENT_LOCK_SECONDS: float = 90.0
 const DEFAULT_STRUCT_ASSAULT_SQUAD: int = 3
 const DEFAULT_EVENT_MIN_INTERVAL: float = 0.20
@@ -308,63 +308,10 @@ func _trigger_placement_react(source_event: Dictionary) -> void:
 
 
 func _normalize_building_event(event_data: Dictionary) -> Dictionary:
-	if event_data.is_empty():
-		return {}
-	var source_type: String = String(event_data.get("type", event_data.get("event_type", ""))).strip_edges()
-	if source_type.is_empty():
-		return {}
-	var mapped_event_type: String = ""
-	match source_type:
-		ThreatAssessmentSystem.EVENT_TYPE_PLACEMENT_COMPLETED:
-			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_PLACEMENT_COMPLETED
-		ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_PLACED:
-			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_PLACED
-		ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_DAMAGED:
-			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_DAMAGED
-		ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_REMOVED:
-			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_REMOVED
-		BuildingEventsScript.TYPE_STRUCTURE_PLACED:
-			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_PLACED
-		BuildingEventsScript.TYPE_STRUCTURE_DAMAGED:
-			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_DAMAGED
-		BuildingEventsScript.TYPE_STRUCTURE_REMOVED:
-			mapped_event_type = ThreatAssessmentSystem.EVENT_TYPE_STRUCTURE_REMOVED
-		_:
-			return {}
-	var item_id: String = _resolve_item_id(event_data)
-	var tile_pos_variant: Variant = event_data.get("tile_pos", Vector2i.ZERO)
-	var tile_pos: Vector2i = tile_pos_variant if tile_pos_variant is Vector2i else Vector2i.ZERO
-	var target_variant: Variant = event_data.get("world_pos", event_data.get("target_position", Vector2.ZERO))
-	var target_pos: Vector2 = target_variant if target_variant is Vector2 else _tile_to_world(tile_pos)
-	if not target_pos.is_finite():
-		return {}
-	var metadata: Dictionary = event_data.duplicate(true)
-	if metadata.has("structure"):
-		metadata.erase("structure")
-	return {
-		"event_type": mapped_event_type,
-		"item_id": item_id,
-		"tile_pos": tile_pos,
-		"target_position": target_pos,
-		"metadata": metadata,
-	}
-
-
-func _resolve_item_id(event_data: Dictionary) -> String:
-	var explicit_item_id: String = String(event_data.get("item_id", "")).strip_edges()
-	if not explicit_item_id.is_empty():
-		return explicit_item_id
-	var structure: Dictionary = event_data.get("structure", {}) as Dictionary
-	if structure.is_empty():
-		return ""
-	var metadata: Dictionary = structure.get("metadata", {}) as Dictionary
-	explicit_item_id = String(metadata.get("item_id", "")).strip_edges()
-	if not explicit_item_id.is_empty():
-		return explicit_item_id
-	var kind: String = String(structure.get("kind", "")).strip_edges()
-	if kind == "player_wall":
-		return BuildableCatalog.resolve_runtime_item_id(BuildableCatalog.ID_WALLWOOD)
-	return kind
+	return BuildingEventDtoScript.normalize_for_threat_assessment(
+		event_data,
+		Callable(self, "_tile_to_world")
+	)
 
 
 func _record_debug_event(item_id: String, target_pos: Vector2, groups_activated: int,

@@ -23,6 +23,7 @@ const BLOCKING_EXCLUDED_ITEM_IDS: Dictionary = {
 }
 const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 const SpatialIndexProjectionScript := preload("res://scripts/projections/index/SpatialIndexProjection.gd")
+const ProjectionUpdateInputDtoScript := preload("res://scripts/domain/contracts/ProjectionUpdateInputDto.gd")
 
 var _world_to_tile_cb: Callable
 var _tile_to_world_cb: Callable
@@ -509,11 +510,13 @@ func get_debug_snapshot() -> Dictionary:
 func notify_placeables_changed(item_id: String, tile_pos: Vector2i) -> void:
 	var t0_usec: int = Time.get_ticks_usec()
 	if _placeables_projection != null:
-		_placeables_projection.apply_inputs({
-			"item_id": item_id,
-			"tile_pos": tile_pos,
-			"source": "world_spatial_index.notify_placeables_changed",
-		})
+		_placeables_projection.apply_inputs(
+			ProjectionUpdateInputDtoScript.placeables_change(
+				item_id,
+				tile_pos,
+				"world_spatial_index.notify_placeables_changed"
+			)
+		)
 	var projection_snapshot: Dictionary = _placeables_projection.get_debug_snapshot() if _placeables_projection != null else {}
 	var chunk_pos: Vector2i = _world_to_chunk(tile_pos)
 	PlacementPerfTelemetryScript.record_stage(
