@@ -4,6 +4,9 @@ This folder defines **write authority boundaries** for the sandbox runtime.
 
 Use these docs as PR guardrails: if a change introduces a new write path, it must fit the owning subsystem rules below or explicitly amend this constitution in the same PR.
 
+Canonical terminology for these boundaries is documented in:
+- [Sandbox Domain Language Migration Guide](../sandbox_domain_language_migration.md)
+
 ## Subsystems
 
 - [Building / Structures](./building-structures.md)

@@ -5,6 +5,8 @@ class_name SandboxDiagnostics
 ## This layer composes existing telemetry snapshots without becoming an
 ## authoritative owner of gameplay state.
 
+const SandboxDomainLanguageScript := preload("res://scripts/core/SandboxDomainLanguage.gd")
+
 var _world: Node = null
 var _save_manager: Node = null
 var _sandbox_structure_repository: SandboxStructureRepository = null
@@ -33,13 +35,17 @@ func setup(ctx: Dictionary) -> void:
 func get_world_health_snapshot() -> Dictionary:
 	var loaded_chunks: Dictionary = _read_loaded_chunks()
 	var structure_counts: Dictionary = _count_structures_for_loaded_chunks(loaded_chunks)
+	var structure_record_counts: Dictionary = structure_counts.duplicate(true)
 	return {
+		"domain_language": SandboxDomainLanguageScript.get_snapshot(),
 		"persistence": _build_persistence_snapshot(),
 		"projections": _build_projection_snapshot(),
 		"bandit_pipeline": _build_bandit_pipeline_snapshot(),
 		"compatibility_bridges": _build_compatibility_snapshot(),
 		"world_runtime": {
 			"loaded_chunk_count": loaded_chunks.size(),
+			"structure_record_counts": structure_record_counts,
+			# Legacy alias retained while diagnostics consumers migrate.
 			"structure_counts": structure_counts,
 			"detected_base_count": _read_detected_base_count(),
 		},
@@ -108,6 +114,8 @@ func _build_compatibility_snapshot() -> Dictionary:
 			"legacy_runtime_api_attempts": int(territory_debug.get("legacy_runtime_api_attempts", 0)),
 		},
 		"bandit_perception": perception_debug,
+		"bandit_task_plan": task_planner_debug,
+		# Legacy alias retained while downstream dashboards migrate.
 		"bandit_task_planner": task_planner_debug,
 	}
 
