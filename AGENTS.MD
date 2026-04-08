@@ -2,7 +2,7 @@
 
 > Guía operativa para contributors **hoy**.
 > Arquitectura vigente (fuente única): `docs/architecture/current_sandbox_architecture.md`.
-> Contexto histórico: `REGISTRO_CAMBIOS_DESDE_AGENTS.md`.
+> Contexto histórico: `docs/archive/legacy/REGISTRO_CAMBIOS_DESDE_AGENTS.md`.
 
 ---
 
@@ -130,7 +130,7 @@ Clasificación explícita:
 
 - **Actual**: APIs/owners canónicos de dominio, proyección y snapshot.
 - **Deprecated**: wrappers/adapters legacy solo para compatibilidad de callers pendientes.
-- **Histórico**: decisiones y fases cerradas; consultar solo en `REGISTRO_CAMBIOS_DESDE_AGENTS.md`.
+- **Histórico**: decisiones y fases cerradas; consultar solo en `docs/archive/legacy/REGISTRO_CAMBIOS_DESDE_AGENTS.md`.
 
 ---
 
@@ -150,7 +150,7 @@ Cuando cambies código:
 
 Para contexto histórico/migraciones de fases anteriores, usar:
 
-- `REGISTRO_CAMBIOS_DESDE_AGENTS.md`
+- `docs/archive/legacy/REGISTRO_CAMBIOS_DESDE_AGENTS.md`
 
 Este `AGENTS.MD` se mantiene deliberadamente como guía operativa.
 La referencia de arquitectura actual es `docs/architecture/current_sandbox_architecture.md`.

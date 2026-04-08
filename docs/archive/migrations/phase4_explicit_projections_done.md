@@ -9,10 +9,10 @@
 
 For current projection and ownership boundaries, use:
 
-- [`docs/architecture/ownership/projections.md`](docs/architecture/ownership/projections.md)
-- [`docs/architecture/ownership/persistence.md`](docs/architecture/ownership/persistence.md)
-- [`docs/architecture/ownership/territory-settlement.md`](docs/architecture/ownership/territory-settlement.md)
-- [`docs/architecture/ownership/README.md`](docs/architecture/ownership/README.md)
+- [`docs/architecture/ownership/projections.md`](../../architecture/ownership/projections.md)
+- [`docs/architecture/ownership/persistence.md`](../../architecture/ownership/persistence.md)
+- [`docs/architecture/ownership/territory-settlement.md`](../../architecture/ownership/territory-settlement.md)
+- [`docs/architecture/ownership/README.md`](../../architecture/ownership/README.md)
 
 Read this file as historical migration evidence only.
 

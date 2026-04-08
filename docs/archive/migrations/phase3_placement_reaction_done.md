@@ -9,10 +9,10 @@
 
 Use these docs for current architecture/ownership:
 
-- [`docs/architecture/ownership/ai-pipeline.md`](docs/architecture/ownership/ai-pipeline.md)
-- [`docs/architecture/ownership/world-bootstrap-orchestration.md`](docs/architecture/ownership/world-bootstrap-orchestration.md)
-- [`docs/architecture/ownership/README.md`](docs/architecture/ownership/README.md)
-- [`docs/phase3_placement_reaction_contract.md`](docs/phase3_placement_reaction_contract.md) (contract context)
+- [`docs/architecture/ownership/ai-pipeline.md`](../../architecture/ownership/ai-pipeline.md)
+- [`docs/architecture/ownership/world-bootstrap-orchestration.md`](../../architecture/ownership/world-bootstrap-orchestration.md)
+- [`docs/architecture/ownership/README.md`](../../architecture/ownership/README.md)
+- [`docs/phase3_placement_reaction_contract.md`](phase3_placement_reaction_contract.md) (contract context)
 
 Treat this page strictly as migration history.
 

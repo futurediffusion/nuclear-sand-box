@@ -9,9 +9,9 @@
 
 For current ownership and architecture expectations, use:
 
-- [`docs/architecture/ownership/building-structures.md`](docs/architecture/ownership/building-structures.md)
-- [`docs/architecture/ownership/projections.md`](docs/architecture/ownership/projections.md)
-- [`docs/architecture/ownership/README.md`](docs/architecture/ownership/README.md)
+- [`docs/architecture/ownership/building-structures.md`](../../architecture/ownership/building-structures.md)
+- [`docs/architecture/ownership/projections.md`](../../architecture/ownership/projections.md)
+- [`docs/architecture/ownership/README.md`](../../architecture/ownership/README.md)
 
 This file should be read as migration history only.
 

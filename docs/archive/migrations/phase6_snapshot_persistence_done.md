@@ -11,9 +11,9 @@ Date recorded: 2026-04-08
 
 For current persistence ownership/contracts, use:
 
-- [`docs/architecture/ownership/persistence.md`](docs/architecture/ownership/persistence.md)
-- [`docs/phase6_snapshot_persistence_contract.md`](docs/phase6_snapshot_persistence_contract.md)
-- [`docs/architecture/ownership/README.md`](docs/architecture/ownership/README.md)
+- [`docs/architecture/ownership/persistence.md`](../../architecture/ownership/persistence.md)
+- [`docs/phase6_snapshot_persistence_contract.md`](phase6_snapshot_persistence_contract.md)
+- [`docs/architecture/ownership/README.md`](../../architecture/ownership/README.md)
 
 Use this file as historical migration context.
 

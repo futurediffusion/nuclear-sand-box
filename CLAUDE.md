@@ -87,4 +87,4 @@ godot --path . --check-only --script scripts/world/world.gd
 - Current architecture source of truth: `docs/architecture/current_sandbox_architecture.md`
 - Collaboration quick rules: `AGENTS.MD`
 - Ownership boundaries: `docs/architecture/ownership/README.md`
-- Historical migration context: `REGISTRO_CAMBIOS_DESDE_AGENTS.md`
+- Historical migration context: `docs/archive/legacy/REGISTRO_CAMBIOS_DESDE_AGENTS.md`
