@@ -23,6 +23,7 @@ var _apply_calls: int = 0
 var _last_apply_source: String = "startup"
 var _last_scope_tile_count: int = 0
 var _last_dirty_chunk_count: int = 0
+var _legacy_chunk_dirty_fallback_uses: int = 0
 
 func setup(ctx: Dictionary) -> void:
 	is_valid_world_tile_cb = ctx.get("is_valid_world_tile", Callable())
@@ -136,6 +137,10 @@ func _apply_tiles(base_tiles: Array[Vector2i]) -> void:
 	if projection_refresh_port != null:
 		projection_refresh_port.refresh_for_tiles(scope_tiles)
 	else:
+		_register_legacy_bridge_usage(
+			"wall_collider.chunk_dirty_fallback",
+			"Missing `projection_refresh_port`; using deprecated chunk-dirty fallback path."
+		)
 		_mark_scope_chunks_dirty(scope_tiles)
 	_mark_runtime_side_effects(scope_tiles)
 
@@ -162,9 +167,21 @@ func get_debug_snapshot() -> Dictionary:
 		"last_apply_source": _last_apply_source,
 		"last_scope_tile_count": _last_scope_tile_count,
 		"last_dirty_chunk_count": _last_dirty_chunk_count,
+		"legacy_chunk_dirty_fallback_uses": _legacy_chunk_dirty_fallback_uses,
 		"uses_projection_refresh_port": projection_refresh_port != null,
 		"uses_chunk_dirty_notifier_port": chunk_dirty_notifier_port != null,
 	}
+
+func _register_legacy_bridge_usage(bridge_id: String, details: String) -> void:
+	_legacy_chunk_dirty_fallback_uses += 1
+	Debug.log("compat", "[DEPRECATED_BRIDGE][%s] %s count=%d" % [
+		bridge_id,
+		details,
+		_legacy_chunk_dirty_fallback_uses,
+	])
+	push_warning("[WallColliderProjection] Deprecated compatibility bridge used: %s" % bridge_id)
+	if OS.is_debug_build():
+		assert(false, "[WallColliderProjection] Deprecated compatibility bridge used: %s — %s" % [bridge_id, details])
 
 func _mark_runtime_side_effects(scope_tiles: Array[Vector2i]) -> void:
 	if mark_player_territory_dirty_cb.is_valid():

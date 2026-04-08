@@ -6,6 +6,9 @@ const ChunkSnapshot := preload("res://scripts/core/ChunkSnapshot.gd")
 const WorldSnapshot := preload("res://scripts/core/WorldSnapshot.gd")
 
 const LEGACY_SNAPSHOT_STATE_KEY: String = "world_snapshot_state"
+const LEGACY_MIGRATION_ALLOW_KEY: String = "allow_legacy_migration_bridge"
+static var _legacy_migration_bridge_uses: int = 0
+static var _legacy_migration_by_source: Dictionary = {}
 
 ## Infrastructure adapter between canonical chunk snapshots and WorldSave.
 ##
@@ -160,10 +163,18 @@ static func migrate_legacy_payload_to_world_snapshot(payload: Dictionary) -> Dic
 				WorldSave.placed_entity_data_by_uid[uid] = (value_raw as Dictionary).duplicate(true)
 
 	var snapshot: WorldSnapshot = build_world_snapshot(canonical_state)
+	if legacy_source != "none":
+		_register_legacy_bridge_usage(legacy_source, payload)
 	return {
 		"snapshot": snapshot,
 		"legacy_migration_used": legacy_source != "none",
 		"legacy_source": legacy_source,
+	}
+
+static func get_debug_snapshot() -> Dictionary:
+	return {
+		"legacy_migration_bridge_uses": _legacy_migration_bridge_uses,
+		"legacy_migration_by_source": _legacy_migration_by_source.duplicate(true),
 	}
 
 static func _collect_chunk_snapshots() -> Array[ChunkSnapshot]:
@@ -242,3 +253,19 @@ static func _dict_copy(value: Variant) -> Dictionary:
 	if value is Dictionary:
 		return (value as Dictionary).duplicate(true)
 	return {}
+
+static func _register_legacy_bridge_usage(source: String, payload: Dictionary) -> void:
+	_legacy_migration_bridge_uses += 1
+	_legacy_migration_by_source[source] = int(_legacy_migration_by_source.get(source, 0)) + 1
+	Debug.log("compat", "[DEPRECATED_BRIDGE][world_save.legacy_payload_migration] source=%s count=%d source_count=%d" % [
+		source,
+		_legacy_migration_bridge_uses,
+		int(_legacy_migration_by_source.get(source, 0)),
+	])
+	push_warning("[WorldSaveAdapter] Deprecated legacy payload migration used: source=%s" % source)
+	var allow_legacy_migration_bridge: bool = bool(payload.get(LEGACY_MIGRATION_ALLOW_KEY, false))
+	if OS.is_debug_build() and not allow_legacy_migration_bridge:
+		assert(false, "[WorldSaveAdapter] Deprecated legacy payload migration used without opt-in flag `%s`: source=%s" % [
+			LEGACY_MIGRATION_ALLOW_KEY,
+			source,
+		])
