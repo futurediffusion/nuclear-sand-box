@@ -157,6 +157,7 @@ var _group_intent_system: BanditIntentSystem
 var _placement_reaction_system: PlacementReactionSystem
 var _wall_feedback: WallFeedback
 var _structural_wall_persistence: StructuralWallPersistence
+var _sandbox_structure_repository: SandboxStructureRepository
 var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
@@ -239,6 +240,7 @@ const ThreatAssessmentSystemScript := preload("res://scripts/domain/factions/Thr
 const BanditIntentSystemScript := preload("res://scripts/domain/factions/BanditIntentSystem.gd")
 const PlacementReactionSystemScript := preload("res://scripts/domain/factions/PlacementReactionSystem.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
+const SandboxStructureRepositoryScript := preload("res://scripts/world/SandboxStructureRepository.gd")
 const WallFeedbackScript := preload("res://scripts/world/WallFeedback.gd")
 const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColliderCache.gd")
 const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd")
@@ -445,6 +447,10 @@ func _ready() -> void:
 		"walls_map_layer": WALLS_MAP_LAYER,
 		"structural_wall_source": -1,
 		"structural_wall_default_hp": structural_wall_default_hp,
+	})
+	_sandbox_structure_repository = SandboxStructureRepositoryScript.new()
+	_sandbox_structure_repository.setup({
+		"structural_wall_persistence": _structural_wall_persistence,
 	})
 	_wall_feedback = WallFeedbackScript.new()
 	_wall_feedback.setup({
@@ -922,12 +928,14 @@ func _rebuild_explicit_projections_after_snapshot_load() -> void:
 	#  3) spatial index projection (full canonical placeables rebuild)
 	#  4) territory projection (derived from rebuilt read models + settlement scan snapshot)
 	var loaded_structure_snapshot: Array[Dictionary] = []
-	if _building_repository != null:
-		for chunk_pos_raw in loaded_chunks.keys():
-			if chunk_pos_raw is Vector2i:
-				loaded_structure_snapshot.append_array(
-					_building_repository.load_structures_in_chunk(chunk_pos_raw as Vector2i)
-				)
+	for chunk_pos_raw in loaded_chunks.keys():
+		if not (chunk_pos_raw is Vector2i):
+			continue
+		var chunk_pos: Vector2i = chunk_pos_raw as Vector2i
+		if _sandbox_structure_repository != null:
+			loaded_structure_snapshot.append_array(_sandbox_structure_repository.list_structures_in_chunk(chunk_pos, false))
+		elif _building_repository != null:
+			loaded_structure_snapshot.append_array(_building_repository.load_structures_in_chunk(chunk_pos))
 	if _building_tilemap_projection != null and not loaded_structure_snapshot.is_empty():
 		_building_tilemap_projection.apply_snapshot(loaded_structure_snapshot)
 	if _wall_collider_projection != null and not loaded_structure_snapshot.is_empty():
