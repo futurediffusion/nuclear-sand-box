@@ -127,21 +127,7 @@ var _world_spatial_index: WorldSpatialIndex
 var _spatial_index_projection: SpatialIndexProjection
 var _world_territory_policy: WorldTerritoryPolicy
 var _local_social_ports: LocalSocialAuthorityPorts
-var _tavern_memory:            TavernLocalMemory
-var _tavern_policy:            TavernAuthorityPolicy
-var _tavern_director:          TavernSanctionDirector
-var _tavern_presence_monitor:  TavernPresenceMonitor
-var _tavern_garrison_monitor:  TavernGarrisonMonitor
-var _tavern_brawl:             TavernPerimeterBrawl
-
-## Postura defensiva del recinto. Evaluada cada _POSTURE_EVAL_INTERVAL segundos.
-const _POSTURE_EVAL_INTERVAL: float = 10.0
-var _posture_eval_accum: float       = 0.0
-var _current_posture:    int         = TavernDefensePosture.NORMAL
-## patrol_points originales de perimeter guards, cacheados en spawn.
-## Clave: Sentinel node (object reference). Valor: PackedVector2Array.
-## Permite restaurar patrullas al salir de FORTIFIED.
-var _perimeter_patrol_cache: Dictionary = {}
+var _tavern_security_runtime: TavernSecurityRuntime
 var _resource_repopulator: ResourceRepopulator
 var _occlusion_controller: OcclusionController
 var _day_night_controller
@@ -170,7 +156,6 @@ var _gameplay_command_dispatcher: GameplayCommandDispatcher
 var _domain_event_dispatcher: SandboxDomainEventDispatcher
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
-var _tavern_sentinels_spawned: bool = false
 var _wall_coordinate_transform_port: WorldCoordinateTransformContract
 var _wall_chunk_dirty_notifier_port: WorldChunkDirtyNotifierContract
 var _wall_projection_refresh_port: WorldProjectionRefreshContract
@@ -239,6 +224,7 @@ const SandboxDiagnosticsScript := preload("res://scripts/world/SandboxDiagnostic
 const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 const DayNightControllerScript := preload("res://scripts/world/DayNightController.gd")
 const GameplayCommandDispatcherScript := preload("res://scripts/runtime/world/GameplayCommandDispatcher.gd")
+const TavernSecurityRuntimeScript := preload("res://scripts/runtime/world/TavernSecurityRuntime.gd")
 const SandboxDomainEventDispatcherScript := preload("res://scripts/runtime/world/SandboxDomainEventDispatcher.gd")
 const WorldChunkLifecycleCoordinatorScript := preload("res://scripts/runtime/world/WorldChunkLifecycleCoordinator.gd")
 const WorldDropPressureServiceScript := preload("res://scripts/runtime/world/WorldDropPressureService.gd")
@@ -843,50 +829,26 @@ func _ready() -> void:
 	})
 	_player_territory = TerritoryProjectionScript.new()
 	_request_player_territory_rebuild("startup")
-	_tavern_memory   = TavernLocalMemory.new()
-	_tavern_policy   = TavernAuthorityPolicy.new()
-	_tavern_policy.setup({"memory": _tavern_memory})
-	_tavern_director = TavernSanctionDirector.new()
-	_tavern_director.setup({
-		"get_keeper":          Callable(self, "_get_tavern_keeper_node"),
-		"get_sentinels":       func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
-		"memory_deny_service": Callable(_tavern_memory, "deny_service_for"),
-		"tavern_site_id":      "tavern_main",
+	_tavern_security_runtime = TavernSecurityRuntimeScript.new()
+	_tavern_security_runtime.setup({
+		"world_node": self,
+		"entity_root": _entity_root,
+		"sentinel_scene": sentinel_scene,
+		"tavern_chunk": tavern_chunk,
+		"chunk_size": chunk_size,
+		"tile_to_world": Callable(self, "_tile_to_world"),
+		"get_tavern_exit_world_pos": Callable(self, "get_tavern_exit_world_pos"),
+		"get_tavern_inner_bounds_world": Callable(self, "get_tavern_inner_bounds_world"),
+		"report_tavern_incident": Callable(self, "report_tavern_incident"),
 	})
-	_tavern_presence_monitor = TavernPresenceMonitor.new()
-	_tavern_presence_monitor.setup({
-		"incident_reporter": Callable(self, "report_tavern_incident"),
-		"get_candidates": func() -> Array:
-			var r: Array = []
-			r.append_array(get_tree().get_nodes_in_group("player"))
-			r.append_array(get_tree().get_nodes_in_group("enemy"))
-			r.append_array(get_tree().get_nodes_in_group("npc"))
-			return r,
-		"interior_bounds": Callable(self, "get_tavern_inner_bounds_world"),
-	})
-	_tavern_garrison_monitor = TavernGarrisonMonitor.new()
-	_tavern_garrison_monitor.setup({
-		"get_sentinels":  func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
-		"tavern_site_id": "tavern_main",
-	})
-	_tavern_brawl = TavernPerimeterBrawl.new()
-	_tavern_brawl.setup({
-		"get_sentinels":     func() -> Array: return get_tree().get_nodes_in_group("tavern_sentinel"),
-		"get_nearby_enemies": func(pos: Vector2, radius: float) -> Array:
-			var result: Array = []
-			for e in get_tree().get_nodes_in_group("enemy"):
-				if is_instance_valid(e) and (e as Node2D).global_position.distance_to(pos) <= radius:
-					result.append(e)
-			return result,
-		"get_tavern_center": func() -> Vector2:
-			var b: Rect2 = get_tavern_inner_bounds_world()
-			return b.get_center() if b.size != Vector2.ZERO else Vector2.ZERO,
-	})
+	var tavern_memory: TavernLocalMemory = _tavern_security_runtime.get_tavern_memory()
+	var tavern_policy: TavernAuthorityPolicy = _tavern_security_runtime.get_tavern_policy()
+	var tavern_director: TavernSanctionDirector = _tavern_security_runtime.get_tavern_director()
 	_local_social_ports = LocalSocialAuthorityPortsScript.new()
 	_local_social_ports.setup({
-		"local_authority_policy":  Callable(_tavern_policy,  "evaluate"),
-		"local_memory_source":     Callable(_tavern_memory,  "get_snapshot"),
-		"local_sanction_director": Callable(_tavern_director, "dispatch"),
+		"local_authority_policy":  Callable(tavern_policy,  "evaluate"),
+		"local_memory_source":     Callable(tavern_memory,  "get_snapshot"),
+		"local_sanction_director": Callable(tavern_director, "dispatch"),
 	})
 	_world_territory_policy = WorldTerritoryPolicy.new()
 	_world_territory_policy.setup({
@@ -901,9 +863,9 @@ func _ready() -> void:
 		"player_wall_system": _player_wall_system,
 		"settlement_intel": _settlement_intel,
 		"world_territory_policy": _world_territory_policy,
-		"tavern_memory": _tavern_memory,
-		"tavern_policy": _tavern_policy,
-		"tavern_director": _tavern_director,
+		"tavern_memory": tavern_memory,
+		"tavern_policy": tavern_policy,
+		"tavern_director": tavern_director,
 		"register_drop_compaction_hotspot": Callable(self, "_register_drop_compaction_hotspot"),
 		"mark_player_territory_dirty": func() -> void: _request_player_territory_rebuild("gameplay_dispatcher"),
 		"find_nearest_player": Callable(self, "_find_nearest_player"),
@@ -1015,18 +977,15 @@ func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
 	if stage == "tiles":
 		if _player_wall_system != null:
 			_player_wall_system.apply_saved_walls_for_chunk(chunk_pos)
-	elif stage == "entities_enqueued" and chunk_pos == tavern_chunk:
-		# Los jobs de entidades ya están en cola — spawnear sentinels.
-		# El keeper aún puede no estar en árbol; usamos fallback por tile geometry.
-		# El cableado del keeper ocurre en _on_spawn_job_completed cuando llega "npc_keeper".
-		ensure_tavern_sentinels_spawned()
+	elif _tavern_security_runtime != null:
+		_tavern_security_runtime.on_chunk_stage_completed(chunk_pos, stage)
 
 
 ## Engancha el keeper al sistema institucional en cuanto su job es completado.
 ## El keeper se instancia después de entities_enqueued, así que no puede cablearse antes.
 func _on_spawn_job_completed(job: Dictionary, node: Node) -> void:
-	if String(job.get("kind", "")) == "npc_keeper":
-		_wire_keeper_incident_reporter()  # incluye _register_tavern_containers()
+	if _tavern_security_runtime != null:
+		_tavern_security_runtime.on_spawn_job_completed(job, node)
 
 func get_snapshot_rebuild_report() -> Dictionary:
 	if _projection_rebuild_coordinator == null:
@@ -1118,13 +1077,8 @@ func _process(delta: float) -> void:
 		_cadence.advance(delta)
 	if _settlement_intel != null:
 		_settlement_intel.process(delta)
-	if _tavern_presence_monitor != null:
-		_tavern_presence_monitor.tick(delta)
-	if _tavern_garrison_monitor != null:
-		_tavern_garrison_monitor.tick(delta)
-	if _tavern_brawl != null:
-		_tavern_brawl.tick(delta)
-	_tick_defense_posture(delta)
+	if _tavern_security_runtime != null:
+		_tavern_security_runtime.tick(delta)
 	var medium_pulses: int = _cadence.consume_lane(LANE_MEDIUM_PULSE) if _cadence != null else 1
 	for _pulse in medium_pulses:
 		_update_drop_pressure_snapshot()
@@ -1672,315 +1626,9 @@ func get_tavern_inner_bounds_world() -> Rect2:
 
 
 func ensure_tavern_sentinels_spawned() -> void:
-	if _tavern_sentinels_spawned:
-		return
-	# Segunda guarda: si por alguna razón ya hay sentinels de taberna en escena
-	if not get_tree().get_nodes_in_group("tavern_sentinel").is_empty():
-		_tavern_sentinels_spawned = true
-		return
-	if sentinel_scene == null:
-		Debug.log("world", "ensure_tavern_sentinels_spawned: sentinel_scene no asignada en Inspector")
-		return
-	if _entity_root == null:
-		Debug.log("world", "ensure_tavern_sentinels_spawned: _entity_root no disponible")
-		return
+	if _tavern_security_runtime != null:
+		_tavern_security_runtime.ensure_tavern_sentinels_spawned()
 
-	_tavern_sentinels_spawned = true
-
-	var keeper_pos: Vector2 = _get_tavern_keeper_pos()
-	var exit_pos:   Vector2 = get_tavern_exit_world_pos()
-	var bounds:     Rect2   = get_tavern_inner_bounds_world()
-	var cx: float = bounds.position.x + bounds.size.x * 0.5
-	var cy: float = bounds.position.y + bounds.size.y * 0.5
-
-	# Interior guards — flanquean al keeper (izquierda / derecha)
-	_spawn_single_tavern_sentinel("interior_guard", keeper_pos + Vector2(-28.0, 16.0))
-	_spawn_single_tavern_sentinel("interior_guard", keeper_pos + Vector2( 28.0, 16.0))
-
-	# Door guard — 2 tiles al sur de la salida; patrulla suelta alrededor de la entrada
-	var dg := _spawn_single_tavern_sentinel("door_guard", exit_pos + Vector2(0.0, 32.0))
-	if dg != null:
-		# 5 puntos irregulares frente a la puerta (no cuadrados, asimétricos)
-		dg.patrol_points = PackedVector2Array([
-			exit_pos + Vector2(-52.0,  28.0),
-			exit_pos + Vector2(  0.0,  20.0),
-			exit_pos + Vector2( 44.0,  36.0),
-			exit_pos + Vector2( 16.0,  52.0),
-			exit_pos + Vector2(-32.0,  44.0),
-		])
-
-	# Perimeter guards — 128px fuera del inner bounds (4 tiles; clearance segura
-	# para paredes de hasta 3 tiles/96px de espesor). Valor reducido desde 192px
-	# porque a mayor distancia el nav mesh puede no tener cobertura y el pathfinding falla.
-	# Dos guards por lado (8 total) — offset lateral de 56px para cobertura doblada.
-	const _PM: float = 128.0
-	const _PO: float = 56.0   # offset lateral entre los dos guards de cada lado
-
-	# Norte (×2)
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(cx - _PO, bounds.position.y - _PM), "north")
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(cx + _PO, bounds.position.y - _PM), "north")
-	# Sur (×2)
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(cx - _PO, bounds.position.y + bounds.size.y + _PM), "south")
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(cx + _PO, bounds.position.y + bounds.size.y + _PM), "south")
-	# Este (×2)
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(bounds.position.x + bounds.size.x + _PM, cy - _PO), "east")
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(bounds.position.x + bounds.size.x + _PM, cy + _PO), "east")
-	# Oeste (×2)
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(bounds.position.x - _PM, cy - _PO), "west")
-	_spawn_single_tavern_sentinel("perimeter_guard",
-		Vector2(bounds.position.x - _PM, cy + _PO), "west")
-
-	Debug.log("world", "[TavernSentinels] 11 desplegados — keeper=%s exit=%s bounds=%s" % [
-		str(keeper_pos), str(exit_pos), str(bounds)
-	])
-
-
-## side — solo para perimeter_guard: "north" | "south" | "east" | "west"
-func _spawn_single_tavern_sentinel(role: String, pos: Vector2, side: String = "") -> Sentinel:
-	var s := sentinel_scene.instantiate() as Sentinel
-	# Nombre descriptivo antes de add_child para que sea estable en logs y árbol.
-	match role:
-		"door_guard":
-			s.name = "door_guard"
-		"perimeter_guard":
-			s.name = "perimeter_guard_" + side if not side.is_empty() else "perimeter_guard"
-		"interior_guard":
-			s.name = "interior_guard"  # auto-renombrado a interior_guard2 si ya existe
-	_entity_root.add_child(s)
-	s.global_position  = pos
-	s.home_pos         = pos
-	s.sentinel_role    = role
-	s.tavern_site_id   = "tavern_main"
-	s.add_to_group("tavern_sentinel")
-	s.set_incident_reporter(Callable(self, "report_tavern_incident"))
-	match role:
-		"door_guard":
-			pass  # patrol_points asignados por el callsite después del spawn
-		"interior_guard":
-			s.patrol_points = _get_interior_patrol_points()
-		"perimeter_guard":
-			if not side.is_empty():
-				var pts := _get_perimeter_patrol_points(side, pos)
-				s.patrol_points = pts
-				# Cache para poder restaurar patrullas al salir de postura FORTIFIED.
-				_perimeter_patrol_cache[s] = pts.duplicate()
-	return s
-
-
-## Patrol points para interior guards — 8 puntos que mezclan esquinas con puntos
-## hacia el centro, de modo que al recorrerse en orden aleatorio el movimiento
-## no sea un simple rectángulo sino un vagabundeo dentro del espacio interior.
-func _get_interior_patrol_points() -> PackedVector2Array:
-	var b: Rect2 = get_tavern_inner_bounds_world()
-	var inset: float = 28.0
-	var bi: Rect2   = b.grow(-inset)
-	var cx: float   = bi.position.x + bi.size.x * 0.5
-	var cy: float   = bi.position.y + bi.size.y * 0.5
-	var hw: float   = bi.size.x * 0.5
-	var hh: float   = bi.size.y * 0.5
-	# 4 esquinas + 4 puntos interiores (≈45 % del camino al centro).
-	# Al elegirse al azar, los guardias cruzan el interior en diagonal en lugar
-	# de seguir siempre el perímetro.
-	return PackedVector2Array([
-		bi.position,                                   # NW
-		bi.position + Vector2(bi.size.x, 0.0),         # NE
-		bi.position + bi.size,                         # SE
-		bi.position + Vector2(0.0, bi.size.y),         # SW
-		Vector2(cx, cy - hh * 0.45),                  # interior norte
-		Vector2(cx + hw * 0.40, cy),                  # interior este
-		Vector2(cx, cy + hh * 0.45),                  # interior sur
-		Vector2(cx - hw * 0.40, cy),                  # interior oeste
-	])
-
-
-## Patrol points para perimeter guards — 5 puntos con variación de profundidad
-## que crean una trayectoria ondulada a lo largo del lateral, nunca una línea recta.
-##
-## "toward" = dirección que acerca al muro (e.g. +y para norte, -y para sur).
-## d1/d2 se randomizan por instancia para que dos guards del mismo lado
-## tengan rutas ligeramente distintas y no caminen sincronizados.
-func _get_perimeter_patrol_points(side: String, home: Vector2) -> PackedVector2Array:
-	var b: Rect2  = get_tavern_inner_bounds_world()
-	const M: float = 128.0
-	var d1: float  = randf_range(20.0, 32.0)   # profundidad variante: más cerca del muro
-	var d2: float  = randf_range(16.0, 26.0)   # profundidad variante: más lejos del muro
-	match side:
-		"north", "south":
-			# toward: +1 = acercarse al muro (norte sube y), -1 (sur baja y)
-			var toward: float = 1.0 if side == "north" else -1.0
-			return PackedVector2Array([
-				Vector2(b.position.x - M,                 home.y + toward * d1),
-				Vector2(b.position.x + b.size.x * 0.25,  home.y - toward * d2),
-				Vector2(b.position.x + b.size.x * 0.5,   home.y),
-				Vector2(b.position.x + b.size.x * 0.75,  home.y - toward * d2),
-				Vector2(b.position.x + b.size.x + M,     home.y + toward * d1),
-			])
-		"east", "west":
-			# toward: -1 = acercarse al muro (este baja x), +1 (oeste sube x)
-			var toward: float = -1.0 if side == "east" else 1.0
-			return PackedVector2Array([
-				Vector2(home.x + toward * d1,   b.position.y - M),
-				Vector2(home.x - toward * d2,   b.position.y + b.size.y * 0.25),
-				Vector2(home.x,                  b.position.y + b.size.y * 0.5),
-				Vector2(home.x - toward * d2,   b.position.y + b.size.y * 0.75),
-				Vector2(home.x + toward * d1,   b.position.y + b.size.y + M),
-			])
-	return PackedVector2Array()
-
-
-## ── Postura defensiva del recinto ────────────────────────────────────────────
-##
-## Evaluada cada _POSTURE_EVAL_INTERVAL segundos. Cuando la postura cambia,
-## se propaga a tres subsistemas:
-##   TavernPresenceMonitor — ajusta multiplier de thresholds
-##   TavernAuthorityPolicy — activa/desactiva Regla 5 (exterior escalada)
-##   Perimeter sentinels   — FORTIFIED: post fijo; NORMAL/GUARDED: patrulla corta
-##
-## La evaluación usa TavernDefensePosture.compute() que es puro y determinista.
-
-func _tick_defense_posture(delta: float) -> void:
-	if _tavern_memory == null:
-		return
-	_posture_eval_accum += delta
-	if _posture_eval_accum < _POSTURE_EVAL_INTERVAL:
-		return
-	_posture_eval_accum = 0.0
-
-	var bounds: Rect2 = get_tavern_inner_bounds_world()
-	var tavern_center: Vector2 = bounds.get_center() if bounds.size != Vector2.ZERO else Vector2.ZERO
-	var new_posture: int = TavernDefensePosture.compute(_tavern_memory, tavern_center, RunClock.now())
-
-	if new_posture == _current_posture:
-		return
-
-	var old_posture: int = _current_posture
-	_current_posture = new_posture
-	_apply_defense_posture(new_posture, old_posture)
-	Debug.log("authority", "[POSTURE] %s → %s" % [
-		TavernDefensePosture.name_of(old_posture),
-		TavernDefensePosture.name_of(new_posture),
-	])
-
-
-func _apply_defense_posture(posture: int, old_posture: int) -> void:
-	# Propagar a monitor de presencia (thresholds dinámicos)
-	if _tavern_presence_monitor != null:
-		_tavern_presence_monitor.set_defense_posture(posture)
-	# Propagar a policy (Regla 5 — exterior escalada en FORTIFIED)
-	if _tavern_policy != null:
-		_tavern_policy.set_defense_posture(posture)
-	# Adaptar patrullas de perimeter guards
-	_adapt_perimeter_patrols(posture, old_posture)
-
-
-## Ajusta las patrullas de perimeter guards según postura.
-##
-## FORTIFIED → post fijo (patrol_points vacío) — máxima vigilancia, sin ronda.
-##             El guardia mantiene posición cerca de la pared y no se distrae.
-## NORMAL/GUARDED → restaura las patrullas originales cacheadas en spawn.
-##
-## Los interior_guard y door_guard no se tocan — solo perimeter.
-func _adapt_perimeter_patrols(posture: int, old_posture: int) -> void:
-	var sentinels: Array = get_tree().get_nodes_in_group("tavern_sentinel")
-	for node: Variant in sentinels:
-		if not (node is Sentinel and is_instance_valid(node)):
-			continue
-		var s := node as Sentinel
-		if s.sentinel_role != "perimeter_guard":
-			continue
-
-		if posture == TavernDefensePosture.FORTIFIED:
-			# Asegurar cache antes de limpiar (puede ser la primera vez que llega a FORTIFIED).
-			if not _perimeter_patrol_cache.has(s) and not s.patrol_points.is_empty():
-				_perimeter_patrol_cache[s] = s.patrol_points.duplicate()
-			s.patrol_points = PackedVector2Array()
-		elif old_posture == TavernDefensePosture.FORTIFIED:
-			# Restaurar al salir de FORTIFIED.
-			if _perimeter_patrol_cache.has(s):
-				s.patrol_points = _perimeter_patrol_cache[s] as PackedVector2Array
-
-
-## Resolver la posición world del TavernKeeper en runtime.
-## Si el keeper todavía no está en escena, usa geometría fija del chunk.
-func _get_tavern_keeper_pos() -> Vector2:
-	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
-	if not keepers.is_empty():
-		return (keepers[0] as Node2D).global_position
-	# Fallback: tile del counter desde geometría del chunk
-	var x0 := tavern_chunk.x * chunk_size + 4
-	var y0 := tavern_chunk.y * chunk_size + 3
-	return _tile_to_world(Vector2i(x0 + 6, y0 + 2))
-
-
-## ── Entry point institucional para incidentes civiles de taberna ─────────────
-## Este método es el punto de entrada del INCIDENTE, no del sanction.
-## La ruta conceptual correcta es: incident → memory → policy → sanction.
-## Hoy no hay director, así que el incidente se loguea y queda registrado
-## para observabilidad. NO se llama direct_local_sanction() porque semánticamente
-## eso salta memory y policy, que todavía no existen.
-##
-## En Paso 2: conectar TavernLocalMemory aquí primero, luego policy, luego director.
-## _local_social_ports tiene los puertos listos para cuando lleguen esas piezas.
-##
-## Llamar desde: hurtbox del keeper, barrel interaction, wall damage callbacks,
-##   BanditBehaviorLayer, futuros civiles, etc.
-## Offenders: player, bandit/enemy, cualquier Node2D agente.
-func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> void:
-	if _gameplay_command_dispatcher == null:
-		return
-	_gameplay_command_dispatcher.report_tavern_incident(incident_type, payload)
-
-
-## Devuelve el nodo TavernKeeper activo, o null si no está en escena.
-func _get_tavern_keeper_node() -> TavernKeeper:
-	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
-	if not keepers.is_empty() and keepers[0] is TavernKeeper:
-		return keepers[0] as TavernKeeper
-	return null
-
-
-## Cablea el reporter de incidentes y el service_check de memoria en el keeper activo.
-## También registra contenedores en zona de taberna para activadores barrel_*.
-func _wire_keeper_incident_reporter() -> void:
-	var keeper := _get_tavern_keeper_node()
-	if keeper != null:
-		keeper.set_incident_reporter(Callable(self, "report_tavern_incident"))
-		keeper.set_service_check(Callable(_tavern_memory, "is_service_denied"))
-	_register_tavern_containers()
-
-
-## Encuentra contenedores (barriles, cofres) dentro de los bounds de la taberna
-## y les registra el reporter de incidentes civiles.
-## Solo registra los que existan en este momento (post-spawn del chunk de taberna).
-## TODO(Paso 4): registrar también contenedores colocados por el player después del spawn.
-func _register_tavern_containers() -> void:
-	var bounds: Rect2 = get_tavern_inner_bounds_world()
-	if bounds.size == Vector2.ZERO:
-		return
-	var search_bounds := bounds.grow(32.0)
-	var reporter := Callable(self, "report_tavern_incident")
-	var registered: int = 0
-	for group_name in ["chest", "interactable"]:
-		for node in get_tree().get_nodes_in_group(group_name):
-			if not is_instance_valid(node) or not (node is Node2D):
-				continue
-			if not (node as Node2D).global_position.is_zero_approx() \
-					and not search_bounds.has_point((node as Node2D).global_position):
-				continue
-			if node.has_method("set_civil_incident_reporter"):
-				node.call("set_civil_incident_reporter", reporter)
-				registered += 1
-	Debug.log("authority", "[TAVERN] containers registrados con reporter: %d" % registered)
-
-
-## Encuentra el jugador más cercano a una posición world. Devuelve null si no hay.
 func _find_nearest_player(world_pos: Vector2) -> CharacterBody2D:
 	var players := get_tree().get_nodes_in_group("player")
 	if players.is_empty():
