@@ -2,6 +2,7 @@ extends RefCounted
 class_name WorldSnapshot
 
 const ChunkSnapshot := preload("res://scripts/core/ChunkSnapshot.gd")
+const WorldSnapshotVersioning := preload("res://scripts/persistence/save/WorldSnapshotVersioning.gd")
 
 ## Canonical root world snapshot contract for save/load boundaries.
 ##
@@ -19,9 +20,10 @@ const ChunkSnapshot := preload("res://scripts/core/ChunkSnapshot.gd")
 ## - runtime queues/caches/debug telemetry
 ## - live node references in scene tree
 
-var snapshot_version: int = 1
+var snapshot_version: int = WorldSnapshotVersioning.LATEST_SNAPSHOT_VERSION
 var save_version: int = 1
 var seed: int = 0
+var persistence_meta: Dictionary = {}
 
 var player_pos: Vector2 = Vector2.ZERO
 var player_inv: Array = []
@@ -46,6 +48,7 @@ static func from_dict(data: Dictionary) -> WorldSnapshot:
 	snapshot.snapshot_version = int(data.get("snapshot_version", 1))
 	snapshot.save_version = int(data.get("save_version", 1))
 	snapshot.seed = int(data.get("seed", 0))
+	snapshot.persistence_meta = _dict_or_empty(data.get("persistence_meta", {}))
 	snapshot.player_pos = data.get("player_pos", Vector2.ZERO)
 
 	var player_inv_raw: Variant = data.get("player_inv", [])
@@ -94,6 +97,7 @@ func to_dict() -> Dictionary:
 		"snapshot_version": snapshot_version,
 		"save_version": save_version,
 		"seed": seed,
+		"persistence_meta": persistence_meta.duplicate(true),
 		"player_pos": player_pos,
 		"player_inv": player_inv.duplicate(true),
 		"player_gold": player_gold,

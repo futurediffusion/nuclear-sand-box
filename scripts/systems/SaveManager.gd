@@ -43,6 +43,11 @@ func save_world() -> void:
 
 	var canonical_state: Dictionary = _build_canonical_save_state(player_pos, player_inv, player_gold)
 	var world_snapshot = WorldSaveAdapter.build_world_snapshot(canonical_state)
+	world_snapshot.persistence_meta = {
+		"snapshot_contract": "canonical_world_snapshot_v2",
+		"canonical_snapshot_path": true,
+		"saved_at_unix": int(Time.get_unix_time_from_system()),
+	}
 	_last_save_pipeline_snapshot = _summarize_world_snapshot(world_snapshot)
 	_last_save_pipeline_snapshot["source"] = "save_world"
 	_last_save_pipeline_snapshot["canonical_snapshot_path_used"] = true
@@ -99,8 +104,22 @@ func load_world_save() -> bool:
 	var world_snapshot: WorldSnapshot = null
 	var used_legacy_migration: bool = false
 	var restore_path: String = "canonical_snapshot"
+	var snapshot_loaded_version: int = 0
+	var snapshot_migration_path: Array = []
+	var snapshot_migration_warnings: Array = []
 	if deserialized_payload.has("snapshot_version"):
-		world_snapshot = WorldSnapshotSerializer.deserialize(deserialized_payload)
+		var deserialize_report: Dictionary = WorldSnapshotSerializer.deserialize_with_report(deserialized_payload)
+		if not bool(deserialize_report.get("ok", false)):
+			push_warning("SaveManager: unsupported snapshot version %s" % str(deserialize_report.get("loaded_snapshot_version", 0)))
+			return false
+		var snapshot_raw: Variant = deserialize_report.get("snapshot", null)
+		if snapshot_raw is WorldSnapshot:
+			world_snapshot = snapshot_raw as WorldSnapshot
+		snapshot_loaded_version = int(deserialize_report.get("loaded_snapshot_version", 0))
+		snapshot_migration_path = (deserialize_report.get("migration_path", []) as Array).duplicate(true)
+		snapshot_migration_warnings = (deserialize_report.get("warnings", []) as Array).duplicate(true)
+		if not snapshot_migration_path.is_empty():
+			restore_path = "snapshot_migration"
 	else:
 		# Explicitly opt into the legacy migration bridge in this one bounded
 		# load path so debug assertions can still fail on unexpected callers.
@@ -111,6 +130,9 @@ func load_world_save() -> bool:
 			world_snapshot = snapshot_raw as WorldSnapshot
 		used_legacy_migration = bool(migration_result.get("legacy_migration_used", false))
 		restore_path = String(migration_result.get("legacy_source", "legacy_migration"))
+		snapshot_loaded_version = int(migration_result.get("loaded_snapshot_version", 1))
+		snapshot_migration_path = (migration_result.get("migration_path", []) as Array).duplicate(true)
+		snapshot_migration_warnings = (migration_result.get("warnings", []) as Array).duplicate(true)
 
 	if world_snapshot == null:
 		push_error("SaveManager: failed to obtain a world snapshot for load")
@@ -123,10 +145,16 @@ func load_world_save() -> bool:
 	_last_load_pipeline_snapshot = _summarize_world_snapshot(world_snapshot)
 	_last_load_pipeline_snapshot["source"] = restore_path
 	_last_load_pipeline_snapshot["loaded_save_file_version"] = version
+	_last_load_pipeline_snapshot["loaded_snapshot_version"] = snapshot_loaded_version
+	_last_load_pipeline_snapshot["snapshot_target_version"] = int(world_snapshot.snapshot_version)
+	_last_load_pipeline_snapshot["snapshot_migration_path"] = snapshot_migration_path.duplicate(true)
+	_last_load_pipeline_snapshot["snapshot_migration_warnings"] = snapshot_migration_warnings.duplicate(true)
 	_last_load_pipeline_snapshot["canonical_snapshot_path_used"] = true
 	_last_load_pipeline_snapshot["legacy_migration_used"] = used_legacy_migration
-	Debug.log("save", "Load telemetry: save_version=%d canonical_snapshot_path_used=true legacy_migration_used=%s source=%s" % [
+	Debug.log("save", "Load telemetry: save_version=%d snapshot_version=%d migration_path=%s canonical_snapshot_path_used=true legacy_migration_used=%s source=%s" % [
 		version,
+		snapshot_loaded_version,
+		JSON.stringify(snapshot_migration_path),
 		str(used_legacy_migration),
 		restore_path,
 	])
@@ -286,4 +314,5 @@ func _summarize_world_snapshot(world_snapshot: WorldSnapshot) -> Dictionary:
 		"chunk_count": int(world_snapshot.chunks.size()),
 		"structure_count": structure_count,
 		"placed_entity_count": placed_entity_count,
+		"persistence_meta": world_snapshot.persistence_meta.duplicate(true),
 	}
