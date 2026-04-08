@@ -8,7 +8,6 @@ signal structural_wall_drop(tile_pos: Vector2i, item_id: String, amount: int)
 signal building_events_emitted(events: Array[Dictionary])
 
 const WallTileResolverScript := preload("res://scripts/world/WallTileResolver.gd")
-const WallPersistenceScript := preload("res://scripts/world/WallPersistence.gd")
 const StructuralWallPersistenceScript := preload("res://scripts/world/StructuralWallPersistence.gd")
 const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
@@ -16,11 +15,10 @@ const WorldProjectionRefreshCallableAdapterScript := preload("res://scripts/worl
 const BuildingTilemapProjectionScript := preload("res://scripts/projections/tilemap/BuildingTilemapProjection.gd")
 const WallColliderProjectionScript := preload("res://scripts/projections/collision/WallColliderProjection.gd")
 const BuildingEventsScript := preload("res://scripts/domain/building/BuildingEvents.gd")
-const BuildingCommandsScript := preload("res://scripts/domain/building/BuildingCommands.gd")
 const BuildingStateScript := preload("res://scripts/domain/building/BuildingState.gd")
 const BuildingSystemScript := preload("res://scripts/domain/building/BuildingSystem.gd")
+const BuildingWallWorkflowScript := preload("res://scripts/domain/building/BuildingWallWorkflow.gd")
 const WorldSaveBuildingRepositoryScript := preload("res://scripts/persistence/save/WorldSaveBuildingRepository.gd")
-const WorldSaveAdapterScript := preload("res://scripts/persistence/save/WorldSaveAdapter.gd")
 const DEFAULT_PLAYER_WALL_HIT_SOUNDS: Array[AudioStream] = [
 	preload("res://art/Sounds/wood1.ogg"),
 	preload("res://art/Sounds/wood2.ogg"),
@@ -75,12 +73,12 @@ var projection_refresh_port: WorldProjectionRefreshContract
 var owner: Node
 var feedback: WallFeedback
 var sound_panel_getter_cb: Callable
-var wall_persistence: WallPersistence
 var structural_wall_persistence: StructuralWallPersistence
 var building_tilemap_projection: BuildingTilemapProjection
 var wall_collider_projection: WallColliderProjection
 var building_system: BuildingSystem
 var building_repository: BuildingRepository
+var building_wall_workflow: BuildingWallWorkflow
 
 func setup(ctx: Dictionary) -> void:
 	walls_tilemap = ctx.get("walls_tilemap")
@@ -146,16 +144,12 @@ func setup(ctx: Dictionary) -> void:
 	owner = ctx.get("owner")
 	feedback = ctx.get("feedback")
 	sound_panel_getter_cb = ctx.get("sound_panel_getter", Callable())
-	wall_persistence = ctx.get("wall_persistence")
-	if wall_persistence == null:
-		wall_persistence = WallPersistenceScript.new()
 	building_repository = ctx.get("building_repository")
 	if building_repository == null:
 		building_repository = WorldSaveBuildingRepositoryScript.new()
 	building_system = ctx.get("building_system")
 	if building_system == null:
 		building_system = BuildingSystemScript.new()
-	_building_bootstrap_state_from_repository()
 	structural_wall_persistence = ctx.get("structural_wall_persistence")
 	if structural_wall_persistence == null:
 		structural_wall_persistence = StructuralWallPersistenceScript.new()
@@ -200,6 +194,22 @@ func setup(ctx: Dictionary) -> void:
 			"wall_refresh_queue": ctx.get("wall_refresh_queue"),
 			"loaded_chunks": loaded_chunks,
 		})
+
+	building_wall_workflow = ctx.get("building_wall_workflow")
+	if building_wall_workflow == null:
+		building_wall_workflow = BuildingWallWorkflowScript.new()
+	building_wall_workflow.setup({
+		"building_repository": building_repository,
+		"building_system": building_system,
+		"building_tilemap_projection": building_tilemap_projection,
+		"wall_collider_projection": wall_collider_projection,
+		"player_wallwood_max_hp": player_wallwood_max_hp,
+		"player_wall_drop_enabled": player_wall_drop_enabled,
+		"player_wall_drop_item_id": player_wall_drop_item_id,
+		"player_wall_drop_amount": player_wall_drop_amount,
+	})
+	if not building_wall_workflow.building_events_emitted.is_connected(_emit_building_events):
+		building_wall_workflow.building_events_emitted.connect(_emit_building_events)
 
 	var legacy_audio_config: Dictionary = {}
 	if ctx.has("player_wall_hit_sounds"):
@@ -287,21 +297,13 @@ func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> boo
 		return false
 	if walls_tilemap.get_cell_source_id(walls_map_layer, tile_pos) != src_walls:
 		return false
-	var configured_max_hp: int = maxi(1, player_wallwood_max_hp)
-	var final_hp := hp_override if hp_override > 0 else configured_max_hp
-	final_hp = clampi(final_hp, 1, configured_max_hp)
-	var place_cmd: Dictionary = BuildingCommandsScript.place_structure("", tile_pos, configured_max_hp, BuildingStateScript.create_player_wall_metadata(player_wall_drop_enabled, player_wall_drop_item_id, player_wall_drop_amount))
-	place_cmd["kind"] = "player_wall"
-	place_cmd["hp"] = final_hp
-	place_cmd["chunk_pos"] = _tile_to_chunk(tile_pos)
-	var place_result: Dictionary = _process_building_command(place_cmd)
+	if building_wall_workflow == null:
+		return false
+	var place_result: Dictionary = building_wall_workflow.place_player_wall(tile_pos, _tile_to_chunk(tile_pos), hp_override)
 	if not bool(place_result.get(BuildingSystem.RESULT_KEY_SUCCESS, false)):
 		return false
 	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
 	_reconcile_wall_ownership_in_scope(reconnect_scope)
-	var place_events: Array[Dictionary] = place_result.get(BuildingSystem.RESULT_KEY_EVENTS, [])
-	project_building_events(place_events)
-	_emit_building_events(place_events)
 	return true
 
 func damage_player_wall_from_contact(hit_pos: Vector2, hit_normal: Vector2, amount: int = 1) -> bool:
@@ -335,7 +337,7 @@ func damage_player_wall_at_world_pos(world_pos: Vector2, amount: int = 1) -> boo
 			if not _is_valid_world_tile(candidate):
 				continue
 			var chunk_pos := _tile_to_chunk(candidate)
-			if not wall_persistence.has_wall(chunk_pos, candidate):
+			if building_wall_workflow == null or not building_wall_workflow.has_player_wall_at_tile(candidate):
 				continue
 			var center := _tile_to_world(candidate)
 			var dist := center.distance_squared_to(world_pos)
@@ -364,7 +366,7 @@ func damage_player_wall_in_circle(world_center: Vector2, world_radius: float, am
 			if not _is_valid_world_tile(candidate):
 				continue
 			var chunk_pos: Vector2i = _tile_to_chunk(candidate)
-			if not wall_persistence.has_wall(chunk_pos, candidate):
+			if building_wall_workflow == null or not building_wall_workflow.has_player_wall_at_tile(candidate):
 				continue
 
 			var tile_center: Vector2 = _tile_to_world(candidate)
@@ -541,15 +543,15 @@ func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Ve
 ## Búsqueda map-wide (sin barrido por radio en tile-grid).
 ## Recorre persistence de paredes del jugador y aplica radio máximo opcional.
 func find_nearest_player_wall_world_pos_global(world_pos: Vector2, max_radius: float = -1.0) -> Vector2:
-	if wall_persistence == null:
+	if building_wall_workflow == null:
 		return Vector2(-1.0, -1.0)
 	var best_pos: Vector2 = Vector2(-1.0, -1.0)
 	var best_dsq: float = INF
 	var has_radius_limit: bool = max_radius > 0.0
 	var max_radius_sq: float = max_radius * max_radius
-	var rows: Array[Dictionary] = wall_persistence.list_player_walls()
+	var rows: Array[Dictionary] = building_wall_workflow.list_player_wall_structures()
 	for row in rows:
-		var tile_raw: Variant = row.get("tile", Vector2i(-1, -1))
+		var tile_raw: Variant = row.get(BuildingStateScript.STRUCTURE_KEY_TILE_POS, Vector2i(-1, -1))
 		if not (tile_raw is Vector2i):
 			continue
 		var tile_pos: Vector2i = tile_raw as Vector2i
@@ -619,17 +621,15 @@ func find_player_wall_samples_world_pos(world_pos: Vector2, radius: float, max_p
 func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	if amount <= 0:
 		amount = 1
-	if _get_player_wall_structure_at_tile(tile_pos).is_empty():
+	if building_wall_workflow == null or not building_wall_workflow.has_player_wall_at_tile(tile_pos):
 		return false
 	_emit_player_wall_hit(tile_pos)
-	var damage_result: Dictionary = _process_building_command(
-		BuildingCommandsScript.damage_structure(tile_pos, amount)
-	)
+	if building_wall_workflow == null:
+		return false
+	var damage_result: Dictionary = building_wall_workflow.damage_player_wall(tile_pos, amount)
 	if not bool(damage_result.get(BuildingSystem.RESULT_KEY_SUCCESS, false)):
 		return false
 	var damage_events: Array[Dictionary] = damage_result.get(BuildingSystem.RESULT_KEY_EVENTS, [])
-	project_building_events(damage_events)
-	_emit_building_events(damage_events)
 	var was_removed: bool = false
 	for event_raw in damage_events:
 		if typeof(event_raw) != TYPE_DICTIONARY:
@@ -644,16 +644,14 @@ func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	return true
 
 func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> bool:
-	if _get_player_wall_structure_at_tile(tile_pos).is_empty():
+	if building_wall_workflow == null or not building_wall_workflow.has_player_wall_at_tile(tile_pos):
 		return false
-	var remove_result: Dictionary = _process_building_command(
-		BuildingCommandsScript.remove_structure(tile_pos, "removed", drop_item)
-	)
+	if building_wall_workflow == null:
+		return false
+	var remove_result: Dictionary = building_wall_workflow.remove_player_wall(tile_pos, drop_item)
 	if not bool(remove_result.get(BuildingSystem.RESULT_KEY_SUCCESS, false)):
 		return false
 	var remove_events: Array[Dictionary] = remove_result.get(BuildingSystem.RESULT_KEY_EVENTS, [])
-	project_building_events(remove_events)
-	_emit_building_events(remove_events)
 	_finalize_player_wall_removal(tile_pos, drop_item)
 	return true
 
@@ -675,48 +673,30 @@ func _finalize_player_wall_removal(tile_pos: Vector2i, drop_item: bool) -> void:
 func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
 	if not loaded_chunks.has(chunk_pos):
 		return
-	var entries: Array[Dictionary] = _load_canonical_structures_for_chunk(chunk_pos)
-	if entries.is_empty():
-		if building_repository != null:
-			entries = building_repository.load_structures_in_chunk(chunk_pos)
-		else:
-			entries = wall_persistence.load_chunk_walls(chunk_pos)
+	if building_wall_workflow == null:
+		return
+	var entries: Array[Dictionary] = building_wall_workflow.apply_saved_walls_for_chunk(chunk_pos)
 	if entries.is_empty():
 		return
-	_refresh_building_state_for_chunk(chunk_pos, entries)
-	if building_tilemap_projection != null:
-		building_tilemap_projection.apply_snapshot(entries)
-	else:
-		var player_tiles_dict: Dictionary = {}
-		for entry in entries:
-			var tile_raw: Variant = entry.get(BuildingStateScript.STRUCTURE_KEY_TILE_POS, entry.get("tile", Vector2i(-1, -1)))
-			if not (tile_raw is Vector2i):
-				continue
-			var tile_pos: Vector2i = tile_raw as Vector2i
-			if not _is_valid_world_tile(tile_pos):
-				continue
-			player_tiles_dict[tile_pos] = true
-		var player_tiles: Array[Vector2i] = _dict_keys_to_vector2i_array(player_tiles_dict)
-		_apply_player_wall_tiles_strict(player_tiles)
-		for tile_pos in player_tiles:
-			if walls_tilemap.get_cell_source_id(walls_map_layer, tile_pos) != src_walls:
-				_force_place_player_wall_tile(tile_pos)
-		if not player_tiles.is_empty():
-			var apply_extended_scope := _collect_scope_for_cells(
-				_collect_scope_for_cells(player_tiles)
-			)
-			_erase_orphan_tilemap_cells_in_scope(apply_extended_scope)
+	var player_tiles_dict: Dictionary = {}
+	for entry in entries:
+		var tile_raw: Variant = entry.get(BuildingStateScript.STRUCTURE_KEY_TILE_POS, Vector2i(-1, -1))
+		if not (tile_raw is Vector2i):
+			continue
+		var tile_pos: Vector2i = tile_raw as Vector2i
+		if not _is_valid_world_tile(tile_pos):
+			continue
+		player_tiles_dict[tile_pos] = true
+	var player_tiles: Array[Vector2i] = _dict_keys_to_vector2i_array(player_tiles_dict)
+	if player_tiles.is_empty():
+		return
+	var apply_extended_scope := _collect_scope_for_cells(_collect_scope_for_cells(player_tiles))
+	_erase_orphan_tilemap_cells_in_scope(apply_extended_scope)
 
 func project_building_events(events: Array[Dictionary]) -> void:
-	if events.is_empty():
-		return
-	if building_tilemap_projection != null:
-		building_tilemap_projection.apply_events(events)
-	if wall_collider_projection != null:
-		wall_collider_projection.apply_input({
-			"source": "player_wall_system.project_building_events",
-			"events": events,
-		})
+	# Deprecated compatibility adapter.
+	# BuildingWallWorkflow owns projection application as part of command/load flows.
+	_ = events
 
 func _emit_building_events(events: Array[Dictionary]) -> void:
 	if events.is_empty():
@@ -931,7 +911,7 @@ func _apply_player_wall_tiles_strict(player_tiles: Array[Vector2i]) -> bool:
 	return true
 
 func _is_player_wall_tile(tile_pos: Vector2i) -> bool:
-	return not _get_player_wall_structure_at_tile(tile_pos).is_empty()
+	return building_wall_workflow != null and building_wall_workflow.has_player_wall_at_tile(tile_pos)
 
 func _is_structural_wall_tile(tile_pos: Vector2i) -> bool:
 	var cpos := _tile_to_chunk(tile_pos)
@@ -1055,141 +1035,6 @@ func _mark_walls_dirty_and_refresh_for_tiles(tile_positions: Array[Vector2i]) ->
 			continue
 		chunks_seen[cpos] = true
 		chunk_dirty_notifier_port.mark_chunk_dirty(cpos)
-
-func _building_bootstrap_state_from_repository() -> void:
-	if building_system == null:
-		return
-	if building_repository == null:
-		building_system.setup(BuildingStateScript.create_empty())
-		return
-	var initial_state: Dictionary = BuildingStateScript.create_empty()
-	for structure_raw in building_repository.list_structures():
-		if typeof(structure_raw) != TYPE_DICTIONARY:
-			continue
-		var normalized: Dictionary = _normalize_player_wall_structure(structure_raw as Dictionary)
-		if normalized.is_empty():
-			continue
-		BuildingStateScript.upsert_structure(initial_state, normalized)
-	building_system.setup(initial_state)
-
-
-func _load_canonical_structures_for_chunk(chunk_pos: Vector2i) -> Array[Dictionary]:
-	var out: Array[Dictionary] = []
-	var canonical_chunk: Dictionary = WorldSaveAdapterScript.load_canonical_chunk_state(chunk_pos)
-	if canonical_chunk.is_empty():
-		return out
-	var structures_raw: Variant = canonical_chunk.get("structures", [])
-	if not (structures_raw is Array):
-		return out
-	for raw in structures_raw:
-		if typeof(raw) != TYPE_DICTIONARY:
-			continue
-		var normalized: Dictionary = _normalize_player_wall_structure(raw as Dictionary)
-		if normalized.is_empty():
-			continue
-		out.append(normalized)
-	return out
-
-func _refresh_building_state_for_chunk(chunk_pos: Vector2i, structures: Array[Dictionary]) -> void:
-	if building_system == null:
-		return
-	var state: Dictionary = building_system.get_state()
-	for structure_id in BuildingStateScript.get_structure_ids_in_chunk(state, chunk_pos):
-		BuildingStateScript.remove_structure(state, structure_id)
-	for raw in structures:
-		if typeof(raw) != TYPE_DICTIONARY:
-			continue
-		var normalized: Dictionary = _normalize_player_wall_structure(raw as Dictionary)
-		if normalized.is_empty():
-			continue
-		BuildingStateScript.upsert_structure(state, normalized)
-
-func _process_building_command(command: Dictionary) -> Dictionary:
-	if building_system == null:
-		return {}
-	var result: Dictionary = building_system.process(command)
-	if not bool(result.get(BuildingSystem.RESULT_KEY_SUCCESS, false)):
-		return result
-	# Bridging adapter: PlayerWallSystem still offers legacy API, but persistence
-	# ownership is routed through BuildingRepository.
-	if building_repository != null:
-		for change_raw in result.get(BuildingSystem.RESULT_KEY_CHANGED_STRUCTURES, []):
-			if typeof(change_raw) != TYPE_DICTIONARY:
-				continue
-			var change: Dictionary = change_raw as Dictionary
-			var action: String = String(change.get(BuildingSystem.CHANGE_KEY_ACTION, "")).strip_edges()
-			var before: Dictionary = change.get(BuildingSystem.CHANGE_KEY_BEFORE, {}) as Dictionary
-			var after: Dictionary = change.get(BuildingSystem.CHANGE_KEY_AFTER, {}) as Dictionary
-			if action == BuildingSystem.ACTION_REMOVED:
-				var tile_raw: Variant = before.get(BuildingStateScript.STRUCTURE_KEY_TILE_POS, Vector2i.ZERO)
-				var chunk_raw: Variant = before.get(BuildingStateScript.STRUCTURE_KEY_CHUNK_POS, Vector2i.ZERO)
-				if tile_raw is Vector2i and chunk_raw is Vector2i:
-					building_repository.remove_structure(chunk_raw as Vector2i, tile_raw as Vector2i)
-				continue
-			var normalized_after: Dictionary = _normalize_player_wall_structure(after)
-			if normalized_after.is_empty():
-				continue
-			building_repository.save_structure(normalized_after)
-	return result
-
-func _get_player_wall_structure_at_tile(tile_pos: Vector2i) -> Dictionary:
-	if building_system != null:
-		var structure := BuildingStateScript.get_structure_at_tile(building_system.get_state(), tile_pos)
-		if _is_player_wall_structure(structure):
-			return structure
-	if wall_persistence != null:
-		var cpos := _tile_to_chunk(tile_pos)
-		var legacy_data: Dictionary = wall_persistence.get_wall(cpos, tile_pos)
-		if not legacy_data.is_empty():
-			return _normalize_player_wall_structure({
-				BuildingStateScript.STRUCTURE_KEY_CHUNK_POS: cpos,
-				BuildingStateScript.STRUCTURE_KEY_TILE_POS: tile_pos,
-				BuildingStateScript.STRUCTURE_KEY_HP: int(legacy_data.get(WallPersistence.WALL_HP_KEY, player_wallwood_max_hp)),
-				BuildingStateScript.STRUCTURE_KEY_MAX_HP: player_wallwood_max_hp,
-				BuildingStateScript.STRUCTURE_KEY_KIND: "player_wall",
-				BuildingStateScript.STRUCTURE_KEY_METADATA: BuildingStateScript.create_player_wall_metadata(player_wall_drop_enabled, player_wall_drop_item_id, player_wall_drop_amount),
-			})
-	return {}
-
-func _normalize_player_wall_structure(structure: Dictionary) -> Dictionary:
-	if structure.is_empty():
-		return {}
-	var tile_raw: Variant = structure.get(BuildingStateScript.STRUCTURE_KEY_TILE_POS, structure.get("tile", Vector2i(-1, -1)))
-	if not (tile_raw is Vector2i):
-		return {}
-	var tile_pos: Vector2i = tile_raw as Vector2i
-	var chunk_raw: Variant = structure.get(BuildingStateScript.STRUCTURE_KEY_CHUNK_POS, _tile_to_chunk(tile_pos))
-	if not (chunk_raw is Vector2i):
-		return {}
-	var chunk_pos: Vector2i = chunk_raw as Vector2i
-	var kind: String = String(structure.get(BuildingStateScript.STRUCTURE_KEY_KIND, "player_wall")).strip_edges()
-	if kind.is_empty():
-		kind = "player_wall"
-	var metadata: Dictionary = structure.get(BuildingStateScript.STRUCTURE_KEY_METADATA, {}) as Dictionary
-	if metadata.is_empty():
-		metadata = BuildingStateScript.create_player_wall_metadata(player_wall_drop_enabled, player_wall_drop_item_id, player_wall_drop_amount)
-	var max_hp: int = maxi(1, int(structure.get(BuildingStateScript.STRUCTURE_KEY_MAX_HP, player_wallwood_max_hp)))
-	var hp: int = clampi(int(structure.get(BuildingStateScript.STRUCTURE_KEY_HP, max_hp)), 1, max_hp)
-	var structure_id: String = String(structure.get(BuildingStateScript.STRUCTURE_KEY_ID, "")).strip_edges()
-	return BuildingStateScript.create_structure_record(
-		structure_id,
-		chunk_pos,
-		tile_pos,
-		kind,
-		hp,
-		max_hp,
-		metadata
-	)
-
-func _is_player_wall_structure(structure: Dictionary) -> bool:
-	if structure.is_empty():
-		return false
-	var metadata: Dictionary = structure.get(BuildingStateScript.STRUCTURE_KEY_METADATA, {}) as Dictionary
-	if bool(metadata.get(BuildingStateScript.METADATA_KEY_IS_PLAYER_WALL, false)):
-		return true
-	var kind: String = String(structure.get(BuildingStateScript.STRUCTURE_KEY_KIND, "")).strip_edges()
-	return kind == "player_wall" or kind == "wall"
-
 
 func _count_player_wall_neighbors(tile_pos: Vector2i) -> int:
 	var count: int = 0
