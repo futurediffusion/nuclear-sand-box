@@ -107,6 +107,37 @@ func on_spawn_job_completed(job: Dictionary, _node: Node) -> void:
 	if String(job.get("kind", "")) == "npc_keeper":
 		_wire_keeper_incident_reporter()
 
+func on_wall_hit_activity(tile_pos: Vector2i, player_world_pos: Vector2) -> void:
+	var keepers := _get_tree_nodes_in_group("tavern_keeper")
+	if keepers.is_empty():
+		return
+	var keeper := keepers[0]
+	var inner_min: Vector2i = keeper.get("tavern_inner_min")
+	var inner_max: Vector2i = keeper.get("tavern_inner_max")
+	var world_pos: Vector2 = _call_tile_to_world(tile_pos)
+	var player_tile: Vector2i = _call_world_to_tile(player_world_pos)
+	var player_inside: bool = player_tile.x >= inner_min.x and player_tile.x <= inner_max.x \
+						  and player_tile.y >= inner_min.y and player_tile.y <= inner_max.y
+	if player_inside:
+		report_tavern_incident("wall_damaged", {"pos": world_pos})
+		return
+	const PERIM: int = 10
+	var in_perim: bool = tile_pos.x >= inner_min.x - PERIM \
+					 and tile_pos.x <= inner_max.x + PERIM \
+					 and tile_pos.y >= inner_min.y - PERIM \
+					 and tile_pos.y <= inner_max.y + PERIM
+	if in_perim:
+		report_tavern_incident("wall_damaged_exterior", {"pos": world_pos})
+
+func on_entity_died(pos: Vector2, killer: Node) -> void:
+	var tavern_bounds: Rect2 = _get_inner_bounds()
+	if tavern_bounds.size == Vector2.ZERO:
+		return
+	if not tavern_bounds.grow(16.0).has_point(pos):
+		return
+	var killer_node: CharacterBody2D = killer as CharacterBody2D
+	report_tavern_incident("murder_in_tavern", {"offender": killer_node, "pos": pos})
+
 func ensure_tavern_sentinels_spawned() -> void:
 	if _tavern_sentinels_spawned:
 		return
@@ -325,3 +356,13 @@ func _get_exit_world_pos() -> Vector2:
 	if _get_tavern_exit_world_pos.is_valid():
 		return _get_tavern_exit_world_pos.call() as Vector2
 	return Vector2.ZERO
+
+func _call_tile_to_world(tile_pos: Vector2i) -> Vector2:
+	if _tile_to_world.is_valid():
+		return _tile_to_world.call(tile_pos) as Vector2
+	return Vector2.ZERO
+
+func _call_world_to_tile(world_pos: Vector2) -> Vector2i:
+	if _world_node != null and _world_node.has_method("_world_to_tile"):
+		return _world_node.call("_world_to_tile", world_pos) as Vector2i
+	return Vector2i(int(floor(world_pos.x)), int(floor(world_pos.y)))
