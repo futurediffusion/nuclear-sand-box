@@ -172,6 +172,7 @@ var _last_snapshot_rebuild_report: Dictionary = {
 	"territory_rebuild_requests": 0,
 }
 var _gameplay_command_dispatcher: GameplayCommandDispatcher
+var _domain_event_dispatcher: SandboxDomainEventDispatcher
 var _save_count: int = 0
 var _last_save_time_msec: int = -1
 var _tavern_sentinels_spawned: bool = false
@@ -242,6 +243,7 @@ const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.
 const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 const DayNightControllerScript := preload("res://scripts/world/DayNightController.gd")
 const GameplayCommandDispatcherScript := preload("res://scripts/runtime/world/GameplayCommandDispatcher.gd")
+const SandboxDomainEventDispatcherScript := preload("res://scripts/runtime/world/SandboxDomainEventDispatcher.gd")
 const PlacementReactionRuntimeConfigScript := preload("res://scripts/world/PlacementReactionRuntimeConfig.gd")
 const WorldCoordinateTransformCallableAdapterScript := preload("res://scripts/world/contracts/WorldCoordinateTransformCallableAdapter.gd")
 const WorldChunkDirtyNotifierCallableAdapterScript := preload("res://scripts/world/contracts/WorldChunkDirtyNotifierCallableAdapter.gd")
@@ -344,7 +346,7 @@ func _setup_building_module() -> void:
 	})
 	_placement_reaction_system = PlacementReactionSystemScript.new()
 	var placement_config: PlacementReactionRuntimeConfig = _ensure_placement_reaction_config()
-	_placement_reaction_system.setup(placement_config.build_setup_payload(
+	var placement_setup_payload: Dictionary = placement_config.build_setup_payload(
 		_threat_assessment_system,
 		_group_intent_system,
 		Callable(self, "_get_enemy_node_for_react"),
@@ -352,7 +354,9 @@ func _setup_building_module() -> void:
 		Callable(self, "_tile_to_world"),
 		Callable(self, "find_nearest_player_workbench_world_pos"),
 		Callable(self, "_get_drop_compaction_hotspots")
-	))
+	)
+	placement_setup_payload["domain_event_dispatcher"] = _domain_event_dispatcher
+	_placement_reaction_system.setup(placement_setup_payload)
 	_building_tilemap_projection.setup({
 		"walls_tilemap": walls_tilemap,
 		"walls_map_layer": WALLS_MAP_LAYER,
@@ -404,6 +408,9 @@ func _ready() -> void:
 	_cadence.configure_lane(LANE_BANDIT_WORK_LOOP, BANDIT_WORK_LOOP_INTERVAL_SEC, BANDIT_WORK_LOOP_PHASE, 1, BUDGET_BANDIT_WORK_TICKS_PER_PULSE)
 	_cadence.configure_lane(LANE_DROP_COMPACT_PULSE, DROP_COMPACT_INTERVAL_SEC, DROP_COMPACT_PHASE, 1, BUDGET_DROP_COMPACT_PULSES_PER_FRAME)
 	_update_drop_pressure_snapshot()
+	_domain_event_dispatcher = SandboxDomainEventDispatcherScript.new()
+	_domain_event_dispatcher.setup({"trace_limit": 192})
+	_register_domain_event_consumers()
 	_chunk_wall_collider_cache = ChunkWallColliderCacheScript.new()
 	_chunk_wall_collider_cache.setup({
 		"walls_tilemap": walls_tilemap,
@@ -885,7 +892,51 @@ func _ready() -> void:
 
 	await update_chunks(current_player_chunk)
 	if _had_save:
-		_rebuild_explicit_projections_after_snapshot_load()
+		_domain_event_dispatcher.publish("snapshot_loaded", {
+			"source": "save_manager",
+			"world_has_save": true,
+			"load_report": SaveManager.get_last_load_pipeline_snapshot(),
+		})
+
+func _register_domain_event_consumers() -> void:
+	if _domain_event_dispatcher == null:
+		return
+	_domain_event_dispatcher.subscribe("structure_placed", "placement_reaction", Callable(self, "_on_structure_domain_event"))
+	_domain_event_dispatcher.subscribe("structure_damaged", "placement_reaction", Callable(self, "_on_structure_domain_event"))
+	_domain_event_dispatcher.subscribe("structure_removed", "placement_reaction", Callable(self, "_on_structure_domain_event"))
+	_domain_event_dispatcher.subscribe("placement_completed", "placement_reaction", Callable(self, "_on_structure_domain_event"))
+	_domain_event_dispatcher.subscribe("snapshot_loaded", "world_projection_rebuild", Callable(self, "_on_snapshot_loaded_domain_event"))
+	_domain_event_dispatcher.subscribe("projection_rebuild_requested", "domain_event_trace", Callable(self, "_on_projection_rebuild_requested_domain_event"))
+	_domain_event_dispatcher.subscribe("projection_rebuild_completed", "domain_event_trace", Callable(self, "_on_generic_domain_event_trace"))
+	_domain_event_dispatcher.subscribe("threat_assessed", "domain_event_trace", Callable(self, "_on_generic_domain_event_trace"))
+	_domain_event_dispatcher.subscribe("intent_published", "domain_event_trace", Callable(self, "_on_generic_domain_event_trace"))
+
+func _on_structure_domain_event(event_record: Dictionary) -> void:
+	if _placement_reaction_system == null:
+		return
+	var payload: Dictionary = event_record.get("payload", {}) as Dictionary
+	if payload.is_empty():
+		return
+	_placement_reaction_system.handle_building_event(payload)
+
+func _on_snapshot_loaded_domain_event(_event_record: Dictionary) -> void:
+	_rebuild_explicit_projections_after_snapshot_load()
+
+func _on_projection_rebuild_requested_domain_event(event_record: Dictionary) -> void:
+	var payload: Dictionary = event_record.get("payload", {}) as Dictionary
+	var projection: String = String(payload.get("projection", ""))
+	if projection.is_empty():
+		return
+	Debug.log("world", "domain_event projection_rebuild_requested projection=%s reason=%s" % [
+		projection,
+		String(payload.get("reason", "")),
+	])
+
+func _on_generic_domain_event_trace(event_record: Dictionary) -> void:
+	Debug.log("world", "domain_event type=%s seq=%s" % [
+		String(event_record.get("type", "")),
+		str(event_record.get("seq", -1)),
+	])
 
 
 func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
@@ -906,6 +957,11 @@ func _on_spawn_job_completed(job: Dictionary, node: Node) -> void:
 		_wire_keeper_incident_reporter()  # incluye _register_tavern_containers()
 
 func _rebuild_explicit_projections_after_snapshot_load() -> void:
+	if _domain_event_dispatcher != null:
+		_domain_event_dispatcher.publish("projection_rebuild_requested", {
+			"projection": "snapshot_explicit",
+			"reason": "snapshot_loaded",
+		})
 	# Keep projection rebuild order explicit after canonical save state restore:
 	#  1) tilemap projection (loaded chunks only, visual runtime representation)
 	#  2) wall collider projection (loaded chunks only, runtime collision invalidation)
@@ -942,9 +998,20 @@ func _rebuild_explicit_projections_after_snapshot_load() -> void:
 	_last_snapshot_rebuild_report["collider_projection_rebuilt"] = int(_wall_collider_projection != null and not loaded_structure_snapshot.is_empty())
 	_last_snapshot_rebuild_report["spatial_projection_rebuilt"] = int(_spatial_index_projection != null)
 	_last_snapshot_rebuild_report["territory_rebuild_requests"] = 1
+	if _domain_event_dispatcher != null:
+		_domain_event_dispatcher.publish("projection_rebuild_completed", {
+			"projection": "snapshot_explicit",
+			"reason": "snapshot_loaded",
+			"report": get_snapshot_rebuild_report(),
+		})
 
 func get_snapshot_rebuild_report() -> Dictionary:
 	return SnapshotRebuildNotificationDtoScript.build(_last_snapshot_rebuild_report)
+
+func get_domain_event_trace(limit: int = 64) -> Array[Dictionary]:
+	if _domain_event_dispatcher == null:
+		return []
+	return _domain_event_dispatcher.get_recent_events(limit)
 
 func _clear_chunk_wall_runtime_cache() -> void:
 	if _chunk_wall_collider_cache != null:
@@ -2255,21 +2322,21 @@ func _on_placement_completed(_item_id: String, tile_pos: Vector2i) -> void:
 	var world_pos: Vector2 = _tile_to_world(tile_pos)
 	Debug.log("placement_react", "placement_completed item=%s tile=%s world=%s" % [
 		_item_id, str(tile_pos), str(world_pos)])
-	if _placement_reaction_system != null:
-		# Compatibility bridge: keep PlacementSystem signal wiring in world.gd,
-		# but always route through PlacementReactionSystem canonical pipeline:
-		# BuildingEvent -> ThreatAssessmentSystem -> BanditIntentSystem.
-		_placement_reaction_system.handle_building_event(
-			BuildingEventDtoScript.placement_completed(_item_id, tile_pos, world_pos, "placement_system")
-		)
+	if _domain_event_dispatcher != null:
+		_domain_event_dispatcher.publish("placement_completed",
+			BuildingEventDtoScript.placement_completed(_item_id, tile_pos, world_pos, "placement_system"))
 
 func _on_building_events_emitted(events: Array[Dictionary]) -> void:
-	if _placement_reaction_system == null:
+	if _domain_event_dispatcher == null:
 		return
 	for event_data in events:
 		if not (event_data is Dictionary):
 			continue
-		_placement_reaction_system.handle_building_event(event_data as Dictionary)
+		var event_payload: Dictionary = event_data as Dictionary
+		var event_type: String = String(event_payload.get("type", event_payload.get("event_type", "")))
+		if event_type.is_empty():
+			continue
+		_domain_event_dispatcher.publish(event_type, event_payload)
 
 
 func reset_placement_react_debug_metrics() -> void:
@@ -2343,6 +2410,11 @@ func _collect_player_workbench_projection_anchors() -> Array:
 
 func _request_player_territory_rebuild(_reason: String) -> void:
 	_player_territory_dirty = true
+	if _domain_event_dispatcher != null:
+		_domain_event_dispatcher.publish("projection_rebuild_requested", {
+			"projection": "player_territory",
+			"reason": _reason,
+		})
 
 func is_in_player_territory(world_pos: Vector2) -> bool:
 	if _player_territory == null:

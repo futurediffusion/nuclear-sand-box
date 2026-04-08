@@ -16,6 +16,8 @@ var _nearest_workbench_world_pos_cb: Callable
 var _drop_hotspots_provider_cb: Callable
 var _enemy_node_provider_cb: Callable
 
+var _domain_event_dispatcher: SandboxDomainEventDispatcher
+
 var _placement_react_last_event_at: float = -9999.0
 var _placement_react_pulse_seq: int = 0
 var _placement_react_debug_total_events: int = 0
@@ -51,6 +53,7 @@ func setup(config: Dictionary = {}) -> void:
 	_nearest_workbench_world_pos_cb = config.get("nearest_workbench_world_pos", Callable()) as Callable
 	_drop_hotspots_provider_cb = config.get("drop_hotspots_provider", Callable()) as Callable
 	_enemy_node_provider_cb = config.get("enemy_node_provider", Callable()) as Callable
+	_domain_event_dispatcher = config.get("domain_event_dispatcher", null) as SandboxDomainEventDispatcher
 	_default_radius = maxf(0.0, float(config.get("default_radius", _default_radius)))
 	_radius_by_item_id = (config.get("radius_by_item_id", {}) as Dictionary).duplicate(true)
 	_max_groups_per_event = maxi(1, int(config.get("max_groups_per_event", _max_groups_per_event)))
@@ -218,6 +221,11 @@ func _trigger_placement_react(source_event: Dictionary) -> void:
 		float(assessment.get("severity", 0.0)),
 		str(bool(assessment.get("is_relevant", false))),
 	])
+	if _domain_event_dispatcher != null:
+		_domain_event_dispatcher.publish("threat_assessed", {
+			"source": "placement_reaction",
+			"assessment": assessment.duplicate(true),
+		})
 	var scoped: Dictionary = assessment.get("candidate_group_scope", {}) as Dictionary
 	var scoped_candidates: Array = scoped.get("candidates", []) as Array
 	if not bool(assessment.get("is_relevant", false)) or scoped_candidates.is_empty():
@@ -283,6 +291,16 @@ func _trigger_placement_react(source_event: Dictionary) -> void:
 		var published: bool = bool(publish_outcome.get("published", false))
 		if published:
 			intent_published += 1
+			if _domain_event_dispatcher != null:
+				_domain_event_dispatcher.publish("intent_published", {
+					"source": "placement_reaction",
+					"group_id": gid,
+					"item_id": item_id,
+					"event_type": event_type,
+					"target_position": target_pos,
+					"publish_status": publish_status,
+					"intent": (publish_outcome.get("intent", {}) as Dictionary).duplicate(true),
+				})
 		groups_activated += 1
 		var decision_tag: String = "reacted_high_priority" if is_high_priority else ("reacted_wall_global" if is_wall_assault_event else "reacted_local")
 		Debug.log("placement_react", "  decision=%s group=%s faction=%s score=%.2f squad_size=%d intent_published=%s intent_status=%s precedence=placement_react>raid_queue>opportunistic anchor=%s details=%s" % [
