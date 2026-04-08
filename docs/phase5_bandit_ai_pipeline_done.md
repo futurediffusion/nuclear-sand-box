@@ -1,62 +1,43 @@
-# Phase 5 Closure — Bandit AI Pipeline Normalization
+# Phase 5 Closure — Bandit AI Pipeline Normalization (Historical Record)
 
-This document closes the migrated **Phase 5 bandit AI slice** (`Perception → Intent → Task planning → Execution`) and records what now belongs to each layer.
+> [!WARNING]
+> **Historical phase closure artifact.**
+> This file documents the Phase 5 migration endpoint.
+> It is **superseded by later architecture and cleanup work** and is **not** the current AI source of truth.
 
-## Ownership after Phase 5
+## Current status after later phases
 
-### Perception now handles
-- Runtime signal normalization for migrated group/member inputs (combat/threat, nearby loot/resources, assault-target availability).  
-- Group-level perception snapshot generation via `BanditPerceptionSystem.build_group_intent_perception(...)` with canonical fields (`stage`, `threat_signals`, nearby counts, assault flags, trace metadata).
-- Legacy blackboard proximity data is still consumed as input, but normalization/output shape is owned by Perception.
+For current AI ownership and orchestration boundaries, use:
 
-### Intent now handles
-- Canonical group intent decision records from normalized perception (`kind=group_intent_decision`, `group_mode`, `decision_type`, trace fields).
-- Policy-driven selection of decision type (`continue`, `react`, `pursue`, `return_home`, `structure_assault`, `loot_resource`).
-- Publication of canonical intent record to group status (`status.canonical_intent_record`) for downstream task planning.
+- [`docs/architecture/ownership/ai-pipeline.md`](docs/architecture/ownership/ai-pipeline.md)
+- [`docs/architecture/ownership/world-bootstrap-orchestration.md`](docs/architecture/ownership/world-bootstrap-orchestration.md)
+- [`docs/architecture/ownership/README.md`](docs/architecture/ownership/README.md)
+- [`docs/phase5_bandit_ai_pipeline_contract.md`](docs/phase5_bandit_ai_pipeline_contract.md) (phase contract context)
 
-### Task planning now handles
-- Transforming canonical intent + member context into canonical executable task orders (`BanditTaskPlanner.plan_member_task`).
-- Order allowlist/sanitization and task payload construction (`order.task.kind`, intent summary, target payload).
-- Migrated structure-assault routing for leader/bodyguard and economic fallbacks for loot/resource work.
+This document should be used as historical migration context only.
 
-### Execution now handles
-- Consuming already-planned tasks and performing runtime side effects only (movement/combat/assault state transitions).
-- Applying member orders and task payloads through `BanditBehaviorLayer._apply_member_order(...)`.
-- Guarding against mismatched `order` vs `task.kind` at runtime to avoid duplicate decision paths.
+## Phase 5 scope that was closed (at that time)
 
-### What remains legacy
-- Compatibility bridge for structure assault when canonical intent is absent (`structure_assault_pipeline_compatibility_bridge`).
-- Some tactical source inputs still originate in legacy blackboard/pulse wiring before normalization.
-- Existing role controllers and historical behavior states remain in place where not yet migrated.
+The migrated slice in this phase was `Perception → Intent → Task planning → Execution` for bandit AI.
 
-## Regression protection added in this closure
+## Recorded closure state at Phase 5
 
-- New regression harness: `scripts/tests/phase5_bandit_ai_pipeline_regression_runner.gd`.
-- Covered checks:
-  - Perception output generation.
-  - Canonical intent output generation.
-  - Task planning output generation.
-  - Execution consumption of migrated assault task.
-  - Duplicate decision path prevention (mismatched order/task guard).
+### Layer ownership at closure time (historical)
+- **Perception:** normalized runtime signals and produced group-intent perception snapshots.
+- **Intent:** produced canonical group intent decision records and published canonical intent record to group status.
+- **Task planning:** transformed canonical intent/member context into executable task orders.
+- **Execution:** consumed planned tasks and applied runtime side effects, with order/task mismatch guardrails.
 
-## Observability added in this closure
+### Legacy retained at closure (historical)
+- Structure assault compatibility bridge remained when canonical intent was absent.
+- Some tactical inputs still originated in legacy blackboard/pulse wiring.
+- Existing role controllers/historical behavior states remained where unmigrated.
 
-Lightweight `bandit_pipeline` instrumentation now logs:
-- Group-level pipeline decision snapshots (`pipeline_group_decision`).
-- Group-level planned-order summaries (`pipeline_group_orders_planned`).
-- Explicit compatibility-bridge activations (`pipeline_compatibility_bridge_applied`).
-- Execution-side task consumption (`pipeline_execution_task_consumed`).
-- Runtime duplicate-path guard activations (`pipeline_duplicate_decision_path_blocked`).
+## Regression + observability added in Phase 5
 
-## Out of scope (intentionally unchanged)
+- Runner: `scripts/tests/phase5_bandit_ai_pipeline_regression_runner.gd`
+- Added lightweight `bandit_pipeline` instrumentation for decision/planning/execution/compatibility-bridge visibility.
 
-- Persistence snapshot migration was **not** started in this phase.
-- Unrelated systems were not redesigned.
+## Notes on superseded wording
 
-## Recommended next migration targets (Phase 6 / future AI work)
-
-1. Remove compatibility bridge by enforcing canonical intent publication for all assault-capable groups.
-2. Migrate remaining legacy tactical reads to consume only normalized perception/intent/task contracts.
-3. Promote explicit typed/contracted runtime telemetry snapshots for pipeline stages (sampling + counters).
-4. Expand regression harness to include full group-order generation from real blackboard snapshots.
-5. Continue persistence-focused AI state migration in a dedicated phase (separate from this closure).
+“Now handles” or “canonical” phrasing here is intentionally historical: it describes the closure target reached in Phase 5, not an evergreen statement of current AI architecture.
