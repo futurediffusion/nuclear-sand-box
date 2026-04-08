@@ -7,7 +7,7 @@ const RECENT_ACTIVITY_DECAY_WINDOW: float = 5.0
 var _lanes: Dictionary = {}
 var _time: float = 0.0
 
-func configure_lane(name: StringName, interval: float, phase_ratio: float = 0.0, max_catchup: int = DEFAULT_MAX_CATCHUP, budget_units: int = -1) -> void:
+func configure_lane(name: StringName, interval: float, phase_ratio: float = 0.0, max_catchup: int = DEFAULT_MAX_CATCHUP, budget_units: int = -1, domain: StringName = &"unspecified") -> void:
 	if interval <= 0.0:
 		push_warning("WorldCadenceCoordinator lane %s needs interval > 0" % String(name))
 		return
@@ -26,6 +26,7 @@ func configure_lane(name: StringName, interval: float, phase_ratio: float = 0.0,
 		"last_tick_time": 0.0,
 		"last_consume_time": -1.0,
 		"budget_units": budget_units,
+		"domain": domain,
 		"last_work": 0,
 		"total_work": 0,
 		"recent_work": 0.0,
@@ -137,6 +138,7 @@ func get_debug_snapshot() -> Dictionary:
 			"last_catchup_generated": int(lane.get("last_catchup_generated", 0)),
 			"total_consumed": int(lane.get("total_consumed", 0)),
 			"budget_units": int(lane.get("budget_units", -1)),
+			"domain": String(lane.get("domain", &"unspecified")),
 			"last_work": int(lane.get("last_work", 0)),
 			"total_work": int(lane.get("total_work", 0)),
 			"recent_work": snappedf(float(lane.get("recent_work", 0.0)), 0.01),

@@ -167,6 +167,10 @@ const SIM_PROFILE_DECORATIVE: StringName = &"decorative"
 const OBEDIENT_PLAYER_NEAR_DISTANCE_SQ: float = 460.0 * 460.0
 const DECORATIVE_PLAYER_FAR_DISTANCE_SQ: float = 980.0 * 980.0
 const LOD_MAX_FULL_PER_GROUP: int = 3
+const LANE_DIRECTOR_PULSE: StringName = &"director_pulse"
+const LANE_BANDIT_WORK_LOOP: StringName = &"bandit_work_loop"
+const DIRECTOR_FALLBACK_INTERVAL_SEC: float = 0.12
+const WORK_LOOP_FALLBACK_INTERVAL_SEC: float = 0.25
 
 # ---------------------------------------------------------------------------
 # Diï¿½fÂ¡logo ambiental Ã¢ï¿½,ï¿½ï¿½?ï¿½ frases de mundo mientras el NPC estï¿½fÂ¡ ocioso o patrullando
@@ -742,15 +746,15 @@ func _process(delta: float) -> void:
 		_prune_structure_target_caches()
 	if _group_intel != null:
 		_group_intel.tick(delta)
-	var director_pulses: int = _cadence.consume_lane(&"director_pulse") if _cadence != null else 0
+	var director_pulses: int = _cadence.consume_lane(LANE_DIRECTOR_PULSE) if _cadence != null else 0
 	if _cadence == null:
 		_director_fallback_timer += delta
-		if _director_fallback_timer >= 0.12:
-			_director_fallback_timer -= 0.12
+		if _director_fallback_timer >= DIRECTOR_FALLBACK_INTERVAL_SEC:
+			_director_fallback_timer -= DIRECTOR_FALLBACK_INTERVAL_SEC
 			director_pulses = 1
 	for _pulse in director_pulses:
 		if _extortion_director != null:
-			_extortion_director.process_extortion(0.12)
+			_extortion_director.process_extortion(DIRECTOR_FALLBACK_INTERVAL_SEC)
 		if _raid_director != null:
 			_raid_director.process_raid()
 	_process_pending_structure_dispatches()
@@ -759,11 +763,11 @@ func _process(delta: float) -> void:
 		return
 	var work_loop_pulses: int = 0
 	if _cadence != null:
-		work_loop_pulses = _cadence.consume_lane(&"bandit_work_loop")
+		work_loop_pulses = _cadence.consume_lane(LANE_BANDIT_WORK_LOOP)
 	else:
 		_work_loop_fallback_timer += delta
-		if _work_loop_fallback_timer >= 0.25:
-			_work_loop_fallback_timer -= 0.25
+		if _work_loop_fallback_timer >= WORK_LOOP_FALLBACK_INTERVAL_SEC:
+			_work_loop_fallback_timer -= WORK_LOOP_FALLBACK_INTERVAL_SEC
 			work_loop_pulses = 1
 	if work_loop_pulses <= 0:
 		_flush_perf_window_if_needed()
@@ -781,8 +785,8 @@ func _process(delta: float) -> void:
 		var behavior_elapsed_ms: float = float(Time.get_ticks_usec() - behavior_start_usec) / 1000.0
 		_record_mode_frame_time(active_mode, behavior_elapsed_ms)
 		if _cadence != null:
-			var lane_budget: int = _cadence.lane_budget(&"bandit_work_loop", -1)
-			_cadence.report_lane_work(&"bandit_work_loop", work_units, lane_budget)
+			var lane_budget: int = _cadence.lane_budget(LANE_BANDIT_WORK_LOOP, -1)
+			_cadence.report_lane_work(LANE_BANDIT_WORK_LOOP, work_units, lane_budget)
 		_prune_behaviors()
 	_flush_perf_window_if_needed()
 

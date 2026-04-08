@@ -259,6 +259,12 @@ const LANE_OCCLUSION_PULSE: StringName = &"occlusion_pulse"
 const LANE_RESOURCE_REPOP_PULSE: StringName = &"resource_repop_pulse"
 const LANE_BANDIT_WORK_LOOP: StringName = &"bandit_work_loop"
 const LANE_DROP_COMPACT_PULSE: StringName = &"drop_compact_pulse"
+const TICK_DOMAIN_SIMULATION: StringName = &"simulation_tick"
+const TICK_DOMAIN_AI_DECISION: StringName = &"ai_decision_tick"
+const TICK_DOMAIN_EXECUTION_RUNTIME: StringName = &"execution_runtime_tick"
+const TICK_DOMAIN_PROJECTION_REBUILD: StringName = &"projection_rebuild_tick"
+const TICK_DOMAIN_PERSISTENCE: StringName = &"persistence_tick"
+const TICK_DOMAIN_MAINTENANCE: StringName = &"maintenance_tick"
 const OCCLUSION_INTERVAL_SEC: float = 0.10
 const RESOURCE_REPOP_INTERVAL_SEC: float = 0.50
 const BANDIT_WORK_LOOP_INTERVAL_SEC: float = 0.25
@@ -329,6 +335,25 @@ var _drop_pressure_snapshot: Dictionary = {
 	"drop_pressure_stage": DROP_PRESSURE_STAGE_NORMAL,
 }
 
+func _configure_world_cadence_lanes() -> void:
+	if _cadence == null:
+		return
+	_cadence.configure_lane(LANE_SHORT_PULSE, 0.12, SHORT_PULSE_PHASE, WorldCadenceCoordinator.DEFAULT_MAX_CATCHUP, BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE, TICK_DOMAIN_MAINTENANCE)
+	_cadence.configure_lane(LANE_MEDIUM_PULSE, 0.50, MEDIUM_PULSE_PHASE, WorldCadenceCoordinator.DEFAULT_MAX_CATCHUP, -1, TICK_DOMAIN_PROJECTION_REBUILD)
+	_cadence.configure_lane(LANE_DIRECTOR_PULSE, 0.12, DIRECTOR_PULSE_PHASE, WorldCadenceCoordinator.DEFAULT_MAX_CATCHUP, -1, TICK_DOMAIN_AI_DECISION)
+	_cadence.configure_lane(LANE_CHUNK_PULSE, chunk_check_interval, CHUNK_PULSE_PHASE, WorldCadenceCoordinator.DEFAULT_MAX_CATCHUP, -1, TICK_DOMAIN_SIMULATION)
+	_cadence.configure_lane(LANE_AUTOSAVE, autosave_interval, AUTOSAVE_PHASE, 1, -1, TICK_DOMAIN_PERSISTENCE)
+	_cadence.configure_lane(LANE_SETTLEMENT_BASE_SCAN, SettlementIntel.BASE_RESCAN_INTERVAL, SettlementIntel.BASE_SCAN_PHASE_RATIO, 1, -1, TICK_DOMAIN_AI_DECISION)
+	_cadence.configure_lane(LANE_SETTLEMENT_WORKBENCH_SCAN, SettlementIntel.WORKBENCH_RESCAN_INTERVAL, SettlementIntel.WORKBENCH_SCAN_PHASE_RATIO, 1, -1, TICK_DOMAIN_AI_DECISION)
+	_cadence.configure_lane(LANE_OCCLUSION_PULSE, OCCLUSION_INTERVAL_SEC, OCCLUSION_PHASE, 1, BUDGET_OCCLUSION_MATERIALS_PER_PULSE, TICK_DOMAIN_EXECUTION_RUNTIME)
+	_cadence.configure_lane(LANE_RESOURCE_REPOP_PULSE, RESOURCE_REPOP_INTERVAL_SEC, RESOURCE_REPOP_PHASE, 1, BUDGET_RESOURCE_REPOP_OPS_PER_PULSE, TICK_DOMAIN_SIMULATION)
+	# Bandit work loop cadence:
+	# - 0.25s keeps mining/pickup/return/deposit transitions perceptibly continuous.
+	# - Budget counts behavior ticks per pulse (not physics ops).
+	# - Heavy scan/pathfinding remains LOD-gated inside BanditBehaviorLayer.
+	_cadence.configure_lane(LANE_BANDIT_WORK_LOOP, BANDIT_WORK_LOOP_INTERVAL_SEC, BANDIT_WORK_LOOP_PHASE, 1, BUDGET_BANDIT_WORK_TICKS_PER_PULSE, TICK_DOMAIN_AI_DECISION)
+	_cadence.configure_lane(LANE_DROP_COMPACT_PULSE, DROP_COMPACT_INTERVAL_SEC, DROP_COMPACT_PHASE, 1, BUDGET_DROP_COMPACT_PULSES_PER_FRAME, TICK_DOMAIN_MAINTENANCE)
+
 func _ensure_placement_reaction_config() -> PlacementReactionRuntimeConfig:
 	if placement_reaction_config == null:
 		placement_reaction_config = PlacementReactionRuntimeConfigScript.new()
@@ -392,21 +417,7 @@ func _ready() -> void:
 	# maintenance, chunk/autosave work, and directors that coordinate multiple
 	# systems. Specialized inner loops can still keep local clocks when their
 	# timing is inherently private/incremental.
-	_cadence.configure_lane(LANE_SHORT_PULSE, 0.12, SHORT_PULSE_PHASE, WorldCadenceCoordinator.DEFAULT_MAX_CATCHUP, BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE)
-	_cadence.configure_lane(LANE_MEDIUM_PULSE, 0.50, MEDIUM_PULSE_PHASE)
-	_cadence.configure_lane(LANE_DIRECTOR_PULSE, 0.12, DIRECTOR_PULSE_PHASE)
-	_cadence.configure_lane(LANE_CHUNK_PULSE, chunk_check_interval, CHUNK_PULSE_PHASE)
-	_cadence.configure_lane(LANE_AUTOSAVE, autosave_interval, AUTOSAVE_PHASE, 1)
-	_cadence.configure_lane(LANE_SETTLEMENT_BASE_SCAN, SettlementIntel.BASE_RESCAN_INTERVAL, SettlementIntel.BASE_SCAN_PHASE_RATIO, 1)
-	_cadence.configure_lane(LANE_SETTLEMENT_WORKBENCH_SCAN, SettlementIntel.WORKBENCH_RESCAN_INTERVAL, SettlementIntel.WORKBENCH_SCAN_PHASE_RATIO, 1)
-	_cadence.configure_lane(LANE_OCCLUSION_PULSE, OCCLUSION_INTERVAL_SEC, OCCLUSION_PHASE, 1, BUDGET_OCCLUSION_MATERIALS_PER_PULSE)
-	_cadence.configure_lane(LANE_RESOURCE_REPOP_PULSE, RESOURCE_REPOP_INTERVAL_SEC, RESOURCE_REPOP_PHASE, 1, BUDGET_RESOURCE_REPOP_OPS_PER_PULSE)
-	# Bandit work loop cadence:
-	# - 0.25s keeps mining/pickup/return/deposit transitions perceptibly continuous.
-	# - Budget counts behavior ticks per pulse (not physics ops).
-	# - Heavy scan/pathfinding remains LOD-gated inside BanditBehaviorLayer.
-	_cadence.configure_lane(LANE_BANDIT_WORK_LOOP, BANDIT_WORK_LOOP_INTERVAL_SEC, BANDIT_WORK_LOOP_PHASE, 1, BUDGET_BANDIT_WORK_TICKS_PER_PULSE)
-	_cadence.configure_lane(LANE_DROP_COMPACT_PULSE, DROP_COMPACT_INTERVAL_SEC, DROP_COMPACT_PHASE, 1, BUDGET_DROP_COMPACT_PULSES_PER_FRAME)
+	_configure_world_cadence_lanes()
 	_update_drop_pressure_snapshot()
 	_domain_event_dispatcher = SandboxDomainEventDispatcherScript.new()
 	_domain_event_dispatcher.setup({"trace_limit": 192})
@@ -2591,10 +2602,10 @@ func _get_world_maintenance_debug_snapshot() -> Dictionary:
 			"pressure": _drop_pressure_snapshot.duplicate(true),
 		},
 		"lane_inventory": {
-			"occlusion_controller": {"script": "scripts/world/OcclusionController.gd", "lane": String(LANE_OCCLUSION_PULSE), "interval": OCCLUSION_INTERVAL_SEC, "budget": BUDGET_OCCLUSION_MATERIALS_PER_PULSE},
-			"resource_repopulator": {"script": "scripts/world/ResourceRepopulator.gd", "lane": String(LANE_RESOURCE_REPOP_PULSE), "interval": RESOURCE_REPOP_INTERVAL_SEC, "budget": BUDGET_RESOURCE_REPOP_OPS_PER_PULSE},
-			"bandit_work_loop": {"script": "scripts/world/BanditBehaviorLayer.gd::_process", "lane": String(LANE_BANDIT_WORK_LOOP), "interval": BANDIT_WORK_LOOP_INTERVAL_SEC, "budget": BUDGET_BANDIT_WORK_TICKS_PER_PULSE},
-			"maintenance_short_pulse": {"script": "scripts/world/world.gd::_process", "lane": String(LANE_SHORT_PULSE), "interval": 0.12, "budget": BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE},
-			"drop_compaction": {"script": "scripts/world/world.gd::_compact_item_drops_once", "lane": String(LANE_DROP_COMPACT_PULSE), "interval": DROP_COMPACT_INTERVAL_SEC, "budget": BUDGET_DROP_COMPACT_PULSES_PER_FRAME},
+			"occlusion_controller": {"script": "scripts/world/OcclusionController.gd", "lane": String(LANE_OCCLUSION_PULSE), "domain": String(TICK_DOMAIN_EXECUTION_RUNTIME), "interval": OCCLUSION_INTERVAL_SEC, "budget": BUDGET_OCCLUSION_MATERIALS_PER_PULSE},
+			"resource_repopulator": {"script": "scripts/world/ResourceRepopulator.gd", "lane": String(LANE_RESOURCE_REPOP_PULSE), "domain": String(TICK_DOMAIN_SIMULATION), "interval": RESOURCE_REPOP_INTERVAL_SEC, "budget": BUDGET_RESOURCE_REPOP_OPS_PER_PULSE},
+			"bandit_work_loop": {"script": "scripts/world/BanditBehaviorLayer.gd::_process", "lane": String(LANE_BANDIT_WORK_LOOP), "domain": String(TICK_DOMAIN_AI_DECISION), "interval": BANDIT_WORK_LOOP_INTERVAL_SEC, "budget": BUDGET_BANDIT_WORK_TICKS_PER_PULSE},
+			"maintenance_short_pulse": {"script": "scripts/world/world.gd::_process", "lane": String(LANE_SHORT_PULSE), "domain": String(TICK_DOMAIN_MAINTENANCE), "interval": 0.12, "budget": BUDGET_WALL_REFRESH_PER_PULSE + BUDGET_TILE_ERASE_PER_PULSE},
+			"drop_compaction": {"script": "scripts/world/world.gd::_compact_item_drops_once", "lane": String(LANE_DROP_COMPACT_PULSE), "domain": String(TICK_DOMAIN_MAINTENANCE), "interval": DROP_COMPACT_INTERVAL_SEC, "budget": BUDGET_DROP_COMPACT_PULSES_PER_FRAME},
 		},
 	}
