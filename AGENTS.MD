@@ -389,6 +389,16 @@ Rol:
 - Produce salidas estructuradas consumibles por capas downstream (`BanditBehaviorLayer`, blackboard/group pulse) sin asignar tareas ni ejecutar movimiento/combate.
 - Mantiene compatibilidad con el runtime actual exportando tanto payload estructurado (`perception`) como campos legacy de contexto usados por comportamientos existentes.
 
+### 🗂️ BANDIT TASK PLANNER (Faction Domain Service)
+
+Ubicación:
+- `scripts/domain/factions/BanditTaskPlanner.gd`
+
+Rol:
+- Capa explícita de planificación entre intent canónico (`BanditIntentSystem`) y ejecución runtime (`BanditBehaviorLayer`/`BanditWorldBehavior`).
+- Consume `canonical_intent_record` + contexto de miembro y transforma esa intención en salidas concretas de orden/tarea (`follow_slot`, `move_to_target`, `mine_target`, `pickup_target`, `return_home`, `assault_structure_target`, `attack_target`).
+- Emite payload estructurado en `order.task` para que la capa ejecutora consuma datos declarativos sin mezclar decisión de intención ni side effects de movimiento/combate.
+
 ### ⏱️ AWAKE RAMP QUEUE (Autoload)
 
 Ubicación:
