@@ -22,9 +22,10 @@
    - Emits trace event `structure_assault_pipeline_execution` with intent/task metadata.
 
 ## Temporary compatibility bridges
-- **Bridge A: non-assault fallback keeps legacy canonical intent path**
-  - New Perception→Intent override is applied only when `structure_assault_active == true`.
-  - All non-assault groups continue using the prior blackboard canonical intent (`status.canonical_intent_record`) to keep behavior stable while migration remains incremental.
+- **Bridge A: missing-canonical fallback only (strictly scoped)**
+  - `BanditBehaviorLayer` no longer rewrites canonical intent during normal structure assault flow when a canonical record already exists.
+  - A compatibility bridge runs only if `structure_assault_active == true` **and** `status.canonical_intent_record` is missing/invalid, publishing a minimal canonical record with source `structure_assault_pipeline_compatibility_bridge`.
+  - This keeps legacy/test scenes alive without reintroducing competing intent writers in the migrated path.
 - **Bridge B: perception source fallback remains blackboard-first elsewhere**
   - Existing blackboard perception (`prioritized_drops`, `prioritized_resources`) is still used by group planning.
   - The new normalized group perception snapshot is currently injected for structure assault routing only.

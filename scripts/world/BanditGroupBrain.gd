@@ -142,7 +142,6 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 		GROUP_RECOMPUTE_SAFETY_TTL_TICKS,
 	])
 	var macro_state: String = _resolve_macro_state(group_ctx)
-	BanditGroupMemory.bb_write_group_mode(group_id, macro_state, "group_brain")
 	for item in members:
 		if not (item is Dictionary):
 			continue
