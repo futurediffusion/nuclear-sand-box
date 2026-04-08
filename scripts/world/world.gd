@@ -1050,37 +1050,9 @@ func _compact_item_drops_once() -> int:
 	return _drop_compaction_service.execute_compaction_pass()
 
 func _process(delta: float) -> void:
-	if _cadence != null:
-		_cadence.advance(delta)
-	if _settlement_intel != null:
-		_settlement_intel.process(delta)
-	if _tavern_security_runtime != null:
-		_tavern_security_runtime.tick(delta)
-	var medium_pulses: int = _cadence.consume_lane(LANE_MEDIUM_PULSE) if _cadence != null else 1
-	for _pulse in medium_pulses:
-		_update_drop_pressure_snapshot()
-		_tick_player_territory()
+	_process_frame_domains(delta)
+	_dispatch_runtime_pulses()
 	pipeline.process(delta)
-	var short_pulses: int = _cadence.consume_lane(LANE_SHORT_PULSE) if _cadence != null else 1
-	if _maintenance_pulse_runtime != null:
-		_maintenance_pulse_runtime.execute_short_pulse(short_pulses)
-	var occlusion_pulses: int = _cadence.consume_lane(LANE_OCCLUSION_PULSE) if _cadence != null else 0
-	if _occlusion_controller != null and occlusion_pulses > 0:
-		var occlusion_updates: int = _occlusion_controller.tick_from_cadence(occlusion_pulses, BUDGET_OCCLUSION_MATERIALS_PER_PULSE)
-		if _cadence != null:
-			_cadence.report_lane_work(LANE_OCCLUSION_PULSE, occlusion_updates, BUDGET_OCCLUSION_MATERIALS_PER_PULSE * occlusion_pulses)
-	var repop_pulses: int = _cadence.consume_lane(LANE_RESOURCE_REPOP_PULSE) if _cadence != null else 1
-	if _resource_repopulator != null and repop_pulses > 0:
-		var repop_ops: int = _resource_repopulator.tick_from_cadence(repop_pulses)
-		if _cadence != null:
-			_cadence.report_lane_work(LANE_RESOURCE_REPOP_PULSE, repop_ops, BUDGET_RESOURCE_REPOP_OPS_PER_PULSE * repop_pulses)
-	var compact_pulses: int = _cadence.consume_lane(LANE_DROP_COMPACT_PULSE) if _cadence != null else 0
-	if compact_pulses > 0:
-		var compact_ops: int = 0
-		for _pulse in compact_pulses:
-			compact_ops += _compact_item_drops_once()
-		if _cadence != null:
-			_cadence.report_lane_work(LANE_DROP_COMPACT_PULSE, compact_ops, BUDGET_DROP_COMPACT_PULSES_PER_FRAME * compact_pulses)
 	if entity_coordinator != null and player:
 		entity_coordinator.set_player_pos(player.global_position)
 	if _day_night_controller != null and WorldTime != null:
@@ -1095,15 +1067,81 @@ func _process(delta: float) -> void:
 		return
 	if not player:
 		return
-	var pchunk := world_to_chunk(player.global_position)
-	if pchunk != current_player_chunk:
-		current_player_chunk = pchunk
-		pipeline.current_player_chunk = pchunk
-		if npc_simulator:
-			npc_simulator.current_player_chunk = pchunk
-		if entity_coordinator:
-			entity_coordinator.current_player_chunk = pchunk
-		update_chunks(pchunk)
+	_maybe_update_player_chunk_from_position(player.global_position)
+
+func _process_frame_domains(delta: float) -> void:
+	if _cadence != null:
+		_cadence.advance(delta)
+	if _settlement_intel != null:
+		_settlement_intel.process(delta)
+	if _tavern_security_runtime != null:
+		_tavern_security_runtime.tick(delta)
+
+func _dispatch_runtime_pulses() -> void:
+	_dispatch_medium_pulse()
+	_dispatch_short_pulse()
+	_dispatch_lane_occlusion_pulse()
+	_dispatch_lane_resource_repop_pulse()
+	_dispatch_lane_drop_compact_pulse()
+
+func _dispatch_medium_pulse() -> void:
+	var pulses: int = _consume_lane_or_default(LANE_MEDIUM_PULSE, 1)
+	for _pulse in pulses:
+		_update_drop_pressure_snapshot()
+		_tick_player_territory()
+
+func _dispatch_short_pulse() -> void:
+	if _maintenance_pulse_runtime == null:
+		return
+	_maintenance_pulse_runtime.execute_short_pulse(_consume_lane_or_default(LANE_SHORT_PULSE, 1))
+
+func _dispatch_lane_occlusion_pulse() -> void:
+	if _occlusion_controller == null:
+		return
+	var pulses: int = _consume_lane_or_default(LANE_OCCLUSION_PULSE, 0)
+	if pulses <= 0:
+		return
+	var updates: int = _occlusion_controller.tick_from_cadence(pulses, BUDGET_OCCLUSION_MATERIALS_PER_PULSE)
+	_report_lane_work(LANE_OCCLUSION_PULSE, updates, BUDGET_OCCLUSION_MATERIALS_PER_PULSE * pulses)
+
+func _dispatch_lane_resource_repop_pulse() -> void:
+	if _resource_repopulator == null:
+		return
+	var pulses: int = _consume_lane_or_default(LANE_RESOURCE_REPOP_PULSE, 1)
+	if pulses <= 0:
+		return
+	var ops: int = _resource_repopulator.tick_from_cadence(pulses)
+	_report_lane_work(LANE_RESOURCE_REPOP_PULSE, ops, BUDGET_RESOURCE_REPOP_OPS_PER_PULSE * pulses)
+
+func _dispatch_lane_drop_compact_pulse() -> void:
+	var pulses: int = _consume_lane_or_default(LANE_DROP_COMPACT_PULSE, 0)
+	if pulses <= 0:
+		return
+	var compact_ops: int = 0
+	for _pulse in pulses:
+		compact_ops += _compact_item_drops_once()
+	_report_lane_work(LANE_DROP_COMPACT_PULSE, compact_ops, BUDGET_DROP_COMPACT_PULSES_PER_FRAME * pulses)
+
+func _consume_lane_or_default(lane: StringName, fallback: int) -> int:
+	if _cadence == null:
+		return fallback
+	return _cadence.consume_lane(lane)
+
+func _report_lane_work(lane: StringName, work_units: int, budget_units: int) -> void:
+	if _cadence != null:
+		_cadence.report_lane_work(lane, work_units, budget_units)
+
+func _maybe_update_player_chunk_from_position(player_world_pos: Vector2) -> void:
+	var pchunk := world_to_chunk(player_world_pos)
+	if pchunk == current_player_chunk:
+		return
+	current_player_chunk = pchunk
+	pipeline.current_player_chunk = pchunk
+	if npc_simulator:
+		npc_simulator.current_player_chunk = pchunk
+	if entity_coordinator:
+		entity_coordinator.current_player_chunk = pchunk
+	update_chunks(pchunk)
 
 
 func world_to_chunk(pos: Vector2) -> Vector2i:
@@ -1624,34 +1662,8 @@ func _on_wall_hit_activity(tile_pos: Vector2i) -> void:
 		var cpos: Vector2i = _tile_to_chunk(tile_pos)
 		_wall_refresh_queue.record_activity(cpos)
 	_register_drop_compaction_hotspot(_tile_to_world(tile_pos), 2)
-	# Comparar en coordenadas de tile (enteras) para evitar ambigüedad de float.
-	# has_point en world-space fallaba en tiles exactamente en el borde del bounds
-	# (norte/este dependiendo del offset de map_to_local).
-	var keepers := get_tree().get_nodes_in_group("tavern_keeper")
-	if keepers.is_empty():
-		return
-	var keeper := keepers[0]
-	var inner_min: Vector2i = keeper.get("tavern_inner_min")
-	var inner_max: Vector2i = keeper.get("tavern_inner_max")
-	var world_pos: Vector2 = _tile_to_world(tile_pos)
-	# Determinar si el golpe viene desde adentro o afuera usando la posición del
-	# player, NO el tile de la pared. Las paredes están exactamente en los bordes
-	# de inner_min/inner_max, así que clasificar por tile da resultados inconsistentes
-	# (el tile de la pared queda excluido por las condiciones estrictas).
-	var player_tile: Vector2i = _world_to_tile(_get_player_world_pos())
-	var player_inside: bool = player_tile.x >= inner_min.x and player_tile.x <= inner_max.x \
-						  and player_tile.y >= inner_min.y and player_tile.y <= inner_max.y
-	if player_inside:
-		report_tavern_incident("wall_damaged", {"pos": world_pos})
-	else:
-		# Perímetro: 10 tiles (320px) de margen en todas las direcciones
-		const PERIM: int = 10
-		var in_perim: bool = tile_pos.x >= inner_min.x - PERIM \
-						 and tile_pos.x <= inner_max.x + PERIM \
-						 and tile_pos.y >= inner_min.y - PERIM \
-						 and tile_pos.y <= inner_max.y + PERIM
-		if in_perim:
-			report_tavern_incident("wall_damaged_exterior", {"pos": world_pos})
+	if _tavern_security_runtime != null:
+		_tavern_security_runtime.on_wall_hit_activity(tile_pos, _get_player_world_pos())
 
 func _get_player_world_pos() -> Vector2:
 	if player == null:
@@ -1711,12 +1723,8 @@ func _get_drop_compaction_hotspots() -> Array[Dictionary]:
 func _on_entity_died(uid: String, kind: String, _pos: Vector2, _killer: Node) -> void:
 	if kind == "enemy" and uid != "":
 		npc_simulator.on_entity_died(uid)
-	# Incidente institucional: muerte dentro de la taberna.
-	# Aplica sea quien sea el muerto (player, keeper, NPC, enemy) y el killer (player, bandit, null).
-	var tavern_bounds: Rect2 = get_tavern_inner_bounds_world()
-	if tavern_bounds.size != Vector2.ZERO and tavern_bounds.grow(16.0).has_point(_pos):
-		var killer_node: CharacterBody2D = _killer as CharacterBody2D
-		report_tavern_incident("murder_in_tavern", {"offender": killer_node, "pos": _pos})
+	if _tavern_security_runtime != null:
+		_tavern_security_runtime.on_entity_died(_pos, _killer)
 
 
 # Pinta grass en GroundTileMap fuera del límite del mundo para cubrir el gris del viewport.
@@ -1800,6 +1808,11 @@ func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionar
 	if _gameplay_command_dispatcher == null:
 		return
 	_gameplay_command_dispatcher.record_interest_event(kind, world_pos, metadata)
+
+func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> void:
+	if _gameplay_command_dispatcher == null:
+		return
+	_gameplay_command_dispatcher.report_tavern_incident(incident_type, payload)
 
 func _on_bandit_territory_intrusion(group_entry: Dictionary, world_pos: Vector2, kind: String) -> void:
 	if _bandit_behavior_layer == null:
