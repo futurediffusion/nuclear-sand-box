@@ -3,6 +3,7 @@ class_name WorldSaveAdapter
 
 const ChunkSnapshotSerializer := preload("res://scripts/persistence/save/ChunkSnapshotSerializer.gd")
 const ChunkSnapshot := preload("res://scripts/core/ChunkSnapshot.gd")
+const WorldSnapshot := preload("res://scripts/core/WorldSnapshot.gd")
 
 const SNAPSHOT_STATE_VERSION: int = 1
 const SNAPSHOT_STATE_KEY: String = "world_snapshot_state"
@@ -41,6 +42,49 @@ static func capture_world_snapshot_state() -> Dictionary:
 
 static func persist_world_snapshot_state(payload: Dictionary) -> void:
 	payload[SNAPSHOT_STATE_KEY] = capture_world_snapshot_state()
+
+static func build_world_snapshot(canonical_state: Dictionary) -> WorldSnapshot:
+	var snapshot := WorldSnapshot.new()
+	snapshot.save_version = int(canonical_state.get("save_version", 1))
+	snapshot.seed = int(canonical_state.get("seed", 0))
+	snapshot.player_pos = canonical_state.get("player_pos", Vector2.ZERO)
+
+	var player_inv_raw: Variant = canonical_state.get("player_inv", [])
+	if player_inv_raw is Array:
+		snapshot.player_inv = (player_inv_raw as Array).duplicate(true)
+	else:
+		snapshot.player_inv = []
+
+	snapshot.player_gold = int(canonical_state.get("player_gold", 0))
+	var run_clock_raw: Variant = canonical_state.get("run_clock", {})
+	if run_clock_raw is Dictionary:
+		snapshot.run_clock = (run_clock_raw as Dictionary).duplicate(true)
+	var world_time_raw: Variant = canonical_state.get("world_time", {})
+	if world_time_raw is Dictionary:
+		snapshot.world_time = (world_time_raw as Dictionary).duplicate(true)
+
+	snapshot.faction_system = _dict_copy(canonical_state.get("faction_system", {}))
+	snapshot.site_system = _dict_copy(canonical_state.get("site_system", {}))
+	snapshot.npc_profile_system = _dict_copy(canonical_state.get("npc_profile_system", {}))
+	snapshot.bandit_group_memory = _dict_copy(canonical_state.get("bandit_group_memory", {}))
+	snapshot.extortion_queue = canonical_state.get("extortion_queue", {})
+	snapshot.faction_hostility = _dict_copy(canonical_state.get("faction_hostility", {}))
+
+	for chunk_snapshot in _collect_chunk_snapshots():
+		snapshot.chunks.append(chunk_snapshot)
+	snapshot.global_flags = WorldSave.global_flags.duplicate(true)
+	return snapshot
+
+static func apply_world_snapshot(snapshot: WorldSnapshot) -> bool:
+	if snapshot == null:
+		return false
+	_clear_worldsave_chunk_state()
+	for chunk_snapshot in snapshot.chunks:
+		if chunk_snapshot == null:
+			continue
+		save_chunk_snapshot(chunk_snapshot)
+	WorldSave.global_flags = snapshot.global_flags.duplicate(true)
+	return true
 
 static func restore_world_snapshot_state(payload: Dictionary) -> bool:
 	var raw_state: Variant = payload.get(SNAPSHOT_STATE_KEY, null)
@@ -139,3 +183,8 @@ static func _clear_worldsave_chunk_state() -> void:
 	WorldSave.player_walls_by_chunk.clear()
 	WorldSave.clear_placed_entities()
 	WorldSave.placed_entity_data_by_uid.clear()
+
+static func _dict_copy(value: Variant) -> Dictionary:
+	if value is Dictionary:
+		return (value as Dictionary).duplicate(true)
+	return {}

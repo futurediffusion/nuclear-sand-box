@@ -4,6 +4,7 @@ const SAVE_PATH: String = "user://savegame.json"
 const SAVE_VERSION: int = 1
 
 const WorldSaveAdapter := preload("res://scripts/persistence/save/WorldSaveAdapter.gd")
+const WorldSnapshotSerializer := preload("res://scripts/persistence/save/WorldSnapshotSerializer.gd")
 
 var _world: Node = null
 var _pending_player_pos: Vector2 = Vector2.ZERO
@@ -37,26 +38,13 @@ func save_world() -> void:
 			player_inv = inv.get("slots")
 			player_gold = inv.get("gold")
 
-	var data: Dictionary = {
-		"version": SAVE_VERSION,
-		"seed": Seed.run_seed,
-		"player_pos": _ser(player_pos),
-		"player_inv": _ser(player_inv),
-		"player_gold": player_gold,
-		"chunk_save": _ser(_world.chunk_save),
-		"placed_entities_by_chunk": _ser(WorldSave.placed_entities_by_chunk),
-		"placed_entity_data_by_uid": _ser(WorldSave.placed_entity_data_by_uid),
-		"faction_system":       FactionSystem.serialize(),
-		"site_system":          SiteSystem.serialize(),
-		"npc_profile_system":   NpcProfileSystem.serialize(),
-		"bandit_group_memory":  BanditGroupMemory.serialize(),
-		"extortion_queue":      ExtortionQueue.serialize(),
-		"run_clock":            RunClock.get_save_data(),
-		"world_time":           WorldTime.get_save_data(),
-		"faction_hostility":    FactionHostilityManager.serialize(),
-	}
-
-	# Snapshot adapter bridge: canonical chunk snapshots -> current save payload.
+	var canonical_state: Dictionary = _build_canonical_save_state(player_pos, player_inv, player_gold)
+	var world_snapshot = WorldSaveAdapter.build_world_snapshot(canonical_state)
+	var data: Dictionary = WorldSnapshotSerializer.serialize(world_snapshot)
+	data["version"] = SAVE_VERSION
+	data["chunk_save"] = _ser(_world.chunk_save)
+	data["placed_entities_by_chunk"] = _ser(WorldSave.placed_entities_by_chunk)
+	data["placed_entity_data_by_uid"] = _ser(WorldSave.placed_entity_data_by_uid)
 	data[WorldSaveAdapter.SNAPSHOT_STATE_KEY] = _ser(WorldSaveAdapter.capture_world_snapshot_state())
 
 	# Keep explicit compatibility with existing save storage sections.
@@ -110,7 +98,12 @@ func load_world_save() -> bool:
 	for key_raw in (data as Dictionary).keys():
 		deserialized_payload[String(key_raw)] = _des((data as Dictionary).get(key_raw))
 
-	var restored_from_snapshot: bool = WorldSaveAdapter.restore_world_snapshot_state(deserialized_payload)
+	var restored_from_snapshot: bool = false
+	if deserialized_payload.has("snapshot_version"):
+		var world_snapshot = WorldSnapshotSerializer.deserialize(deserialized_payload)
+		restored_from_snapshot = WorldSaveAdapter.apply_world_snapshot(world_snapshot)
+	if not restored_from_snapshot:
+		restored_from_snapshot = WorldSaveAdapter.restore_world_snapshot_state(deserialized_payload)
 	if not restored_from_snapshot:
 		WorldSaveAdapter.restore_legacy_worldsave_payload(deserialized_payload)
 
@@ -271,3 +264,20 @@ func _des(val: Variant) -> Variant:
 			out.append(_des(item))
 		return out
 	return val
+
+func _build_canonical_save_state(player_pos: Vector2, player_inv: Array, player_gold: int) -> Dictionary:
+	return {
+		"save_version": SAVE_VERSION,
+		"seed": Seed.run_seed,
+		"player_pos": player_pos,
+		"player_inv": player_inv,
+		"player_gold": player_gold,
+		"faction_system": FactionSystem.serialize(),
+		"site_system": SiteSystem.serialize(),
+		"npc_profile_system": NpcProfileSystem.serialize(),
+		"bandit_group_memory": BanditGroupMemory.serialize(),
+		"extortion_queue": ExtortionQueue.serialize(),
+		"run_clock": RunClock.get_save_data(),
+		"world_time": WorldTime.get_save_data(),
+		"faction_hostility": FactionHostilityManager.serialize(),
+	}
