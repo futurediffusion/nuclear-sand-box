@@ -1105,8 +1105,30 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			intent_record["pipeline_path"] = "Perception->Intent->Task->Execution"
 			intent_record["compatibility_bridge"] = "structure_assault_missing_canonical_intent"
 			canonical_intent = intent_record
+			log_worker_event("pipeline_compatibility_bridge_applied", {
+				"group_id": group_id,
+				"bridge": "structure_assault_missing_canonical_intent",
+				"intent_decision": String(intent_record.get("decision_type", "")),
+				"group_mode": String(intent_record.get("group_mode", "")),
+				"pipeline_path": "Perception->Intent->Task->Execution",
+			})
 		group_ctx["canonical_intent"] = canonical_intent
+		log_worker_event("pipeline_group_decision", {
+			"group_id": group_id,
+			"group_mode": String(group_ctx.get("group_mode", "idle")),
+			"intent_decision": String(canonical_intent.get("decision_type", "")),
+			"has_canonical_intent": _has_canonical_pipeline_intent(canonical_intent),
+			"structure_assault_active": bool(group_ctx.get("structure_assault_active", false)),
+			"prioritized_drops": int((group_ctx.get("prioritized_drops", []) as Array).size()),
+			"prioritized_resources": int((group_ctx.get("prioritized_resources", []) as Array).size()),
+			"members_count": int(members.size()),
+		})
 		var member_orders: Dictionary = _group_brain.assign_group_orders(group_id, members, group_ctx)
+		log_worker_event("pipeline_group_orders_planned", {
+			"group_id": group_id,
+			"orders_count": int(member_orders.size()),
+			"has_canonical_intent": _has_canonical_pipeline_intent(canonical_intent),
+		})
 		for member_id in member_orders.keys():
 			out[str(member_id)] = member_orders[member_id]
 	return out
@@ -1117,6 +1139,26 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 	if order_type == "":
 		return
 	var task_payload: Dictionary = order.get("task", {}) as Dictionary
+	var task_kind: String = String(task_payload.get("kind", ""))
+	if task_kind != "":
+		log_worker_event("pipeline_execution_task_consumed", {
+			"npc_id": beh.member_id,
+			"group_id": beh.group_id,
+			"role": beh.role,
+			"order": order_type,
+			"task_kind": task_kind,
+			"intent_decision": String((task_payload.get("intent", {}) as Dictionary).get("decision_type", "")),
+			"macro_state": String(task_payload.get("macro_state", "")),
+		})
+	if task_kind != "" and task_kind != order_type:
+		log_worker_event("pipeline_duplicate_decision_path_blocked", {
+			"npc_id": beh.member_id,
+			"group_id": beh.group_id,
+			"order": order_type,
+			"task_kind": task_kind,
+			"reason": "task_kind_mismatch",
+		})
+		return
 	if String(task_payload.get("kind", "")) == "assault_structure_target":
 		log_worker_event("structure_assault_pipeline_execution", {
 			"npc_id": beh.member_id,
