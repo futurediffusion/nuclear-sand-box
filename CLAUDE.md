@@ -1,36 +1,82 @@
-# CLAUDE.md
+# CLAUDE.md — Contributor Quickstart (current state)
 
-## Correr el proyecto
+This is the fast entrypoint for contributors. It is intentionally short.
+For full architecture authority, use `AGENTS.MD` + `docs/architecture/ownership/*`.
+
+## 1) Run the project
+
+- Open editor / run main scene:
+
+```bash
+godot --path .
+```
+
+- Run directly from CLI (main scene defined in `project.godot`):
 
 ```bash
 godot --path . scenes/main.tscn
+```
+
+- Lightweight script parse check:
+
+```bash
 godot --path . --check-only --script scripts/world/world.gd
 ```
 
-MCP bridge activo en `addons/mcp_bridge/` — usar `mcp__godot-mcp__*` cuando Godot esté abierto.
+## 2) Architecture boundaries (today)
 
-## Arquitectura
+### Composition & lifecycle root
+- `scripts/world/world.gd` is the runtime composition root and lifecycle orchestrator.
+- It wires systems, ticks orchestration lanes, and delegates gameplay commands.
+- It is **not** canonical truth for building rules, AI intent/tasking, or persistence payload design.
 
-Ver `AGENTS.MD` para visión completa. Resumen clave:
+### Canonical building / structure flow
+- Domain authority lives in `scripts/domain/building/*` (`BuildingCommands`, `BuildingSystem`, `BuildingState`, repository stack).
+- Structure contract is unified around `SandboxStructureContract` + `SandboxStructureRepository`.
+- Canonical path is: **command → domain change/event → projection refresh → snapshot persistence**.
 
-- `world.gd` — orquestador, delega a subsistemas via `setup(ctx: Dictionary)`
-- `ChunkPipeline` — generación, prefetch, terrain-paint, stage queues
-- `EntitySpawnCoordinator` — spawn jobs, ciclo de vida de entidades
-- `NpcSimulator` — tracking enemigos, lite-mode por distancia
-- `ChunkPerfMonitor` — timings, percentiles, auto-calibración
+### Explicit projections (read-models)
+- Building visuals: `scripts/projections/tilemap/BuildingTilemapProjection.gd`
+- Wall collision: `scripts/projections/collision/WallColliderProjection.gd`
+- Territory queries: `scripts/projections/territory/TerritoryProjection.gd`
+- Projections are rebuildable/derived; never promote projection/runtime cache data to canonical truth.
 
-**Inyección de dependencias:** subsistemas reciben callables y refs en `setup()`, nunca referencias directas a nodos.
+### Bandit AI pipeline
+- Stage ownership is explicit: **Perception → Intent → Task Planning → Execution**.
+- Core entrypoints:
+  - `scripts/domain/factions/BanditPerceptionSystem.gd`
+  - `scripts/domain/factions/BanditIntentSystem.gd`
+  - `scripts/domain/factions/BanditTaskPlanner.gd`
+  - Runtime execution layer in `scripts/world/BanditBehaviorLayer.gd` and related world behavior modules.
 
-**Persistencia:** `WorldSave` (autoload), UIDs deterministas via `UID.make_uid()`. Un chunk nunca respawnea entidades que ya tiene en `entities_spawned_chunks`.
+### Canonical snapshot persistence
+- World save/load is snapshot-based (`WorldSnapshot`, `ChunkSnapshot`) with explicit versioning/migrations.
+- Main entrypoints:
+  - `scripts/persistence/save/WorldSnapshotSerializer.gd`
+  - `scripts/persistence/save/WorldSnapshotVersioning.gd`
+  - `scripts/persistence/save/WorldSaveAdapter.gd`
+  - `scripts/systems/SaveManager.gd`
+- Legacy compatibility flows should remain one-way into canonical snapshot contracts.
 
-**Capas de colisión:** usar siempre `CollisionLayers.gd` — nunca números hardcodeados. `1=Player`, `2=Attacks`, `3=EnemyNCP`, `4=resources`, `5=WALLPROPS`.
+## 3) Primary files to read before modifying architecture
 
-**CharacterBase:** todo override de `_ready()` debe llamar `super._ready()` como primera línea.
+1. `scripts/world/world.gd` (orchestration boundary)
+2. `scripts/runtime/world/GameplayCommandDispatcher.gd` (gameplay command routing)
+3. `scripts/domain/building/*` (building authority)
+4. `scripts/projections/**/*Projection.gd` (derived read-models)
+5. `scripts/persistence/save/*Snapshot*.gd` + `WorldSaveAdapter.gd` (save contract)
+6. `docs/architecture/ownership/README.md` + subsystem constitutions
 
-## Agregar una entidad de mundo nueva
+## 4) What not to do
 
-1. Definir spawn en `ChunkGenerator` / `PropSpawner`
-2. Agregar rama `kind` en `EntitySpawnCoordinator.enqueue_entities()`
-3. Manejar `job_spawned` en `EntitySpawnCoordinator._on_job_spawned()`
-4. Si tiene estado persistente: `get_save_state()` + registrar en `chunk_saveables`
-5. Documentar en `AGENTS.MD`
+- Do **not** add new domain policy logic directly into `world.gd`.
+- Do **not** bypass domain owners by mutating canonical building/persistence dictionaries from random gameplay scripts.
+- Do **not** treat tilemaps, colliders, spatial indices, or other runtime caches as persistence truth.
+- Do **not** collapse Bandit stages into hidden one-module logic that mixes perception/intent/task/execution authority.
+- Do **not** introduce new legacy callable/setup bridges unless migration is blocked and deprecation is explicit.
+
+## 5) Deeper docs (current)
+
+- Current state reference: `AGENTS.MD`
+- Ownership boundaries: `docs/architecture/ownership/README.md`
+- Historical migration context: `REGISTRO_CAMBIOS_DESDE_AGENTS.md`
