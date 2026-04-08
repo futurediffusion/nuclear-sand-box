@@ -1,18 +1,18 @@
 # AGENTS.MD — Nuclear Sand Box (Estado actual)
 
-> Documento de referencia para contributors **hoy**. Prioriza arquitectura vigente y límites de ownership.
-> El detalle histórico vive fuera de este documento (`REGISTRO_CAMBIOS_DESDE_AGENTS.md`).
+> Guía operativa para contributors **hoy**.
+> Arquitectura vigente (fuente única): `docs/architecture/current_sandbox_architecture.md`.
+> Contexto histórico: `REGISTRO_CAMBIOS_DESDE_AGENTS.md`.
 
 ---
 
-## 1) Alcance y principios
+## 1) Alcance y referencia de arquitectura
 
-Este repo implementa un sandbox 2D por chunks en Godot 4.x con separación explícita entre:
+La arquitectura vigente del sandbox se define en:
 
-- **Dominio canónico** (decisiones y estado fuente de verdad).
-- **Persistencia canónica por snapshots**.
-- **Proyecciones/read-models derivables** (tilemaps, colliders, queries territoriales, índices).
-- **Runtime de ejecución** (aplica efectos en escena, movimiento, combate, audio/UI).
+- `docs/architecture/current_sandbox_architecture.md` (**fuente de verdad**)
+
+Este `AGENTS.MD` mantiene reglas operativas de colaboración y límites prácticos para cambios.
 
 Reglas operativas:
 
@@ -22,7 +22,7 @@ Reglas operativas:
 
 ---
 
-## 2) Arquitectura actual por ownership
+## 2) Resumen de ownership (sin reemplazar la fuente única)
 
 ### 2.1 Mundo y orquestación runtime
 
@@ -146,4 +146,5 @@ Para contexto histórico/migraciones de fases anteriores, usar:
 
 - `REGISTRO_CAMBIOS_DESDE_AGENTS.md`
 
-Este `AGENTS.MD` se mantiene deliberadamente como **referencia de arquitectura actual**, no como bitácora histórica.
+Este `AGENTS.MD` se mantiene deliberadamente como guía operativa.
+La referencia de arquitectura actual es `docs/architecture/current_sandbox_architecture.md`.

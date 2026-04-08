@@ -1,7 +1,8 @@
 # CLAUDE.md — Contributor Quickstart (current state)
 
 This is the fast entrypoint for contributors. It is intentionally short.
-For full architecture authority, use `AGENTS.MD` + `docs/architecture/ownership/*`.
+For architecture authority, use `docs/architecture/current_sandbox_architecture.md` (source of truth).
+Use `AGENTS.MD` as collaboration guardrails and `docs/architecture/ownership/*` as subsystem constitutions.
 
 ## 1) Run the project
 
@@ -77,6 +78,7 @@ godot --path . --check-only --script scripts/world/world.gd
 
 ## 5) Deeper docs (current)
 
-- Current state reference: `AGENTS.MD`
+- Current architecture source of truth: `docs/architecture/current_sandbox_architecture.md`
+- Collaboration quick rules: `AGENTS.MD`
 - Ownership boundaries: `docs/architecture/ownership/README.md`
 - Historical migration context: `REGISTRO_CAMBIOS_DESDE_AGENTS.md`
