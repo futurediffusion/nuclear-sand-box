@@ -364,12 +364,16 @@ func _accumulate_legacy_input_counter(event_name: String, payload: Dictionary) -
 		"events": 0,
 		"legacy_input_used": 0,
 		"legacy_driven": 0,
+		"canonical_pipeline": 0,
 	})
+	var planning_authority: String = String(payload.get("planning_authority", ""))
 	group_counter["events"] = int(group_counter.get("events", 0)) + 1
 	if bool(payload.get("legacy_input_used", false)):
 		group_counter["legacy_input_used"] = int(group_counter.get("legacy_input_used", 0)) + 1
 	if bool(payload.get("legacy_driven", false)):
 		group_counter["legacy_driven"] = int(group_counter.get("legacy_driven", 0)) + 1
+	if planning_authority == "canonical_pipeline":
+		group_counter["canonical_pipeline"] = int(group_counter.get("canonical_pipeline", 0)) + 1
 	_legacy_input_counter_by_group[group_id] = group_counter
 	var now: float = RunClock.now()
 	if now - _legacy_input_counter_window_started_at < 60.0:
@@ -2601,6 +2605,32 @@ func get_structure_dispatch_debug_snapshot() -> Dictionary:
 		"pending_dispatch_jobs": _pending_structure_dispatches.size(),
 		"scavenger_non_econ_orders": _debug_scavenger_non_econ_orders,
 		"legacy_input_counters_per_minute": _legacy_input_counter_by_group.duplicate(true),
+	}
+
+
+func get_pipeline_diagnostics_snapshot() -> Dictionary:
+	var authority_counters_by_group: Dictionary = _legacy_input_counter_by_group.duplicate(true)
+	var events_total: int = 0
+	var canonical_total: int = 0
+	var legacy_total: int = 0
+	var legacy_input_used_total: int = 0
+	for raw_group_id in authority_counters_by_group.keys():
+		var row: Dictionary = authority_counters_by_group.get(raw_group_id, {}) as Dictionary
+		events_total += int(row.get("events", 0))
+		canonical_total += int(row.get("canonical_pipeline", 0))
+		legacy_total += int(row.get("legacy_driven", 0))
+		legacy_input_used_total += int(row.get("legacy_input_used", 0))
+	return {
+		"authority": {
+			"events_total": events_total,
+			"canonical_pipeline_total": canonical_total,
+			"legacy_driven_total": legacy_total,
+			"legacy_input_used_total": legacy_input_used_total,
+			"by_group": authority_counters_by_group,
+		},
+		"dispatch": get_structure_dispatch_debug_snapshot(),
+		"perception": _perception_system.get_debug_snapshot() if _perception_system != null else {},
+		"group_brain": _group_brain.get_debug_snapshot() if _group_brain != null else {},
 	}
 
 

@@ -162,6 +162,7 @@ var _chunk_wall_collider_cache: ChunkWallColliderCache
 var _wall_refresh_queue: WallRefreshQueue
 var _cadence: WorldCadenceCoordinator
 var _world_sim_telemetry: WorldSimTelemetry
+var _sandbox_diagnostics: SandboxDiagnostics
 var _last_snapshot_rebuild_report: Dictionary = {
 	"calls": 0,
 	"warnings": [],
@@ -240,6 +241,7 @@ const ChunkWallColliderCacheScript := preload("res://scripts/world/ChunkWallColl
 const WallRefreshQueueScript := preload("res://scripts/world/WallRefreshQueue.gd")
 const WorldCadenceCoordinatorScript := preload("res://scripts/world/WorldCadenceCoordinator.gd")
 const WorldSimTelemetryScript := preload("res://scripts/world/WorldSimTelemetry.gd")
+const SandboxDiagnosticsScript := preload("res://scripts/world/SandboxDiagnostics.gd")
 const PlacementPerfTelemetryScript := preload("res://scripts/world/PlacementPerfTelemetry.gd")
 const DayNightControllerScript := preload("res://scripts/world/DayNightController.gd")
 const GameplayCommandDispatcherScript := preload("res://scripts/runtime/world/GameplayCommandDispatcher.gd")
@@ -887,6 +889,19 @@ func _ready() -> void:
 		"maintenance_snapshot_cb": Callable(self, "_get_world_maintenance_debug_snapshot"),
 		"npc_sim": npc_simulator,
 		"perf_monitor": _perf_monitor,
+	})
+	_sandbox_diagnostics = SandboxDiagnosticsScript.new()
+	_sandbox_diagnostics.setup({
+		"world": self,
+		"save_manager": SaveManager,
+		"sandbox_structure_repository": _sandbox_structure_repository,
+		"bandit_behavior_layer": _bandit_behavior_layer,
+		"player_wall_system": _player_wall_system,
+		"wall_collider_projection": _wall_collider_projection,
+		"territory_projection": _player_territory,
+		"spatial_index_projection": _spatial_index_projection,
+		"settlement_intel": _settlement_intel,
+		"snapshot_rebuild_report_cb": Callable(self, "get_snapshot_rebuild_report"),
 	})
 
 	# Wire SettlementIntel into BanditGroupIntel (must be after _settlement_intel is ready)
@@ -2518,7 +2533,14 @@ func get_debug_snapshot() -> Dictionary:
 	var snapshot: Dictionary = _world_sim_telemetry.get_debug_snapshot()
 	snapshot["day_night_cycle"] = _day_night_controller.get_debug_snapshot() if _day_night_controller != null else {}
 	snapshot["snapshot_rebuild_report"] = get_snapshot_rebuild_report()
+	snapshot["sandbox_diagnostics"] = get_world_diagnostics_snapshot()
 	return snapshot
+
+
+func get_world_diagnostics_snapshot() -> Dictionary:
+	if _sandbox_diagnostics == null:
+		return {}
+	return _sandbox_diagnostics.get_world_health_snapshot()
 
 
 func get_drop_pressure_snapshot() -> Dictionary:

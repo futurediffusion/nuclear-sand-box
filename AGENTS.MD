@@ -353,6 +353,17 @@ Rol:
 - Punto único para normalizar payloads y reportar ruta de migración aplicada (`migration_path`) + warnings de compatibilidad.
 - Observabilidad de salud de persistencia en `SaveManager` (`loaded_snapshot_version`, `snapshot_target_version`, `snapshot_migration_path`, `canonical_snapshot_path_used`).
 
+### 🩺 SANDBOX DIAGNOSTICS (World Health Aggregation)
+
+Ubicación:
+- `scripts/world/SandboxDiagnostics.gd`
+- `scripts/world/world.gd` (`get_world_diagnostics_snapshot`)
+
+Rol:
+- Capa de agregación read-only para observabilidad de salud del sandbox en una sola superficie.
+- Consolida telemetría existente (persistencia, proyecciones, pipeline de IA de bandidos, bridges de compatibilidad y conteos runtime de estructuras/chunks cargados).
+- No reemplaza fuentes locales de debug; las compone sin cambiar ownership ni flujos de gameplay.
+
 ### 🧱 WALL PERSISTENCE (Adapter)
 
 Ubicación:
