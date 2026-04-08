@@ -3,6 +3,8 @@ extends Node
 const SAVE_PATH: String = "user://savegame.json"
 const SAVE_VERSION: int = 1
 
+const WorldSaveAdapter := preload("res://scripts/persistence/save/WorldSaveAdapter.gd")
+
 var _world: Node = null
 var _pending_player_pos: Vector2 = Vector2.ZERO
 var _pending_player_inv: Array = []
@@ -42,11 +44,6 @@ func save_world() -> void:
 		"player_inv": _ser(player_inv),
 		"player_gold": player_gold,
 		"chunk_save": _ser(_world.chunk_save),
-		"worldsave_chunks": _ser(WorldSave.chunks),
-		"worldsave_enemy_state": _ser(WorldSave.enemy_state_by_chunk),
-		"worldsave_enemy_spawns": _ser(WorldSave.enemy_spawns_by_chunk),
-		"worldsave_global_flags": _ser(WorldSave.global_flags),
-		"worldsave_player_walls": _ser(WorldSave.player_walls_by_chunk),
 		"placed_entities_by_chunk": _ser(WorldSave.placed_entities_by_chunk),
 		"placed_entity_data_by_uid": _ser(WorldSave.placed_entity_data_by_uid),
 		"faction_system":       FactionSystem.serialize(),
@@ -58,6 +55,14 @@ func save_world() -> void:
 		"world_time":           WorldTime.get_save_data(),
 		"faction_hostility":    FactionHostilityManager.serialize(),
 	}
+
+	# Snapshot adapter bridge: canonical chunk snapshots -> current save payload.
+	data[WorldSaveAdapter.SNAPSHOT_STATE_KEY] = _ser(WorldSaveAdapter.capture_world_snapshot_state())
+
+	# Keep explicit compatibility with existing save storage sections.
+	var legacy_worldsave_payload: Dictionary = WorldSaveAdapter.export_legacy_worldsave_payload()
+	for key in legacy_worldsave_payload.keys():
+		data[String(key)] = _ser(legacy_worldsave_payload[key])
 
 	var json_str: String = JSON.stringify(data)
 	var file: FileAccess = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -100,26 +105,14 @@ func load_world_save() -> bool:
 	_pending_player_inv = _des(data.get("player_inv", []))
 	_pending_player_gold = int(data.get("player_gold", -1))
 
-	# Restore WorldSave state
-	var ws_chunks = _des(data.get("worldsave_chunks", {}))
-	if ws_chunks is Dictionary:
-		WorldSave.chunks = ws_chunks
+	# Restore WorldSave state through snapshot adapter first.
+	var deserialized_payload: Dictionary = {}
+	for key_raw in (data as Dictionary).keys():
+		deserialized_payload[String(key_raw)] = _des((data as Dictionary).get(key_raw))
 
-	var ws_enemy_state = _des(data.get("worldsave_enemy_state", {}))
-	if ws_enemy_state is Dictionary:
-		WorldSave.enemy_state_by_chunk = ws_enemy_state
-
-	var ws_enemy_spawns = _des(data.get("worldsave_enemy_spawns", {}))
-	if ws_enemy_spawns is Dictionary:
-		WorldSave.enemy_spawns_by_chunk = ws_enemy_spawns
-
-	var ws_global_flags = _des(data.get("worldsave_global_flags", {}))
-	if ws_global_flags is Dictionary:
-		WorldSave.global_flags = ws_global_flags
-
-	var ws_player_walls = _des(data.get("worldsave_player_walls", {}))
-	if ws_player_walls is Dictionary:
-		WorldSave.player_walls_by_chunk = ws_player_walls
+	var restored_from_snapshot: bool = WorldSaveAdapter.restore_world_snapshot_state(deserialized_payload)
+	if not restored_from_snapshot:
+		WorldSaveAdapter.restore_legacy_worldsave_payload(deserialized_payload)
 
 	# --- Migration / Loading of placed entities ---
 	WorldSave.clear_placed_entities()
