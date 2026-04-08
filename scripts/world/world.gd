@@ -2314,7 +2314,7 @@ func _collect_player_territory_projection_inputs() -> Dictionary:
 	var wb_anchors: Array = _collect_player_workbench_projection_anchors()
 	var bases: Array[Dictionary] = _settlement_intel.get_detected_bases_snapshot()
 	return {
-		"workbench_nodes": wb_anchors,
+		"workbench_anchors": wb_anchors,
 		"detected_bases": bases,
 		"source": "world_tick_player_territory_explicit_sources",
 	}
@@ -2323,8 +2323,21 @@ func _collect_player_workbench_projection_anchors() -> Array:
 	# Domain-first input: canonical placeables snapshot (via derived index cache).
 	if _world_spatial_index != null:
 		return _world_spatial_index.get_all_placeables_by_item_id("workbench")
-	# Compatibility bridge: runtime nodes are accepted if the projection cache is absent.
-	return get_tree().get_nodes_in_group("workbench")
+	# Compatibility bridge (persistence-safe): if runtime index cache is unavailable,
+	# read directly from canonical WorldSave placeable entries instead of scene nodes.
+	# This avoids promoting live scene groups as persistence truth.
+	var anchors: Array = []
+	for chunk_raw in WorldSave.placed_entities_by_chunk.values():
+		if not (chunk_raw is Dictionary):
+			continue
+		for entry_raw in (chunk_raw as Dictionary).values():
+			if not (entry_raw is Dictionary):
+				continue
+			var entry: Dictionary = entry_raw as Dictionary
+			if String(entry.get("item_id", "")).strip_edges() != "workbench":
+				continue
+			anchors.append(entry.duplicate(true))
+	return anchors
 
 func _request_player_territory_rebuild(_reason: String) -> void:
 	_player_territory_dirty = true

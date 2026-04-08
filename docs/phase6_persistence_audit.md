@@ -125,9 +125,20 @@ Reviewed primary files:
 
 These compatibility paths are acceptable during migration if explicitly marked transitional:
 - Legacy placed entities array fallback migration in `SaveManager.load_world_save()`.
-- Territory projection runtime fallback (`get_nodes_in_group("workbench")`) as non-authoritative backup.
+- Territory projection runtime-anchor fallback (`rebuild_from_runtime(...)`) as non-authoritative backup.
 - Existing `serialize()/deserialize()` subsystem contracts while wrapped into new snapshot envelope.
 - Scene-path based spawn reconstruction for existing content, provided canonical identity/state is separated first.
+
+### Remaining legacy persistence bridges (explicit)
+
+1. **SaveManager `chunk_save` payload bridge**
+   - Save payload still stores/restores `chunk_save` for compatibility with current chunk generation/resource pipelines.
+   - This is transitional and should not be expanded to include projection/runtime cache truth.
+
+2. **Territory projection runtime-anchor bridge**
+   - `TerritoryProjection.rebuild_from_runtime(...)` still accepts `Node2D` anchors.
+   - World territory input path now prefers canonical workbench anchors (`WorldSpatialIndex` projection or direct `WorldSave` entries) and avoids SceneTree group scanning as persistence input.
+   - Runtime-anchor reads are tracked in projection debug snapshot (`legacy_runtime_anchor_reads`) to support bridge retirement.
 
 ---
 
@@ -139,4 +150,3 @@ These compatibility paths are acceptable during migration if explicitly marked t
 4. Replace pre-save runtime scrape with canonical entity-state ownership updates (save becomes pure encode).
 5. Harden load to: decode snapshot -> apply canonical owners -> rebuild projections/runtime deterministically.
 6. Keep listed compatibility shims behind explicit “temporary bridge” markers until cutover.
-
