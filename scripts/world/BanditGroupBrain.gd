@@ -258,6 +258,20 @@ func _resolve_recompute_reason(previous_parts: Dictionary, current_parts: Dictio
 	return ""
 
 
+func get_debug_snapshot() -> Dictionary:
+	var cache_hit_rate: float = 0.0
+	if _cache_query_count > 0:
+		cache_hit_rate = float(_cache_hit_count) / float(_cache_query_count)
+	return {
+		"group_recompute_total": _group_recompute_total,
+		"group_recompute_reason_breakdown": _group_recompute_reason_breakdown.duplicate(true),
+		"cache_query_count": _cache_query_count,
+		"cache_hit_count": _cache_hit_count,
+		"cache_hit_rate": cache_hit_rate,
+		"task_planner": _task_planner.get_debug_snapshot() if _task_planner != null else {},
+	}
+
+
 func _has_active_scavenger_resource_work(members: Array) -> bool:
 	for raw in members:
 		if not (raw is Dictionary):
