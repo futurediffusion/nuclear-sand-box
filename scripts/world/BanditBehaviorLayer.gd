@@ -1052,6 +1052,7 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 		var status: Dictionary = blackboard.get("status", {}) as Dictionary
 		var canonical_intent_entry: Dictionary = status.get("canonical_intent_record", {}) as Dictionary
 		var canonical_intent: Dictionary = canonical_intent_entry.get("value", {}) as Dictionary
+		var has_canonical_intent: bool = _has_canonical_pipeline_intent(canonical_intent)
 		var perception: Dictionary = blackboard.get("perception", {})
 		var prioritized_drops_entry: Dictionary = perception.get("prioritized_drops", {})
 		var prioritized_resources_entry: Dictionary = perception.get("prioritized_resources", {})
@@ -1077,7 +1078,7 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 			"any_member_threatened": any_member_threatened,
 			"structure_assault_active": BanditGroupMemory.is_structure_assault_active(group_id),
 		}
-		if bool(group_ctx.get("structure_assault_active", false)) and _perception_system != null and _intent_system != null:
+		if bool(group_ctx.get("structure_assault_active", false)) and not has_canonical_intent and _perception_system != null and _intent_system != null:
 			var perception_snapshot: Dictionary = _perception_system.build_group_intent_perception({
 				"group_id": group_id,
 				"members": members,
@@ -1099,10 +1100,10 @@ func _compute_group_orders(members_by_group: Dictionary, leader_pos_by_group: Di
 				}
 			)
 			_intent_system.apply_group_intent_record(group_id, intent_record, {
-				"source": "structure_assault_pipeline",
+				"source": "structure_assault_pipeline_compatibility_bridge",
 			})
 			intent_record["pipeline_path"] = "Perception->Intent->Task->Execution"
-			intent_record["compatibility_bridge"] = "legacy_canonical_intent_fallback_for_non_assault"
+			intent_record["compatibility_bridge"] = "structure_assault_missing_canonical_intent"
 			canonical_intent = intent_record
 		group_ctx["canonical_intent"] = canonical_intent
 		var member_orders: Dictionary = _group_brain.assign_group_orders(group_id, members, group_ctx)
@@ -1130,14 +1131,16 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 	var structure_assault_active: bool = BanditGroupMemory.is_structure_assault_active(beh.group_id)
 	var structure_target_alive: bool = _group_has_live_structure_target(beh.group_id)
 	var structure_assault_sticky_member: bool = beh.role == "bodyguard" or beh.role == "leader"
+	var canonical_pipeline_active: bool = _group_has_canonical_pipeline_intent(beh.group_id)
 	var is_generic_override: bool = order_type == "follow_slot" \
 			or order_type == "move_to_target" \
 			or order_type == "attack_target"
-	if structure_assault_active and structure_assault_sticky_member and is_generic_override and structure_target_alive:
+	if structure_assault_active and structure_assault_sticky_member and is_generic_override and structure_target_alive and not canonical_pipeline_active:
 		log_worker_event("structure_assault_target_overwritten", {
 			"npc_id": beh.member_id,
 			"group_id": beh.group_id,
 			"overwritten_by_order": order_type,
+			"bridge": "legacy_structure_assault_order_block",
 		})
 		if order_type == "attack_target":
 			log_worker_event("ignored_generic_attack_during_structure_assault", {
@@ -1150,7 +1153,7 @@ func _apply_member_order(beh: BanditWorldBehavior, ctx: Dictionary, order: Dicti
 				"group_id": beh.group_id,
 			})
 		return
-	elif structure_assault_active and structure_assault_sticky_member and is_generic_override and not structure_target_alive:
+	elif structure_assault_active and structure_assault_sticky_member and is_generic_override and not structure_target_alive and not canonical_pipeline_active:
 		var recovered_target: bool = _try_member_structure_assault_retarget(
 			beh,
 			ctx,
@@ -1304,6 +1307,24 @@ func _try_member_structure_assault_retarget(beh: BanditWorldBehavior, ctx: Dicti
 		"reason": reason,
 	})
 	return true
+
+
+func _has_canonical_pipeline_intent(intent_record: Dictionary) -> bool:
+	if intent_record.is_empty():
+		return false
+	if String(intent_record.get("kind", "")) != "group_intent_decision":
+		return false
+	return not String(intent_record.get("decision_type", "")).is_empty()
+
+
+func _group_has_canonical_pipeline_intent(group_id: String) -> bool:
+	if group_id == "":
+		return false
+	var blackboard: Dictionary = BanditGroupMemory.bb_get(group_id)
+	var status: Dictionary = blackboard.get("status", {}) as Dictionary
+	var canonical_intent_entry: Dictionary = status.get("canonical_intent_record", {}) as Dictionary
+	var canonical_intent: Dictionary = canonical_intent_entry.get("value", {}) as Dictionary
+	return _has_canonical_pipeline_intent(canonical_intent)
 
 
 func _resolve_member_simulation_profile_decision(
