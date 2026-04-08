@@ -898,6 +898,8 @@ func _ready() -> void:
 		})
 
 	await update_chunks(current_player_chunk)
+	if _had_save:
+		_rebuild_explicit_projections_after_snapshot_load()
 
 
 func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
@@ -916,6 +918,28 @@ func _on_chunk_stage_completed(chunk_pos: Vector2i, stage: String) -> void:
 func _on_spawn_job_completed(job: Dictionary, node: Node) -> void:
 	if String(job.get("kind", "")) == "npc_keeper":
 		_wire_keeper_incident_reporter()  # incluye _register_tavern_containers()
+
+func _rebuild_explicit_projections_after_snapshot_load() -> void:
+	# Keep projection rebuild order explicit after canonical save state restore:
+	#  1) tilemap projection (loaded chunks only, visual runtime representation)
+	#  2) wall collider projection (loaded chunks only, runtime collision invalidation)
+	#  3) spatial index projection (full canonical placeables rebuild)
+	#  4) territory projection (derived from rebuilt read models + settlement scan snapshot)
+	var loaded_structure_snapshot: Array[Dictionary] = []
+	if _building_repository != null:
+		for chunk_pos_raw in loaded_chunks.keys():
+			if chunk_pos_raw is Vector2i:
+				loaded_structure_snapshot.append_array(
+					_building_repository.load_structures_in_chunk(chunk_pos_raw as Vector2i)
+				)
+	if _building_tilemap_projection != null and not loaded_structure_snapshot.is_empty():
+		_building_tilemap_projection.apply_snapshot(loaded_structure_snapshot)
+	if _wall_collider_projection != null and not loaded_structure_snapshot.is_empty():
+		_wall_collider_projection.rebuild_from_state(loaded_structure_snapshot)
+	if _spatial_index_projection != null:
+		_spatial_index_projection.rebuild_from_source("snapshot_load")
+	_request_player_territory_rebuild("snapshot_load")
+	_tick_player_territory()
 
 func _clear_chunk_wall_runtime_cache() -> void:
 	if _chunk_wall_collider_cache != null:
