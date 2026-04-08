@@ -7,6 +7,9 @@ const WorldSaveAdapter := preload("res://scripts/persistence/save/WorldSaveAdapt
 const WorldSnapshotSerializer := preload("res://scripts/persistence/save/WorldSnapshotSerializer.gd")
 const WorldSnapshot := preload("res://scripts/core/WorldSnapshot.gd")
 
+# Persistence ownership boundary:
+# - canonical truth lives in snapshot/canonical owners, not runtime projections.
+# - see docs/architecture/ownership/persistence.md
 var _world: Node = null
 var _pending_player_pos: Vector2 = Vector2.ZERO
 var _pending_player_inv: Array = []

@@ -4,6 +4,7 @@ class_name GameplayCommandDispatcher
 ## Command routing contract:
 ## - World receives gameplay-facing commands and forwards them to this dispatcher.
 ## - This dispatcher does no scene orchestration; it routes to specialized systems.
+## - Ownership constitution reference: docs/architecture/ownership/*.md
 ## - Current routed commands:
 ##   * Player walls: can_place/place/damage/hit/remove.
 ##   * Settlement intel writes: record_interest_event, rescan_workbench_markers, mark_interest_scan_dirty.
@@ -19,6 +20,7 @@ var _tavern_director: TavernSanctionDirector
 var _register_drop_compaction_hotspot: Callable = Callable()
 var _mark_player_territory_dirty: Callable = Callable()
 var _find_nearest_player: Callable = Callable()
+var _missing_owner_warned: Dictionary = {}
 
 func setup(ctx: Dictionary) -> void:
 	_player_wall_system = ctx.get("player_wall_system", null) as PlayerWallSystem
@@ -35,6 +37,8 @@ func can_place_player_wall_at_tile(tile_pos: Vector2i) -> bool:
 	return _player_wall_system != null and _player_wall_system.can_place_player_wall_at_tile(tile_pos)
 
 func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> bool:
+	if _player_wall_system == null:
+		_warn_missing_owner("player_wall_system")
 	return _player_wall_system != null and _player_wall_system.place_player_wall_at_tile(tile_pos, hp_override)
 
 func damage_player_wall_from_contact(hit_pos: Vector2, hit_normal: Vector2, amount: int = 1) -> bool:
@@ -59,6 +63,10 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 	return _player_wall_system != null and _player_wall_system.remove_player_wall_at_tile(tile_pos, drop_item)
 
 func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionary = {}) -> void:
+	if _settlement_intel == null:
+		_warn_missing_owner("settlement_intel")
+	if _world_territory_policy == null:
+		_warn_missing_owner("world_territory_policy")
 	if _settlement_intel != null:
 		_settlement_intel.record_interest_event(kind, world_pos, metadata)
 	if _world_territory_policy != null:
@@ -72,17 +80,22 @@ func record_interest_event(kind: String, world_pos: Vector2, metadata: Dictionar
 		_mark_player_territory_dirty.call()
 
 func rescan_workbench_markers() -> void:
+	if _settlement_intel == null:
+		_warn_missing_owner("settlement_intel")
 	if _settlement_intel != null:
 		_settlement_intel.rescan_workbench_markers()
 	if _mark_player_territory_dirty.is_valid():
 		_mark_player_territory_dirty.call()
 
 func mark_interest_scan_dirty() -> void:
+	if _settlement_intel == null:
+		_warn_missing_owner("settlement_intel")
 	if _settlement_intel != null:
 		_settlement_intel.mark_interest_scan_dirty()
 
 func report_tavern_incident(incident_type: String, payload: Dictionary = {}) -> void:
 	if _tavern_memory == null or _tavern_policy == null or _tavern_director == null:
+		_warn_missing_owner("tavern_authority_pipeline")
 		return
 	var incident := _build_tavern_incident(incident_type, payload)
 	if incident == null:
@@ -188,3 +201,9 @@ func _build_tavern_incident(incident_type: String, payload: Dictionary) -> Local
 		incident_type,
 		{}
 	)
+
+func _warn_missing_owner(owner_key: String) -> void:
+	if _missing_owner_warned.get(owner_key, false):
+		return
+	_missing_owner_warned[owner_key] = true
+	push_warning("GameplayCommandDispatcher: missing owner '%s' for routed command write path." % owner_key)
