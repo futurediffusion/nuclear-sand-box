@@ -28,6 +28,7 @@ var _get_tavern_center_tile: Callable = Callable()
 var _react_to_bandit_territory_intrusion: Callable = Callable()
 var _local_social_ports: LocalSocialAuthorityPorts = null
 var _territory_intrusion_cooldown: Dictionary = {}
+var _legacy_intrusion_reaction_callback_missing_uses: int = 0
 
 func setup(ctx: Dictionary) -> void:
 	_tile_to_world = ctx.get("tile_to_world", Callable())
@@ -115,3 +116,24 @@ func record_interest_event(kind: String, world_pos: Vector2) -> void:
 		return
 	if _react_to_bandit_territory_intrusion.is_valid():
 		_react_to_bandit_territory_intrusion.call(reacted_group, world_pos, kind)
+		return
+	_register_legacy_bridge_usage(
+		"world_territory_policy.intrusion_reaction_callback_missing",
+		"Bandit intrusion reaction callback missing; hostility applied without behavior reaction."
+	)
+
+func get_debug_snapshot() -> Dictionary:
+	return {
+		"legacy_intrusion_reaction_callback_missing_uses": _legacy_intrusion_reaction_callback_missing_uses,
+	}
+
+func _register_legacy_bridge_usage(bridge_id: String, details: String) -> void:
+	_legacy_intrusion_reaction_callback_missing_uses += 1
+	Debug.log("compat", "[DEPRECATED_BRIDGE][%s] %s count=%d" % [
+		bridge_id,
+		details,
+		_legacy_intrusion_reaction_callback_missing_uses,
+	])
+	push_warning("[WorldTerritoryPolicy] Deprecated compatibility bridge used: %s" % bridge_id)
+	if OS.is_debug_build():
+		assert(false, "[WorldTerritoryPolicy] Deprecated compatibility bridge used: %s — %s" % [bridge_id, details])

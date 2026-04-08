@@ -28,7 +28,7 @@ func run() -> void:
 	print("[PHASE4] Running explicit projections regression harness...")
 	_reset_worldsave_placeables()
 	_test_spatial_index_rebuild_and_resync()
-	_test_wall_collider_projection_refresh_and_chunk_dirty_fallback()
+	_test_wall_collider_projection_refresh_contract()
 	_test_territory_projection_rebuild_contract()
 	print("[PHASE4] PASS: spatial/wall/territory projection contracts remain stable")
 	quit(0)
@@ -59,7 +59,7 @@ func _test_spatial_index_rebuild_and_resync() -> void:
 		"spatial projection should expose sync observability snapshot")
 
 
-func _test_wall_collider_projection_refresh_and_chunk_dirty_fallback() -> void:
+func _test_wall_collider_projection_refresh_contract() -> void:
 	var refresh_port := FakeProjectionRefreshPort.new()
 	var dirty_port := FakeChunkDirtyNotifierPort.new()
 	var touched_base_scan_world_pos := Vector2.INF
@@ -89,29 +89,8 @@ func _test_wall_collider_projection_refresh_and_chunk_dirty_fallback() -> void:
 	var wall_snapshot: Dictionary = projection.get_debug_snapshot()
 	assert(int(wall_snapshot.get("last_scope_tile_count", 0)) > 0,
 		"wall projection should expose scope size observability")
-
-	# fallback mode without projection refresh port still must produce chunk dirty invalidation
-	var fallback_projection: WallColliderProjection = WallColliderProjectionScript.new()
-	fallback_projection.setup({
-		"chunk_dirty_notifier_port": dirty_port,
-		"loaded_chunks": loaded_chunks,
-		"tile_to_chunk": func(tile: Vector2i) -> Vector2i: return Vector2i(int(floor(float(tile.x) / 32.0)), int(floor(float(tile.y) / 32.0))),
-		"wall_reconnect_offsets": [Vector2i.ZERO],
-	})
-	fallback_projection.apply_change_set([{
-		"action": "placed",
-		"before": {},
-		"after": {
-			"kind": "player_wall",
-			"tile_pos": Vector2i(15, 15),
-			"metadata": {"is_player_wall": true},
-		}
-	}])
-	assert(dirty_port.dirty_calls.size() >= 1,
-		"wall projection fallback should invalidate chunk colliders when refresh port is absent")
-	var fallback_snapshot: Dictionary = fallback_projection.get_debug_snapshot()
-	assert(bool(fallback_snapshot.get("uses_projection_refresh_port", true)) == false,
-		"wall projection snapshot should report fallback wiring")
+	assert(int(wall_snapshot.get("legacy_chunk_dirty_fallback_uses", -1)) == 0,
+		"wall projection should not use deprecated chunk-dirty fallback bridges")
 
 
 func _test_territory_projection_rebuild_contract() -> void:

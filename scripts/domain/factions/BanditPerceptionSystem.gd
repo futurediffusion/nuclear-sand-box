@@ -11,6 +11,8 @@ var _find_storage_cb: Callable = Callable()
 var _find_placeable_cb: Callable = Callable()
 var _log_worker_event_cb: Callable = Callable()
 var _work_coordinator: Node = null
+var _legacy_resource_sticky_fallback_uses: int = 0
+var _legacy_group_blackboard_perception_bridge_uses: int = 0
 
 
 func setup(ctx: Dictionary) -> void:
@@ -108,6 +110,10 @@ func fill_res_info_buffer(beh: BanditWorldBehavior, node_pos: Vector2,
 						already_present = true
 						break
 				if not already_present:
+					_register_legacy_bridge_usage(
+						"bandit_perception.resource_sticky_fallback",
+						"world resource scan injected sticky runtime node fallback."
+					)
 					resources_source.append(sticky_node)
 					if _log_worker_event_cb.is_valid():
 						_log_worker_event_cb.call("resource_fallback_applied", {
@@ -143,6 +149,10 @@ func fill_res_info_buffer(beh: BanditWorldBehavior, node_pos: Vector2,
 
 func fill_from_group_blackboard(group_id: String, node_pos: Vector2,
 		drops_out: Array[Dictionary], resources_out: Array[Dictionary]) -> bool:
+	_register_legacy_bridge_usage(
+		"bandit_perception.group_blackboard_perception",
+		"Legacy blackboard-driven perception bridge invoked."
+	)
 	if group_id == "":
 		return false
 	var prioritized_drops: Array = BanditGroupMemory.bb_get_prioritized_drops(group_id)
@@ -293,9 +303,26 @@ func build_group_intent_perception(input: Dictionary) -> Dictionary:
 		"structure_assault_active": structure_assault_active,
 		"trace": {
 			"path": "BanditPerceptionSystem.build_group_intent_perception",
-			"compatibility_bridge": "group_blackboard_perception_fallback",
+			"compatibility_bridge": "group_blackboard_perception_deprecated",
 		},
 	}
+
+func get_debug_snapshot() -> Dictionary:
+	return {
+		"legacy_resource_sticky_fallback_uses": _legacy_resource_sticky_fallback_uses,
+		"legacy_group_blackboard_perception_bridge_uses": _legacy_group_blackboard_perception_bridge_uses,
+	}
+
+func _register_legacy_bridge_usage(bridge_id: String, details: String) -> void:
+	match bridge_id:
+		"bandit_perception.resource_sticky_fallback":
+			_legacy_resource_sticky_fallback_uses += 1
+		"bandit_perception.group_blackboard_perception":
+			_legacy_group_blackboard_perception_bridge_uses += 1
+	Debug.log("compat", "[DEPRECATED_BRIDGE][%s] %s" % [bridge_id, details])
+	push_warning("[BanditPerceptionSystem] Deprecated compatibility bridge used: %s" % bridge_id)
+	if OS.is_debug_build():
+		assert(false, "[BanditPerceptionSystem] Deprecated compatibility bridge used: %s — %s" % [bridge_id, details])
 
 
 func _build_player_presence(node_pos: Vector2) -> Dictionary:

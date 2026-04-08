@@ -24,6 +24,7 @@ const ORDER_KIND_ALLOWLIST := {
 	ORDER_ASSAULT_STRUCTURE_TARGET: true,
 	ORDER_ATTACK_TARGET: true,
 }
+var _legacy_proposed_order_bridge_uses: int = 0
 
 
 func plan_member_task(canonical_intent: Dictionary, member_ctx: Dictionary, proposed_order: Dictionary) -> Dictionary:
@@ -53,7 +54,7 @@ func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionar
 	var decision_type: String = String(intent_record.get("decision_type", BanditIntentSystemScript.DECISION_CONTINUE_WORK))
 	var role: String = String(member_ctx.get("role", "scavenger"))
 	planning_trace["decision_type"] = decision_type
-	planning_trace["authority"] = "legacy_proposed_order"
+	planning_trace["authority"] = "proposed_order_fallback_bridge"
 	planning_trace["flow"] = "continue_current_work"
 	match decision_type:
 		BanditIntentSystemScript.DECISION_RETURN_HOME:
@@ -66,6 +67,10 @@ func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionar
 			var assault_target: Vector2 = _resolve_target_pos(member_ctx, proposed_order)
 			if (role == "leader" or role == "bodyguard") and assault_target != Vector2.ZERO:
 				return {"order": ORDER_ASSAULT_STRUCTURE_TARGET, "target_pos": assault_target}
+			_register_legacy_bridge_usage(
+				"bandit_task_planner.proposed_order_fallback",
+				"structure_assault decision could not resolve canonical assault task; falling back to proposed_order."
+			)
 			return proposed_order
 		BanditIntentSystemScript.DECISION_PURSUE_TARGET, BanditIntentSystemScript.DECISION_REACT_THREAT:
 			planning_trace["authority"] = "canonical_pipeline"
@@ -79,6 +84,10 @@ func _resolve_order_from_intent(intent_record: Dictionary, member_ctx: Dictionar
 			planning_trace["flow"] = "loot_resource_interest"
 			return _plan_canonical_loot_order(member_ctx, role)
 		_:
+			_register_legacy_bridge_usage(
+				"bandit_task_planner.proposed_order_fallback",
+				"decision_type has no canonical mapping; falling back to proposed_order."
+			)
 			return proposed_order
 
 
@@ -139,7 +148,7 @@ func _build_task_payload(order_data: Dictionary, intent_record: Dictionary, memb
 			"decision_type": String(intent_record.get("decision_type", BanditIntentSystemScript.DECISION_CONTINUE_WORK)),
 		},
 		"planning_trace": {
-			"authority": String(planning_trace.get("authority", "legacy_proposed_order")),
+			"authority": String(planning_trace.get("authority", "proposed_order_fallback_bridge")),
 			"flow": String(planning_trace.get("flow", "continue_current_work")),
 		},
 	}
@@ -169,3 +178,19 @@ func _resolve_target_pos(member_ctx: Dictionary, order_data: Dictionary) -> Vect
 func _is_order_allowed(order_data: Dictionary) -> bool:
 	var order_type: String = String(order_data.get("order", ""))
 	return ORDER_KIND_ALLOWLIST.has(order_type)
+
+func get_debug_snapshot() -> Dictionary:
+	return {
+		"legacy_proposed_order_bridge_uses": _legacy_proposed_order_bridge_uses,
+	}
+
+func _register_legacy_bridge_usage(bridge_id: String, details: String) -> void:
+	_legacy_proposed_order_bridge_uses += 1
+	Debug.log("compat", "[DEPRECATED_BRIDGE][%s] %s count=%d" % [
+		bridge_id,
+		details,
+		_legacy_proposed_order_bridge_uses,
+	])
+	push_warning("[BanditTaskPlanner] Deprecated compatibility bridge used: %s" % bridge_id)
+	if OS.is_debug_build():
+		assert(false, "[BanditTaskPlanner] Deprecated compatibility bridge used: %s — %s" % [bridge_id, details])

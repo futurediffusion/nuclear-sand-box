@@ -102,6 +102,9 @@ func load_world_save() -> bool:
 	if deserialized_payload.has("snapshot_version"):
 		world_snapshot = WorldSnapshotSerializer.deserialize(deserialized_payload)
 	else:
+		# Explicitly opt into the legacy migration bridge in this one bounded
+		# load path so debug assertions can still fail on unexpected callers.
+		deserialized_payload[WorldSaveAdapter.LEGACY_MIGRATION_ALLOW_KEY] = true
 		var migration_result: Dictionary = WorldSaveAdapter.migrate_legacy_payload_to_world_snapshot(deserialized_payload)
 		var snapshot_raw: Variant = migration_result.get("snapshot", null)
 		if snapshot_raw is WorldSnapshot:

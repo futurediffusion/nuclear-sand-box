@@ -69,6 +69,10 @@ var wall_reconnect_offsets: Array[Vector2i] = []
 var coordinate_transform_port: WorldCoordinateTransformContract
 var chunk_dirty_notifier_port: WorldChunkDirtyNotifierContract
 var projection_refresh_port: WorldProjectionRefreshContract
+var _legacy_bridge_coordinate_transform_adapter_uses: int = 0
+var _legacy_bridge_chunk_dirty_adapter_uses: int = 0
+var _legacy_bridge_projection_refresh_adapter_uses: int = 0
+var _legacy_bridge_audio_config_uses: int = 0
 
 var owner: Node
 var feedback: WallFeedback
@@ -120,6 +124,11 @@ func setup(ctx: Dictionary) -> void:
 
 	coordinate_transform_port = ctx.get("coordinate_transform_port")
 	if coordinate_transform_port == null:
+		_register_legacy_bridge_usage(
+			"player_wall.coordinate_transform_callable_adapter",
+			"Missing `coordinate_transform_port`; deprecated callable adapter bridge activated."
+		)
+		_legacy_bridge_coordinate_transform_adapter_uses += 1
 		var legacy_transform_port: WorldCoordinateTransformCallableAdapter = WorldCoordinateTransformCallableAdapterScript.new()
 		legacy_transform_port.setup({
 			"world_to_tile": ctx.get("world_to_tile", Callable()),
@@ -129,6 +138,11 @@ func setup(ctx: Dictionary) -> void:
 		coordinate_transform_port = legacy_transform_port
 	chunk_dirty_notifier_port = ctx.get("chunk_dirty_notifier_port")
 	if chunk_dirty_notifier_port == null:
+		_register_legacy_bridge_usage(
+			"player_wall.chunk_dirty_callable_adapter",
+			"Missing `chunk_dirty_notifier_port`; deprecated callable adapter bridge activated."
+		)
+		_legacy_bridge_chunk_dirty_adapter_uses += 1
 		var legacy_chunk_dirty_notifier: WorldChunkDirtyNotifierCallableAdapter = WorldChunkDirtyNotifierCallableAdapterScript.new()
 		legacy_chunk_dirty_notifier.setup({
 			"mark_chunk_walls_dirty": ctx.get("mark_chunk_walls_dirty", Callable()),
@@ -136,6 +150,11 @@ func setup(ctx: Dictionary) -> void:
 		chunk_dirty_notifier_port = legacy_chunk_dirty_notifier
 	projection_refresh_port = ctx.get("projection_refresh_port")
 	if projection_refresh_port == null:
+		_register_legacy_bridge_usage(
+			"player_wall.projection_refresh_callable_adapter",
+			"Missing `projection_refresh_port`; deprecated callable adapter bridge activated."
+		)
+		_legacy_bridge_projection_refresh_adapter_uses += 1
 		var legacy_projection_refresh: WorldProjectionRefreshCallableAdapter = WorldProjectionRefreshCallableAdapterScript.new()
 		legacy_projection_refresh.setup({
 			"mark_chunk_walls_dirty_and_refresh_for_tiles": ctx.get("mark_chunk_walls_dirty_and_refresh_for_tiles", Callable()),
@@ -213,10 +232,34 @@ func setup(ctx: Dictionary) -> void:
 
 	var legacy_audio_config: Dictionary = {}
 	if ctx.has("player_wall_hit_sounds"):
+		_register_legacy_bridge_usage(
+			"player_wall.audio_config_flattened_fields",
+			"Deprecated audio config fields in setup context: use `configure_audio({...})` contract."
+		)
+		_legacy_bridge_audio_config_uses += 1
 		legacy_audio_config["player_wall_hit_sounds"] = ctx.get("player_wall_hit_sounds")
 	if ctx.has("player_wall_hit_volume_db"):
+		_register_legacy_bridge_usage(
+			"player_wall.audio_config_flattened_fields",
+			"Deprecated audio config fields in setup context: use `configure_audio({...})` contract."
+		)
+		_legacy_bridge_audio_config_uses += 1
 		legacy_audio_config["player_wall_hit_volume_db"] = ctx.get("player_wall_hit_volume_db")
 	configure_audio(legacy_audio_config)
+
+func get_compat_bridge_snapshot() -> Dictionary:
+	return {
+		"legacy_bridge_coordinate_transform_adapter_uses": _legacy_bridge_coordinate_transform_adapter_uses,
+		"legacy_bridge_chunk_dirty_adapter_uses": _legacy_bridge_chunk_dirty_adapter_uses,
+		"legacy_bridge_projection_refresh_adapter_uses": _legacy_bridge_projection_refresh_adapter_uses,
+		"legacy_bridge_audio_config_uses": _legacy_bridge_audio_config_uses,
+	}
+
+func _register_legacy_bridge_usage(bridge_id: String, details: String) -> void:
+	Debug.log("compat", "[DEPRECATED_BRIDGE][%s] %s" % [bridge_id, details])
+	push_warning("[PlayerWallSystem] Deprecated compatibility bridge used: %s" % bridge_id)
+	if OS.is_debug_build():
+		assert(false, "[PlayerWallSystem] Deprecated compatibility bridge used: %s — %s" % [bridge_id, details])
 
 func configure_audio(config: Dictionary = {}) -> void:
 	var resolved_sounds: Array[AudioStream] = _to_valid_sound_pool(DEFAULT_PLAYER_WALL_HIT_SOUNDS)
