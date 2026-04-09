@@ -109,7 +109,7 @@ func get_debug_snapshot() -> Dictionary:
 		}
 	var cadence_snapshot: Dictionary = _cadence.get_debug_snapshot() if _cadence != null else {}
 	var bandit_snapshot: Dictionary = _bandit_behavior_layer.get_lod_debug_snapshot() if _bandit_behavior_layer != null else {}
-	var spatial_snapshot: Dictionary = _world_spatial_index.get_debug_snapshot() if _world_spatial_index != null else {}
+	var spatial_snapshot: Dictionary = _world_spatial_index.get_runtime_observability_snapshot() if _world_spatial_index != null else {}
 	var maintenance_snapshot: Dictionary = _maintenance_snapshot_cb.call() if _maintenance_snapshot_cb.is_valid() else {}
 	if not cadence_snapshot.is_empty():
 		cadence_snapshot["activity_summary"] = _summarize_lane_activity(cadence_snapshot.get("lanes", {}))

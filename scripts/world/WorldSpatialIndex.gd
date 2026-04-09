@@ -173,6 +173,10 @@ func _record_drop_query_metrics(kind: StringName, query_ctx: Dictionary, candida
 
 
 func get_all_runtime_nodes(kind: StringName) -> Array:
+	# DEBUG / ADMIN ONLY (not hot-path safe):
+	# - Walks every bucket for the kind.
+	# - Performs stale cleanup side-effects while traversing.
+	# Prefer chunk/radius/count based helpers for runtime gameplay logic.
 	var result: Array = []
 	var by_chunk: Dictionary = _runtime_nodes_by_kind.get(kind, {})
 	for chunk_key in by_chunk.keys():
@@ -504,20 +508,18 @@ func _ensure_placeables_cache() -> void:
 		_placeables_projection.ensure_synced()
 
 
-func get_debug_snapshot() -> Dictionary:
+## Hot-path safe runtime counters.
+## - No full runtime scans.
+## - No persistent projection sync.
+## - No item-id full counts.
+## Safe for frequent telemetry/overlay sampling.
+func get_runtime_observability_snapshot() -> Dictionary:
 	var runtime_counts := {
 		"item_drop": get_runtime_node_count(KIND_ITEM_DROP),
 		"world_resource": get_runtime_node_count(KIND_WORLD_RESOURCE),
 		"workbench": get_runtime_node_count(KIND_WORKBENCH),
 		"storage": get_runtime_node_count(KIND_STORAGE),
 	}
-	_ensure_placeables_cache()
-	var persistent_counts: Dictionary = {}
-	for item_id in ["workbench", "doorwood", "chest", "barrel"]:
-		persistent_counts[item_id] = get_all_placeables_by_item_id(item_id).size()
-	var total_runtime: int = 0
-	for count in runtime_counts.values():
-		total_runtime += int(count)
 	var pickup_queries_per_pulse: int = _drop_queries_in_pulse
 	var drop_candidates_total: int = _drop_candidates_total_in_pulse
 	if _drop_query_pulse_id >= 0 and _drop_queries_in_pulse <= 0 and _last_drop_queries_per_pulse > 0:
@@ -526,6 +528,43 @@ func get_debug_snapshot() -> Dictionary:
 	var avg_drop_candidates_per_query: float = 0.0
 	if pickup_queries_per_pulse > 0:
 		avg_drop_candidates_per_query = float(drop_candidates_total) / float(pickup_queries_per_pulse)
+	var projection_snapshot: Dictionary = _placeables_projection.get_debug_snapshot() if _placeables_projection != null else {}
+	return {
+		"runtime_counts": runtime_counts,
+		"query_total": _queries_total,
+		"query_hit_rate": float(_queries_with_hits) / float(maxi(_queries_total, 1)),
+		"chunk_query_calls": _chunk_query_calls,
+		"chunk_query_avg_usec": float(_chunk_query_time_usec_total) / float(maxi(_chunk_query_calls, 1)),
+		"nearest_query_calls": _nearest_query_calls,
+		"nearest_candidates_avg": float(_nearest_candidates_evaluated_total) / float(maxi(_nearest_query_calls, 1)),
+		"drop_queries": {
+			"pulse_id": _drop_query_pulse_id,
+			"pickup_queries_per_pulse": pickup_queries_per_pulse,
+			"average_drop_candidates_per_query": avg_drop_candidates_per_query,
+		},
+		"persistent_cache_revision": projection_snapshot.get("persistent_cache_revision", -1),
+		"persistent_change_serial": projection_snapshot.get("persistent_change_serial", 0),
+		"persistent_sync_pending": projection_snapshot.get("persistent_sync_pending", true),
+		"pending_changed_chunks": projection_snapshot.get("pending_changed_chunks", 0),
+		"pending_changed_item_ids": projection_snapshot.get("pending_changed_item_ids", 0),
+		"projection_last_sync_reason": projection_snapshot.get("last_sync_reason", ""),
+	}
+
+
+## DEBUG / ADMIN ONLY (not hot-path safe):
+## - Forces ensure_placeables_cache() sync.
+## - Computes full persistent counts by item-id.
+## Use get_runtime_observability_snapshot() for frequent runtime polling.
+func get_debug_snapshot() -> Dictionary:
+	var runtime_snapshot: Dictionary = get_runtime_observability_snapshot()
+	var runtime_counts: Dictionary = runtime_snapshot.get("runtime_counts", {})
+	_ensure_placeables_cache()
+	var persistent_counts: Dictionary = {}
+	for item_id in ["workbench", "doorwood", "chest", "barrel"]:
+		persistent_counts[item_id] = get_all_placeables_by_item_id(item_id).size()
+	var total_runtime: int = 0
+	for count in runtime_counts.values():
+		total_runtime += int(count)
 	var projection_snapshot: Dictionary = _placeables_projection.get_debug_snapshot() if _placeables_projection != null else {}
 	return {
 		"alive": total_runtime > 0 or int(projection_snapshot.get("persistent_cache_uid_count", 0)) > 0,
@@ -545,17 +584,13 @@ func get_debug_snapshot() -> Dictionary:
 		"event_driven_invalidation_hits": projection_snapshot.get("event_driven_invalidation_hits", 0),
 		"revision_poll_invalidations": projection_snapshot.get("revision_poll_invalidations", 0),
 		"projection_last_sync_reason": projection_snapshot.get("last_sync_reason", ""),
-		"query_total": _queries_total,
-		"query_hit_rate": float(_queries_with_hits) / float(maxi(_queries_total, 1)),
-		"chunk_query_calls": _chunk_query_calls,
-		"chunk_query_avg_usec": float(_chunk_query_time_usec_total) / float(maxi(_chunk_query_calls, 1)),
-		"nearest_query_calls": _nearest_query_calls,
-		"nearest_candidates_avg": float(_nearest_candidates_evaluated_total) / float(maxi(_nearest_query_calls, 1)),
-		"drop_queries": {
-			"pulse_id": _drop_query_pulse_id,
-			"pickup_queries_per_pulse": pickup_queries_per_pulse,
-			"average_drop_candidates_per_query": avg_drop_candidates_per_query,
-		},
+		"query_total": runtime_snapshot.get("query_total", 0),
+		"query_hit_rate": runtime_snapshot.get("query_hit_rate", 0.0),
+		"chunk_query_calls": runtime_snapshot.get("chunk_query_calls", 0),
+		"chunk_query_avg_usec": runtime_snapshot.get("chunk_query_avg_usec", 0.0),
+		"nearest_query_calls": runtime_snapshot.get("nearest_query_calls", 0),
+		"nearest_candidates_avg": runtime_snapshot.get("nearest_candidates_avg", 0.0),
+		"drop_queries": runtime_snapshot.get("drop_queries", {}),
 		"worldsave_chunk_key_codec": WorldSave.get_chunk_key_codec_metrics(),
 	}
 
