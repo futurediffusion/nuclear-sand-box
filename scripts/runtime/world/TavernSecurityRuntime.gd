@@ -70,12 +70,7 @@ func setup(ctx: Dictionary) -> void:
 	_tavern_brawl = TavernPerimeterBrawl.new()
 	_tavern_brawl.setup({
 		"get_sentinels": func() -> Array: return _get_tree_nodes_in_group("tavern_sentinel"),
-		"get_nearby_enemies": func(pos: Vector2, radius: float) -> Array:
-			var result: Array = []
-			for e in _get_tree_nodes_in_group("enemy"):
-				if is_instance_valid(e) and (e as Node2D).global_position.distance_to(pos) <= radius:
-					result.append(e)
-			return result,
+		"get_nearby_enemies": Callable(self, "_query_nearby_enemies"),
 		"get_tavern_center": func() -> Vector2:
 			var b: Rect2 = _get_inner_bounds()
 			return b.get_center() if b.size != Vector2.ZERO else Vector2.ZERO,
@@ -341,6 +336,21 @@ func _register_tavern_containers() -> void:
 				node.call("set_civil_incident_reporter", reporter)
 				registered += 1
 	Debug.log("authority", "[TAVERN] containers registrados con reporter: %d" % registered)
+
+func _query_nearby_enemies(center: Vector2, radius: float) -> Array:
+	var result: Array = []
+	var candidate_chunks: Array[Node2D] = []
+	var center_chunk_opt: Variant = EnemyRegistry.world_to_chunk(center)
+	if center_chunk_opt != null:
+		candidate_chunks = EnemyRegistry.get_bucket_neighborhood(center_chunk_opt as Vector2i)
+	else:
+		candidate_chunks = EnemyRegistry.get_live_enemies()
+	for enemy_node in candidate_chunks:
+		if enemy_node == null or not is_instance_valid(enemy_node):
+			continue
+		if enemy_node.global_position.distance_to(center) <= radius:
+			result.append(enemy_node)
+	return result
 
 func _get_tree_nodes_in_group(group_name: String) -> Array:
 	if _world_node == null or _world_node.get_tree() == null:

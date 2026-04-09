@@ -1640,6 +1640,11 @@ func ensure_tavern_sentinels_spawned() -> void:
 		_tavern_security_runtime.ensure_tavern_sentinels_spawned()
 
 func _find_nearest_player(world_pos: Vector2) -> CharacterBody2D:
+	# Runtime hot-path:
+	# - Single-player sandbox keeps the local `player` reference as authority.
+	# - Group scan is kept only as legacy/setup fallback when `player` is missing.
+	if player != null and is_instance_valid(player):
+		return player as CharacterBody2D
 	var players := get_tree().get_nodes_in_group("player")
 	if players.is_empty():
 		return null
