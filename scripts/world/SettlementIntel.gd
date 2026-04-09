@@ -38,6 +38,9 @@ class FloodFillResult:
 
 # --- Interest marker state ---
 var _markers: Array[Dictionary] = []
+var _marker_id_seq: int = 0
+var _marker_expiry_versions: Dictionary = {}
+var _marker_expiry_heap: Array[Dictionary] = []
 var _elapsed: float = 0.0
 var _rescan_timer: float = 0.0
 var _dirty: bool = false
@@ -62,6 +65,9 @@ var _partial_workbench_rescans: int = 0
 var _full_workbench_rescans: int = 0
 var _partial_base_scan_jobs_enqueued: int = 0
 var _global_scan_fallbacks: int = 0
+var _workbench_uids_by_chunk: Dictionary = {}
+var _door_tiles_by_chunk: Dictionary = {}
+var _placeable_type_index_ready: bool = false
 
 
 # ---------------------------------------------------------------------------
@@ -103,16 +109,7 @@ func process(delta: float) -> void:
 	_base_rescan_timer += delta
 
 	# --- TTL expiry ---
-	var i := _markers.size() - 1
-	while i >= 0:
-		var m: Dictionary = _markers[i]
-		if not bool(m.get("persistent", false)):
-			if _elapsed >= float(m.get("expires_at", 0.0)):
-				if _should_log_intel("marker_expired", INTEL_LOG_SAMPLE_HEAVY):
-					Debug.log("intel", "[MARKER] expired kind=%s tile=%s" % [
-						m.get("kind", "?"), str(m.get("tile_pos", Vector2i.ZERO))])
-				_markers.remove_at(i)
-		i -= 1
+	_expire_markers_until(_elapsed)
 
 	var next_placeable_serial: int = int(WorldSave.placed_entities_change_serial)
 	if next_placeable_serial != _last_placeables_change_serial:
@@ -157,7 +154,9 @@ func record_interest_event(kind: String, world_pos: Vector2, meta: Dictionary = 
 			m["world_pos"] = world_pos
 			m["tile_pos"]  = tile_pos
 			if not persistent:
-				m["expires_at"] = _elapsed + ttl
+				var expires_at: float = _elapsed + ttl
+				m["expires_at"] = expires_at
+				_track_marker_expiry(m, expires_at)
 			if not meta.is_empty():
 				m["metadata"] = meta
 			if _should_log_intel("marker_refreshed", INTEL_LOG_SAMPLE_HEAVY):
@@ -165,6 +164,7 @@ func record_interest_event(kind: String, world_pos: Vector2, meta: Dictionary = 
 			return
 
 	var marker: Dictionary = {
+		"marker_id":  _next_marker_id(),
 		"id":         kind + "_" + str(tile_pos.x) + "_" + str(tile_pos.y),
 		"kind":       kind,
 		"world_pos":  world_pos,
@@ -175,6 +175,8 @@ func record_interest_event(kind: String, world_pos: Vector2, meta: Dictionary = 
 		"metadata":   meta,
 	}
 	_markers.append(marker)
+	if not persistent:
+		_track_marker_expiry(marker, float(marker.get("expires_at", _elapsed)))
 	if _can_log_intel():
 		Debug.log("intel", "[MARKER] created kind=%s tile=%s persistent=%s" % [
 			kind, str(tile_pos), str(persistent)])
@@ -245,6 +247,7 @@ func mark_base_scan_dirty_near(_world_pos: Vector2) -> void:
 # ---------------------------------------------------------------------------
 
 func _scan_workbenches(changed_chunks: Array[Vector2i] = [], force_full: bool = false) -> void:
+	_ensure_placeable_type_indexes()
 	if changed_chunks.is_empty():
 		force_full = true
 	var live_uids: Dictionary = {}
@@ -256,19 +259,17 @@ func _scan_workbenches(changed_chunks: Array[Vector2i] = [], force_full: bool = 
 			if uid != "":
 				live_uids[uid] = entry
 	elif force_full:
-		for ckey in WorldSave.placed_entities_by_chunk:
-			var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
-			for uid in chunk_dict:
-				var entry: Dictionary = chunk_dict[uid]
-				if String(entry.get("item_id", "")).strip_edges() == "workbench":
-					live_uids[uid] = entry
+		for chunk_uids_variant in _workbench_uids_by_chunk.values():
+			var chunk_uids: Dictionary = chunk_uids_variant as Dictionary
+			for uid in chunk_uids.keys():
+				live_uids[uid] = chunk_uids[uid]
 	else:
 		for chunk_pos in changed_chunks:
 			var entries: Array[Dictionary] = []
 			if _world_spatial_index != null:
 				entries = _world_spatial_index.get_placeables_in_chunk(chunk_pos.x, chunk_pos.y, ["workbench"])
 			else:
-				entries = _get_worldsave_placeables_in_chunk(chunk_pos.x, chunk_pos.y, "workbench")
+				entries.assign(Array((_workbench_uids_by_chunk.get(chunk_pos, {}) as Dictionary).values(), TYPE_DICTIONARY, "", null))
 			for entry in entries:
 				var uid := String(entry.get("uid", ""))
 				if uid != "":
@@ -287,6 +288,7 @@ func _scan_workbenches(changed_chunks: Array[Vector2i] = [], force_full: bool = 
 			if should_consider and uid != "" and not live_uids.has(uid):
 				if _can_log_intel():
 					Debug.log("intel", "[MARKER] persistent removed kind=workbench uid=%s" % uid)
+				_clear_marker_expiry_tracking(m)
 				_markers.remove_at(i)
 		i -= 1
 
@@ -348,18 +350,22 @@ func _collect_candidate_doors(center: Vector2, radius: float) -> Array[Vector2i]
 	if _world_spatial_index != null:
 		entries = _world_spatial_index.get_placeables_by_item_ids_near(center, radius, ["doorwood"])
 	else:
+		_ensure_placeable_type_indexes()
 		var r2 := radius * radius
-		for ckey in WorldSave.placed_entities_by_chunk:
-			var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
-			for uid in chunk_dict:
-				var entry: Dictionary = chunk_dict[uid]
-				if String(entry.get("item_id", "")).strip_edges() != "doorwood":
-					continue
-				var door_tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
-				var door_world := _tile_to_world(door_tile)
-				if r2 > 0.0 and door_world.distance_squared_to(center) > r2:
-					continue
-				entries.append(entry)
+		var center_tile: Vector2i = _world_to_tile(center)
+		var radius_tiles: int = int(ceil(radius / 32.0))
+		var min_chunk: Vector2i = _tile_to_chunk(center_tile - Vector2i(radius_tiles, radius_tiles))
+		var max_chunk: Vector2i = _tile_to_chunk(center_tile + Vector2i(radius_tiles, radius_tiles))
+		for cy in range(min_chunk.y, max_chunk.y + 1):
+			for cx in range(min_chunk.x, max_chunk.x + 1):
+				var chunk_pos := Vector2i(cx, cy)
+				var door_set: Dictionary = _door_tiles_by_chunk.get(chunk_pos, {})
+				for door_tile_variant in door_set.keys():
+					var door_tile: Vector2i = door_tile_variant as Vector2i
+					var door_world := _tile_to_world(door_tile)
+					if r2 > 0.0 and door_world.distance_squared_to(center) > r2:
+						continue
+					result.append(door_tile)
 	for entry in entries:
 		result.append(Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0))))
 	return result
@@ -581,6 +587,7 @@ func _collect_placeable_chunk_deltas(next_serial: int) -> void:
 	if overflow:
 		_dirty = true
 		_base_scan_dirty = true
+		_placeable_type_index_ready = false
 		_global_scan_fallbacks += 1
 		return
 	for raw_change in delta.get("changes", []):
@@ -589,8 +596,10 @@ func _collect_placeable_chunk_deltas(next_serial: int) -> void:
 		if op == "clear":
 			_dirty = true
 			_base_scan_dirty = true
+			_placeable_type_index_ready = false
 			_global_scan_fallbacks += 1
 			continue
+		_apply_placeable_type_index_delta(change)
 		_mark_dirty_chunk_for_entry(change.get("entry", {}))
 		_mark_dirty_chunk_for_entry(change.get("prev_entry", {}))
 
@@ -637,6 +646,191 @@ func _tile_to_chunk(tile_pos: Vector2i) -> Vector2i:
 		int(floor(float(tile_pos.x) / float(cs))),
 		int(floor(float(tile_pos.y) / float(cs)))
 	)
+
+
+func _next_marker_id() -> int:
+	_marker_id_seq += 1
+	return _marker_id_seq
+
+
+func _track_marker_expiry(marker: Dictionary, expires_at: float) -> void:
+	var marker_id: int = int(marker.get("marker_id", 0))
+	if marker_id <= 0:
+		return
+	var next_version: int = int(_marker_expiry_versions.get(marker_id, 0)) + 1
+	_marker_expiry_versions[marker_id] = next_version
+	_heap_push_expiry({
+		"expires_at": expires_at,
+		"marker_id": marker_id,
+		"version": next_version,
+	})
+
+
+func _clear_marker_expiry_tracking(marker: Dictionary) -> void:
+	var marker_id: int = int(marker.get("marker_id", 0))
+	if marker_id > 0:
+		_marker_expiry_versions.erase(marker_id)
+
+
+func _expire_markers_until(now: float) -> void:
+	while not _marker_expiry_heap.is_empty():
+		var top: Dictionary = _marker_expiry_heap[0]
+		var expires_at: float = float(top.get("expires_at", INF))
+		if expires_at > now:
+			return
+		var expired: Dictionary = _heap_pop_expiry()
+		var marker_id: int = int(expired.get("marker_id", 0))
+		var version: int = int(expired.get("version", -1))
+		if marker_id <= 0:
+			continue
+		if int(_marker_expiry_versions.get(marker_id, 0)) != version:
+			continue
+		var idx: int = _find_marker_index_by_id(marker_id)
+		if idx < 0:
+			_marker_expiry_versions.erase(marker_id)
+			continue
+		var marker: Dictionary = _markers[idx]
+		if bool(marker.get("persistent", false)):
+			_marker_expiry_versions.erase(marker_id)
+			continue
+		if now < float(marker.get("expires_at", INF)):
+			continue
+		if _should_log_intel("marker_expired", INTEL_LOG_SAMPLE_HEAVY):
+			Debug.log("intel", "[MARKER] expired kind=%s tile=%s" % [
+				marker.get("kind", "?"), str(marker.get("tile_pos", Vector2i.ZERO))])
+		_markers.remove_at(idx)
+		_marker_expiry_versions.erase(marker_id)
+
+
+func _find_marker_index_by_id(marker_id: int) -> int:
+	for i in range(_markers.size()):
+		if int(_markers[i].get("marker_id", 0)) == marker_id:
+			return i
+	return -1
+
+
+func _heap_push_expiry(entry: Dictionary) -> void:
+	_marker_expiry_heap.append(entry)
+	var idx: int = _marker_expiry_heap.size() - 1
+	while idx > 0:
+		var parent: int = int((idx - 1) / 2)
+		if float(_marker_expiry_heap[parent].get("expires_at", INF)) <= float(_marker_expiry_heap[idx].get("expires_at", INF)):
+			break
+		var tmp: Dictionary = _marker_expiry_heap[parent]
+		_marker_expiry_heap[parent] = _marker_expiry_heap[idx]
+		_marker_expiry_heap[idx] = tmp
+		idx = parent
+
+
+func _heap_pop_expiry() -> Dictionary:
+	if _marker_expiry_heap.is_empty():
+		return {}
+	var out: Dictionary = _marker_expiry_heap[0]
+	var last: Dictionary = _marker_expiry_heap.pop_back()
+	if _marker_expiry_heap.is_empty():
+		return out
+	_marker_expiry_heap[0] = last
+	var idx: int = 0
+	while true:
+		var left: int = idx * 2 + 1
+		var right: int = left + 1
+		var smallest: int = idx
+		if left < _marker_expiry_heap.size() \
+				and float(_marker_expiry_heap[left].get("expires_at", INF)) < float(_marker_expiry_heap[smallest].get("expires_at", INF)):
+			smallest = left
+		if right < _marker_expiry_heap.size() \
+				and float(_marker_expiry_heap[right].get("expires_at", INF)) < float(_marker_expiry_heap[smallest].get("expires_at", INF)):
+			smallest = right
+		if smallest == idx:
+			break
+		var tmp: Dictionary = _marker_expiry_heap[idx]
+		_marker_expiry_heap[idx] = _marker_expiry_heap[smallest]
+		_marker_expiry_heap[smallest] = tmp
+		idx = smallest
+	return out
+
+
+func _ensure_placeable_type_indexes() -> void:
+	if _placeable_type_index_ready:
+		return
+	_workbench_uids_by_chunk.clear()
+	_door_tiles_by_chunk.clear()
+	for ckey in WorldSave.placed_entities_by_chunk.keys():
+		var chunk_dict: Dictionary = WorldSave.placed_entities_by_chunk[ckey]
+		for uid in chunk_dict.keys():
+			var entry: Dictionary = chunk_dict[uid]
+			var item_id: String = String(entry.get("item_id", "")).strip_edges()
+			var chunk_pos: Vector2i = _entry_to_chunk_pos(entry)
+			if item_id == "workbench":
+				var chunk_uids: Dictionary = _workbench_uids_by_chunk.get(chunk_pos, {})
+				chunk_uids[String(uid)] = entry
+				_workbench_uids_by_chunk[chunk_pos] = chunk_uids
+			elif item_id == "doorwood":
+				var door_set: Dictionary = _door_tiles_by_chunk.get(chunk_pos, {})
+				var tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
+				door_set[tile] = true
+				_door_tiles_by_chunk[chunk_pos] = door_set
+	_placeable_type_index_ready = true
+
+
+func _apply_placeable_type_index_delta(change: Dictionary) -> void:
+	if not _placeable_type_index_ready:
+		return
+	var prev_entry: Dictionary = change.get("prev_entry", {})
+	var next_entry: Dictionary = change.get("entry", {})
+	_remove_placeable_index_entry(prev_entry)
+	_add_placeable_index_entry(next_entry)
+
+
+func _add_placeable_index_entry(entry: Dictionary) -> void:
+	if entry.is_empty():
+		return
+	var item_id: String = String(entry.get("item_id", "")).strip_edges()
+	var chunk_pos: Vector2i = _entry_to_chunk_pos(entry)
+	if item_id == "workbench":
+		var uid: String = String(entry.get("uid", "")).strip_edges()
+		if uid == "":
+			return
+		var chunk_uids: Dictionary = _workbench_uids_by_chunk.get(chunk_pos, {})
+		chunk_uids[uid] = entry
+		_workbench_uids_by_chunk[chunk_pos] = chunk_uids
+	elif item_id == "doorwood":
+		var door_set: Dictionary = _door_tiles_by_chunk.get(chunk_pos, {})
+		var tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
+		door_set[tile] = true
+		_door_tiles_by_chunk[chunk_pos] = door_set
+
+
+func _remove_placeable_index_entry(entry: Dictionary) -> void:
+	if entry.is_empty():
+		return
+	var item_id: String = String(entry.get("item_id", "")).strip_edges()
+	var chunk_pos: Vector2i = _entry_to_chunk_pos(entry)
+	if item_id == "workbench":
+		var uid: String = String(entry.get("uid", "")).strip_edges()
+		if uid == "":
+			return
+		var chunk_uids: Dictionary = _workbench_uids_by_chunk.get(chunk_pos, {})
+		chunk_uids.erase(uid)
+		if chunk_uids.is_empty():
+			_workbench_uids_by_chunk.erase(chunk_pos)
+		else:
+			_workbench_uids_by_chunk[chunk_pos] = chunk_uids
+	elif item_id == "doorwood":
+		var door_set: Dictionary = _door_tiles_by_chunk.get(chunk_pos, {})
+		var tile := Vector2i(int(entry.get("tile_pos_x", 0)), int(entry.get("tile_pos_y", 0)))
+		door_set.erase(tile)
+		if door_set.is_empty():
+			_door_tiles_by_chunk.erase(chunk_pos)
+		else:
+			_door_tiles_by_chunk[chunk_pos] = door_set
+
+
+func _entry_to_chunk_pos(entry: Dictionary) -> Vector2i:
+	return _tile_to_chunk(Vector2i(
+		int(entry.get("tile_pos_x", 0)),
+		int(entry.get("tile_pos_y", 0))
+	))
 
 
 func _enqueue_base_scans_for_dirty_chunks() -> void:
