@@ -130,6 +130,7 @@ const DROP_SCAN_MAX_CANDIDATES_EVAL: int = 40
 const drops_per_npc_per_tick_max: int = 2
 const drops_global_per_pulse_max: int = 18
 const METRICS_WINDOW_SECONDS: float = 5.0
+const AUTHORITY_COUNTER_LOG_SAMPLE_EVERY_N_WINDOWS: int = 2
 const GUARD_SLOT_RADIUS_DEFAULT: float = 34.0
 const GUARD_SLOT_RADIUS_ESCORT: float = 42.0
 const GUARD_SLOT_LOCAL_OFFSETS: Dictionary = {
@@ -376,11 +377,12 @@ func _accumulate_legacy_input_counter(event_name: String, payload: Dictionary) -
 	var now: float = RunClock.now()
 	if now - _legacy_input_counter_window_started_at < 60.0:
 		return
-	Debug.log("perf_telemetry", "[BanditCanonicalCounters][per_minute] window_start=%.2f window_end=%.2f counters=%s" % [
-		_legacy_input_counter_window_started_at,
-		now,
-		JSON.stringify(_legacy_input_counter_by_group),
-	])
+	if _should_emit_sampled_authority_counter_log():
+		Debug.log("perf_telemetry", "[BanditCanonicalCounters][per_minute] window_start=%.2f window_end=%.2f counters=%s" % [
+			_legacy_input_counter_window_started_at,
+			now,
+			JSON.stringify(_legacy_input_counter_by_group),
+		])
 	_legacy_input_counter_window_started_at = now
 	_legacy_input_counter_by_group.clear()
 
@@ -3064,21 +3066,22 @@ func _get_runtime_lod_signals(node: Node) -> Dictionary:
 func _record_npc_lod_debug(beh: BanditWorldBehavior, node: Node, lod_debug: Dictionary, runtime_signals: Dictionary) -> void:
 	var bucket: String = String(lod_debug.get("bucket", "medium"))
 	_lod_debug_npc_counts[bucket] = int(_lod_debug_npc_counts.get(bucket, 0)) + 1
-	_lod_debug_last_npc[beh.member_id] = {
-		"group_id": beh.group_id,
-		"role": beh.role,
-		"state": NpcWorldBehavior.State.keys()[beh.state] if beh.state >= 0 and beh.state < NpcWorldBehavior.State.size() else "",
-		"interval": float(lod_debug.get("interval", BanditTuningScript.behavior_tick_interval())),
-		"bucket": bucket,
-		"dominant_reason": String(lod_debug.get("dominant_reason", "baseline")),
-		"cadence_reason": String(lod_debug.get("dominant_reason", "baseline")),
-		"mode": String(lod_debug.get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))),
-		"is_worker_cycle_active": bool(lod_debug.get("is_worker_cycle_active", false)),
-		"is_in_direct_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
-		"was_recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
-		"is_runtime_busy_but_not_combat": bool(runtime_signals.get("is_runtime_busy_but_not_combat", false)),
-		"is_world_behavior_eligible": bool(node.has_method("is_world_behavior_eligible") and node.is_world_behavior_eligible()),
-	}
+	if _is_lod_debug_capture_enabled():
+		_lod_debug_last_npc[beh.member_id] = {
+			"group_id": beh.group_id,
+			"role": beh.role,
+			"state": NpcWorldBehavior.State.keys()[beh.state] if beh.state >= 0 and beh.state < NpcWorldBehavior.State.size() else "",
+			"interval": float(lod_debug.get("interval", BanditTuningScript.behavior_tick_interval())),
+			"bucket": bucket,
+			"dominant_reason": String(lod_debug.get("dominant_reason", "baseline")),
+			"cadence_reason": String(lod_debug.get("dominant_reason", "baseline")),
+			"mode": String(lod_debug.get("mode", String(SimulationLODPolicyScript.MODE_CONTEXTUAL))),
+			"is_worker_cycle_active": bool(lod_debug.get("is_worker_cycle_active", false)),
+			"is_in_direct_combat": bool(runtime_signals.get("is_in_direct_combat", false)),
+			"was_recently_engaged": bool(runtime_signals.get("was_recently_engaged", false)),
+			"is_runtime_busy_but_not_combat": bool(runtime_signals.get("is_runtime_busy_but_not_combat", false)),
+			"is_world_behavior_eligible": bool(node.has_method("is_world_behavior_eligible") and node.is_world_behavior_eligible()),
+		}
 	if _is_lod_debug_logging_enabled():
 		Debug.log("bandit_lod", "[BanditLOD][npc] id=%s group=%s interval=%.2f bucket=%s cadence_reason=%s worker_active=%s combat=%s engaged=%s busy=%s" % [
 			beh.member_id,
@@ -3108,6 +3111,18 @@ func get_lod_debug_snapshot() -> Dictionary:
 
 func _is_lod_debug_logging_enabled() -> bool:
 	return Debug.is_enabled("ai") and Debug.is_enabled("bandit_lod")
+
+
+func _is_lod_debug_capture_enabled() -> bool:
+	return _is_lod_debug_logging_enabled() or Debug.is_diagnostic_mode()
+
+
+func _should_emit_sampled_authority_counter_log() -> bool:
+	return Debug.should_sample(
+		"perf_telemetry",
+		"bandit_authority_counters_per_minute",
+		AUTHORITY_COUNTER_LOG_SAMPLE_EVERY_N_WINDOWS
+	)
 
 
 func _get_global_lod_mode_signals() -> Dictionary:
