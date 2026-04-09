@@ -53,9 +53,13 @@ func setup(ctx: Dictionary) -> void:
 	_tavern_presence_monitor.setup({
 		"incident_reporter": Callable(self, "report_tavern_incident"),
 		"get_candidates": func() -> Array:
+			var bounds: Rect2 = _get_inner_bounds()
+			var center: Vector2 = bounds.get_center() if bounds.size != Vector2.ZERO else Vector2.ZERO
+			# PERIM_GROW_PX(128) + DOOR_GROW_PX(48) + margen
+			var radius: float = bounds.size.length() * 0.5 + 200.0
 			var r: Array = []
 			r.append_array(_get_tree_nodes_in_group("player"))
-			r.append_array(_get_tree_nodes_in_group("enemy"))
+			r.append_array(_query_nearby_enemies(center, radius))
 			r.append_array(_get_tree_nodes_in_group("npc"))
 			return r,
 		"interior_bounds": Callable(self, "_get_inner_bounds"),

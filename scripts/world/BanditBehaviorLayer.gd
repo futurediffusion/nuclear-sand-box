@@ -934,8 +934,23 @@ func _tick_behaviors() -> int:
 		var sim_profile: StringName = StringName(String(sim_decision.get("profile", String(SIM_PROFILE_FULL))))
 		_apply_member_simulation_profile(node, sim_profile)
 		if sim_profile == SIM_PROFILE_FULL:
-			_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
-			_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
+			var used_group_cache: bool = false
+			if beh.group_id != "" and BanditTuningScript.enable_group_perception_pulse():
+				var cached_drops: Array = BanditGroupMemory.bb_get_prioritized_drops(beh.group_id)
+				var cached_res: Array = BanditGroupMemory.bb_get_prioritized_resources(beh.group_id)
+				if not cached_drops.is_empty() or not cached_res.is_empty():
+					_tick_scan_buffers.drops.clear()
+					for d in cached_drops:
+						if d is Dictionary:
+							_tick_scan_buffers.drops.append(d as Dictionary)
+					_tick_scan_buffers.resources.clear()
+					for r in cached_res:
+						if r is Dictionary:
+							_tick_scan_buffers.resources.append(r as Dictionary)
+					used_group_cache = true
+			if not used_group_cache:
+				_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
+				_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
 		if sim_profile != SIM_PROFILE_FULL:
 			_tick_scan_buffers.drops.clear()
 			_tick_scan_buffers.resources.clear()

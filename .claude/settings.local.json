@@ -75,7 +75,8 @@
       "Bash(godot --path . --check-only --script scripts/world/WorldSimTelemetry.gd)",
       "Bash(godot --path . --check-only --headless --script scripts/systems/FactionViabilitySystem.gd)",
       "Bash(godot --path . --check-only --headless --script scripts/world/world.gd)",
-      "Bash(godot --path . --check-only --headless)"
+      "Bash(godot --path . --check-only --headless)",
+      "mcp__godot-mcp__get_output"
     ]
   }
 }

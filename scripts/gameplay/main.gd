@@ -56,7 +56,8 @@ func _ready() -> void:
 	add_child(_command_system)
 	_command_system.setup(player, world, ui_layer)
 
-	get_tree().process_frame.connect(_boot_frame_ping, CONNECT_ONE_SHOT)
+	if is_inside_tree():
+		get_tree().process_frame.connect(_boot_frame_ping, CONNECT_ONE_SHOT)
 
 
 func _exit_tree() -> void:

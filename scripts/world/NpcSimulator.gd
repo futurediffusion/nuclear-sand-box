@@ -184,7 +184,8 @@ func _tick_lite_mode(delta: float) -> void:
 	var player_pos := player.global_position
 	var enter_radius := lite_radius + lite_hysteresis
 	var exit_radius := maxf(lite_radius - lite_hysteresis, 0.0)
-	for enemy in get_tree().get_nodes_in_group("enemy"):
+	for enemy_id in active_enemies:
+		var enemy: Node = active_enemies[enemy_id]
 		if enemy == null or not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
 			continue
 		if not _method_caps.has_method_cached(enemy, &"enter_lite_mode") \
@@ -193,8 +194,6 @@ func _tick_lite_mode(delta: float) -> void:
 		if _method_caps.has_method_cached(enemy, &"is_dead") and enemy.is_dead():
 			continue
 		var dist: float = enemy.global_position.distance_to(player_pos)
-		if data_only_enabled and dist > (sim_radius + sim_hysteresis):
-			continue
 		if dist > enter_radius:
 			enemy.enter_lite_mode()
 			if lite_debug:
@@ -584,7 +583,7 @@ func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary
 	var ctx: Dictionary = {
 		"node_pos":          node_pos,
 		"nearby_drops_info": [],
-		"nearby_res_info":   _scan_nearby_resources(node_pos),
+		"nearby_res_info":   [],
 	}
 	var group_id: String = String(state.get("group_id", ""))
 	if group_id == "":
@@ -605,17 +604,6 @@ func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary
 		ctx["leader_pos"] = _v2((lstate as Dictionary).get("pos"))
 	return ctx
 
-
-func _scan_nearby_resources(node_pos: Vector2) -> Array:
-	var result: Array = []
-	for res in get_tree().get_nodes_in_group("world_resource"):
-		var res_node := res as Node2D
-		if res_node == null or not is_instance_valid(res_node) \
-				or res_node.is_queued_for_deletion():
-			continue
-		if node_pos.distance_squared_to(res_node.global_position) <= BanditTuningScript.resource_scan_radius_sq():
-			result.append({"pos": res_node.global_position})
-	return result
 
 
 func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float, skip_scene_scan: bool = false) -> void:
