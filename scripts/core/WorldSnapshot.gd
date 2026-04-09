@@ -49,7 +49,13 @@ static func from_dict(data: Dictionary) -> WorldSnapshot:
 	snapshot.save_version = int(data.get("save_version", 1))
 	snapshot.seed = int(data.get("seed", 0))
 	snapshot.persistence_meta = _dict_or_empty(data.get("persistence_meta", {}))
-	snapshot.player_pos = data.get("player_pos", Vector2.ZERO)
+	var player_pos_raw: Variant = data.get("player_pos", Vector2.ZERO)
+	if player_pos_raw is Vector2:
+		snapshot.player_pos = player_pos_raw
+	elif player_pos_raw is String:
+		snapshot.player_pos = str_to_var(player_pos_raw) if str_to_var(player_pos_raw) is Vector2 else Vector2.ZERO
+	else:
+		snapshot.player_pos = Vector2.ZERO
 
 	var player_inv_raw: Variant = data.get("player_inv", [])
 	if player_inv_raw is Array:

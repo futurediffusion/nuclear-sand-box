@@ -739,7 +739,7 @@ func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
 func project_building_events(events: Array[Dictionary]) -> void:
 	# Deprecated compatibility adapter.
 	# BuildingWallWorkflow owns projection application as part of command/load flows.
-	_ = events
+	if events.is_empty(): return
 
 func _emit_building_events(events: Array[Dictionary]) -> void:
 	if events.is_empty():

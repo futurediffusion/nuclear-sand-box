@@ -933,14 +933,9 @@ func _tick_behaviors() -> int:
 		var sim_decision: Dictionary = _resolve_member_simulation_profile_decision(beh, node, node_pos, member_order)
 		var sim_profile: StringName = StringName(String(sim_decision.get("profile", String(SIM_PROFILE_FULL))))
 		_apply_member_simulation_profile(node, sim_profile)
-		var has_group_blackboard_data: bool = false
-		if sim_profile == SIM_PROFILE_FULL and BanditTuningScript.enable_group_perception_pulse():
-			has_group_blackboard_data = _fill_from_group_blackboard(beh, node_pos, _tick_scan_buffers.drops, _tick_scan_buffers.resources)
-		if sim_profile == SIM_PROFILE_FULL and BanditTuningScript.enable_individual_scan_fallback():
-			if not has_group_blackboard_data:
-				_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
-			if _tick_scan_buffers.resources.is_empty():
-				_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
+		if sim_profile == SIM_PROFILE_FULL:
+			_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
+			_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
 		if sim_profile != SIM_PROFILE_FULL:
 			_tick_scan_buffers.drops.clear()
 			_tick_scan_buffers.resources.clear()
@@ -1693,12 +1688,6 @@ func _prioritize_group_resources(anchor_pos: Vector2, resources: Array) -> Array
 	if _perception_system == null:
 		return []
 	return _perception_system.prioritize_group_resources(anchor_pos, resources)
-
-
-func _fill_from_group_blackboard(beh: BanditWorldBehavior, node_pos: Vector2, drops_out: Array[Dictionary], resources_out: Array[Dictionary]) -> bool:
-	if _perception_system == null or beh.group_id == "":
-		return false
-	return _perception_system.fill_from_group_blackboard(beh.group_id, node_pos, drops_out, resources_out)
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,6 @@ var _find_placeable_cb: Callable = Callable()
 var _log_worker_event_cb: Callable = Callable()
 var _work_coordinator: Node = null
 var _legacy_resource_sticky_fallback_uses: int = 0
-var _legacy_group_blackboard_perception_bridge_uses: int = 0
 
 
 func setup(ctx: Dictionary) -> void:
@@ -147,49 +146,6 @@ func fill_res_info_buffer(beh: BanditWorldBehavior, node_pos: Vector2,
 		out.resize(write_idx)
 
 
-func fill_from_group_blackboard(group_id: String, node_pos: Vector2,
-		drops_out: Array[Dictionary], resources_out: Array[Dictionary]) -> bool:
-	_register_legacy_bridge_usage(
-		"bandit_perception.group_blackboard_perception",
-		"Legacy blackboard-driven perception bridge invoked."
-	)
-	if group_id == "":
-		return false
-	var prioritized_drops: Array = BanditGroupMemory.bb_get_prioritized_drops(group_id)
-	var prioritized_resources: Array = BanditGroupMemory.bb_get_prioritized_resources(group_id)
-	drops_out.clear()
-	resources_out.clear()
-	var max_drops: int = 14
-	var max_res: int = 14
-	var drop_radius_sq: float = BanditTuningScript.loot_scan_radius_sq()
-	var res_radius_sq: float = BanditTuningScript.resource_scan_radius_sq()
-	for raw_drop in prioritized_drops:
-		if drops_out.size() >= max_drops:
-			break
-		if not (raw_drop is Dictionary):
-			continue
-		var drop: Dictionary = raw_drop as Dictionary
-		var pos_raw: Variant = drop.get("pos", null)
-		if not (pos_raw is Vector2):
-			continue
-		if node_pos.distance_squared_to(pos_raw as Vector2) > drop_radius_sq:
-			continue
-		drops_out.append(drop.duplicate(true))
-	for raw_res in prioritized_resources:
-		if resources_out.size() >= max_res:
-			break
-		if not (raw_res is Dictionary):
-			continue
-		var res: Dictionary = raw_res as Dictionary
-		var pos_raw: Variant = res.get("pos", null)
-		if not (pos_raw is Vector2):
-			continue
-		if node_pos.distance_squared_to(pos_raw as Vector2) > res_radius_sq:
-			continue
-		resources_out.append(res.duplicate(true))
-	return not drops_out.is_empty() or not resources_out.is_empty()
-
-
 func prioritize_group_drops(anchor_pos: Vector2, drops: Array) -> Array:
 	var scored: Array = []
 	for raw in drops:
@@ -310,15 +266,11 @@ func build_group_intent_perception(input: Dictionary) -> Dictionary:
 func get_debug_snapshot() -> Dictionary:
 	return {
 		"legacy_resource_sticky_fallback_uses": _legacy_resource_sticky_fallback_uses,
-		"legacy_group_blackboard_perception_bridge_uses": _legacy_group_blackboard_perception_bridge_uses,
 	}
 
 func _register_legacy_bridge_usage(bridge_id: String, details: String) -> void:
-	match bridge_id:
-		"bandit_perception.resource_sticky_fallback":
-			_legacy_resource_sticky_fallback_uses += 1
-		"bandit_perception.group_blackboard_perception":
-			_legacy_group_blackboard_perception_bridge_uses += 1
+	if bridge_id == "bandit_perception.resource_sticky_fallback":
+		_legacy_resource_sticky_fallback_uses += 1
 	Debug.log("compat", "[DEPRECATED_BRIDGE][%s] %s" % [bridge_id, details])
 	push_warning("[BanditPerceptionSystem] Deprecated compatibility bridge used: %s" % bridge_id)
 	if OS.is_debug_build():
@@ -357,7 +309,7 @@ func _build_assault_targets(node_pos: Vector2) -> Dictionary:
 	if _find_storage_cb.is_valid():
 		nearest_storage = _find_storage_cb.call(node_pos, radius)
 	if _find_placeable_cb.is_valid():
-		nearest_placeable = _find_placeable_cb.call(node_pos, radius, "", {})
+		nearest_placeable = _find_placeable_cb.call(node_pos, radius, {})
 	return {
 		"nearest_wall": nearest_wall,
 		"nearest_workbench": nearest_workbench,

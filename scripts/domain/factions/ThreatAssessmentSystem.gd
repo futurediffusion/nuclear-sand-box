@@ -115,7 +115,7 @@ func _normalize_event(event_data: Dictionary) -> Dictionary:
 
 	var item_id: String = String(event_data.get("item_id", "")).strip_edges()
 	var tile_pos_variant: Variant = event_data.get("tile_pos", Vector2i.ZERO)
-	var tile_pos := tile_pos_variant if tile_pos_variant is Vector2i else Vector2i.ZERO
+	var tile_pos: Vector2i = tile_pos_variant if tile_pos_variant is Vector2i else Vector2i.ZERO
 
 	var target_pos: Vector2 = Vector2.ZERO
 	var target_variant: Variant = event_data.get("world_pos", event_data.get("target_position", Vector2.ZERO))

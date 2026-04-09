@@ -106,7 +106,7 @@ func on_wall_hit_activity(tile_pos: Vector2i, player_world_pos: Vector2) -> void
 	var keepers := _get_tree_nodes_in_group("tavern_keeper")
 	if keepers.is_empty():
 		return
-	var keeper := keepers[0]
+	var keeper: Node = keepers[0]
 	var inner_min: Vector2i = keeper.get("tavern_inner_min")
 	var inner_max: Vector2i = keeper.get("tavern_inner_max")
 	var world_pos: Vector2 = _call_tile_to_world(tile_pos)

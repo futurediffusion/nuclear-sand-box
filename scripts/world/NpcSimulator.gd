@@ -66,6 +66,19 @@ var _world_h_tiles: int = 64
 var _method_caps: MethodCapabilityCache = MethodCapabilityCacheScript.new()
 
 # ---------------------------------------------------------------------------
+# Helpers de deserialización
+# ---------------------------------------------------------------------------
+
+static func _v2(v: Variant, d: Vector2 = Vector2.ZERO) -> Vector2:
+	if v is Vector2:
+		return v
+	if v is String:
+		var parsed: Variant = str_to_var(v)
+		if parsed is Vector2:
+			return parsed
+	return d
+
+# ---------------------------------------------------------------------------
 # Helpers de Tracking
 # ---------------------------------------------------------------------------
 
@@ -216,7 +229,7 @@ func _tick_data_only(delta: float) -> void:
 			if state_v == null:
 				continue
 			var state: Dictionary = state_v
-			var enemy_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
+			var enemy_pos: Vector2 = _v2(state.get("pos"))
 			var dist: float = enemy_pos.distance_to(player_pos)
 			var is_dead: bool = bool(state.get("is_dead", false))
 			var node := get_enemy_node(enemy_id)
@@ -253,7 +266,7 @@ func enqueue_spawn(chunk_pos: Vector2i, enemy_id: String, state: Dictionary, sta
 		"chunk_key": chunk_key,
 		"kind": "enemy",
 		"scene": bandit_scene,
-		"global_position": Vector2(state.get("pos", Vector2.ZERO)),
+		"global_position": _v2(state.get("pos")),
 		"init_data": {
 			"properties": {"entity_uid": enemy_id, "enemy_chunk_key": chunk_key},
 			"save_state": state,
@@ -325,7 +338,7 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 
 	var group_id_on_spawn: String = String(save_state.get("group_id", ""))
 	if group_id_on_spawn != "":
-		var home_pos: Vector2 = Vector2(save_state.get("home_world_pos", Vector2.ZERO))
+		var home_pos: Vector2 = _v2(save_state.get("home_world_pos"))
 		BanditGroupMemory.register_member(group_id_on_spawn, enemy_id, member_role, home_pos, "bandits")
 
 	if save_state.get("is_dead", false):
@@ -347,7 +360,7 @@ func on_enemy_job_spawned(job: Dictionary, node: Node) -> void:
 			# Wake and exit lite mode if spawning close to the player during a hunt
 			if (mode_hint == "hunting" or mode_hint == "alerted") and player != null \
 					and is_instance_valid(player):
-				var spawn_pos: Vector2 = Vector2(save_state.get("pos", Vector2.ZERO))
+				var spawn_pos: Vector2 = _v2(save_state.get("pos"))
 				if spawn_pos.distance_to(player.global_position) < 600.0:
 					# exit_lite_mode must come before wake_now so full AI actually runs
 					if _method_caps.has_method_cached(node, &"exit_lite_mode") \
@@ -420,7 +433,7 @@ func _ensure_spawn_records(chunk_pos: Vector2i) -> void:
 				continue
 			if not bool((st as Dictionary).get("is_dead", false)):
 				all_dead = false
-			if _cliff_gen.is_cliff_tile(_world_to_tile.call(Vector2(st.get("pos", Vector2.ZERO)))):
+			if _cliff_gen.is_cliff_tile(_world_to_tile.call(_v2(st.get("pos")))):
 				stale = true
 				break
 		if not stale and not all_dead:
@@ -542,7 +555,7 @@ func _ensure_data_behavior(enemy_id: String, state: Dictionary) -> BanditWorldBe
 		return _data_behaviors[enemy_id] as BanditWorldBehavior
 	var beh := BanditWorldBehavior.new()
 	beh.setup({
-		"home_pos":    Vector2(state.get("home_world_pos", Vector2.ZERO)),
+		"home_pos":    _v2(state.get("home_world_pos")),
 		"role":        String(state.get("role", "scavenger")),
 		"group_id":    String(state.get("group_id", "")),
 		"member_id":   enemy_id,
@@ -567,7 +580,7 @@ func _remove_data_behavior(enemy_id: String) -> void:
 const BanditTuningScript := preload("res://scripts/world/BanditTuning.gd")
 
 func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary:
-	var node_pos: Vector2 = Vector2(state.get("pos", Vector2.ZERO))
+	var node_pos: Vector2 = _v2(state.get("pos"))
 	var ctx: Dictionary = {
 		"node_pos":          node_pos,
 		"nearby_drops_info": [],
@@ -589,7 +602,7 @@ func _build_data_behavior_ctx(enemy_id: String, state: Dictionary) -> Dictionary
 	# Leader data-only?
 	var lstate = WorldSave.get_enemy_state(chunk_key, leader_id)
 	if lstate != null:
-		ctx["leader_pos"] = Vector2((lstate as Dictionary).get("pos", Vector2.ZERO))
+		ctx["leader_pos"] = _v2((lstate as Dictionary).get("pos"))
 	return ctx
 
 
@@ -610,7 +623,7 @@ func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float, 
 	var ctx: Dictionary
 	if skip_scene_scan:
 		ctx = {
-			"node_pos": Vector2(state.get("pos", Vector2.ZERO)),
+			"node_pos": _v2(state.get("pos")),
 			"nearby_drops_info": [],
 			"nearby_res_info": [],
 		}
@@ -619,7 +632,7 @@ func _tick_data_behavior(enemy_id: String, state: Dictionary, sim_delta: float, 
 	beh.tick(sim_delta, ctx)
 	var vel: Vector2 = beh.get_desired_velocity()
 	if vel.length_squared() > 0.01:
-		var cur: Vector2  = Vector2(state.get("pos", Vector2.ZERO))
+		var cur: Vector2  = _v2(state.get("pos"))
 		var next: Vector2 = cur + vel * sim_delta
 		var b: Rect2      = _get_world_bounds()
 		next.x = clampf(next.x, b.position.x, b.position.x + b.size.x)

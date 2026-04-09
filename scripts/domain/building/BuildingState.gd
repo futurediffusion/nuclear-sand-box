@@ -186,8 +186,8 @@ static func get_structure_ids_by_chunk(state: Dictionary) -> Dictionary:
 
 static func _index_structure(state: Dictionary, structure: Dictionary) -> void:
 	var structure_id := String(structure.get(STRUCTURE_KEY_ID, ""))
-	var tile_pos := structure.get(STRUCTURE_KEY_TILE_POS, Vector2i.ZERO)
-	var chunk_pos := structure.get(STRUCTURE_KEY_CHUNK_POS, Vector2i.ZERO)
+	var tile_pos: Vector2i = structure.get(STRUCTURE_KEY_TILE_POS, Vector2i.ZERO)
+	var chunk_pos: Vector2i = structure.get(STRUCTURE_KEY_CHUNK_POS, Vector2i.ZERO)
 	if structure_id.is_empty() or not (tile_pos is Vector2i) or not (chunk_pos is Vector2i):
 		return
 	get_structure_id_by_tile(state)[tile_pos] = structure_id
@@ -198,8 +198,8 @@ static func _index_structure(state: Dictionary, structure: Dictionary) -> void:
 
 static func _unindex_structure(state: Dictionary, structure: Dictionary) -> void:
 	var structure_id := String(structure.get(STRUCTURE_KEY_ID, ""))
-	var tile_pos := structure.get(STRUCTURE_KEY_TILE_POS, Vector2i.ZERO)
-	var chunk_pos := structure.get(STRUCTURE_KEY_CHUNK_POS, Vector2i.ZERO)
+	var tile_pos: Vector2i = structure.get(STRUCTURE_KEY_TILE_POS, Vector2i.ZERO)
+	var chunk_pos: Vector2i = structure.get(STRUCTURE_KEY_CHUNK_POS, Vector2i.ZERO)
 	if structure_id.is_empty():
 		return
 	if tile_pos is Vector2i:

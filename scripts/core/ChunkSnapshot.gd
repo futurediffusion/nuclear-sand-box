@@ -31,7 +31,14 @@ var placed_entity_data_by_uid: Dictionary = {}
 static func from_dict(data: Dictionary) -> ChunkSnapshot:
 	var snapshot := ChunkSnapshot.new()
 	snapshot.chunk_key = String(data.get("chunk_key", ""))
-	snapshot.chunk_pos = data.get("chunk_pos", Vector2i.ZERO)
+	var chunk_pos_raw: Variant = data.get("chunk_pos", Vector2i.ZERO)
+	if chunk_pos_raw is Vector2i:
+		snapshot.chunk_pos = chunk_pos_raw
+	elif chunk_pos_raw is String:
+		var parsed: Variant = str_to_var(chunk_pos_raw)
+		snapshot.chunk_pos = parsed if parsed is Vector2i else Vector2i.ZERO
+	else:
+		snapshot.chunk_pos = Vector2i.ZERO
 
 	var entities_raw: Variant = data.get("entities", {})
 	if entities_raw is Dictionary:

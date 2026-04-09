@@ -62,7 +62,7 @@ func process(command: Dictionary) -> Dictionary:
 	return _failure_result(command_type, "unsupported_command_type")
 
 func _process_place_structure(command: Dictionary) -> Dictionary:
-	var tile_pos := command.get("tile_pos", Vector2i.ZERO)
+	var tile_pos: Vector2i = command.get("tile_pos", Vector2i.ZERO)
 	if not (tile_pos is Vector2i):
 		return _failure_result(BuildingCommands.TYPE_PLACE_STRUCTURE, "invalid_tile_pos")
 
@@ -70,7 +70,7 @@ func _process_place_structure(command: Dictionary) -> Dictionary:
 	var max_hp := maxi(1, int(command.get("max_hp", 1)))
 	var initial_hp := int(command.get("hp", max_hp))
 	var metadata := command.get("metadata", {}) as Dictionary
-	var chunk_pos := command.get("chunk_pos", Vector2i.ZERO)
+	var chunk_pos: Vector2i = command.get("chunk_pos", Vector2i.ZERO)
 	if not (chunk_pos is Vector2i):
 		chunk_pos = Vector2i.ZERO
 	var kind := String(command.get("kind", metadata.get("kind", "wall"))).strip_edges()
@@ -101,7 +101,7 @@ func _process_place_structure(command: Dictionary) -> Dictionary:
 	return _success_result(BuildingCommands.TYPE_PLACE_STRUCTURE, changed, events)
 
 func _process_damage_structure(command: Dictionary) -> Dictionary:
-	var tile_pos := command.get("tile_pos", Vector2i.ZERO)
+	var tile_pos: Vector2i = command.get("tile_pos", Vector2i.ZERO)
 	if not (tile_pos is Vector2i):
 		return _failure_result(BuildingCommands.TYPE_DAMAGE_STRUCTURE, "invalid_tile_pos")
 
@@ -157,7 +157,7 @@ func _process_damage_structure(command: Dictionary) -> Dictionary:
 	return _success_result(BuildingCommands.TYPE_DAMAGE_STRUCTURE, changed, events)
 
 func _process_remove_structure(command: Dictionary) -> Dictionary:
-	var tile_pos := command.get("tile_pos", Vector2i.ZERO)
+	var tile_pos: Vector2i = command.get("tile_pos", Vector2i.ZERO)
 	if not (tile_pos is Vector2i):
 		return _failure_result(BuildingCommands.TYPE_REMOVE_STRUCTURE, "invalid_tile_pos")
 

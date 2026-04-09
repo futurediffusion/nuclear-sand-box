@@ -49,7 +49,7 @@ const ALLOW_LEADER_OPPORTUNISTIC_ASSAULT: bool = false
 const OPPORTUNISTIC_ASSAULT_CHANCE_MULTIPLIER: float = 0.45
 const ENABLE_WORKER_RESOURCE_FALLBACK: bool = true
 const ENABLE_GROUP_PERCEPTION_PULSE: bool = true
-const ENABLE_INDIVIDUAL_SCAN_FALLBACK: bool = true
+
 
 # ---------------------------------------------------------------------------
 # Physics / separation
@@ -125,8 +125,6 @@ static func enable_worker_resource_fallback() -> bool:
 static func enable_group_perception_pulse() -> bool:
 	return ENABLE_GROUP_PERCEPTION_PULSE
 
-static func enable_individual_scan_fallback() -> bool:
-	return ENABLE_INDIVIDUAL_SCAN_FALLBACK
 
 # ---------------------------------------------------------------------------
 # Physics / separation accessors
