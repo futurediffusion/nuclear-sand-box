@@ -2,6 +2,7 @@ extends RefCounted
 class_name BanditTelemetryAggregator
 
 const DEFAULT_METRICS_WINDOW_SECONDS: float = 5.0
+const PERF_WINDOW_LOG_SAMPLE_EVERY_N_WINDOWS: int = 3
 
 var _metrics_window_seconds: float = DEFAULT_METRICS_WINDOW_SECONDS
 var _perf_window_elapsed_s: float = 0.0
@@ -101,8 +102,9 @@ func merge_nested_counter(key: String, source: Dictionary) -> void:
 func flush_perf_window_if_needed() -> void:
 	if _perf_window_elapsed_s < _metrics_window_seconds:
 		return
-	var snapshot: Dictionary = get_perf_window_snapshot()
-	Debug.log("perf_telemetry", "[BanditBehaviorMetrics][window] %s" % JSON.stringify(snapshot))
+	if _should_emit_sampled_perf_window_log():
+		var snapshot: Dictionary = get_perf_window_snapshot()
+		Debug.log("perf_telemetry", "[BanditBehaviorMetrics][window] %s" % JSON.stringify(snapshot))
 	reset_perf_window_metrics()
 
 
@@ -257,3 +259,7 @@ func _build_phase1_physics_reduction_snapshot(current_physics_avg: float) -> Dic
 		"reduction_ms": reduction_abs,
 		"reduction_pct": reduction_pct,
 	}
+
+
+func _should_emit_sampled_perf_window_log() -> bool:
+	return Debug.should_sample("perf_telemetry", "bandit_behavior_perf_window", PERF_WINDOW_LOG_SAMPLE_EVERY_N_WINDOWS)
