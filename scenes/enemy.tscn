@@ -11,9 +11,9 @@
 [ext_resource type="Script" uid="uid://fs8idwdgvpd3" path="res://scripts/components/HealthComponent.gd" id="7_healthc"]
 [ext_resource type="Script" uid="uid://dp25cru3why2a" path="res://scripts/components/AIComponent.gd" id="8_ai"]
 [ext_resource type="Script" uid="uid://brau1sbxcik0b" path="res://scripts/components/hurtbox.gd" id="9_hurtbox"]
-[ext_resource type="Script" uid="uid://dng8wgnb2a8d4" path="res://scripts/components/InventoryComponent.gd" id="9_inv"]
-[ext_resource type="Script" uid="uid://b6p8j0x2k1w1w" path="res://scripts/components/WeaponComponent.gd" id="10_weap"]
-[ext_resource type="Script" uid="uid://d6a8r1p1x1w1w" path="res://scripts/weapons/AIWeaponController.gd" id="11_actrl"]
+[ext_resource type="Script" uid="uid://e5xb8ti105fj" path="res://scripts/components/InventoryComponent.gd" id="9_inv"]
+[ext_resource type="Script" uid="uid://vc4dnilcl62w" path="res://scripts/components/WeaponComponent.gd" id="10_weap"]
+[ext_resource type="Script" uid="uid://cgwx886jh5cys" path="res://scripts/weapons/AIWeaponController.gd" id="11_actrl"]
 [ext_resource type="Script" path="res://scripts/components/CarryComponent.gd" id="12_carry"]
 
 [sub_resource type="AtlasTexture" id="AtlasTexture_ipns3"]

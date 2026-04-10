@@ -487,7 +487,7 @@ func _enter_idle_at_home() -> void:
 	_detour_dir       = Vector2.ZERO
 
 
-func _enter_patrol(ctx: Dictionary) -> void:
+func _enter_patrol(_ctx: Dictionary) -> void:
 	var radius: float = _get_patrol_radius()
 	var angle: float  = _rng.randf_range(0.0, TAU)
 	var dist: float   = _rng.randf_range(radius * 0.3, radius)
@@ -572,7 +572,7 @@ func import_state(data: Dictionary) -> void:
 	var s: int = int(data.get("wb_state", int(State.IDLE_AT_HOME)))
 	if s == int(State.LOOT_APPROACH):
 		s = int(State.IDLE_AT_HOME)
-	state        = s
+	state        = s as State
 	var mt = data.get("wb_move_target", home_pos)
 	_move_target = mt if mt is Vector2 else home_pos
 	_idle_timer           = float(data.get("wb_idle_timer",      0.0))

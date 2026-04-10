@@ -93,6 +93,7 @@ func _generate_flowers(chunk_coords: Vector2i, occupied: Dictionary = {}) -> Arr
 			if absf(float(h % 100)) > _flower_density * 100.0:
 				continue
 
+			@warning_ignore("integer_division")
 			var variant: int = abs(h / 100) % flower_variant_count
 
 			# Offset AAA dentro del tile: rango -8..+8 px
@@ -140,6 +141,7 @@ func _build_multimesh(chunk_coords: Vector2i, flowers: Array) -> void:
 
 	var tex_w: float = float(_flower_texture.get_width())
 	var tex_h: float = float(_flower_texture.get_height())
+	@warning_ignore("integer_division")
 	var sheet_cols: int = int(tex_w) / 16
 
 	for raw_variant in by_variant.keys():
@@ -147,6 +149,7 @@ func _build_multimesh(chunk_coords: Vector2i, flowers: Array) -> void:
 		var variant_flowers: Array = by_variant[variant] as Array
 
 		var col: int = variant % sheet_cols
+		@warning_ignore("integer_division")
 		var row: int = variant / sheet_cols
 
 		var uv_x0: float = float(col * 16) / tex_w

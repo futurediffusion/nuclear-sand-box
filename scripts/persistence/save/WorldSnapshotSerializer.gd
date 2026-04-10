@@ -1,8 +1,6 @@
 extends RefCounted
 class_name WorldSnapshotSerializer
 
-const WorldSnapshot := preload("res://scripts/core/WorldSnapshot.gd")
-const WorldSnapshotVersioning := preload("res://scripts/persistence/save/WorldSnapshotVersioning.gd")
 
 ## Serializer for the canonical WorldSnapshot root DTO.
 ## Keeps disk payload conversion isolated from runtime adapter concerns.

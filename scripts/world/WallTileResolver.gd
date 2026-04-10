@@ -44,7 +44,7 @@ static func resolve_player_wall_tile_from_contact(
 static func find_nearest_player_wall_tile_in_neighborhood(
 		world_center: Vector2,
 		center_tile: Vector2i,
-		world_to_tile: Callable,
+		_world_to_tile: Callable,
 		is_valid_world_tile: Callable,
 		is_player_wall_tile: Callable,
 		tile_to_world: Callable,

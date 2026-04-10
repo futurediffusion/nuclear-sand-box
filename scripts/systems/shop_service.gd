@@ -209,7 +209,7 @@ func sell(vendor: VendorComponent, seller_inv: InventoryComponent, item_id: Stri
 	print("[SHOP][SELL] item=", item_id, " amt=", amount, " payout=", payout, " ok=", result.ok, " reason=", result.reason, " buyback_mode=", buyback_mode, " stock_src=", stock_src, " stock_before=", stock_before, " stock_after=", vendor.get_stock(item_id), " seller_gold_before=", seller_gold_before, " seller_gold_after=", seller_inv.gold)
 	return result
 
-func debug_run_randomized_tx_test(seed: int = 1337, steps: int = 20) -> Dictionary:
+func debug_run_randomized_tx_test(rng_seed: int = 1337, steps: int = 20) -> Dictionary:
 	if steps <= 0:
 		return {"ok": false, "reason": "INVALID_STEPS", "steps": steps}
 
@@ -217,7 +217,7 @@ func debug_run_randomized_tx_test(seed: int = 1337, steps: int = 20) -> Dictiona
 	debug_shop_tx = true
 
 	var rng := RandomNumberGenerator.new()
-	rng.seed = seed
+	rng.seed = rng_seed
 
 	var player := InventoryComponent.new()
 	player.max_slots = 20

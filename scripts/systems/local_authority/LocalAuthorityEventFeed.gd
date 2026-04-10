@@ -57,7 +57,7 @@ static func evaluate(incident: LocalCivilIncident) -> LocalAuthorityDirective:
 		)
 
 	var response: String      = _compute_response(incident)
-	var band: int             = LocalAuthorityResponse.SeverityBand.from_float(incident.severity)
+	var _band: int            = LocalAuthorityResponse.SeverityBand.from_float(incident.severity)
 	var needs_responder: bool = LocalAuthorityResponse.Response.is_active_response(response)
 	var record: bool          = _should_record(incident, response)
 	var lockdown: bool        = _suggests_lockdown(incident, response)

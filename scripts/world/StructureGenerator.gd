@@ -20,6 +20,7 @@ func generate_tavern(chunk_pos: Vector2i, chunk_size: int) -> TavernData:
 	var y0: int = chunk_pos.y * chunk_size + 3
 	var x1: int = x0 + w - 1
 	var y1: int = y0 + h - 1
+	@warning_ignore("integer_division")
 	var door_x: int = x0 + w / 2
 
 	d.bounds = Rect2i(x0, y0, w, h)

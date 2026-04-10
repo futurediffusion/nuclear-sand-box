@@ -478,8 +478,8 @@ func _do_place_at_tile(tile: Vector2i) -> void:
 			_cleanup()
 		return
 
+	var world := _find_world_node()
 	if _placement_mode == PLACEMENT_MODE_TILE_WALL:
-		var world := _find_world_node()
 		var placed_wall := false
 		if world != null and world.has_method("place_player_wall_at_tile"):
 			placed_wall = bool(world.call("place_player_wall_at_tile", tile))
@@ -523,7 +523,6 @@ func _do_place_at_tile(tile: Vector2i) -> void:
 	}
 	WorldSave.add_placed_entity(entry)
 
-	var world := _find_world_node()
 	# No instanciamos directamente aquí.
 	# Al añadir a WorldSave, el sistema de chunks/EntitySpawnCoordinator
 	# lo detectará en el siguiente frame (o forzamos un refresh local).

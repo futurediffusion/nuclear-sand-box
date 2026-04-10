@@ -51,8 +51,8 @@ func evaluate(incident: LocalCivilIncident) -> LocalAuthorityDirective:
 
 	# Primer incidente: sin historial, solo aplicar modificador de tensión.
 	if rec == null:
-		var tension: float = _memory.get_tension_level(RunClock.now())
-		if tension < 1.0:
+		var base_tension: float = _memory.get_tension_level(RunClock.now())
+		if base_tension < 1.0:
 			return base  # calma institucional — respetar respuesta base
 		# Tensión >1.0 incluso sin historial personal → no suavizar
 		return base

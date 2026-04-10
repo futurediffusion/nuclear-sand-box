@@ -1063,7 +1063,7 @@ func _cmd_summon_enemy(raw_args: Array) -> void:
 
 	var spawned := 0
 	for _i in spawn_count:
-		if _summon_single_enemy(tile_offset if has_tile_offset else null):
+		if _summon_single_enemy(tile_offset as Variant if has_tile_offset else null):
 			spawned += 1
 
 	if has_tile_offset:

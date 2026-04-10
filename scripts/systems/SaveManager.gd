@@ -3,9 +3,6 @@ extends Node
 const SAVE_PATH: String = "user://savegame.json"
 const SAVE_VERSION: int = 2
 
-const WorldSaveAdapter := preload("res://scripts/persistence/save/WorldSaveAdapter.gd")
-const WorldSnapshotSerializer := preload("res://scripts/persistence/save/WorldSnapshotSerializer.gd")
-const WorldSnapshot := preload("res://scripts/core/WorldSnapshot.gd")
 
 # Persistence ownership boundary:
 # - canonical truth lives in snapshot/canonical owners, not runtime projections.

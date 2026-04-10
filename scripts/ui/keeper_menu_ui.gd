@@ -53,15 +53,15 @@ func toggle() -> void:
 		open_shop(_current_owner)
 
 
-func open_shop(owner: Node) -> void:
-	if visible and _current_owner == owner:
+func open_shop(shop_owner: Node) -> void:
+	if visible and _current_owner == shop_owner:
 		return
-	if visible and _current_owner != owner:
+	if visible and _current_owner != shop_owner:
 		close_shop()
 	_close_inventory_if_open()
 
 	visible = true
-	_current_owner = owner
+	_current_owner = shop_owner
 	var ui := _ui_manager()
 	if ui != null:
 		ui.open_ui("shop")
@@ -109,8 +109,8 @@ func is_shop_open() -> bool:
 	return visible
 
 
-func is_owner(owner: Node) -> bool:
-	return visible and _current_owner == owner
+func is_owner(shop_owner: Node) -> bool:
+	return visible and _current_owner == shop_owner
 
 
 func set_player_inventory(inv: InventoryComponent) -> void:

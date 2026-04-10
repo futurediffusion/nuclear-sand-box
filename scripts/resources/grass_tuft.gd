@@ -169,6 +169,7 @@ func _apply_variant_from_uid() -> void:
 	var total_variants: int = max(1, sheet_cols * sheet_rows)
 	var variant: int = abs(hash(entity_uid)) % total_variants
 	var col: int = variant % sheet_cols
+	@warning_ignore("integer_division")
 	var row: int = variant / sheet_cols
 	sprite.texture = grass_sheet
 	sprite.region_enabled = true

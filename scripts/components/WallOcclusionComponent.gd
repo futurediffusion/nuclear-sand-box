@@ -80,57 +80,7 @@ func _resolve_tilemap() -> void:
 		Debug.log("wall", "[WALL_TOGGLE] OK tilemap=%s" % tilemap.get_path())
 
 func _update_occlusion() -> void:
-	return  # DESACTIVADO: oclusión manejada por OcclusionController + shader
-	var still_open: Dictionary = {}
-
-	var base_tile: Vector2i = _probe_tile()
-	var tpos: Vector2i = base_tile + player.probe_tile_offset
-	var tpos_up: Vector2i = tpos + Vector2i(0, -1)
-
-	var behind_mode: bool = false
-
-	if _has_wall(tpos):
-		_set_wall_alt(tpos, player.wall_alt_small)
-		still_open[tpos] = true
-		behind_mode = true
-	if _has_wall(tpos_up):
-		_set_wall_alt(tpos_up, player.wall_alt_small)
-		still_open[tpos_up] = true
-		behind_mode = true
-
-	var main_is_h: bool = _is_horizontal_member(tpos) or _is_horizontal_member(tpos_up)
-	if behind_mode and main_is_h and absf(player.velocity.x) > 0.1:
-		var side: int = 1 if player.velocity.x > 0.0 else -1
-		var lateral: Vector2i = tpos + Vector2i(side, 0)
-		var lateral_up: Vector2i = tpos_up + Vector2i(side, 0)
-		if _is_horizontal_interior(lateral) or _is_horizontal_end(lateral) or _is_top_corner(lateral):
-			_set_wall_alt(lateral, player.wall_alt_small)
-			still_open[lateral] = true
-		if _is_horizontal_interior(lateral_up) or _is_horizontal_end(lateral_up) or _is_top_corner(lateral_up):
-			_set_wall_alt(lateral_up, player.wall_alt_small)
-			still_open[lateral_up] = true
-
-	if absf(player.velocity.x) > 0.1:
-		var side2: int = 1 if player.velocity.x > 0.0 else -1
-		var approach: Vector2i = tpos + Vector2i(side2, 0)
-		var approach_up: Vector2i = tpos_up + Vector2i(side2, 0)
-		if _is_horizontal_end(approach) or _is_top_corner(approach):
-			_set_wall_alt(approach, player.wall_alt_small)
-			still_open[approach] = true
-		if _is_horizontal_end(approach_up) or _is_top_corner(approach_up):
-			_set_wall_alt(approach_up, player.wall_alt_small)
-			still_open[approach_up] = true
-
-	for old_tpos: Variant in opened_wall_tiles.keys():
-		if not still_open.has(old_tpos):
-			_set_wall_alt(old_tpos as Vector2i, player.wall_alt_full)
-
-	if behind_mode and _has_wall(tpos_up):
-		tilemap.set_layer_modulate(player.walls_layer, Color(1, 1, 1, 0.4))
-	else:
-		tilemap.set_layer_modulate(player.walls_layer, Color(1, 1, 1, 1.0))
-
-	opened_wall_tiles = still_open
+	pass  # DESACTIVADO: oclusión manejada por OcclusionController + shader
 
 func _probe_tile() -> Vector2i:
 	if tilemap == null or player == null:

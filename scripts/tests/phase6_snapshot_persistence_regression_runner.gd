@@ -40,7 +40,7 @@ func _test_snapshot_construction_from_canonical_state() -> void:
 		"faction_hostility": {"v": 5},
 	}
 	var snapshot = WorldSaveAdapter.build_world_snapshot(canonical_state)
-	assert(int(snapshot.seed) == 777, "world snapshot should keep canonical seed")
+	assert(int(snapshot.world_seed) == 777, "world snapshot should keep canonical seed")
 	assert(int(snapshot.chunks.size()) == 1, "world snapshot should include canonical chunk snapshots")
 	assert(int(snapshot.chunks[0].structures.size()) == 1, "chunk snapshot should include canonical structures from walls")
 	assert(int(snapshot.chunks[0].placed_entities.size()) == 1, "chunk snapshot should include canonical placeables")

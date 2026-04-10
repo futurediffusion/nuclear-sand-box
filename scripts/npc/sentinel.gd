@@ -316,7 +316,7 @@ func _pick_next_patrol_idx() -> int:
 	return next
 
 
-func _tick_intercept(delta: float) -> void:
+func _tick_intercept(_delta: float) -> void:
 	var target_pos := _get_effective_order_pos()
 	var dist := global_position.distance_to(target_pos)
 
@@ -358,7 +358,7 @@ func _tick_intercept(delta: float) -> void:
 	_pathfind_toward(target_pos, max_speed)
 
 
-func _tick_warn(delta: float) -> void:
+func _tick_warn(_delta: float) -> void:
 	if _order_target == null or not is_instance_valid(_order_target):
 		_enter_return()
 		return
@@ -521,7 +521,7 @@ func _tick_subdue(delta: float) -> void:
 			_do_attack(target_pos)
 
 
-func _tick_return(delta: float) -> void:
+func _tick_return(_delta: float) -> void:
 	var dist := global_position.distance_to(home_pos)
 	if dist < 14.0:
 		velocity = Vector2.ZERO

@@ -96,7 +96,9 @@ func generate_chunk_spawns(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 
 	var copper_positions: Array[Vector2i] = []
 	var chunk_size: int = ctx["chunk_size"]
+	@warning_ignore("integer_division")
 	var cx := chunk_pos.x * chunk_size + chunk_size / 2
+	@warning_ignore("integer_division")
 	var cy := chunk_pos.y * chunk_size + chunk_size / 2
 	var get_biome: Callable = ctx["get_biome"]
 	var biome: int = int(get_biome.call(cx, cy))
@@ -291,6 +293,7 @@ func _is_spawn_tile_valid(chunk_key: Vector2i, tile_pos: Vector2i, player_tile: 
 	# Cubre el chunk de la taberna y los vecinos cercanos.
 	if ctx.has("tavern_exclusion_rect"):
 		var trect: Rect2i = ctx["tavern_exclusion_rect"] as Rect2i
+		@warning_ignore("integer_division")
 		var tavern_center: Vector2i = Vector2i(
 			trect.position.x + trect.size.x / 2,
 			trect.position.y + trect.size.y / 2
@@ -439,6 +442,7 @@ func generate_tavern_in_chunk(chunk_pos: Vector2i, ctx: Dictionary) -> void:
 	var y0: int = bounds.position.y
 	var x1: int = x0 + bounds.size.x - 1
 	var y1: int = y0 + bounds.size.y - 1
+	@warning_ignore("integer_division")
 	var door_x: int = x0 + bounds.size.x / 2
 	var structural_wall_default_hp: int = maxi(1, int(ctx.get("structural_wall_default_hp", 1)))
 

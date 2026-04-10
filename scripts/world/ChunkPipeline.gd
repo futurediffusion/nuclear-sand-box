@@ -1,8 +1,6 @@
 extends Node
 class_name ChunkPipeline
 
-const WorldTerrainConfig = preload("res://scripts/world/WorldTerrainConfig.gd")
-
 # ── Stage name constants ───────────────────────────────────────────────────────
 const CHUNK_PERF_STAGE_GENERATE: String = "generate"
 const CHUNK_PERF_STAGE_GROUND_CONNECT: String = "ground terrain connect"
@@ -524,7 +522,7 @@ func _prefetch_chunk(chunk_pos: Vector2i) -> void:
 		return
 
 	generating_chunks[chunk_pos] = true
-	await generate_chunk(chunk_pos, false)
+	generate_chunk(chunk_pos, false)
 	prefetching_chunks.erase(key)
 	prefetched_chunks[key] = true
 	if not prefetched_visual_chunks.has(key):

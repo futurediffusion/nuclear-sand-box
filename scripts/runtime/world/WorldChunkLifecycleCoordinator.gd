@@ -80,7 +80,7 @@ func update_chunks(center: Vector2i, player_global_position: Vector2 = Vector2.I
 	for cpos in needed_chunks:
 		if not _pipeline.generated_chunks.has(cpos) and not _pipeline.generating_chunks.has(cpos):
 			_pipeline.generating_chunks[cpos] = true
-			await _pipeline.generate_chunk(cpos, true)
+			_pipeline.generate_chunk(cpos, true)
 		if _pipeline.generating_chunks.has(cpos):
 			continue
 		if not _loaded_chunks.has(cpos):

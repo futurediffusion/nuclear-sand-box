@@ -13,6 +13,15 @@ var _log_worker_event_cb: Callable = Callable()
 var _work_coordinator: Node = null
 var _legacy_resource_sticky_fallback_uses: int = 0
 
+const _WALL_CACHE_TTL: float = 1.5
+
+var _group_wall_target_cache: Dictionary = {}
+var _group_wall_target_expires: Dictionary = {}
+var _wall_query_attempted: int = 0
+var _wall_query_skipped: int = 0
+var _wall_query_cache_hit: int = 0
+var _wall_query_executed: int = 0
+
 
 func setup(ctx: Dictionary) -> void:
 	_world_spatial_index = ctx.get("world_spatial_index") as WorldSpatialIndex
@@ -194,8 +203,10 @@ func build_member_context(input: Dictionary) -> Dictionary:
 	var in_combat: bool = bool(input.get("in_combat", false))
 	var recently_engaged: bool = bool(input.get("recently_engaged", false))
 	var simulation_profile: String = String(input.get("simulation_profile", "full"))
+	var wall_query_allowed: bool = bool(input.get("wall_query_allowed", false))
+	var group_id: String = String(input.get("group_id", ""))
 	var player_presence: Dictionary = _build_player_presence(node_pos)
-	var assault_targets: Dictionary = _build_assault_targets(node_pos)
+	var assault_targets: Dictionary = _build_assault_targets(node_pos, wall_query_allowed, group_id)
 	var threat_signals: Dictionary = {
 		"in_combat": in_combat,
 		"recently_engaged": recently_engaged,
@@ -266,6 +277,10 @@ func build_group_intent_perception(input: Dictionary) -> Dictionary:
 func get_debug_snapshot() -> Dictionary:
 	return {
 		"legacy_resource_sticky_fallback_uses": _legacy_resource_sticky_fallback_uses,
+		"wall_query_attempted": _wall_query_attempted,
+		"wall_query_skipped": _wall_query_skipped,
+		"wall_query_cache_hit": _wall_query_cache_hit,
+		"wall_query_executed": _wall_query_executed,
 	}
 
 func _register_legacy_bridge_usage(bridge_id: String, details: String) -> void:
@@ -296,14 +311,27 @@ func _build_player_presence(node_pos: Vector2) -> Dictionary:
 	}
 
 
-func _build_assault_targets(node_pos: Vector2) -> Dictionary:
+func _build_assault_targets(node_pos: Vector2, wall_query_allowed: bool = false, group_id: String = "") -> Dictionary:
 	var radius: float = 12000.0
 	var nearest_wall: Vector2 = Vector2.ZERO
 	var nearest_workbench: Vector2 = Vector2.ZERO
 	var nearest_storage: Vector2 = Vector2.ZERO
 	var nearest_placeable: Vector2 = Vector2.ZERO
-	if _find_wall_cb.is_valid():
-		nearest_wall = _find_wall_cb.call(node_pos, radius)
+	_wall_query_attempted += 1
+	if not wall_query_allowed:
+		_wall_query_skipped += 1
+	else:
+		var now: float = RunClock.now()
+		if group_id != "" and _group_wall_target_cache.has(group_id) \
+				and now < float(_group_wall_target_expires.get(group_id, 0.0)):
+			_wall_query_cache_hit += 1
+			nearest_wall = _group_wall_target_cache[group_id] as Vector2
+		elif _find_wall_cb.is_valid():
+			_wall_query_executed += 1
+			nearest_wall = _find_wall_cb.call(node_pos, radius)
+			if group_id != "":
+				_group_wall_target_cache[group_id] = nearest_wall
+				_group_wall_target_expires[group_id] = now + _WALL_CACHE_TTL
 	if _find_workbench_cb.is_valid():
 		nearest_workbench = _find_workbench_cb.call(node_pos, radius)
 	if _find_storage_cb.is_valid():
@@ -316,3 +344,8 @@ func _build_assault_targets(node_pos: Vector2) -> Dictionary:
 		"nearest_storage": nearest_storage,
 		"nearest_placeable": nearest_placeable,
 	}
+
+
+func invalidate_group_wall_cache(group_id: String) -> void:
+	_group_wall_target_cache.erase(group_id)
+	_group_wall_target_expires.erase(group_id)

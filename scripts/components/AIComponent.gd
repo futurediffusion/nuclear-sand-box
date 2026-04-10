@@ -116,6 +116,12 @@ func _has_property(obj: Object, property_name: String) -> bool:
 	for prop in obj.get_property_list():
 		if String(prop.get("name", "")) == property_name:
 			return true
+	# get_property_list() omits class constants — also check the script constant map
+	var s: Script = obj.get_script() as Script
+	if s != null:
+		var constants: Dictionary = s.get_script_constant_map()
+		if constants.has(property_name):
+			return true
 	return false
 
 func _validate_owner_contract(actor: Node) -> bool:

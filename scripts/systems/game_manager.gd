@@ -2,9 +2,13 @@ extends Node
 
 enum SessionPhase { EXPLORE, RETURNING, RESTING, GAME_OVER }
 
+@warning_ignore("unused_signal")
 signal player_died
+@warning_ignore("unused_signal")
 signal player_healed(amount: int)
+@warning_ignore("unused_signal")
 signal zone_entered(zone_name: String)
+@warning_ignore("unused_signal")
 signal phase_changed(new_phase: SessionPhase)
 signal threat_level_changed(new_level: int)
 

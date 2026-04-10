@@ -48,7 +48,6 @@ const GROUP_SCAN_SLICE_COUNT: int = 4
 
 var _scan_timer: float = BanditTuning.group_scan_interval() * 0.37
 var _scan_cursor: int = 0
-var _intent_policy := BanditIntentPolicy.new()
 var _intent_system: BanditIntentSystem = BanditIntentSystemScript.new()
 var _scan_accumulator_by_group: Dictionary = {}
 var _lod_debug_last_group: Dictionary = {}
@@ -278,7 +277,7 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var scan_owner: Dictionary = _pick_scan_responsible(g)
 	if scan_owner.is_empty():
 		return
-	var leader_id: String = String(g.get("leader_id", ""))
+	var _leader_id: String = String(g.get("leader_id", ""))
 	var scan_owner_id: String = String(scan_owner.get("member_id", ""))
 	var scan_owner_role: String = String(scan_owner.get("role", "leader"))
 	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_id", scan_owner_id, BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_scan_owner")
@@ -313,7 +312,7 @@ func _scan_group(group_id: String, g: Dictionary) -> void:
 	var current_intent: String = String(g.get("current_group_intent", "idle"))
 	var intent_time: float = BanditGroupMemory.get_intent_time(group_id)
 	var internal_cd: float = BanditGroupMemory.get_internal_social_cooldown_remaining(group_id)
-	var policy: Dictionary = _intent_policy.evaluate(score, profile, w_tier, current_intent, intent_time, internal_cd)
+	var policy: Dictionary = BanditIntentPolicy.evaluate(score, profile, w_tier, current_intent, intent_time, internal_cd)
 	var effective_score: float = float(policy.get("effective_score", score))
 	var effective_t_alerted: float = float(policy.get("effective_alerted_threshold", BanditTuning.alerted_threshold()))
 	var effective_t_hunting: float = float(policy.get("effective_hunting_threshold", BanditTuning.hunting_threshold()))
@@ -476,7 +475,7 @@ func _pick_best_interest(markers: Array, bases: Array) -> Dictionary:
 # Scout selection — one non-leader sleeping member per group
 # ---------------------------------------------------------------------------
 
-func _pick_scout(group_id: String, g: Dictionary) -> String:
+func _pick_scout(_group_id: String, g: Dictionary) -> String:
 	var member_ids: Array = g.get("member_ids", [])
 	var leader_id: String = String(g.get("leader_id", ""))
 

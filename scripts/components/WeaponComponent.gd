@@ -196,16 +196,16 @@ func equip_prev() -> void:
 		print("[WeaponComponent] equip_prev -> ", current_weapon_id)
 	weapon_equipped.emit(current_weapon_id)
 
-func equip_runtime_weapon(owner: Node, controller: WeaponController = null) -> void:
-	_equip_runtime_weapon(owner, controller)
+func equip_runtime_weapon(weapon_owner: Node, controller: WeaponController = null) -> void:
+	_equip_runtime_weapon(weapon_owner, controller)
 
-func refresh_runtime_weapon_controller(owner: Node, controller: WeaponController) -> void:
-	if owner == null or controller == null:
+func refresh_runtime_weapon_controller(weapon_owner: Node, controller: WeaponController) -> void:
+	if weapon_owner == null or controller == null:
 		return
 	if current_weapon == null:
-		_equip_runtime_weapon(owner, controller)
+		_equip_runtime_weapon(weapon_owner, controller)
 		return
-	current_weapon.owner_entity = owner
+	current_weapon.owner_entity = weapon_owner
 	current_weapon.set_controller(controller)
 
 func tick(delta: float) -> void:
@@ -264,7 +264,7 @@ func _equip_fallback() -> void:
 	current_weapon_id = ""
 	weapon_equipped.emit(current_weapon_id)
 
-func _equip_runtime_weapon(owner: Node, controller: WeaponController = null) -> void:
+func _equip_runtime_weapon(weapon_owner: Node, controller: WeaponController = null) -> void:
 	if current_weapon != null:
 		current_weapon.on_unequipped()
 		current_weapon.queue_free()
@@ -278,7 +278,7 @@ func _equip_runtime_weapon(owner: Node, controller: WeaponController = null) -> 
 		(current_weapon as BowWeapon).consume_arrows = false
 	current_weapon.name = "CurrentWeapon"
 	add_child(current_weapon)
-	current_weapon.on_equipped(owner, controller)
+	current_weapon.on_equipped(weapon_owner, controller)
 
 func _make_weapon_node(weapon_id: String) -> WeaponBase:
 	var normalized_weapon_id := _normalize_weapon_id(weapon_id)

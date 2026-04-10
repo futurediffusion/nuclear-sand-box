@@ -64,8 +64,8 @@ func _process(_delta: float) -> void:
 
 	# Actualizar valor del progreso
 	if _downed_component.has_method("get_progress_ratio"):
-		var ratio: float = _downed_component.get_progress_ratio()
-		value = clampf(ratio * 100.0, 0.0, 100.0)
+		var progress_ratio: float = _downed_component.get_progress_ratio()
+		value = clampf(progress_ratio * 100.0, 0.0, 100.0)
 
 func _sync_state() -> void:
 	if _downed_component != null and _downed_component.is_downed:

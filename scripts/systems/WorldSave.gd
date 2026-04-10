@@ -354,54 +354,54 @@ func _player_wall_tile_from_key(tile_key: String) -> Vector2i:
 		return Vector2i(-999999, -999999)
 	return Vector2i(int(parts[0]), int(parts[1]))
 
-func get_enemy_state(chunk_key: String, enemy_id: String):
-	if chunk_key == "" or enemy_id == "":
+func get_enemy_state(ck: String, enemy_id: String):
+	if ck == "" or enemy_id == "":
 		return null
-	if not enemy_state_by_chunk.has(chunk_key):
+	if not enemy_state_by_chunk.has(ck):
 		return null
-	return enemy_state_by_chunk[chunk_key].get(enemy_id, null)
+	return enemy_state_by_chunk[ck].get(enemy_id, null)
 
 func get_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String):
 	return get_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id)
 
-func set_enemy_state(chunk_key: String, enemy_id: String, state: Dictionary) -> void:
-	if chunk_key == "" or enemy_id == "":
+func set_enemy_state(ck: String, enemy_id: String, state: Dictionary) -> void:
+	if ck == "" or enemy_id == "":
 		return
-	if not enemy_state_by_chunk.has(chunk_key):
-		enemy_state_by_chunk[chunk_key] = {}
+	if not enemy_state_by_chunk.has(ck):
+		enemy_state_by_chunk[ck] = {}
 	var copy: Dictionary = state.duplicate(true)
 	copy["id"] = enemy_id
-	copy["chunk_key"] = chunk_key
+	copy["chunk_key"] = ck
 	if not copy.has("version"):
 		copy["version"] = 1
-	enemy_state_by_chunk[chunk_key][enemy_id] = copy
+	enemy_state_by_chunk[ck][enemy_id] = copy
 
 func set_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String, state: Dictionary) -> void:
 	set_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id, state)
 
-func has_enemy_state(chunk_key: String, enemy_id: String) -> bool:
-	if chunk_key == "" or enemy_id == "":
+func has_enemy_state(ck: String, enemy_id: String) -> bool:
+	if ck == "" or enemy_id == "":
 		return false
-	return enemy_state_by_chunk.has(chunk_key) and enemy_state_by_chunk[chunk_key].has(enemy_id)
+	return enemy_state_by_chunk.has(ck) and enemy_state_by_chunk[ck].has(enemy_id)
 
 func has_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String) -> bool:
 	return has_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id)
 
-func remove_enemy_state(chunk_key: String, enemy_id: String) -> void:
-	if not enemy_state_by_chunk.has(chunk_key):
+func remove_enemy_state(ck: String, enemy_id: String) -> void:
+	if not enemy_state_by_chunk.has(ck):
 		return
-	enemy_state_by_chunk[chunk_key].erase(enemy_id)
-	if enemy_state_by_chunk[chunk_key].is_empty():
-		enemy_state_by_chunk.erase(chunk_key)
+	enemy_state_by_chunk[ck].erase(enemy_id)
+	if enemy_state_by_chunk[ck].is_empty():
+		enemy_state_by_chunk.erase(ck)
 
 func remove_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String) -> void:
 	remove_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id)
 
-func iter_enemy_ids_in_chunk(chunk_key: String) -> Array[String]:
-	if not enemy_state_by_chunk.has(chunk_key):
+func iter_enemy_ids_in_chunk(ck: String) -> Array[String]:
+	if not enemy_state_by_chunk.has(ck):
 		return []
 	var ids: Array[String] = []
-	for enemy_id in enemy_state_by_chunk[chunk_key].keys():
+	for enemy_id in enemy_state_by_chunk[ck].keys():
 		ids.append(String(enemy_id))
 	ids.sort()
 	return ids
@@ -409,21 +409,21 @@ func iter_enemy_ids_in_chunk(chunk_key: String) -> Array[String]:
 func iter_enemy_ids_in_chunk_pos(chunk_pos: Vector2i) -> Array[String]:
 	return iter_enemy_ids_in_chunk(chunk_key_from_pos(chunk_pos))
 
-func mark_enemy_dead(chunk_key: String, enemy_id: String) -> void:
-	var state = get_enemy_state(chunk_key, enemy_id)
+func mark_enemy_dead(ck: String, enemy_id: String) -> void:
+	var state = get_enemy_state(ck, enemy_id)
 	if state == null:
 		return
 	var copy: Dictionary = (state as Dictionary).duplicate(true)
 	copy["is_dead"] = true
 	copy["is_downed"] = false
 	copy["last_active_time"] = RunClock.now()
-	set_enemy_state(chunk_key, enemy_id, copy)
+	set_enemy_state(ck, enemy_id, copy)
 
 func mark_enemy_dead_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String) -> void:
 	mark_enemy_dead(chunk_key_from_pos(chunk_pos), enemy_id)
 
-func mark_enemy_downed(chunk_key: String, enemy_id: String, resolve_at: float, entered_at: float = -1.0) -> void:
-	var state = get_enemy_state(chunk_key, enemy_id)
+func mark_enemy_downed(ck: String, enemy_id: String, resolve_at: float, entered_at: float = -1.0) -> void:
+	var state = get_enemy_state(ck, enemy_id)
 	if state == null:
 		return
 	var copy: Dictionary = (state as Dictionary).duplicate(true)
@@ -432,59 +432,59 @@ func mark_enemy_downed(chunk_key: String, enemy_id: String, resolve_at: float, e
 	copy["downed_resolve_at"] = resolve_at
 	copy["downed_at"] = RunClock.now() if entered_at < 0.0 else entered_at
 	copy["last_active_time"] = RunClock.now()
-	set_enemy_state(chunk_key, enemy_id, copy)
+	set_enemy_state(ck, enemy_id, copy)
 
 func mark_enemy_downed_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String, resolve_at: float, entered_at: float = -1.0) -> void:
 	mark_enemy_downed(chunk_key_from_pos(chunk_pos), enemy_id, resolve_at, entered_at)
 
-func get_or_create_enemy_state(chunk_key: String, enemy_id: String, default_state: Dictionary) -> Dictionary:
-	var existing = get_enemy_state(chunk_key, enemy_id)
+func get_or_create_enemy_state(ck: String, enemy_id: String, default_state: Dictionary) -> Dictionary:
+	var existing = get_enemy_state(ck, enemy_id)
 	if existing != null:
 		return (existing as Dictionary).duplicate(true)
 	var created: Dictionary = default_state.duplicate(true)
 	created["id"] = enemy_id
-	created["chunk_key"] = chunk_key
+	created["chunk_key"] = ck
 	if not created.has("version"):
 		created["version"] = 1
-	set_enemy_state(chunk_key, enemy_id, created)
+	set_enemy_state(ck, enemy_id, created)
 	return created.duplicate(true)
 
 func get_or_create_enemy_state_at_chunk_pos(chunk_pos: Vector2i, enemy_id: String, default_state: Dictionary) -> Dictionary:
 	return get_or_create_enemy_state(chunk_key_from_pos(chunk_pos), enemy_id, default_state)
 
-func get_enemy_count_in_chunk(chunk_key: String) -> int:
-	if not enemy_state_by_chunk.has(chunk_key):
+func get_enemy_count_in_chunk(ck: String) -> int:
+	if not enemy_state_by_chunk.has(ck):
 		return 0
-	return enemy_state_by_chunk[chunk_key].size()
+	return enemy_state_by_chunk[ck].size()
 
 func get_enemy_count_in_chunk_pos(chunk_pos: Vector2i) -> int:
 	return get_enemy_count_in_chunk(chunk_key_from_pos(chunk_pos))
 
-func ensure_chunk_enemy_spawns(chunk_key: String, records: Array) -> void:
-	if chunk_key == "":
+func ensure_chunk_enemy_spawns(ck: String, records: Array) -> void:
+	if ck == "":
 		return
-	if enemy_spawns_by_chunk.has(chunk_key):
+	if enemy_spawns_by_chunk.has(ck):
 		return
 	var stable_records: Array = records.duplicate(true)
 	stable_records.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return int(a.get("spawn_index", 0)) < int(b.get("spawn_index", 0))
 	)
-	enemy_spawns_by_chunk[chunk_key] = stable_records
+	enemy_spawns_by_chunk[ck] = stable_records
 
 func ensure_chunk_enemy_spawns_at_chunk_pos(chunk_pos: Vector2i, records: Array) -> void:
 	ensure_chunk_enemy_spawns(chunk_key_from_pos(chunk_pos), records)
 
-func get_chunk_enemy_spawns(chunk_key: String) -> Array:
-	if not enemy_spawns_by_chunk.has(chunk_key):
+func get_chunk_enemy_spawns(ck: String) -> Array:
+	if not enemy_spawns_by_chunk.has(ck):
 		return []
-	return (enemy_spawns_by_chunk[chunk_key] as Array).duplicate(true)
+	return (enemy_spawns_by_chunk[ck] as Array).duplicate(true)
 
 func get_chunk_enemy_spawns_at_chunk_pos(chunk_pos: Vector2i) -> Array:
 	return get_chunk_enemy_spawns(chunk_key_from_pos(chunk_pos))
 
-func clear_chunk_enemy_spawns(chunk_key: String) -> void:
-	enemy_spawns_by_chunk.erase(chunk_key)
-	enemy_state_by_chunk.erase(chunk_key)
+func clear_chunk_enemy_spawns(ck: String) -> void:
+	enemy_spawns_by_chunk.erase(ck)
+	enemy_state_by_chunk.erase(ck)
 
 func clear_chunk_enemy_spawns_at_chunk_pos(chunk_pos: Vector2i) -> void:
 	clear_chunk_enemy_spawns(chunk_key_from_pos(chunk_pos))

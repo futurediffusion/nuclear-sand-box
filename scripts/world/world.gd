@@ -554,27 +554,18 @@ func _ready() -> void:
 		# aquí evita un frame inicial con look diurno incorrecto al cargar de noche.
 		_day_night_controller.sync_to_time_in_day(WorldTime.get_time_in_day())
 
+	@warning_ignore("integer_division")
 	tavern_chunk = _tile_to_chunk(Vector2i(width / 2, height / 2))
 	spawn_tile = get_tavern_center_tile(tavern_chunk)
 
 	var spawn_world: Vector2 = _tile_to_world(spawn_tile)
+	# Siempre spawnear en el centro de la taberna al iniciar.
+	# El save restaura chunks/inventario/mundo pero no la posición del jugador,
+	# ya que la posición guardada puede ser exterior al anillo de cliffs o en
+	# un área peligrosa. El jugador siempre parte desde la taberna.
 	if player:
 		player.global_position = spawn_world
-
-	if _had_save and player:
-		var loaded_chunk := world_to_chunk(SaveManager._pending_player_pos)
-		var max_chunk := Vector2i(width / chunk_size, height / chunk_size)
-		var in_bounds := loaded_chunk.x >= 0 and loaded_chunk.x < max_chunk.x \
-			and loaded_chunk.y >= 0 and loaded_chunk.y < max_chunk.y
-		if in_bounds:
-			player.global_position = SaveManager._pending_player_pos
-			current_player_chunk = loaded_chunk
-		else:
-			push_warning("SaveManager: posición guardada fuera del mundo actual, usando spawn.")
-			player.global_position = spawn_world
-			current_player_chunk = world_to_chunk(spawn_world)
-	else:
-		current_player_chunk = world_to_chunk(spawn_world)
+	current_player_chunk = world_to_chunk(spawn_world)
 
 	# Create subsystems before wiring them together
 	npc_simulator = NpcSimulator.new()
@@ -935,6 +926,22 @@ func _ready() -> void:
 			"find_nearest_player_storage_world_pos": Callable(self, "find_nearest_player_storage_world_pos"),
 			"find_nearest_player_placeable_world_pos": Callable(self, "find_nearest_player_placeable_world_pos"),
 		})
+
+	# Eager projection rebuild from WorldSave data before async chunk generation starts.
+	# Without this, the player sees the tavern with no floor/walls until the full
+	# chunk pipeline completes (several frames). Reads directly from WorldSave.chunks
+	# to avoid depending on loaded_chunks (populated only after chunk generation).
+	if _had_save and _building_tilemap_projection != null and _wall_collider_projection != null \
+			and _sandbox_structure_repository != null:
+		var eager_snapshot: Array[Dictionary] = []
+		for key_raw in WorldSave.chunks.keys():
+			var cp: Vector2i = WorldSave.chunk_pos_from_key(String(key_raw))
+			if cp == WorldSave.INVALID_CHUNK_POS:
+				continue
+			eager_snapshot.append_array(_sandbox_structure_repository.list_structures_in_chunk(cp, false))
+		if not eager_snapshot.is_empty():
+			_building_tilemap_projection.apply_snapshot(eager_snapshot)
+			_wall_collider_projection.rebuild_from_state(eager_snapshot)
 
 	await update_chunks(current_player_chunk)
 	if _had_save:
@@ -1592,6 +1599,7 @@ func get_tavern_exit_world_pos() -> Vector2:
 		var keeper := keepers[0]
 		var inner_min: Vector2i = keeper.get("tavern_inner_min")
 		var inner_max: Vector2i = keeper.get("tavern_inner_max")
+		@warning_ignore("integer_division")
 		var door_x: int = (inner_min.x + inner_max.x + 1) / 2
 		return _tile_to_world(Vector2i(door_x, inner_max.y + 2))
 	# Fallback por geometría fija desde tavern_chunk
@@ -1607,9 +1615,9 @@ func get_tavern_inner_bounds_world() -> Rect2:
 		var keeper := keepers[0]
 		var inner_min: Vector2i = keeper.get("tavern_inner_min")
 		var inner_max: Vector2i = keeper.get("tavern_inner_max")
-		var min_world := _tile_to_world(inner_min)
-		var max_world := _tile_to_world(inner_max + Vector2i(1, 1))
-		return Rect2(min_world, max_world - min_world)
+		var inner_min_world := _tile_to_world(inner_min)
+		var inner_max_world := _tile_to_world(inner_max + Vector2i(1, 1))
+		return Rect2(inner_min_world, inner_max_world - inner_min_world)
 	# Fallback
 	var x0: int = tavern_chunk.x * chunk_size + 4
 	var y0: int = tavern_chunk.y * chunk_size + 3

@@ -93,11 +93,11 @@ func add_item(item_id: String, amount: int) -> int:
 		if not _is_empty_slot(slots[i]):
 			continue
 
-		var inserted: int = mini(stack_limit, remaining)
-		slots[i] = {"id": item_id, "count": inserted}
+		var to_insert: int = mini(stack_limit, remaining)
+		slots[i] = {"id": item_id, "count": to_insert}
 		touched[i] = true
-		remaining -= inserted
-		_inv_log("[INV] add_item INSERT slot=%d inserted=%d remaining=%d" % [i, inserted, remaining])
+		remaining -= to_insert
+		_inv_log("[INV] add_item INSERT slot=%d inserted=%d remaining=%d" % [i, to_insert, remaining])
 
 	var inserted := amount - remaining
 	if inserted > 0:
@@ -263,7 +263,8 @@ func buy_item(item_id: String, amount: int, unit_price: int) -> int:
 		var free_added := add_item(item_id, amount)
 		return free_added
 
-	var affordable := gold / unit_price
+	@warning_ignore("integer_division")
+	var affordable := int(gold) / int(unit_price)
 	var to_buy := mini(amount, affordable)
 	if to_buy <= 0:
 		return 0

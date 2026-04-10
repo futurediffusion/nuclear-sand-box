@@ -370,6 +370,7 @@ func _max_craftable(recipe: CraftingRecipe, inventory: InventoryComponent) -> in
 		if needed <= 0:
 			continue
 		var has: int = _count_in_inventory(inventory, item_id)
+		@warning_ignore("integer_division")
 		max_n = mini(max_n, has / needed)
 	if max_n <= 0:
 		return 0
@@ -382,6 +383,7 @@ func _max_craftable(recipe: CraftingRecipe, inventory: InventoryComponent) -> in
 	var hi := max_n - 1
 	var best := 0
 	while lo <= hi:
+		@warning_ignore("integer_division")
 		var mid := (lo + hi) / 2
 		if bool(inventory.call("has_space_for", recipe.result_item_id, recipe.result_count * mid)):
 			best = mid

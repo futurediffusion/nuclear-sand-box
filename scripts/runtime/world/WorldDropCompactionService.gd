@@ -216,8 +216,9 @@ func _build_anchor_list() -> Array[Vector2]:
 		var count: int = int(density_by_chunk[cpos])
 		if count < maxi(_drop_compaction_min_cluster_size, 2):
 			continue
+		var _chunk_half: int = int(_chunk_size * 0.5)
 		density_rank.append({
-			"pos": _call_tile_to_world(cpos * _chunk_size + Vector2i(_chunk_size / 2, _chunk_size / 2)),
+			"pos": _call_tile_to_world(cpos * _chunk_size + Vector2i(_chunk_half, _chunk_half)),
 			"count": count,
 		})
 	density_rank.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:

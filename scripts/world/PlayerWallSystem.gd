@@ -379,7 +379,7 @@ func damage_player_wall_at_world_pos(world_pos: Vector2, amount: int = 1) -> boo
 			var candidate: Vector2i = tile_pos + Vector2i(ox, oy)
 			if not _is_valid_world_tile(candidate):
 				continue
-			var chunk_pos := _tile_to_chunk(candidate)
+			var _chunk_pos := _tile_to_chunk(candidate)
 			if building_wall_workflow == null or not building_wall_workflow.has_player_wall_at_tile(candidate):
 				continue
 			var center := _tile_to_world(candidate)
@@ -408,7 +408,7 @@ func damage_player_wall_in_circle(world_center: Vector2, world_radius: float, am
 			var candidate: Vector2i = center_tile + Vector2i(ox, oy)
 			if not _is_valid_world_tile(candidate):
 				continue
-			var chunk_pos: Vector2i = _tile_to_chunk(candidate)
+			var _chunk_pos: Vector2i = _tile_to_chunk(candidate)
 			if building_wall_workflow == null or not building_wall_workflow.has_player_wall_at_tile(candidate):
 				continue
 
@@ -694,7 +694,7 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 	var remove_result: Dictionary = building_wall_workflow.remove_player_wall(tile_pos, drop_item)
 	if not bool(remove_result.get(BuildingSystem.RESULT_KEY_SUCCESS, false)):
 		return false
-	var remove_events: Array[Dictionary] = remove_result.get(BuildingSystem.RESULT_KEY_EVENTS, [])
+	var _remove_events: Array[Dictionary] = remove_result.get(BuildingSystem.RESULT_KEY_EVENTS, [])
 	_finalize_player_wall_removal(tile_pos, drop_item)
 	return true
 

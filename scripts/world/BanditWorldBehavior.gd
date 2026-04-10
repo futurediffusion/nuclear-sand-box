@@ -403,7 +403,7 @@ func _tick_leader_phase(delta: float) -> void:
 
 ## Override: avoid picking patrol targets near the barrel (deposit_pos).
 ## NPCs should only approach the barrel when they have cargo to deposit.
-func _enter_patrol(ctx: Dictionary) -> void:
+func _enter_patrol(_ctx: Dictionary) -> void:
 	const BARREL_AVOID_RADIUS_SQ: float = 140.0 * 140.0
 	var radius: float = _get_patrol_radius()
 	# Sesgar el ángulo inicial alejándose del barril para reducir candidatos malos.

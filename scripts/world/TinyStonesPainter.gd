@@ -97,6 +97,7 @@ func _generate_stones(chunk_coords: Vector2i, occupied: Dictionary = {}) -> Arra
 			if absf(float(h % 100)) > _stone_density * 100.0:
 				continue
 
+			@warning_ignore("integer_division")
 			var variant: int = abs(h / 100) % stone_variant_count
 
 			var ox: float = float((h >> 8) % 17) - 8.0
@@ -126,6 +127,7 @@ func _build_multimesh(chunk_coords: Vector2i, stones: Array) -> void:
 
 	var tex_w: float = float(_stone_texture.get_width())
 	var tex_h: float = float(_stone_texture.get_height())
+	@warning_ignore("integer_division")
 	var sheet_cols: int = int(tex_w) / SPRITE_W
 
 	var h: float = _stone_size * 0.5
@@ -135,6 +137,7 @@ func _build_multimesh(chunk_coords: Vector2i, stones: Array) -> void:
 		var variant_stones: Array = by_variant[variant] as Array
 
 		var col: int = variant % sheet_cols
+		@warning_ignore("integer_division")
 		var row: int = variant / sheet_cols
 
 		var uv_x0: float = float(col * SPRITE_W) / tex_w

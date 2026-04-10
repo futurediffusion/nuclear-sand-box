@@ -45,7 +45,7 @@ func _on_player_stamina_changed(new_stamina: float, new_max_stamina: float) -> v
 	stamina_bar.max_value = new_max_stamina
 	stamina_bar.value = new_stamina
 
-func _on_player_healed(amount: int) -> void:
+func _on_player_healed(_amount: int) -> void:
 	# Hook listo para feedback visual/sonoro de curación.
 	pass
 

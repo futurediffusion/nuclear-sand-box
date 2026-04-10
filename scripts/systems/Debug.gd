@@ -53,48 +53,34 @@ const BOOT_TRACE := true
 }
 var _sample_counters: Dictionary = {}
 
-static func _get_singleton() -> DebugSystem:
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null:
-		return null
-	return tree.root.get_node_or_null("Debug") as DebugSystem
-
-static func is_enabled(cat: String) -> bool:
-	var singleton := _get_singleton()
-	if singleton == null:
+func is_enabled(cat: String) -> bool:
+	if not enabled:
 		return false
-	if not singleton.enabled:
-		return false
-	if singleton.categories.has(cat) and not singleton.categories[cat]:
+	if categories.has(cat) and not categories[cat]:
 		return false
 	return true
 
-static func is_diagnostic_mode() -> bool:
-	var singleton := _get_singleton()
-	return singleton != null and singleton.diagnostic_mode
+func is_diagnostic_mode() -> bool:
+	return diagnostic_mode
 
-static func should_sample(cat: String, sample_key: String, every_n: int) -> bool:
+func should_sample(cat: String, sample_key: String, every_n: int) -> bool:
 	if every_n <= 1:
 		return is_enabled(cat)
-	var singleton := _get_singleton()
-	if singleton == null:
+	if not enabled:
 		return false
-	if not singleton.enabled:
+	if categories.has(cat) and not categories[cat]:
 		return false
-	if singleton.categories.has(cat) and not singleton.categories[cat]:
-		return false
-	if singleton.diagnostic_mode:
+	if diagnostic_mode:
 		return true
-	var prev: int = int(singleton._sample_counters.get(sample_key, 0))
+	var prev: int = int(_sample_counters.get(sample_key, 0))
 	var next: int = prev + 1
-	singleton._sample_counters[sample_key] = next
+	_sample_counters[sample_key] = next
 	return (next % every_n) == 0
 
-static func is_ghost_mode() -> bool:
-	var s := _get_singleton()
-	return s != null and s.ghost_mode
+func is_ghost_mode() -> bool:
+	return ghost_mode
 
-static func log(cat: String, msg: String) -> void:
+func log(cat: String, msg: String) -> void:
 	if not is_enabled(cat):
 		return
 	print("[", cat.to_upper(), "] ", msg)

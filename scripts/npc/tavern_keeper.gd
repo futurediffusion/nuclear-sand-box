@@ -342,8 +342,8 @@ func _connect_keeper_menu_signals() -> void:
 		_keeper_menu_ui.shop_closed.connect(_on_shop_closed)
 
 
-func _on_shop_opened(owner: Node) -> void:
-	if owner != self:
+func _on_shop_opened(shop_owner: Node) -> void:
+	if shop_owner != self:
 		return
 	if _movement_locked_by_shop:
 		return
@@ -356,8 +356,8 @@ func _on_shop_opened(owner: Node) -> void:
 	_state = State.AT_COUNTER
 
 
-func _on_shop_closed(owner: Node) -> void:
-	if owner != self:
+func _on_shop_closed(shop_owner: Node) -> void:
+	if shop_owner != self:
 		return
 	if not _movement_locked_by_shop:
 		return
@@ -610,7 +610,7 @@ func setup(tilemap: TileMap, inner_min: Vector2i, inner_max: Vector2i, the_count
 func get_save_state() -> Dictionary:
 	return {"spawned": true}
 
-func apply_save_state(_state: Dictionary) -> void:
+func apply_save_state(_saved: Dictionary) -> void:
 	# Future: status/inventory/faction hooks (alive/ko/dead, etc.)
 	pass
 

@@ -337,7 +337,7 @@ func _try_loot_target(session: Dictionary, faction_id: String) -> void:
 		var cap_carry  := carry
 		var cap_drop   := drop_node as Node2D
 		var cap_looter := looter
-		var cap_faction := faction_id
+		var _cap_faction := faction_id
 		get_tree().create_timer(delay).timeout.connect(func() -> void:
 			if not is_instance_valid(cap_carry) or not is_instance_valid(cap_drop):
 				return
@@ -406,7 +406,7 @@ func _find_faction_container_pos(faction_id: String, from_pos: Vector2) -> Vecto
 			best_pos = chest.global_position
 	return best_pos
 
-func _get_context_modifier(session: Dictionary) -> float:
+func _get_context_modifier(_session: Dictionary) -> float:
 	# Future expansion point
 	return 0.0
 

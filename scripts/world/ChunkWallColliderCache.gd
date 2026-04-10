@@ -61,8 +61,8 @@ func ensure_for_chunk(chunk_pos: Vector2i) -> void:
 	var collider_exists: bool = _has_valid_chunk_wall_body(chunk_pos)
 
 	if collider_exists and not dirty and saved_hash != null:
-		var cached_body: StaticBody2D = chunk_wall_body[chunk_pos]
-		collision_builder.set_chunk_collider_enabled(cached_body, true)
+		var fast_body: StaticBody2D = chunk_wall_body[chunk_pos]
+		collision_builder.set_chunk_collider_enabled(fast_body, true)
 		_touch_chunk_wall_usage(chunk_pos)
 		if debug_collision_cache:
 			Debug.log("chunk", "REUSE walls collider chunk=%s hash=%d (fast-path)" % [chunk_key_str, int(saved_hash)])

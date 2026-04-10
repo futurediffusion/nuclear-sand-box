@@ -1,4 +1,4 @@
-[gd_scene load_steps=35 format=3 uid="uid://xn5wcwphhi48"]
+[gd_scene load_steps=34 format=3 uid="uid://xn5wcwphhi48"]
 
 [ext_resource type="PackedScene" uid="uid://38k36ggowmkb" path="res://scenes/player.tscn" id="1_o5qli"]
 [ext_resource type="Script" uid="uid://d020wm28jppoj" path="res://scripts/gameplay/main.gd" id="1_sugp2"]
@@ -12,7 +12,6 @@
 [ext_resource type="Shader" uid="uid://xrs3c6dklfhh" path="res://shaders/wall_occlusion.gdshader" id="8_0ld40"]
 [ext_resource type="Texture2D" uid="uid://buxyqe0n15fc7" path="res://art/sprites/heart.png" id="8_85g3d"]
 [ext_resource type="Texture2D" uid="uid://bgcahwp1ti4nn" path="res://art/sprites/heart-empty.png" id="9_choun"]
-[ext_resource type="PackedScene" uid="uid://cpctsrqkuyufx" path="res://scenes/blood_droplet.tscn" id="9_dp3eg"]
 [ext_resource type="Texture2D" uid="uid://b3wu74258jwbc" path="res://art/sprites/stamina-over..png" id="10_eb6dy"]
 [ext_resource type="TileSet" uid="uid://bts015k5iokqt" path="res://scenes/TileMap_Ground.tres" id="10_pm3ni"]
 [ext_resource type="Texture2D" uid="uid://dml1n360g720t" path="res://art/sprites/stamina-under.png" id="10_trceg"]
@@ -82,59 +81,17 @@ bow_release_volume_db = 6.0
 
 [node name="World" type="Node2D" parent="."]
 script = ExtResource("2_jkv2x")
-width = null
-height = null
-chunk_size = null
 active_radius = 3
-chunk_check_interval = null
 copper_ore_scene = ExtResource("23_copper")
 stone_ore_scene = ExtResource("5_2wyq8")
 tree_scene = ExtResource("6_vxglm")
 grass_tuft_scene = ExtResource("7_2f3dj")
 bandit_camp_scene = ExtResource("24_camp")
 bandit_scene = ExtResource("25_bandit")
-camp_spawn_chance = null
 tavern_keeper_scene = ExtResource("26_keeper")
 sentinel_scene = ExtResource("31_sentinel")
-debug_chunk_perf_enabled = null
-debug_chunk_perf_window_size = null
-debug_chunk_perf_auto_print = null
-debug_chunk_perf_print_interval = null
-debug_chunk_perf_auto_calibrate_runtime = null
-debug_chunk_perf_ring0_alert_generate_ms = null
-debug_chunk_perf_ring0_alert_ground_connect_ms = null
-debug_chunk_perf_ring0_alert_wall_connect_ms = null
-debug_chunk_perf_ring0_alert_collider_ms = null
-debug_chunk_perf_ring0_alert_entities_ms = null
-max_cached_chunk_colliders = null
-debug_collision_cache = null
-autosave_interval = null
-debug_world_sim_telemetry_enabled = null
-player_wallwood_max_hp = null
-player_wall_drop_enabled = null
-player_wall_drop_item_id = null
-player_wall_drop_amount = null
-structural_wall_drop_enabled = null
-structural_wall_drop_item_id = null
-structural_wall_drop_amount = null
-player_wall_hit_shake_duration = null
-player_wall_hit_shake_px = null
-player_wall_hit_shake_speed = null
-player_wall_hit_flash_time = null
-structural_wall_hit_shake_duration = null
-structural_wall_hit_shake_px = null
-structural_wall_hit_shake_speed = null
-structural_wall_default_hp = null
 camp_members_per_camp = 15
-copper_grass_min = null
-copper_grass_max = null
-copper_dirt_min = null
-copper_dirt_max = null
-stone_grass_min = null
-stone_grass_max = null
-stone_dirt_min = null
 stone_dirt_max = 5
-tree_grass_min = null
 tree_grass_max = 20
 tree_dirt_min = 3
 tree_dirt_max = 5
@@ -142,30 +99,10 @@ grass_tuft_grass_min = 50
 grass_tuft_grass_max = 100
 grass_tuft_dirt_min = 20
 grass_tuft_dirt_max = 30
-cliff_border_width = null
 cliff_blob_count = 1
 cliff_radius_min = 1
 cliff_radius_max = 12
 cliff_warp_strength = 5.0
-cliff_clear_radius = null
-cliff_spawn_safe_radius = null
-cliff_collision_band = null
-drop_compaction_enabled = null
-drop_compaction_radius_px = null
-drop_compaction_max_nodes_inspected = null
-drop_compaction_max_merges_per_exec = null
-drop_compaction_hotspot_ttl_sec = null
-drop_compaction_hotspot_radius_px = null
-drop_compaction_min_cluster_size = null
-drop_pressure_high_item_drop_count = null
-drop_pressure_critical_item_drop_count = null
-drop_pressure_high_merge_radius_mult = null
-drop_pressure_high_nodes_mult = null
-drop_pressure_high_merges_mult = null
-drop_pressure_critical_merge_radius_mult = null
-drop_pressure_critical_nodes_mult = null
-drop_pressure_critical_merges_mult = null
-drop_pressure_high_orphan_ttl_sec = null
 
 [node name="GroundTileMap" type="TileMap" parent="World"]
 z_index = -1
@@ -204,9 +141,6 @@ layer_0/name = "Cliffs"
 position = Vector2(126.8, 77.2)
 attack_push_speed = 90.0
 attack_push_time = 0.05
-splat_scene = ExtResource("9_dp3eg")
-droplet_speed_min = 80.0
-droplet_speed_max = 140.0
 
 [node name="UI" type="CanvasLayer" parent="."]
 layer = 10

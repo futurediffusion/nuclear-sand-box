@@ -987,7 +987,7 @@ func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector
 	return {"kind": "wall", "pos": wall_pos}
 
 
-func _try_loot_nearby_container(beh: BanditWorldBehavior, enemy_node: Node,
+func _try_loot_nearby_container(beh: BanditWorldBehavior, _enemy_node: Node,
 		assault_anchor: Vector2, enemy_pos: Vector2, assault_context: Dictionary = {}) -> bool:
 	if beh.is_cargo_full():
 		return false

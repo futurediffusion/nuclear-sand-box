@@ -723,6 +723,7 @@ func _is_group_locally_dense(positions: Array[Vector2]) -> bool:
 	var count: int = positions.size()
 	if count < CROWD_DENSITY_MIN_MEMBERS:
 		return false
+	@warning_ignore("integer_division")
 	var max_pairs: int = (count * (count - 1)) / 2
 	if max_pairs <= 0:
 		return false
@@ -964,6 +965,11 @@ func _tick_behaviors() -> int:
 			"in_combat": bool(runtime_signals_ctx.get("is_in_direct_combat", false)),
 			"recently_engaged": bool(runtime_signals_ctx.get("was_recently_engaged", false)),
 			"simulation_profile": String(sim_profile),
+			"member_role": beh.role,
+			"group_id": beh.group_id,
+			"wall_query_allowed": beh.role == "bodyguard" \
+					and beh.group_id != "" \
+					and BanditGroupMemory.is_structure_assault_active(beh.group_id),
 		}), true)
 		if beh.group_id != "":
 			ctx["leader_pos"] = leader_pos_by_group.get(beh.group_id, beh.home_pos)
@@ -1578,38 +1584,38 @@ func _build_group_perception_payload(res_nodes_snapshot: Array) -> Dictionary:
 
 func _run_group_perception_pulse(group_id: String, members: Array, res_nodes_snapshot: Array) -> Dictionary:
 	var elapsed: float = float(_group_perception_elapsed.get(group_id, 0.0)) + BanditTuningScript.behavior_tick_interval()
-	var owner: Dictionary = _select_group_scan_owner(group_id, members)
-	if owner.is_empty():
+	var scan_owner: Dictionary = _select_group_scan_owner(group_id, members)
+	if scan_owner.is_empty():
 		_group_perception_elapsed[group_id] = elapsed
 		return {}
-	var owner_pos: Vector2 = owner.get("node_pos", Vector2.ZERO)
+	var owner_pos: Vector2 = scan_owner.get("node_pos", Vector2.ZERO)
 	var interval: float = _group_perception_interval_for(group_id, owner_pos)
 	if elapsed < interval:
 		_group_perception_elapsed[group_id] = elapsed
 		return {
-			"owner_id": String(owner.get("member_id", "")),
-			"owner_role": String(owner.get("owner_role", "")),
+			"owner_id": String(scan_owner.get("member_id", "")),
+			"owner_role": String(scan_owner.get("owner_role", "")),
 			"scanned": false,
 		}
 	_group_perception_elapsed[group_id] = 0.0
 	_group_scan_owner_cache[group_id] = {
-		"member_id": String(owner.get("member_id", "")),
-		"owner_role": String(owner.get("owner_role", "")),
+		"member_id": String(scan_owner.get("member_id", "")),
+		"owner_role": String(scan_owner.get("owner_role", "")),
 	}
 	var drops: Array[Dictionary] = []
 	var resources: Array[Dictionary] = []
 	_fill_drops_info_buffer(owner_pos, drops)
-	_fill_res_info_buffer(owner.get("behavior"), owner_pos, res_nodes_snapshot, resources)
+	_fill_res_info_buffer(scan_owner.get("behavior"), owner_pos, res_nodes_snapshot, resources)
 	var home_pos: Vector2 = Vector2(BanditGroupMemory.get_group(group_id).get("home_world_pos", owner_pos))
 	var prioritized_drops: Array = _prioritize_group_drops(owner_pos, drops)
 	var prioritized_resources: Array = _prioritize_group_resources(home_pos, resources)
-	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_id", String(owner.get("member_id", "")), BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_perception_pulse")
-	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_role", String(owner.get("owner_role", "")), BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_perception_pulse")
+	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_id", String(scan_owner.get("member_id", "")), BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_perception_pulse")
+	BanditGroupMemory.bb_set_status(group_id, "scan_responsible_role", String(scan_owner.get("owner_role", "")), BanditGroupMemory.BLACKBOARD_STATUS_TTL, "group_perception_pulse")
 	BanditGroupMemory.bb_write_prioritized_drops(group_id, prioritized_drops, 20.0, "group_perception_pulse")
 	BanditGroupMemory.bb_write_prioritized_resources(group_id, prioritized_resources, 45.0, "group_perception_pulse")
 	return {
-		"owner_id": String(owner.get("member_id", "")),
-		"owner_role": String(owner.get("owner_role", "")),
+		"owner_id": String(scan_owner.get("member_id", "")),
+		"owner_role": String(scan_owner.get("owner_role", "")),
 		"scanned": true,
 	}
 
@@ -2342,12 +2348,12 @@ func _fill_wall_samples_buffer(anchor_pos: Vector2, out: Array[Vector2]) -> void
 			var wall_pos: Vector2 = _find_wall_cb.call(center, STRUCTURE_MEMBER_QUERY_RADIUS) as Vector2
 			if not _is_valid_structure_target(wall_pos):
 				continue
-			var duplicate: bool = false
+			var is_duplicate: bool = false
 			for existing in out:
 				if existing.distance_squared_to(wall_pos) <= STRUCTURE_POOL_SAMPLE_MIN_SEPARATION_SQ:
-					duplicate = true
+					is_duplicate = true
 					break
-			if duplicate:
+			if is_duplicate:
 				continue
 			out.append(wall_pos)
 
@@ -2411,12 +2417,12 @@ func _append_scored_wall_samples(pool: Array[Vector2], wall_samples: Array[Vecto
 		var pos: Vector2 = (row as Dictionary).get("pos", INVALID_STRUCTURE_TARGET) as Vector2
 		if not _is_valid_structure_target(pos):
 			continue
-		var duplicate: bool = false
+		var is_duplicate: bool = false
 		for existing in pool:
 			if existing.distance_squared_to(pos) <= STRUCTURE_POOL_SAMPLE_MIN_SEPARATION_SQ:
-				duplicate = true
+				is_duplicate = true
 				break
-		if duplicate:
+		if is_duplicate:
 			continue
 		pool.append(pos)
 

@@ -50,7 +50,7 @@ func record(stage: String, chunk_pos: Vector2i, center_chunk: Vector2i, elapsed_
 	_data[ring] = ring_data
 	_check_alert(stage, ring, elapsed_ms, chunk_pos)
 
-func record_fallback(chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int, mode: String) -> void:
+func record_fallback(_chunk_pos: Vector2i, total_cells: int, missing_cells: int, invalid_source_cells: int, mode: String) -> void:
 	if total_cells <= 0:
 		return
 	fallback_events_accum += 1

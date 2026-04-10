@@ -1,8 +1,6 @@
 extends RefCounted
 class_name ChunkSnapshotSerializer
 
-const ChunkSnapshot := preload("res://scripts/core/ChunkSnapshot.gd")
-const StructureSnapshot := preload("res://scripts/core/StructureSnapshot.gd")
 
 const PLAYER_WALL_KIND: String = "player_wall"
 const PLAYER_WALL_HP_KEY: String = "hp"

@@ -115,7 +115,7 @@ func _apply_mode() -> void:
 	print("[UI-MODE] apply ui_open=", ui_open,
 		" mouse_mode=", Input.get_mouse_mode(),
 		" cursor=", _cursor,
-		" cursor_visible=", _cursor.visible if _cursor != null else "<missing>")
+		" cursor_visible=", str(_cursor.visible) if _cursor != null else "<missing>")
 
 
 func _resolve_cursor(force: bool = false) -> void:

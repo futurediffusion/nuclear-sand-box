@@ -342,6 +342,7 @@ func _compute_path(agent_id: String, start: Vector2, goal: Vector2, c: Dictionar
 
 	# Adaptive padding: more room when origin→goal is far
 	var dist_max: int = maxi(absi(gt.x - st.x), absi(gt.y - st.y))
+	@warning_ignore("integer_division")
 	var pad: int      = clampi(dist_max / 2, BASE_PAD, MAX_PAD)
 
 	# First A* attempt with adaptive window

@@ -61,13 +61,13 @@ var attack_to_kill:          bool = false   # la facción intenta matar, no solo
 # Constructor
 # ---------------------------------------------------------------------------
 
-static func from_level(level: int, points: float, heat: float, extortion_pressure: float = 0.0, raid_pressure: float = 0.0) -> FactionBehaviorProfile:
+static func from_level(level: int, points: float, heat: float, ext_pressure: float = 0.0, r_pressure: float = 0.0) -> FactionBehaviorProfile:
 	var p := FactionBehaviorProfile.new()
 	p.hostility_level  = level
 	p.hostility_points = points
 	p.heat_modifier       = clampf(heat, 0.0, 1.0)
-	p.extortion_pressure = clampf(extortion_pressure, 0.0, 1.0)
-	p.raid_pressure      = clampf(raid_pressure, 0.0, 1.0)
+	p.extortion_pressure = clampf(ext_pressure, 0.0, 1.0)
+	p.raid_pressure      = clampf(r_pressure, 0.0, 1.0)
 	p.social_momentum    = clampf(p.heat_modifier * 0.35 + p.extortion_pressure * 0.35 + p.raid_pressure * 0.30, 0.0, 1.0)
 
 	p.can_intimidate          = level >= 1

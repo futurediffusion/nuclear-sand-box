@@ -124,9 +124,9 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	else:
 		hp -= dmg
 
-	var hit_dir := Vector2.RIGHT.rotated(randf_range(0.0, TAU))
+	var _hit_dir := Vector2.RIGHT.rotated(randf_range(0.0, TAU))
 	if from_pos != Vector2.INF:
-		hit_dir = (global_position - from_pos).normalized()
+		_hit_dir = (global_position - from_pos).normalized()
 
 	_spawn_blood(blood_hit_amount)
 

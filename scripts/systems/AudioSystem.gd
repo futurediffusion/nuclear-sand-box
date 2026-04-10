@@ -42,7 +42,8 @@ func register_sound_panel(panel: Node) -> void:
 		_sound_panel_ref = null
 		return
 	_sound_panel_ref = weakref(panel)
-	Debug.log("audio", "[AudioSystem] SoundPanel registered: %s" % panel.get_path())
+	var panel_id: String = str(panel.get_path()) if panel.is_inside_tree() else str(panel.name)
+	Debug.log("audio", "[AudioSystem] SoundPanel registered: %s" % panel_id)
 
 
 func get_sound_panel() -> Node:

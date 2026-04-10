@@ -72,12 +72,12 @@ func _rebuild_from_canonical_inputs(workbench_anchors: Array, detected_bases: Ar
 		if bounds.size == Vector2i.ZERO:
 			continue
 		var center: Vector2 = base.get("center_world_pos", Vector2.ZERO) as Vector2
-		var exp: int = WALL_TERRITORY_EXPANSION
+		var expansion: int = WALL_TERRITORY_EXPANSION
 		var expanded: Rect2i = Rect2i(
-			bounds.position.x - exp,
-			bounds.position.y - exp,
-			bounds.size.x + exp * 2,
-			bounds.size.y + exp * 2,
+			bounds.position.x - expansion,
+			bounds.position.y - expansion,
+			bounds.size.x + expansion * 2,
+			bounds.size.y + expansion * 2,
 		)
 		var world_rect: Rect2 = Rect2(
 			float(expanded.position.x) * TILE_SIZE,

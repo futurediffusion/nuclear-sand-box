@@ -453,6 +453,7 @@ func _try_detect_base_at_door(door_tile: Vector2i) -> Dictionary:
 		return {}
 
 	var bounds := _compute_bounds(best_tiles)
+	@warning_ignore("integer_division")
 	var center_tile := Vector2i(
 		bounds.position.x + bounds.size.x / 2,
 		bounds.position.y + bounds.size.y / 2,
@@ -713,6 +714,7 @@ func _heap_push_expiry(entry: Dictionary) -> void:
 	_marker_expiry_heap.append(entry)
 	var idx: int = _marker_expiry_heap.size() - 1
 	while idx > 0:
+		@warning_ignore("integer_division")
 		var parent: int = int((idx - 1) / 2)
 		if float(_marker_expiry_heap[parent].get("expires_at", INF)) <= float(_marker_expiry_heap[idx].get("expires_at", INF)):
 			break
@@ -840,6 +842,7 @@ func _enqueue_base_scans_for_dirty_chunks() -> void:
 	var radius: float = float(cs) * 32.0 * BASE_SCAN_CHUNK_RADIUS_MULT
 	for key in _dirty_base_chunks.keys():
 		var chunk_pos: Vector2i = key as Vector2i
+		@warning_ignore("integer_division")
 		var center_tile := Vector2i(chunk_pos.x * cs + int(cs / 2), chunk_pos.y * cs + int(cs / 2))
 		_pending_base_scan_jobs.append({
 			"center": _tile_to_world(center_tile),

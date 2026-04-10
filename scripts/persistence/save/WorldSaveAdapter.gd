@@ -1,10 +1,6 @@
 extends RefCounted
 class_name WorldSaveAdapter
 
-const ChunkSnapshotSerializer := preload("res://scripts/persistence/save/ChunkSnapshotSerializer.gd")
-const ChunkSnapshot := preload("res://scripts/core/ChunkSnapshot.gd")
-const WorldSnapshot := preload("res://scripts/core/WorldSnapshot.gd")
-const WorldSnapshotVersioning := preload("res://scripts/persistence/save/WorldSnapshotVersioning.gd")
 
 const LEGACY_SNAPSHOT_STATE_KEY: String = "world_snapshot_state"
 const LEGACY_MIGRATION_ALLOW_KEY: String = "allow_legacy_migration_bridge"
@@ -42,7 +38,7 @@ static func load_canonical_chunk_state(chunk_pos: Vector2i) -> Dictionary:
 static func build_world_snapshot(canonical_state: Dictionary) -> WorldSnapshot:
 	var snapshot := WorldSnapshot.new()
 	snapshot.save_version = int(canonical_state.get("save_version", 1))
-	snapshot.seed = int(canonical_state.get("seed", 0))
+	snapshot.world_seed = int(canonical_state.get("seed", 0))
 	snapshot.player_pos = canonical_state.get("player_pos", Vector2.ZERO)
 
 	var player_inv_raw: Variant = canonical_state.get("player_inv", [])

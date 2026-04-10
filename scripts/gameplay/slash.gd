@@ -41,9 +41,9 @@ var _aim_world_pos_valid: bool = false
 
 
 
-func setup(team: StringName, owner: Node) -> void:
+func setup(team: StringName, slash_owner: Node) -> void:
 	owner_team = team
-	owner_node = owner
+	owner_node = slash_owner
 	owner_damage_entity = null
 	owner_hurtbox = null
 

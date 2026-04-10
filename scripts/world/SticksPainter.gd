@@ -102,6 +102,7 @@ func _generate_sticks(chunk_coords: Vector2i, occupied: Dictionary = {}) -> Arra
 			if absf(float(h % 100)) > _stick_density * 100.0:
 				continue
 
+			@warning_ignore("integer_division")
 			var variant: int = abs(h / 100) % stick_variant_count
 
 			# Offset dentro del tile: rango -8..+8 px
@@ -133,6 +134,7 @@ func _build_multimesh(chunk_coords: Vector2i, sticks: Array) -> void:
 	var tex_w: float = float(_stick_texture.get_width())
 	var tex_h: float = float(_stick_texture.get_height())
 	# Cada variante ocupa SPRITE_W × SPRITE_H px en el sheet
+	@warning_ignore("integer_division")
 	var sheet_cols: int = int(tex_w) / SPRITE_W
 
 	# Quad: ancho = stick_size * 2, alto = stick_size  (ratio 2:1 igual al sprite)
@@ -144,6 +146,7 @@ func _build_multimesh(chunk_coords: Vector2i, sticks: Array) -> void:
 		var variant_sticks: Array = by_variant[variant] as Array
 
 		var col: int = variant % sheet_cols
+		@warning_ignore("integer_division")
 		var row: int = variant / sheet_cols
 
 		var uv_x0: float = float(col * SPRITE_W) / tex_w

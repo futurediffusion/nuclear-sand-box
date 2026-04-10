@@ -70,15 +70,8 @@ const PLAYER_SIT_ANIMATION: StringName = &"sit"
 @export var finisher_shake_multiplier: float = 2.0
 
 @export_group("FX")
-@export var droplet_scene: PackedScene
 @export var splat_scene: PackedScene
 @export var splat_lifetime: float = 60.0
-@export var droplet_count_hit: int = 6
-@export var droplet_count_death: int = 14
-@export var droplet_speed_min: float = 80.0
-@export var droplet_speed_max: float = 140.0
-@export var droplet_spread_deg: float = 70.0
-const MAX_DROPLETS_IN_SCENE := 40
 
 @export_group("Wall Toggle")
 @export var tilemap_path: NodePath
@@ -135,10 +128,14 @@ var _dash_t: float = 0.0
 var _dash_cooldown: float = 0.0
 
 signal stamina_changed(stamina: float, max_stamina: float)
+@warning_ignore("unused_signal")
 signal request_attack
 signal took_damage(amount: int)
+@warning_ignore("unused_signal")
 signal picked_item(item_id: String, amount: int)
+@warning_ignore("unused_signal")
 signal block_started
+@warning_ignore("unused_signal")
 signal block_ended
 
 func player_debug(message: String) -> void:
@@ -505,7 +502,7 @@ func _process_secondary_action(delta: float) -> void:
 
 	# Re-scan multiple times even if already carrying to allow stacking
 	if secondary_action_state == SecondaryActionState.CARRY_SCAN or secondary_action_state == SecondaryActionState.BLOCK or secondary_action_state == SecondaryActionState.CARRYING:
-		var found_carryable := _scan_for_carryable()
+		var _found_carryable := _scan_for_carryable()
 
 		if carry_component != null and carry_component.is_carrying():
 			secondary_action_state = SecondaryActionState.CARRYING
@@ -756,19 +753,19 @@ func _update_wall(delta: float) -> void:
 	else:
 		_legacy_wall_toggle_update()
 
-func _legacy_movement_physics(delta: float) -> void:
+func _legacy_movement_physics(_delta: float) -> void:
 	push_error("LEGACY DESACTIVADO: usa el componente correspondiente")
 	return
 
-func _legacy_attack_tick(delta: float) -> void:
+func _legacy_attack_tick(_delta: float) -> void:
 	push_error("LEGACY DESACTIVADO: usa el componente correspondiente")
 	return
 
-func _legacy_block_tick(delta: float) -> void:
+func _legacy_block_tick(_delta: float) -> void:
 	push_error("LEGACY DESACTIVADO: usa el componente correspondiente")
 	return
 
-func _legacy_block_input_and_drain(delta: float) -> void:
+func _legacy_block_input_and_drain(_delta: float) -> void:
 	push_error("LEGACY DESACTIVADO: usa el componente correspondiente")
 	return
 
@@ -890,9 +887,6 @@ func take_damage(dmg: int, from_pos: Vector2 = Vector2.INF) -> void:
 	if use_vfx_component and vfx_component != null:
 		vfx_component.play_hit_vfx(hit_dir, false)
 		vfx_component.play_hit_flash()
-	else:
-		_spawn_droplets(droplet_count_hit, hit_dir)
-
 func _on_health_damaged(_amount: int) -> void:
 	pass
 
@@ -1035,24 +1029,6 @@ func respawn(pos: Vector2) -> void:
 	global_position = pos
 	_reset_camera()
 	_update_hearts_ui()
-
-func _spawn_droplets(count: int, base_dir: Vector2) -> void:
-	if droplet_scene == null:
-		return
-	var existing := get_tree().get_nodes_in_group("blood_droplet").size()
-	var allowed := mini(count, MAX_DROPLETS_IN_SCENE - existing)
-	if allowed <= 0:
-		return
-	for i in range(allowed):
-		var d := droplet_scene.instantiate() as RigidBody2D
-		if d == null:
-			continue
-		d.add_to_group("blood_droplet")
-		get_tree().current_scene.add_child(d)
-		d.global_position = global_position
-		var ang := randf_range(-deg_to_rad(droplet_spread_deg), deg_to_rad(droplet_spread_deg))
-		var dir := base_dir.rotated(ang)
-		d.linear_velocity = dir * randf_range(droplet_speed_min, droplet_speed_max)
 
 func _legacy_wall_toggle_update() -> void:
 	push_error("LEGACY DESACTIVADO: usa el componente correspondiente")

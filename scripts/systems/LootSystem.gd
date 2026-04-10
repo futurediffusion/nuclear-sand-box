@@ -143,15 +143,27 @@ func spawn_drop(item: ItemData, item_id: String, amount: int, origin: Vector2, p
 			item_drop.pickup_sfx = resolved_item_data.pickup_sfx
 		_apply_pressure_ttl_if_supported(item_drop)
 
-	target_parent.add_child(drop)
+	# Tags don't require the node to be in the scene tree.
 	_tag_drop_aggregation_meta(drop, resolved_id, origin, aggregation_overrides, resolved_source_uid)
 	_tag_break_event_meta(drop, break_event_key, now_sec)
-	_apply_drop_spawn_motion(drop, origin, overrides)
 	_drops_spawned_compacted += 1
 
-	print("[LootSystem] spawned drop item_id=", resolved_id, " amount=", amount)
-	if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
-		GameEvents.emit_loot_spawned(resolved_id, amount, origin, resolved_source_uid)
+	# Defer add_child + motion to avoid "can't change state while flushing queries"
+	# when this is called from physics callbacks (e.g. Area2D.body_entered).
+	var _tp := target_parent
+	var _ov := overrides
+	var _o := origin
+	var _rid := resolved_id
+	var _amt := amount
+	var _suid := resolved_source_uid
+	(func() -> void:
+		if not is_instance_valid(drop):
+			return
+		_tp.add_child(drop)
+		_apply_drop_spawn_motion(drop, _o, _ov)
+		if GameEvents != null and GameEvents.has_method("emit_loot_spawned"):
+			GameEvents.emit_loot_spawned(_rid, _amt, _o, _suid)
+	).call_deferred()
 	return drop
 
 

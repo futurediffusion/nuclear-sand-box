@@ -52,10 +52,10 @@ func apply_events(events: Array[Dictionary]) -> void:
 	})
 
 func apply_input(input: Dictionary) -> void:
-	var events: Array[Dictionary] = input.get("events", []) as Array[Dictionary]
-	var changed_structures: Array[Dictionary] = input.get("changed_structures", []) as Array[Dictionary]
-	var structures: Array[Dictionary] = input.get("structures", []) as Array[Dictionary]
-	var base_tiles: Array[Vector2i] = input.get("base_tiles", []) as Array[Vector2i]
+	var events: Array[Dictionary] = []; events.assign(input.get("events", []))
+	var changed_structures: Array[Dictionary] = []; changed_structures.assign(input.get("changed_structures", []))
+	var structures: Array[Dictionary] = []; structures.assign(input.get("structures", []))
+	var base_tiles: Array[Vector2i] = []; base_tiles.assign(input.get("base_tiles", []))
 	if not events.is_empty():
 		_apply_events_internal(events)
 		return

@@ -1,7 +1,6 @@
 extends RefCounted
 class_name ChunkSnapshot
 
-const StructureSnapshot := preload("res://scripts/core/StructureSnapshot.gd")
 
 ## Canonical chunk-scoped save payload.
 ##

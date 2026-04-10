@@ -7,8 +7,7 @@ extends Node
 	"res://scenes/arrow.tscn",
 	"res://scenes/slash.tscn",
 	"res://scenes/items/ItemDrop.tscn",
-	"res://scenes/blood_burst.tscn",
-	"res://scenes/blood_droplet.tscn"
+	"res://scenes/blood_burst.tscn"
 ]
 @export var warmup_resource_paths: PackedStringArray = [
 	"res://data/items/bow.tres",
