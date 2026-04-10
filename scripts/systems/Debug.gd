@@ -27,12 +27,12 @@ const BOOT_TRACE := true
 	"save": false,
 	"copper": false,
 	"loot": false,
-	# --- tuning-irrelevant: silenciados ---
 	"npc_data": false,
 	"npc_lite": false,
 	"bandit_ai": false,
 	"bandit_pipeline": false,
 	"bandit_lod": false,
+	"bandit_group": false,
 	"intel": false,
 	"camp_stash": false,
 	"sentinel": false,
@@ -47,10 +47,9 @@ const BOOT_TRACE := true
 	"crafting": false,
 	"chunk_perf": false,
 	"ground": false,
-	# --- telemetría de tuning ---
 	"perf_telemetry": false,
-	"faction_eradication": true,
-	"placement_react": true,
+	"faction_eradication": false,
+	"placement_react": false,
 }
 var _sample_counters: Dictionary = {}
 

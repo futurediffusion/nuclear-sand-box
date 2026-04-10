@@ -99,7 +99,6 @@ func ingest_work_event(event_name: String, payload: Dictionary = {}) -> void:
 		_:
 			pass
 	_dirty_groups[group_id] = true
-	Debug.log("bandit_group", "[BGB][event] group=%s event=%s member=%s" % [group_id, event_name, member_id])
 
 
 func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary) -> Dictionary:
@@ -121,7 +120,6 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 	var use_group_cache: bool = BanditTuning.rollout_opt_task_5_group_order_cache()
 	if use_group_cache and not force_recompute and now < float(_cached_orders_expires_at.get(group_id, 0.0)) and _cached_orders_by_group.has(group_id):
 		_cache_hit_count += 1
-		Debug.log("bandit_group", "[BGB][cache_hit] group=%s signature=%s" % [group_id, signature])
 		_maybe_log_polling_review(now)
 		return (_cached_orders_by_group[group_id] as Dictionary).duplicate(true)
 	if not use_group_cache:
@@ -130,13 +128,6 @@ func assign_group_orders(group_id: String, members: Array, group_ctx: Dictionary
 		reason = "ttl_expired"
 	_group_recompute_total += 1
 	_group_recompute_reason_breakdown[reason] = int(_group_recompute_reason_breakdown.get(reason, 0)) + 1
-	Debug.log("bandit_group", "[BGB][recompute] group=%s cache_invalidated_reason=%s sig_changed=%s ttl_ticks=%d/%d" % [
-		group_id,
-		reason,
-		str(_last_signature_by_group.get(group_id, "") != signature),
-		ticks_since_recompute,
-		GROUP_RECOMPUTE_SAFETY_TTL_TICKS,
-	])
 	var macro_state: String = _resolve_macro_state(group_ctx)
 	for item in members:
 		if not (item is Dictionary):
@@ -305,20 +296,8 @@ func get_cache_stats() -> Dictionary:
 	}
 
 
-func _maybe_log_polling_review(now: float) -> void:
-	if now - _last_polling_review_at < POLLING_REVIEW_INTERVAL_SECONDS:
-		return
-	_last_polling_review_at = now
-	var ratio: float = 0.0
-	if _cache_query_count > 0:
-		ratio = float(_cache_hit_count) / float(_cache_query_count)
-	Debug.log("bandit_group", "[BGB][polling_review] cache_hit=%d cache_query=%d group_recompute_total=%d group_cache_hit_ratio=%.2f breakdown=%s" % [
-		_cache_hit_count,
-		_cache_query_count,
-		_group_recompute_total,
-		ratio,
-		str(_group_recompute_reason_breakdown),
-	])
+func _maybe_log_polling_review(_now: float) -> void:
+	pass
 
 
 func _resolve_macro_state(group_ctx: Dictionary) -> String:
