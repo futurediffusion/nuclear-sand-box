@@ -84,6 +84,11 @@ var building_system: BuildingSystem
 var building_repository: BuildingRepository
 var building_wall_workflow: BuildingWallWorkflow
 
+# Runtime wall index: Vector2i → support_count (int 0-8).
+# Mantenido incrementalmente; nunca reconstruido en una query.
+# Permite O(W) lookup de IA en lugar de O(r²) barrido tile-por-tile.
+var _player_wall_tiles_runtime: Dictionary = {}
+
 func setup(ctx: Dictionary) -> void:
 	walls_tilemap = ctx.get("walls_tilemap")
 	cliffs_tilemap = ctx.get("cliffs_tilemap")
@@ -347,6 +352,7 @@ func place_player_wall_at_tile(tile_pos: Vector2i, hp_override: int = -1) -> boo
 		return false
 	var reconnect_scope := _collect_reconnect_neighborhood(tile_pos)
 	_reconcile_wall_ownership_in_scope(reconnect_scope)
+	_runtime_index_add(tile_pos)
 	return true
 
 func damage_player_wall_from_contact(hit_pos: Vector2, hit_normal: Vector2, amount: int = 1) -> bool:
@@ -661,6 +667,63 @@ func find_player_wall_samples_world_pos(world_pos: Vector2, radius: float, max_p
 	return result
 
 
+## Versión rápida de find_nearest_player_wall_world_pos para uso de IA.
+## Itera solo los tiles del runtime index — O(W) en vez de O(r²) de barrido de grid.
+func find_nearest_player_wall_world_pos_fast(world_pos: Vector2, radius: float) -> Vector2:
+	if _player_wall_tiles_runtime.is_empty():
+		return Vector2(-1.0, -1.0)
+	var best_pos := Vector2(-1.0, -1.0)
+	var best_dsq := INF
+	var rsq := radius * radius if radius > 0.0 else INF
+	for tile_pos: Vector2i in _player_wall_tiles_runtime:
+		var wall_pos := _tile_to_world(tile_pos)
+		var dsq := world_pos.distance_squared_to(wall_pos)
+		if dsq <= rsq and dsq < best_dsq:
+			best_dsq = dsq
+			best_pos = wall_pos
+	return best_pos
+
+
+## Versión rápida de find_player_wall_samples_world_pos para uso de IA.
+## Usa support counts del index; no recalcula vecinos por tile en cada llamada.
+func find_player_wall_samples_world_pos_fast(world_pos: Vector2, radius: float,
+		max_points: int = 12, min_separation: float = 48.0) -> Array[Vector2]:
+	var result: Array[Vector2] = []
+	if radius <= 0.0 or max_points <= 0 or _player_wall_tiles_runtime.is_empty():
+		return result
+	var rsq := radius * radius
+	var rows: Array[Dictionary] = []
+	for tile_pos: Vector2i in _player_wall_tiles_runtime:
+		var wall_pos := _tile_to_world(tile_pos)
+		var dsq := world_pos.distance_squared_to(wall_pos)
+		if dsq > rsq:
+			continue
+		rows.append({
+			"pos": wall_pos,
+			"dsq": dsq,
+			"support": int(_player_wall_tiles_runtime[tile_pos]),
+		})
+	if rows.is_empty():
+		return result
+	_sort_wall_sample_rows(rows)
+	var min_sep_sq := maxf(0.0, min_separation) * maxf(0.0, min_separation)
+	for row in rows:
+		if result.size() >= max_points:
+			break
+		var pos: Vector2 = (row as Dictionary).get("pos", Vector2(-1.0, -1.0)) as Vector2
+		if pos.x < 0.0 or pos.y < 0.0:
+			continue
+		var too_close := false
+		for existing in result:
+			if existing.distance_squared_to(pos) <= min_sep_sq:
+				too_close = true
+				break
+		if too_close:
+			continue
+		result.append(pos)
+	return result
+
+
 func damage_player_wall_at_tile(tile_pos: Vector2i, amount: int = 1) -> bool:
 	if amount <= 0:
 		amount = 1
@@ -699,6 +762,7 @@ func remove_player_wall_at_tile(tile_pos: Vector2i, drop_item: bool = true) -> b
 	return true
 
 func _finalize_player_wall_removal(tile_pos: Vector2i, drop_item: bool) -> void:
+	_runtime_index_remove(tile_pos)
 	walls_tilemap.erase_cell(walls_map_layer, tile_pos)
 	var reconnect_neighbors := _collect_existing_wall_neighbors(tile_pos)
 	_apply_wall_terrain_connect(reconnect_neighbors)
@@ -730,6 +794,7 @@ func apply_saved_walls_for_chunk(chunk_pos: Vector2i) -> void:
 		if not _is_valid_world_tile(tile_pos):
 			continue
 		player_tiles_dict[tile_pos] = true
+		_runtime_index_add(tile_pos)
 	var player_tiles: Array[Vector2i] = _dict_keys_to_vector2i_array(player_tiles_dict)
 	if player_tiles.is_empty():
 		return
@@ -1131,3 +1196,27 @@ func _tile_to_world(tile_pos: Vector2i) -> Vector2:
 	if coordinate_transform_port != null:
 		return coordinate_transform_port.tile_to_world(tile_pos)
 	return Vector2.ZERO
+
+
+func _runtime_index_add(tile_pos: Vector2i) -> void:
+	var support: int = 0
+	for oy in range(-1, 2):
+		for ox in range(-1, 2):
+			if ox == 0 and oy == 0:
+				continue
+			var nb := tile_pos + Vector2i(ox, oy)
+			if _player_wall_tiles_runtime.has(nb):
+				support += 1
+				_player_wall_tiles_runtime[nb] = int(_player_wall_tiles_runtime[nb]) + 1
+	_player_wall_tiles_runtime[tile_pos] = support
+
+
+func _runtime_index_remove(tile_pos: Vector2i) -> void:
+	_player_wall_tiles_runtime.erase(tile_pos)
+	for oy in range(-1, 2):
+		for ox in range(-1, 2):
+			if ox == 0 and oy == 0:
+				continue
+			var nb := tile_pos + Vector2i(ox, oy)
+			if _player_wall_tiles_runtime.has(nb):
+				_player_wall_tiles_runtime[nb] = maxi(0, int(_player_wall_tiles_runtime[nb]) - 1)

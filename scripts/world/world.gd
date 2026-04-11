@@ -920,8 +920,8 @@ func _ready() -> void:
 		_bandit_behavior_layer.setup_group_intel({
 			"get_interest_markers_near": Callable(self, "get_interest_markers_near"),
 			"get_detected_bases_near": Callable(self, "get_detected_bases_near"),
-			"find_nearest_player_wall_world_pos": Callable(self, "find_nearest_player_wall_world_pos"),
-			"find_player_wall_samples_world_pos": Callable(self, "find_player_wall_samples_world_pos"),
+			"find_nearest_player_wall_world_pos": Callable(_player_wall_system, "find_nearest_player_wall_world_pos_fast"),
+			"find_player_wall_samples_world_pos": Callable(_player_wall_system, "find_player_wall_samples_world_pos_fast"),
 			"find_nearest_player_workbench_world_pos": Callable(self, "find_nearest_player_workbench_world_pos"),
 			"find_nearest_player_storage_world_pos": Callable(self, "find_nearest_player_storage_world_pos"),
 			"find_nearest_player_placeable_world_pos": Callable(self, "find_nearest_player_placeable_world_pos"),
