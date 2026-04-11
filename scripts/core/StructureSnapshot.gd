@@ -23,8 +23,18 @@ static func from_dict(data: Dictionary) -> StructureSnapshot:
 	var snapshot := StructureSnapshot.new()
 	snapshot.structure_id = String(data.get("structure_id", ""))
 	snapshot.kind = String(data.get("kind", ""))
-	snapshot.chunk_pos = data.get("chunk_pos", Vector2i.ZERO)
-	snapshot.tile_pos = data.get("tile_pos", Vector2i.ZERO)
+	var chunk_pos_raw: Variant = data.get("chunk_pos", Vector2i.ZERO)
+	if chunk_pos_raw is Vector2i:
+		snapshot.chunk_pos = chunk_pos_raw
+	elif chunk_pos_raw is String:
+		var parsed: Variant = str_to_var(chunk_pos_raw)
+		snapshot.chunk_pos = parsed if parsed is Vector2i else Vector2i.ZERO
+	var tile_pos_raw: Variant = data.get("tile_pos", Vector2i.ZERO)
+	if tile_pos_raw is Vector2i:
+		snapshot.tile_pos = tile_pos_raw
+	elif tile_pos_raw is String:
+		var parsed2: Variant = str_to_var(tile_pos_raw)
+		snapshot.tile_pos = parsed2 if parsed2 is Vector2i else Vector2i.ZERO
 	snapshot.hp = int(data.get("hp", 0))
 	snapshot.max_hp = int(data.get("max_hp", snapshot.hp))
 	var metadata_raw: Variant = data.get("metadata", {})

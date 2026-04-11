@@ -75,8 +75,8 @@ const STRUCTURE_TARGET_VALIDATION_RADIUS: float = 72.0
 const STRUCTURE_WALL_TARGET_VALIDATION_RADIUS: float = 42.0
 const STRUCTURE_POOL_SAMPLE_MIN_SEPARATION_SQ: float = 64.0 * 64.0
 const STRUCTURE_WALL_SAMPLE_MAX_POINTS: int = 16
-const STRUCTURE_TARGET_POOL_CACHE_TTL: float = 0.45
-const STRUCTURE_TARGET_VALID_CACHE_TTL: float = 0.20
+const STRUCTURE_TARGET_POOL_CACHE_TTL: float = 2.0
+const STRUCTURE_TARGET_VALID_CACHE_TTL: float = 1.5
 const STRUCTURE_TARGET_CACHE_POS_QUANTUM: float = 24.0
 const STRUCTURE_DISPATCH_SYNC_BUDGET: int = 3
 const STRUCTURE_DISPATCH_FRAME_BUDGET: int = 4
@@ -84,6 +84,7 @@ const STRUCTURE_DISPATCH_MAX_PENDING_JOBS: int = 12
 const STRUCTURE_REDISPATCH_NEAR_TARGET_SQ: float = 76.0 * 76.0
 const STRUCTURE_MEMBER_REASSIGN_COOLDOWN_S: float = 2.5
 const STRUCTURE_REPATHS_PER_PULSE_BUDGET: int = 6
+const QUERY_BUDGET_PER_PULSE: int = 12
 const INVALID_STRUCTURE_TARGET: Vector2 = Vector2(-1.0, -1.0)
 
 # ---------------------------------------------------------------------------
@@ -168,7 +169,7 @@ const SIM_PROFILE_OBEDIENT: StringName = &"obedient"
 const SIM_PROFILE_DECORATIVE: StringName = &"decorative"
 const OBEDIENT_PLAYER_NEAR_DISTANCE_SQ: float = 460.0 * 460.0
 const DECORATIVE_PLAYER_FAR_DISTANCE_SQ: float = 980.0 * 980.0
-const LOD_MAX_FULL_PER_GROUP: int = 3
+const LOD_MAX_FULL_PER_GROUP: int = 2
 const LANE_DIRECTOR_PULSE: StringName = &"director_pulse"
 const LANE_BANDIT_WORK_LOOP: StringName = &"bandit_work_loop"
 const DIRECTOR_FALLBACK_INTERVAL_SEC: float = 0.12
@@ -253,6 +254,7 @@ var _cadence:        WorldCadenceCoordinator  = null
 
 var _behaviors: Dictionary = {}   # enemy_id (String) -> BanditWorldBehavior
 var _behavior_elapsed: Dictionary = {}
+var _query_budget_remaining: int = QUERY_BUDGET_PER_PULSE
 var _work_loop_fallback_timer: float = 0.0
 var _director_fallback_timer: float = 0.08
 
@@ -824,6 +826,7 @@ func _tick_behaviors() -> int:
 		"per_npc_max": drops_per_npc_per_tick_max,
 		"drops_pulse_id": _drop_metrics_pulse_seq,
 	}
+	_query_budget_remaining = QUERY_BUDGET_PER_PULSE
 	var res_nodes_snapshot: Array = _get_all_resource_nodes()
 	var group_perception_payload: Dictionary = _build_group_perception_payload(res_nodes_snapshot)
 	var leader_pos_by_group: Dictionary = {}
@@ -950,8 +953,13 @@ func _tick_behaviors() -> int:
 							_tick_scan_buffers.resources.append(r as Dictionary)
 					used_group_cache = true
 			if not used_group_cache:
-				_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
-				_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
+				if _query_budget_remaining > 0:
+					_fill_drops_info_buffer(node_pos, _tick_scan_buffers.drops)
+					_fill_res_info_buffer(beh, node_pos, res_nodes_snapshot, _tick_scan_buffers.resources)
+					_query_budget_remaining -= 1
+				else:
+					_tick_scan_buffers.drops.clear()
+					_tick_scan_buffers.resources.clear()
 		if sim_profile != SIM_PROFILE_FULL:
 			_tick_scan_buffers.drops.clear()
 			_tick_scan_buffers.resources.clear()

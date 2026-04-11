@@ -320,7 +320,9 @@ func tick(delta: float, ctx: Dictionary) -> void:
 	# ── 4c. Oportunistic wall assault (nivel 6+, no en raid) ─────────────
 	# Enemigos cercanos a la base del jugador comienzan a atacar muros de forma
 	# progresiva a partir de nivel 6. Sin raids — comportamiento individual.
-	if state == State.IDLE_AT_HOME or state == State.PATROL:
+	# Bloqueado si hay una orden canónica activa para evitar decisiones tácticas
+	# duplicadas entre BanditBehaviorLayer y BanditWorldBehavior.
+	if (state == State.IDLE_AT_HOME or state == State.PATROL) and not has_execution_order:
 		_try_opportunistic_wall_assault(ctx)
 		_try_property_sabotage(ctx)
 

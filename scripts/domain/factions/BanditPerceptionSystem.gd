@@ -13,10 +13,17 @@ var _log_worker_event_cb: Callable = Callable()
 var _work_coordinator: Node = null
 var _legacy_resource_sticky_fallback_uses: int = 0
 
-const _WALL_CACHE_TTL: float = 1.5
+const _WALL_CACHE_TTL: float = 2.5
+const _ASSAULT_TARGET_CACHE_TTL: float = 2.5
 
 var _group_wall_target_cache: Dictionary = {}
 var _group_wall_target_expires: Dictionary = {}
+var _group_workbench_target_cache: Dictionary = {}
+var _group_workbench_target_expires: Dictionary = {}
+var _group_storage_target_cache: Dictionary = {}
+var _group_storage_target_expires: Dictionary = {}
+var _group_placeable_target_cache: Dictionary = {}
+var _group_placeable_target_expires: Dictionary = {}
 var _wall_query_attempted: int = 0
 var _wall_query_skipped: int = 0
 var _wall_query_cache_hit: int = 0
@@ -332,12 +339,31 @@ func _build_assault_targets(node_pos: Vector2, wall_query_allowed: bool = false,
 			if group_id != "":
 				_group_wall_target_cache[group_id] = nearest_wall
 				_group_wall_target_expires[group_id] = now + _WALL_CACHE_TTL
-	if _find_workbench_cb.is_valid():
+	var cache_now: float = RunClock.now()
+	if group_id != "" and _group_workbench_target_cache.has(group_id) \
+			and cache_now < float(_group_workbench_target_expires.get(group_id, 0.0)):
+		nearest_workbench = _group_workbench_target_cache[group_id] as Vector2
+	elif _find_workbench_cb.is_valid():
 		nearest_workbench = _find_workbench_cb.call(node_pos, radius)
-	if _find_storage_cb.is_valid():
+		if group_id != "":
+			_group_workbench_target_cache[group_id] = nearest_workbench
+			_group_workbench_target_expires[group_id] = cache_now + _ASSAULT_TARGET_CACHE_TTL
+	if group_id != "" and _group_storage_target_cache.has(group_id) \
+			and cache_now < float(_group_storage_target_expires.get(group_id, 0.0)):
+		nearest_storage = _group_storage_target_cache[group_id] as Vector2
+	elif _find_storage_cb.is_valid():
 		nearest_storage = _find_storage_cb.call(node_pos, radius)
-	if _find_placeable_cb.is_valid():
+		if group_id != "":
+			_group_storage_target_cache[group_id] = nearest_storage
+			_group_storage_target_expires[group_id] = cache_now + _ASSAULT_TARGET_CACHE_TTL
+	if group_id != "" and _group_placeable_target_cache.has(group_id) \
+			and cache_now < float(_group_placeable_target_expires.get(group_id, 0.0)):
+		nearest_placeable = _group_placeable_target_cache[group_id] as Vector2
+	elif _find_placeable_cb.is_valid():
 		nearest_placeable = _find_placeable_cb.call(node_pos, radius, {})
+		if group_id != "":
+			_group_placeable_target_cache[group_id] = nearest_placeable
+			_group_placeable_target_expires[group_id] = cache_now + _ASSAULT_TARGET_CACHE_TTL
 	return {
 		"nearest_wall": nearest_wall,
 		"nearest_workbench": nearest_workbench,
@@ -347,5 +373,15 @@ func _build_assault_targets(node_pos: Vector2, wall_query_allowed: bool = false,
 
 
 func invalidate_group_wall_cache(group_id: String) -> void:
+	invalidate_group_assault_cache(group_id)
+
+
+func invalidate_group_assault_cache(group_id: String) -> void:
 	_group_wall_target_cache.erase(group_id)
 	_group_wall_target_expires.erase(group_id)
+	_group_workbench_target_cache.erase(group_id)
+	_group_workbench_target_expires.erase(group_id)
+	_group_storage_target_cache.erase(group_id)
+	_group_storage_target_expires.erase(group_id)
+	_group_placeable_target_cache.erase(group_id)
+	_group_placeable_target_expires.erase(group_id)

@@ -181,11 +181,17 @@ func _tick_lite_mode(delta: float) -> void:
 	_lite_timer = 0.0
 	if player == null or not is_instance_valid(player):
 		return
+	# Guard: skip while viewport is in an invalid state (e.g. window minimized → size 0×0).
+	# This prevents GDScript work from running while the Vulkan swap chain is broken,
+	# reducing log spam without masking the underlying driver/OS issue.
+	var vp := get_viewport()
+	if vp == null or vp.get_visible_rect().size == Vector2.ZERO:
+		return
 	var player_pos := player.global_position
 	var enter_radius := lite_radius + lite_hysteresis
 	var exit_radius := maxf(lite_radius - lite_hysteresis, 0.0)
-	for enemy_id in active_enemies:
-		var enemy: Node = active_enemies[enemy_id]
+	for enemy_id in active_enemies.keys():
+		var enemy: Node = active_enemies.get(enemy_id) as Node
 		if enemy == null or not is_instance_valid(enemy) or enemy.is_queued_for_deletion():
 			continue
 		if not _method_caps.has_method_cached(enemy, &"enter_lite_mode") \
