@@ -947,11 +947,14 @@ func _resolve_structure_attack_target(assault_anchor: Vector2, enemy_pos: Vector
 				break
 
 	var wall_pos: Vector2 = INVALID_TARGET
-	if _world_node.has_method("find_nearest_player_wall_world_pos"):
+	var _wall_method: String = "find_nearest_player_wall_world_pos_fast" \
+		if _world_node.has_method("find_nearest_player_wall_world_pos_fast") \
+		else "find_nearest_player_wall_world_pos"
+	if _world_node.has_method(_wall_method):
 		for center in search_centers:
 			if not _is_valid_target(center):
 				continue
-			wall_pos = _world_node.call("find_nearest_player_wall_world_pos", center, RAID_TARGET_SEARCH_RADIUS) as Vector2
+			wall_pos = _world_node.call(_wall_method, center, RAID_TARGET_SEARCH_RADIUS) as Vector2
 			if _is_valid_target(wall_pos):
 				break
 	if not _is_valid_target(wall_pos) and bool(assault_context.get("has_raid_context", false)) \
@@ -1447,7 +1450,12 @@ func _damage_player_wall_at(world_pos: Vector2, beh: BanditWorldBehavior = null)
 
 func _resolve_intent_wall_hit_pos(enemy_pos: Vector2, intent_pos: Vector2,
 		primary_anchor: Vector2, secondary_anchor: Vector2) -> Vector2:
-	if _world_node == null or not _world_node.has_method("find_nearest_player_wall_world_pos"):
+	if _world_node == null:
+		return INVALID_TARGET
+	var _rwm: String = "find_nearest_player_wall_world_pos_fast" \
+		if _world_node.has_method("find_nearest_player_wall_world_pos_fast") \
+		else "find_nearest_player_wall_world_pos"
+	if not _world_node.has_method(_rwm):
 		return INVALID_TARGET
 	var probes: Array[Vector2] = [intent_pos, enemy_pos]
 	if _is_valid_target(primary_anchor) and enemy_pos.distance_squared_to(primary_anchor) > 1.0:
@@ -1461,7 +1469,7 @@ func _resolve_intent_wall_hit_pos(enemy_pos: Vector2, intent_pos: Vector2,
 		if not _is_valid_target(probe):
 			continue
 		var wall_pos: Vector2 = _world_node.call(
-			"find_nearest_player_wall_world_pos",
+			_rwm,
 			probe,
 			RAID_LOCAL_WALL_PROBE_RADIUS
 		) as Vector2
@@ -1484,7 +1492,10 @@ func _try_local_wall_strike(beh: BanditWorldBehavior, enemy_node: Node, enemy_po
 		primary_anchor: Vector2, secondary_anchor: Vector2, now: float, member_id: String) -> bool:
 	if _world_node == null:
 		return false
-	if not _world_node.has_method("find_nearest_player_wall_world_pos"):
+	var _lwm: String = "find_nearest_player_wall_world_pos_fast" \
+		if _world_node.has_method("find_nearest_player_wall_world_pos_fast") \
+		else "find_nearest_player_wall_world_pos"
+	if not _world_node.has_method(_lwm):
 		return false
 
 	var probes: Array[Vector2] = [enemy_pos]
@@ -1497,7 +1508,7 @@ func _try_local_wall_strike(beh: BanditWorldBehavior, enemy_node: Node, enemy_po
 	var best_dsq: float = INF
 	for probe in probes:
 		var wall_pos: Vector2 = _world_node.call(
-			"find_nearest_player_wall_world_pos",
+			_lwm,
 			probe,
 			RAID_LOCAL_WALL_PROBE_RADIUS
 		) as Vector2

@@ -76,7 +76,9 @@
       "Bash(godot --path . --check-only --headless --script scripts/systems/FactionViabilitySystem.gd)",
       "Bash(godot --path . --check-only --headless --script scripts/world/world.gd)",
       "Bash(godot --path . --check-only --headless)",
-      "mcp__godot-mcp__get_output"
+      "mcp__godot-mcp__get_output",
+      "Bash(godot --path . --check-only --script scripts/world/PlayerWallSystem.gd)",
+      "Bash(godot --path . --check-only --script scripts/world/BanditWorkCoordinator.gd})"
     ]
   }
 }

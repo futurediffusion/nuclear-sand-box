@@ -1432,6 +1432,12 @@ func find_nearest_player_wall_world_pos(world_pos: Vector2, radius: float) -> Ve
 	return _player_wall_system.find_nearest_player_wall_world_pos(world_pos, radius)
 
 
+func find_nearest_player_wall_world_pos_fast(world_pos: Vector2, radius: float) -> Vector2:
+	if _player_wall_system == null:
+		return Vector2(-1.0, -1.0)
+	return _player_wall_system.find_nearest_player_wall_world_pos_fast(world_pos, radius)
+
+
 func find_nearest_player_wall_world_pos_global(world_pos: Vector2, max_radius: float = -1.0) -> Vector2:
 	if _player_wall_system == null:
 		return Vector2(-1.0, -1.0)

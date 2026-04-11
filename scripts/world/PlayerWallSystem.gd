@@ -1019,6 +1019,8 @@ func _apply_player_wall_tiles_strict(player_tiles: Array[Vector2i]) -> bool:
 	return true
 
 func _is_player_wall_tile(tile_pos: Vector2i) -> bool:
+	if _player_wall_tiles_runtime.has(tile_pos):
+		return true
 	return building_wall_workflow != null and building_wall_workflow.has_player_wall_at_tile(tile_pos)
 
 func _is_structural_wall_tile(tile_pos: Vector2i) -> bool:
@@ -1220,3 +1222,17 @@ func _runtime_index_remove(tile_pos: Vector2i) -> void:
 			var nb := tile_pos + Vector2i(ox, oy)
 			if _player_wall_tiles_runtime.has(nb):
 				_player_wall_tiles_runtime[nb] = maxi(0, int(_player_wall_tiles_runtime[nb]) - 1)
+
+
+## Rebuilds _player_wall_tiles_runtime from authoritative source.
+## Call this if the index may be out of sync (e.g. after hot-reload or debug reset).
+## Iterates building_wall_workflow.list_player_wall_structures() — O(W) always.
+func rebuild_runtime_wall_index() -> void:
+	_player_wall_tiles_runtime.clear()
+	if building_wall_workflow == null:
+		return
+	var all_walls: Array[Dictionary] = building_wall_workflow.list_player_wall_structures()
+	for row in all_walls:
+		var tp: Variant = row.get("tile_pos", Vector2i.ZERO)
+		var tile_pos: Vector2i = tp if tp is Vector2i else Vector2i.ZERO
+		_runtime_index_add(tile_pos)
