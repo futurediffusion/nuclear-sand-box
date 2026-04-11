@@ -21,7 +21,7 @@ func _ready() -> void:
 func open_ui(reason: String) -> void:
 	var key := _normalize_reason(reason)
 	_open_reasons[key] = int(_open_reasons.get(key, 0)) + 1
-	print("[UI-MODE] open_ui reason=", key, " count=", _open_reasons[key], " reasons=", _open_reasons)
+	Debug.log("ui_mode", "open_ui reason=%s count=%d reasons=%s" % [key, _open_reasons[key], str(_open_reasons)])
 	_resolve_cursor()
 	_apply_mode()
 
@@ -29,7 +29,7 @@ func open_ui(reason: String) -> void:
 func close_ui(reason: String) -> void:
 	var key := _normalize_reason(reason)
 	if not _open_reasons.has(key):
-		print("[UI-MODE] close_ui ignored reason=", key, " reasons=", _open_reasons)
+		Debug.log("ui_mode", "close_ui ignored reason=%s reasons=%s" % [key, str(_open_reasons)])
 		return
 
 	var count := int(_open_reasons[key]) - 1
@@ -38,7 +38,7 @@ func close_ui(reason: String) -> void:
 	else:
 		_open_reasons[key] = count
 
-	print("[UI-MODE] close_ui reason=", key, " remaining=", _open_reasons.get(key, 0), " reasons=", _open_reasons)
+	Debug.log("ui_mode", "close_ui reason=%s remaining=%d reasons=%s" % [key, _open_reasons.get(key, 0), str(_open_reasons)])
 	_resolve_cursor()
 	_apply_mode()
 
@@ -112,10 +112,9 @@ func _apply_mode() -> void:
 		if _cursor != null:
 			_cursor.visible = true
 
-	print("[UI-MODE] apply ui_open=", ui_open,
-		" mouse_mode=", Input.get_mouse_mode(),
-		" cursor=", _cursor,
-		" cursor_visible=", str(_cursor.visible) if _cursor != null else "<missing>")
+	Debug.log("ui_mode", "apply ui_open=%s mouse_mode=%d cursor=%s cursor_visible=%s" % [
+		str(ui_open), Input.get_mouse_mode(), str(_cursor),
+		str(_cursor.visible) if _cursor != null else "<missing>"])
 
 
 func _resolve_cursor(force: bool = false) -> void:

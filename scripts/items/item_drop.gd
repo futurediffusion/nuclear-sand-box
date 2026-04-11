@@ -95,9 +95,9 @@ func _resolve_item_data() -> void:
 		pickup_sfx = item_data.pickup_sfx
 
 	if item_data != null:
-		print("[ItemDrop] resolved item_data id=", item_data.id)
+		Debug.log("item_drop", "resolved item_data id=%s" % item_data.id)
 	else:
-		print("[ItemDrop] using legacy item_id=", item_id)
+		Debug.log("item_drop", "using legacy item_id=%s" % item_id)
 
 func _process(delta: float) -> void:
 	# Solo actualizar índice si el drop se está moviendo (throw, scatter, magnet).
@@ -195,7 +195,7 @@ func _on_body_exited(body: Node) -> void:
 		_player = null
 func _try_pickup() -> void:
 	if _player == null:
-		print("[ItemDrop] _try_pickup: NO player")
+		Debug.log("item_drop", "_try_pickup: NO player")
 		return
 	if _player.get("is_downed") or _player.get("dying"):
 		return
@@ -205,7 +205,7 @@ func _try_pickup() -> void:
 		if _player.has_method("try_carry_pickup"):
 			var carry_success: bool = _player.try_carry_pickup(self)
 			if carry_success:
-				print("[ItemDrop] _try_pickup: successfully picked up by carry system")
+				Debug.log("item_drop", "_try_pickup: successfully picked up by carry system")
 				var sfx := pickup_sfx if pickup_sfx != null else AudioSystem.default_pickup_sfx
 				AudioSystem.play_2d(sfx, global_position)
 				_magnet_on = false
@@ -213,29 +213,29 @@ func _try_pickup() -> void:
 				monitorable = false
 				return
 			else:
-				print("[ItemDrop] _try_pickup: carry pickup failed, falling back to inventory")
+				Debug.log("item_drop", "_try_pickup: carry pickup failed, falling back to inventory")
 
 	# --- LEGACY INVENTORY PATH ---
 	var inv := _player.get_node_or_null("InventoryComponent")
 	if inv == null:
-		print("[ItemDrop] _try_pickup: NO InventoryComponent en player=", _player.name, " children=", _player.get_children())
+		Debug.log("item_drop", "_try_pickup: NO InventoryComponent en player=%s children=%s" % [_player.name, str(_player.get_children())])
 		return
 	if not inv.has_method("add_item"):
-		print("[ItemDrop] _try_pickup: InventoryComponent sin add_item()")
+		Debug.log("item_drop", "_try_pickup: InventoryComponent sin add_item()")
 		return
 
 	var inserted: int = int(inv.add_item(item_id, amount))
-	print("[ItemDrop] add_item result inserted=", inserted, " item_id=", item_id, " amount=", amount)
+	Debug.log("item_drop", "add_item result inserted=%d item_id=%s amount=%d" % [inserted, item_id, amount])
 
 	if inserted <= 0:
-		print("[ItemDrop] inserted<=0 (inventario lleno o rechazado). No evento, no audio.")
+		Debug.log("item_drop", "inserted<=0 (inventario lleno o rechazado). No evento, no audio.")
 		return
 
 	var events := get_node_or_null("/root/GameEvents")
 	if events == null:
-		print("[ItemDrop] NO /root/GameEvents. No evento.")
+		Debug.log("item_drop", "NO /root/GameEvents. No evento.")
 	else:
-		print("[ItemDrop] Emitting item_picked item_id=", item_id, " inserted=", inserted)
+		Debug.log("item_drop", "Emitting item_picked item_id=%s inserted=%d" % [item_id, inserted])
 		events.emit_item_picked(item_id, inserted, _player)
 
 	# el audio de pickup ahora lo reproduce AudioSystem escuchando GameEvents.item_picked

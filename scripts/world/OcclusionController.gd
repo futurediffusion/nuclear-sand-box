@@ -59,11 +59,11 @@ func _find_materials() -> void:
 			found_mat.set_shader_parameter("fade_radius", fade_radius)
 			found_mat.set_shader_parameter("alpha_hidden", alpha_hidden)
 			found_mat.set_shader_parameter("is_behind", true)
-			print("[OcclusionController] OK (walls only): %s" % tm.get_path())
+			Debug.log("occlusion", "OK (walls only): %s" % tm.get_path())
 		else:
 			push_warning("[OcclusionController] '%s' no tiene ShaderMaterial en CanvasItem.material" % tm.get_path())
 
-	print("[OcclusionController] Materiales de pared encontrados: %d" % _materials.size())
+	Debug.log("occlusion", "Materiales de pared encontrados: %d" % _materials.size())
 
 func _collect_tilemaps_by_name(node: Node, out: Array[TileMap], names: Array, depth: int) -> void:
 	if depth <= 0 or node == null:

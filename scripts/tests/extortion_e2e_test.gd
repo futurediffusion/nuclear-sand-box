@@ -79,10 +79,10 @@ func _exit_tree() -> void:
 	get_tree().paused = false
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _director == null:
 		return
-	_director.process_extortion()
+	_director.process_extortion(delta)
 	# This manual scene advances movement from `_process()` with zero friction
 	# compensation for determinism and easy inspection. It is intentionally close
 	# to the runtime flow, but not a byte-for-byte simulation of `_physics_process()`.
@@ -247,7 +247,7 @@ func _move_player_near() -> void:
 func _delete_speaker() -> void:
 	if _director == null:
 		return
-	var gid := _director._extortion_choice_gid
+	var gid: String = _director._ui._choice_gid if _director._ui != null else ""
 	var active := _director._active_extortions as Dictionary
 	var speaker_id := ""
 	if gid != "" and active.has(gid):

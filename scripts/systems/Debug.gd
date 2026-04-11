@@ -50,6 +50,13 @@ const BOOT_TRACE := true
 	"perf_telemetry": false,
 	"faction_eradication": false,
 	"placement_react": false,
+	"item_db": false,
+	"ui_mode": false,
+	"occlusion": false,
+	"item_drop": false,
+	"commands": false,
+	"stone": false,
+	"bandit_intel": false,
 }
 var _sample_counters: Dictionary = {}
 

@@ -216,6 +216,7 @@ func new_game() -> void:
 	ExtortionQueue.reset()
 	RunClock.reset()
 	WorldTime.load_save_data({})
+	WorldTime.set_to_full_day()
 	FactionHostilityManager.reset()
 
 	# Generar semilla aleatoria real, ignorando debug_seed

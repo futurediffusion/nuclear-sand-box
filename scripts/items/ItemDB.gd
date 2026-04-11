@@ -15,11 +15,11 @@ func _ready() -> void:
 	_auto_register_from_folder("res://data/items")
 
 	if items.is_empty():
-		print("[ItemDB] ready with 0 items")
+		Debug.log("item_db", "ready with 0 items")
 	else:
 		for id in items.keys():
 			var data: ItemData = items[id]
-			print("[ItemDB] registered id=", id, " display=", data.display_name, " max_stack=", data.max_stack)
+			Debug.log("item_db", "registered id=%s display=%s max_stack=%d" % [id, data.display_name, data.max_stack])
 
 func register_item(data: ItemData) -> void:
 	if data == null:
